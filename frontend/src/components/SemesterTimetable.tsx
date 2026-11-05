@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, DoorOpen, Download, Search, TriangleAlert } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { useMemo, useState, type ReactNode } from "react";
@@ -12,12 +12,14 @@ import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimet
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
-import { buildCards, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
+import { buildCards, cardSubRows, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
 import { fetchActiveCrns, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
 import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
-import { fetchCourseCards } from "@/services/studentDatabase";
+import { programCode } from "@/services/programmes";
+import { fieldHeld } from "@/services/rosterStore";
+import { fetchAssignmentMajors, fetchAssignments, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
 import { fetchSessionChanges } from "@/services/sessionChanges";
 import { useRooms } from "@/services/rooms";
@@ -50,8 +52,8 @@ const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
 const widthStart = () => (typeof window !== "undefined" && window.innerWidth < 640 ? 3.5 : WIDTH.start);
 const HEIGHT = { min: 0, max: 1, step: 0.02, start: 1 };
 
-/** A section as the filters read it: the entry, and what its cohort, set and classes are. */
-type SectionRow = TimetableEntry & { cohort: string; subject: string; set: string; rooms: string[]; days: string[] };
+/** A section as the filters read it: the entry, and what its cohort, majors, set and classes are. */
+type SectionRow = TimetableEntry & { cohort: string; majors: string[]; subject: string; set: string; rooms: string[]; days: string[] };
 
 /** The subject is the code's first segment: MATH-222 and MATH-351 are one subject. */
 const subjectOf = (code: string) => (code.split("-", 1)[0] || code).toUpperCase();
@@ -68,6 +70,7 @@ const column = (id: string, displayName: string, type: GridColumn<SectionRow>["t
 /** Everything a section can be filtered on, the way a table's columns can. */
 const COLUMNS: GridColumn<SectionRow>[] = [
   column("cohort", "Cohort", "option", (row) => row.cohort),
+  column("majors", "Major", "multiOption", (row) => row.majors),
   column("subject", "Subject", "option", (row) => row.subject),
   column("code", "Course", "option", (row) => row.code),
   column("title", "Title", "text", (row) => row.title),
@@ -83,6 +86,25 @@ const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
   { id: "rooms", displayName: "Room", type: "multiOption", accessor: (row) => row.rooms },
   { id: "days", displayName: "Day", type: "multiOption", accessor: (row) => row.days },
 ];
+
+/**
+ * `scope id|group id -> who is placed there, and on which sub-row`, from each cohort's
+ * placements and their sub-rows, read in that order. Out here so it is the same function
+ * every render, which is what lets the queries keep its answer until theirs change.
+ */
+function placedByGroup(reads: { data?: Record<string, Record<string, string>> }[]) {
+  const byGroup = new Map<string, { studentId: string; subRow: string }[]>();
+  for (let index = 0; index < reads.length; index += 2) {
+    const subRowsOf = reads[index + 1]?.data ?? {};
+    for (const [studentId, byScope] of Object.entries(reads[index].data ?? {})) {
+      for (const [scopeId, groupId] of Object.entries(byScope)) {
+        const key = `${scopeId}|${groupId}`;
+        byGroup.set(key, [...(byGroup.get(key) ?? []), { studentId, subRow: subRowsOf[studentId]?.[scopeId] ?? "" }]);
+      }
+    }
+  }
+  return byGroup;
+}
 
 /**
  * A whole semester's week, as a page rather than a card.
@@ -225,21 +247,53 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
    * the box's own position already tells you.
    */
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
-  const { groupOf, cohortOf } = useMemo(() => {
+  /*
+   * And the majors of the students placed in it, by code — PHYS, MATH.
+   *
+   * Who is placed where is the server's; what each of them majors in is the registrar's
+   * word and lives in this browser alone, as the names do. A class of a sub-row counts the
+   * students on the sub-rows it teaches; one of a group with none counts everybody in the
+   * group. A section nobody is placed in has no major, and neither does a student this
+   * browser holds nothing for.
+   */
+  const cohortIds = (catalogues.data ?? []).map((catalogue) => catalogue.cohort.id);
+  const placed = useQueries({
+    queries: cohortIds.flatMap((cohortId) => [
+      { queryKey: ["assignments", cohortId], queryFn: () => fetchAssignments(cohortId), retry: false },
+      { queryKey: ["assignment-majors", cohortId], queryFn: () => fetchAssignmentMajors(cohortId), retry: false },
+    ]),
+    combine: placedByGroup,
+  });
+  const programmes = useQuery({
+    queryKey: ["field-held", "MAJOR_CODE_DESC"],
+    queryFn: () => fieldHeld("MAJOR_CODE_DESC"),
+    staleTime: 60_000,
+  });
+  const { groupOf, cohortOf, majorsOf } = useMemo(() => {
+    const majorOf = programmes.data ?? {};
     const groups = new Map<string, string>();
     const whose = new Map<string, string>();
+    const majors = new Map<string, Set<string>>();
     for (const card of buildCards(catalogues.data ?? [], () => "", [])) {
       for (const set of card.sets) {
         for (const row of set.rows.filter((entry) => teaches(entry)).flatMap((entry) => rowsPerPart(entry))) {
           const crn = row.section?.crn;
-          if (!crn || groups.has(crn)) continue;
+          if (!crn) continue;
+          // Every group a CRN is taught to adds its students' majors; the first names it.
+          const subRows = cardSubRows(row).map((major) => major.id);
+          const students = (placed.get(`${set.scope.id}|${row.group.id}`) ?? []).filter(
+            (student) => !subRows.length || !student.subRow || subRows.includes(student.subRow),
+          );
+          const codes = students.map((student) => programCode(majorOf[student.studentId] ?? "")).filter(Boolean);
+          majors.set(crn, new Set([...(majors.get(crn) ?? []), ...codes]));
+          if (groups.has(crn)) continue;
           groups.set(crn, `${set.scope.code} ${subRowLabel(row.group.label, row.major?.program ?? "", (row.group.majors ?? []).length)}`.trim());
           whose.set(crn, card.cohortName);
         }
       }
     }
-    return { groupOf: groups, cohortOf: whose };
-  }, [catalogues.data]);
+    return { groupOf: groups, cohortOf: whose, majorsOf: majors };
+  }, [catalogues.data, placed, programmes.data]);
 
   const all = useMemo<TimetableEntry[]>(() => {
     const crns = held.data?.crns ?? {};
@@ -285,13 +339,14 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
         return {
           ...entry,
           cohort: cohortOf.get(entry.crn) ?? "",
+          majors: [...(majorsOf.get(entry.crn) ?? [])].sort(),
           subject: subjectOf(entry.code),
           set: (entry.group ?? "").split(" ", 1)[0] ?? "",
           rooms: [...new Set(classes.map((meeting) => formatRoom(meeting.room)).filter(Boolean))],
           days: [...new Set(classes.map((meeting) => dayOf(meeting.meetsOn)))],
         };
       }),
-    [all, classesOf, cohortOf],
+    [all, classesOf, cohortOf, majorsOf],
   );
   const searched = useMemo(() => {
     const words = query.trim().toLowerCase();

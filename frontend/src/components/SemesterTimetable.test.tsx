@@ -4,6 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SemesterTimetable } from "@/components/SemesterTimetable";
 import * as lists from "@/services/portalLists";
+import * as database from "@/services/studentDatabase";
+import { rememberProgrammeCodes } from "@/services/programmes";
+import * as roster from "@/services/rosterStore";
 import * as notes from "@/services/sessionChanges";
 import * as termWeeks from "@/services/termWeeks";
 import * as timetables from "@/services/timetables";
@@ -55,6 +58,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  rememberProgrammeCodes([]);
 });
 
 describe("a semester's whole week", () => {
@@ -110,6 +114,56 @@ describe("a semester's whole week", () => {
     // Algebra's Wednesday in 4.124 is drawn; its Monday in 5.101 is not.
     expect(document.querySelector('[title*="4.124"]')).toBeTruthy();
     expect(document.querySelector('[title*="5.101"]')).toBeNull();
+  });
+
+  it("filters on a major, by the majors of the students placed in each class", async () => {
+    // L2 splits its lectures by programme; Foundation Year's group is one for everybody.
+    const course = (id: string, code: string) => ({ id, code, name: code, component: "CM", request: database.EMPTY_REQUEST });
+    const group = (id: string, crns: Record<string, string>, program?: string) => ({
+      id, label: id, capacity: 30, note: "", parentGroupId: "", assigned: 0,
+      crns: Object.fromEntries(Object.entries(crns).map(([courseId, crn]) => [courseId, { ...database.EMPTY_SECTION, crn }])),
+      majors: program ? [{ id: `${id}-major`, program, seats: 30, assigned: 0 }] : [],
+    });
+    const scope = (id: string, courses: ReturnType<typeof course>[], groups: ReturnType<typeof group>[]) => ({
+      id, code: "CM", name: "Lectures", note: "", termId: "term-1", kind: "shared" as const, parentScopeId: "", openToAll: false, courses, groups,
+    });
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+      {
+        cohort: { id: "l2", name: "L2-S1", term: "2026-27" },
+        scopes: [
+          scope("l2-cm", [course("alg", "MATH-351"), course("mfp", "PHYS-210")], [
+            group("Mathematics", { alg: "23436" }, "MATH - Mathematics"),
+            group("Physics", { mfp: "22610" }, "PHYS - Physics"),
+          ]),
+        ],
+      },
+      { cohort: { id: "fy", name: "FYS-S1", term: "2026-27" }, scopes: [scope("fy-cm", [course("gra", "MATH-257")], [group("1", { gra: "24092" })])] },
+    ]);
+    const placed: Record<string, Record<string, Record<string, string>>> = {
+      l2: { A001: { "l2-cm": "Mathematics" }, A002: { "l2-cm": "Physics" } },
+      // Open to both majors, and holding a physicist alone.
+      fy: { A003: { "fy-cm": "1" } },
+    };
+    const subRows: Record<string, Record<string, Record<string, string>>> = {
+      l2: { A001: { "l2-cm": "Mathematics-major" }, A002: { "l2-cm": "Physics-major" } },
+    };
+    vi.spyOn(database, "fetchAssignments").mockImplementation(async (cohortId) => placed[cohortId] ?? {});
+    vi.spyOn(database, "fetchAssignmentMajors").mockImplementation(async (cohortId) => subRows[cohortId] ?? {});
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({ A001: "MAT - Mathematics", A002: "PHYS - Physics", A003: "PHYS - Physics" });
+    // As Settings → Programme codes says it.
+    rememberProgrammeCodes([{ code: "MAT", sameAs: "MATH" }]);
+    show();
+    await screen.findByText("3 of 3");
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Filter|Add filter)$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Major" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Major value" }));
+    // By code: the registrar's description is a label, and MAT is filed under MATH.
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["MATH", "PHYS"]);
+    fireEvent.click(screen.getByRole("option", { name: "MATH" }));
+
+    // The mathematicians' lecture only: Foundation Year's is open to them, but none sits in it.
+    expect(await screen.findByText("1 of 3")).toBeTruthy();
   });
 
   it("searches the sections as a table does", async () => {
