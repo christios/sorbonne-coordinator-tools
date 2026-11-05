@@ -339,7 +339,8 @@ export function CourseCards({
           label="Cohort"
           value={chosen?.id ?? ""}
           onChange={setCohortId}
-          placeholder={semester ? `No cohort in ${semester.name}` : "No cohort yet"}
+          // Short: the semester it is about is named in the menu beside it.
+          placeholder="No cohort yet"
           options={semesterCohorts.map((cohort) => {
             const held = cards.filter((card) => card.cohortId === cohort.id && inSemester(card)).length;
             return { value: cohort.id, label: cohort.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
@@ -418,7 +419,13 @@ export function CourseCards({
 
       {listed.length === 0 ? (
         <p className="mt-3 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
-          {cards.length ? "No course matches the filters." : "No courses yet. Add one from the portal, or use the Group schema page to define a semester's sets and their courses."}
+          {semester && !semesterCohorts.length
+            ? `${semester.name} has no cohort yet. Create its cohorts on the Cohorts page, with its portal term${portalTerm ? ` (${portalTerm})` : ""}, then give them sets and courses on the Group schema.`
+            : semester && chosen && !cards.some((card) => card.cohortId === chosen.id && inSemester(card))
+              ? `${chosen.name} has no courses in ${semester.name} yet. Give it sets and courses on the Group schema.`
+              : cards.length
+                ? "No course matches the filters."
+                : "No courses yet. Add one from the portal, or use the Group schema page to define a semester's sets and their courses."}
         </p>
       ) : (
         /*
