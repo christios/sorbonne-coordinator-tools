@@ -15,12 +15,12 @@ import { WorkbookTools } from "@/components/WorkbookTools";
 import { usePageState } from "@/components/usePageState";
 import { afterPlacement } from "@/services/afterPlacement";
 import { buildCards, cardColumns, rowsPerPart, teaches, type Card } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns } from "@/services/portalLists";
+import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns, fetchTermLinks } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn, describeClashCoverage } from "@/services/publicationView";
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
-import { COHORT } from "@/services/remembered";
+import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -78,6 +78,8 @@ export function CourseCards({
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  // Which portal term each semester is, so a cohort with no sets yet is still found under its own.
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -134,6 +136,12 @@ export function CourseCards({
    * being worked on is one answer, not one per page and not one per visit.
    */
   const [cohortId, setCohortId] = useRemembered(COHORT);
+  /*
+   * And one semester at a time, chosen apart from the cohort: S1's and S2's cohorts in one
+   * menu read as one list of years. The same choice as the Group schema's, since the
+   * semester being set up is one answer for both pages.
+   */
+  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
   // Which course the detail is showing; empty until one is picked, and the first is shown.
   const [cardKey, setCardKey] = useState("");
   const visible = useMemo(() => {
@@ -156,12 +164,25 @@ export function CourseCards({
     // students are expected to be registered in.
     afterPlacement(client);
   };
-  // The one chosen, or the first with courses on it — landing on an empty year would look
-  // like the page had nothing at all.
+  /*
+   * The semester chosen, or the first with courses on it; then its cohorts — those with
+   * courses in it, and those whose portal terms include it, so a year just created for it
+   * is there before it has a set — and the one chosen among them, or the first with
+   * courses: landing on an empty year would look like the page had nothing at all.
+   */
+  const semesters = terms.data ?? [];
+  const semester =
+    semesters.find((term) => term.id === termId) ?? semesters.find((term) => cards.some((card) => card.termId === term.id)) ?? semesters[0] ?? null;
+  const inSemester = (card: Card) => !semester || card.termId === semester.id;
+  const portalTerm = semester ? (links.data?.[semester.id] ?? "") : "";
+  const semesterCohorts = cohorts.filter(
+    (cohort) =>
+      !semester || cards.some((card) => card.cohortId === cohort.id && inSemester(card)) || (portalTerm && cohort.terms.includes(portalTerm)),
+  );
   const chosen =
-    cohorts.find((cohort) => cohort.id === cohortId) ??
-    cohorts.find((cohort) => cards.some((card) => card.cohortId === cohort.id)) ??
-    cohorts[0] ??
+    semesterCohorts.find((cohort) => cohort.id === cohortId) ??
+    semesterCohorts.find((cohort) => cards.some((card) => card.cohortId === cohort.id && inSemester(card))) ??
+    semesterCohorts[0] ??
     null;
 
   if (catalogues.isLoading) return <ScreenLoading label="Loading the courses…" />;
@@ -169,8 +190,10 @@ export function CourseCards({
 
   // The clash panel belongs to one cohort in one semester; it shows when the list is one.
   // A course whose every set is open to every cohort is the department's, not a year's.
-  const acrossCohorts = visible.filter((card) => card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll));
-  const byCohort = visible.filter((card) => !acrossCohorts.includes(card) && (!chosen || card.cohortId === chosen.id));
+  const acrossCohorts = visible.filter((card) => inSemester(card) && card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll));
+  const byCohort = visible.filter(
+    (card) => inSemester(card) && !acrossCohorts.includes(card) && Boolean(chosen) && card.cohortId === chosen?.id,
+  );
   /*
    * One course at a time.
    *
@@ -299,18 +322,28 @@ export function CourseCards({
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
   const controls = (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="w-72">
+      <div className="w-60">
+        <SelectMenu
+          label="Semester"
+          value={semester?.id ?? ""}
+          onChange={setTermId}
+          placeholder="No semester yet"
+          options={semesters.map((term) => {
+            const held = cards.filter((card) => card.termId === term.id).length;
+            return { value: term.id, label: term.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
+          })}
+        />
+      </div>
+      <div className="w-56">
         <SelectMenu
           label="Cohort"
           value={chosen?.id ?? ""}
           onChange={setCohortId}
-          options={cohorts.map((cohort) => ({
-            value: cohort.id,
-            label: cohort.name,
-            year: cohort.term,
-            badge: String(cards.filter((card) => card.cohortId === cohort.id).length),
-            badgeTone: cards.some((card) => card.cohortId === cohort.id) ? ("accent" as const) : ("muted" as const),
-          }))}
+          placeholder={semester ? `No cohort in ${semester.name}` : "No cohort yet"}
+          options={semesterCohorts.map((cohort) => {
+            const held = cards.filter((card) => card.cohortId === cohort.id && inSemester(card)).length;
+            return { value: cohort.id, label: cohort.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
+          })}
         />
       </div>
       <button

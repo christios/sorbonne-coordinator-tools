@@ -9,8 +9,8 @@
  *
  * So the cohort is remembered once and shared by the pages that ask for one: choosing L2
  * anywhere means L2 everywhere, which is the truth of what is being worked on rather than
- * three unrelated opinions about it. The semester is the schema page's own, because that
- * is the only page that asks.
+ * three unrelated opinions about it. The semester is shared the same way by the two pages
+ * that ask for one, the Group schema and Groups & CRNs.
  *
  * This browser and nowhere else — a preference, not a fact about the department, and the
  * two coordinators do not have to agree on it. A browser that will not let us write is a
@@ -21,7 +21,7 @@ const PREFIX = "scen-remembered:";
 
 /** The cohort every cohort picker starts on. */
 export const COHORT = "cohort";
-/** The semester the Group schema page opens. */
+/** The semester the Group schema and Groups & CRNs open on. */
 export const SCHEMA_TERM = "schema-term";
 
 export function recall(key: string): string {
