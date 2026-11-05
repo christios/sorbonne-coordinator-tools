@@ -114,15 +114,15 @@ type TrayShow = "all" | "to-place" | "placed" | "no-teacher" | "no-crn";
 type TraySort = "groups" | "course" | "left" | "teacher" | "cohort";
 
 const TRAY_SHOW: { value: TrayShow; label: string }[] = [
-  { value: "all", label: "All classes" },
+  { value: "all", label: "All" },
   { value: "to-place", label: "Still to place" },
   { value: "placed", label: "Fully placed" },
-  { value: "no-teacher", label: "No teacher yet" },
-  { value: "no-crn", label: "No CRN yet" },
+  { value: "no-teacher", label: "No teacher" },
+  { value: "no-crn", label: "No CRN" },
 ];
 const TRAY_SORT: { value: TraySort; label: string }[] = [
   // Groups & CRNs' own order: cohort, set, group, course.
-  { value: "groups", label: "Default order" },
+  { value: "groups", label: "As on Groups & CRNs" },
   { value: "course", label: "Course" },
   { value: "left", label: "Most hours left" },
   { value: "teacher", label: "Teacher" },
@@ -629,16 +629,22 @@ export function SemesterPlan({
       .join(" ")
       .toLowerCase()
       .includes(trayWords);
-  const trayKept = (section: PlanSection) =>
-    trayShow === "to-place"
+  const keeps = (show: TrayShow, section: PlanSection) =>
+    show === "to-place"
       ? stillToPlace(section)
-      : trayShow === "placed"
+      : show === "placed"
         ? !stillToPlace(section)
-        : trayShow === "no-teacher"
+        : show === "no-teacher"
           ? !section.teacherName
-          : trayShow === "no-crn"
+          : show === "no-crn"
             ? !section.crn
             : true;
+  const trayKept = (section: PlanSection) => keeps(trayShow, section);
+  // How many each choice would show, beside it: the page's filters and the search still apply.
+  const found = placeable.filter(trayFound);
+  const trayCounts = Object.fromEntries(
+    TRAY_SHOW.map((option) => [option.value, found.filter((section) => keeps(option.value, section)).length]),
+  ) as Record<TrayShow, number>;
   const byCourse = (a: PlanSection, b: PlanSection) =>
     byNumber(a.courseCode, b.courseCode) || byNumber(a.groupLabel, b.groupLabel) || a.position - b.position;
   const trayOrder: Record<TraySort, (a: PlanSection, b: PlanSection) => number> = {
@@ -832,9 +838,35 @@ export function SemesterPlan({
                 className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
               />
             </label>
-            <div className="grid grid-cols-2 gap-2">
-              <SelectMenu label="Show" value={trayShow} onChange={(value) => setTrayShow(value as TrayShow)} options={TRAY_SHOW} />
-              <SelectMenu label="Sort by" value={traySort} onChange={(value) => setTraySort(value as TraySort)} options={TRAY_SORT} />
+            {/* Which of them, as chips that say how many each holds and wrap rather than cut a word. */}
+            <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
+              {TRAY_SHOW.map((option) => {
+                const on = trayShow === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setTrayShow(option.value)}
+                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                      on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                    }`}
+                  >
+                    {option.label}
+                    <span
+                      className={`rounded-full px-1.5 tabular-nums ${on ? "bg-white/20 text-white" : "bg-[#eef1f5] text-[#667085]"}`}
+                    >
+                      {trayCounts[option.value]}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-xs font-medium text-[#667085]">Sort by</span>
+              <div className="min-w-0 flex-1">
+                <SelectMenu label="Sort by" value={traySort} onChange={(value) => setTraySort(value as TraySort)} options={TRAY_SORT} />
+              </div>
             </div>
           </div>
           <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto">
