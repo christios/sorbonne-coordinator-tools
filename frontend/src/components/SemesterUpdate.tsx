@@ -107,6 +107,7 @@ export function SemesterUpdate({
       setPreview(null);
       setSelected(new Set());
       queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
+      queryClient.invalidateQueries({ queryKey: ["hub-terms"] });
     },
   });
 

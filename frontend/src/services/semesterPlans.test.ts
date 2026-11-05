@@ -43,6 +43,7 @@ function lesson(sectionId: string, fields: Partial<PlanClass> = {}): PlanClass {
 function plan(sections: PlanSection[], classes: PlanClass[]): Plan {
   return {
     termCode: "262720",
+    semesterId: "plan:262720",
     name: "S2",
     weekOne: "2027-01-11",
     weeks: 14,

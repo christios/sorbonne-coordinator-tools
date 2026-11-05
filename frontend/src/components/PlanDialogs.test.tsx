@@ -60,6 +60,7 @@ describe("placing a class", () => {
   it("brings the chosen class's teacher with it rather than leaving the field blank", async () => {
     const plan = {
       termCode: "262720",
+      semesterId: "plan:262720",
       name: "S2",
       weekOne: "2027-01-11",
       weeks: 14,

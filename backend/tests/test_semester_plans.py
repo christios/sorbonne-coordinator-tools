@@ -22,6 +22,8 @@ def plans() -> PlanStore:
     store = PlanStore(engine_for(TEST_DATABASE_URL))
     with store.engine.begin() as connection:
         connection.execute(text("DELETE FROM plan_terms"))
+        connection.execute(text("DELETE FROM term_links WHERE term_id LIKE 'plan:%'"))
+        connection.execute(text("DELETE FROM term_weeks WHERE term_id LIKE 'plan:%'"))
     return store
 
 
@@ -225,3 +227,24 @@ def test_taking_a_class_off_the_plan_takes_its_series_with_it(client, section):
     assert client.delete(f"{AT}/{TERM}/sections/{section['id']}").status_code == 204
     plan = client.get(f"{AT}/{TERM}").json()
     assert plan["sections"] == [] and plan["series"] == [] and plan["classes"] == []
+
+
+def test_a_plan_is_a_semester_of_the_app_linked_to_its_portal_term_with_its_weeks(client, plans, section):
+    plan = client.get(f"{AT}/{TERM}").json()
+    assert plan["semesterId"] == "plan:262720"
+    with plans.engine.connect() as connection:
+        link = connection.execute(
+            text("SELECT portal_term_code FROM term_links WHERE term_id = 'plan:262720'")
+        ).scalar()
+        weeks = connection.execute(
+            text("SELECT week_one, without FROM term_weeks WHERE term_id = 'plan:262720'")
+        ).one()
+    # Linked, so its cohorts' sets can be added and checked against the registrar…
+    assert link == TERM
+    # …and counted in the plan's weeks wherever the app says "Week 5".
+    assert weeks[0] == "2027-01-13"
+    assert weeks[1] == '["2027-02-15"]'
+
+    client.put(f"{AT}/{TERM}/settings", json={"name": "S2", "weekOne": "", "weeks": 14})
+    with plans.engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM term_weeks WHERE term_id = 'plan:262720'")).scalar() == 0

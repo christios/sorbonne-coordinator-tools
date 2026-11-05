@@ -13,7 +13,7 @@ import { SemesterUpdate } from "@/components/SemesterUpdate";
 import {
   TimetableTerm,
   deleteTimetableTerm,
-  fetchTimetableTerms,
+  fetchHubTerms,
   renameTimetableTerm,
   setTimetableTermPublished,
 } from "@/services/timetables";
@@ -35,7 +35,8 @@ export function SemesterList({
   onOpenWeek?: (termId: string) => void;
 }) {
   const queryClient = useQueryClient();
-  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
+  // The Hub's semesters only: what is done here — publish, update, delete — is done on the Hub.
+  const terms = useQuery({ queryKey: ["hub-terms"], queryFn: fetchHubTerms });
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
@@ -45,7 +46,10 @@ export function SemesterList({
   // An update starts as a dialog over this list and takes the screen once it has a diff.
   const [updateStage, setUpdateStage] = useState<"pick" | "review">("pick");
 
-  const refresh = () => queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: ["hub-terms"] });
+    return queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
+  };
   const publishMutation = useMutation({
     mutationFn: ({ term, published }: { term: TimetableTerm; published: boolean }) =>
       setTimetableTermPublished(term.id, published),

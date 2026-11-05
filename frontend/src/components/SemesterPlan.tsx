@@ -137,6 +137,10 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     void client.invalidateQueries({ queryKey: ["plan", chosen] });
     void client.invalidateQueries({ queryKey: ["plans"] });
   };
+  // A plan is a semester of the app: its name, its link and its weeks are read everywhere.
+  const semestersChanged = () => {
+    for (const key of ["timetable-terms", "term-links", "term-weeks"]) void client.invalidateQueries({ queryKey: [key] });
+  };
   const failed = (exc: Error) => {
     setError(exc.message);
     // A refusal for an old revision means the calendar is behind: show what is there now.
@@ -170,6 +174,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
       setSettingsOpen(false);
       setError("");
       refresh();
+      semestersChanged();
     },
     onError: (exc: Error) => setError(exc.message),
   });
@@ -179,6 +184,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
       setNewOpen(false);
       setError("");
       void client.invalidateQueries({ queryKey: ["plans"] });
+      semestersChanged();
       onPickTerm(fresh.termCode);
     },
     onError: (exc: Error) => setError(exc.message),

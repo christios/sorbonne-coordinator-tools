@@ -29,7 +29,7 @@ function renderList(props: Partial<Parameters<typeof SemesterList>[0]> = {}) {
 }
 
 beforeEach(() => {
-  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([TERM]);
+  vi.spyOn(timetables, "fetchHubTerms").mockResolvedValue([TERM]);
 });
 
 afterEach(() => vi.restoreAllMocks());

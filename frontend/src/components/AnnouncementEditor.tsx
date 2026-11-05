@@ -24,7 +24,7 @@ import {
   type AnnouncementLevel,
   PlatformAnnouncement,
   fetchAnnouncements,
-  fetchTimetableTerms,
+  fetchHubTerms,
   saveAnnouncements,
 } from "@/services/timetables";
 
@@ -157,7 +157,8 @@ function toRows(announcements: PlatformAnnouncement[]): Row[] {
  */
 export function AnnouncementEditor() {
   const queryClient = useQueryClient();
-  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
+  // Announcements are the Hub's, shown above its students' timetables: its semesters only.
+  const terms = useQuery({ queryKey: ["hub-terms"], queryFn: fetchHubTerms });
   const [termId, setTermId] = useState("");
   const semesters = useMemo(() => terms.data ?? [], [terms.data]);
 

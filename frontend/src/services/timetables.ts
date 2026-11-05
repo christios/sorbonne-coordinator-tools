@@ -1,3 +1,4 @@
+import { fetchPlans } from "@/services/semesterPlans";
 import type { Operation, TimetablePreview } from "@/services/timetableDiff";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -16,6 +17,11 @@ export type TimetableTerm = {
   updatedAt: string;
   unknownCrns?: string[];
   studentLists?: StudentListReport[];
+  /**
+   * The portal term a semester of the app's own is planned for ("262720"): a semester plan,
+   * not a Student Hub semester. Absent on the Hub's.
+   */
+  plannedFor?: string;
 };
 
 export type TimetableIntegrationStatus = {
@@ -47,9 +53,42 @@ export function fetchTimetableStatus(): Promise<TimetableIntegrationStatus> {
   return request<TimetableIntegrationStatus>("/api/v1/timetables/status");
 }
 
-export async function fetchTimetableTerms(): Promise<TimetableTerm[]> {
+/** The Student Hub's semesters alone: for the pages that work on the Hub itself — Semesters, Announcements. */
+export async function fetchHubTerms(): Promise<TimetableTerm[]> {
   const payload = await request<{ terms: TimetableTerm[] }>("/api/v1/timetables/terms");
   return payload.terms;
+}
+
+/**
+ * The semesters of the app: the Student Hub's, then every semester plan.
+ *
+ * The Hub is out of use (5 November 2026), and it could only ever make a semester from the
+ * registrar's export, which does not exist while a semester is being planned. So a plan is
+ * a semester too, under `plan:<term code>`: its cohorts' sets, the planning cards and the
+ * calendars find it wherever they pick a semester. A Hub that does not answer leaves the
+ * plans; only when neither answers is there nothing to show.
+ */
+export async function fetchTimetableTerms(): Promise<TimetableTerm[]> {
+  const [hub, plans] = await Promise.allSettled([fetchHubTerms(), fetchPlans()]);
+  if (hub.status === "rejected" && plans.status === "rejected") throw hub.reason;
+  const held = hub.status === "fulfilled" ? hub.value : [];
+  const planned = (plans.status === "fulfilled" ? plans.value : []).map(
+    (plan): TimetableTerm => ({
+      id: plan.semesterId,
+      name: plan.name || plan.termCode,
+      slug: plan.semesterId.replace(":", "-"),
+      timezone: "Asia/Dubai",
+      isPublished: false,
+      courseCount: plan.sections,
+      sessionCount: 0,
+      studentCount: 0,
+      timetableFilename: "",
+      enrolmentFilename: "",
+      updatedAt: "",
+      plannedFor: plan.termCode,
+    }),
+  );
+  return [...held, ...planned];
 }
 
 export type StudentListReport = {

@@ -45,6 +45,7 @@ export function SemesterPublish({ term, onBack }: { term: TimetableTerm; onBack:
       setPublished(result.studentCount);
       setPreview(null);
       queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
+      queryClient.invalidateQueries({ queryKey: ["hub-terms"] });
       queryClient.invalidateQueries({ queryKey: ["publication", term.id] });
     },
   });

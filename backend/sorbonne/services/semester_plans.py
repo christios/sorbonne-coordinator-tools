@@ -43,6 +43,43 @@ _SHORT_TIME = re.compile(r"^\d:[0-5]\d$")
 _TERM = re.compile(r"^\d{6}$")
 
 
+def semester_of(term_code: str) -> str:
+    """The id a plan goes by as a semester of the app: "plan:262720".
+
+    The Student Hub is out of use (5 November 2026), and a Hub semester could only be made
+    from the registrar's export anyway — which is what does not exist while a semester is
+    being planned. So a plan is a semester in its own right: its cohorts' sets, the planning
+    cards, the Semester Timetable all find it under this id, as they find a Hub semester
+    under its own. Prefixed so it can never be mistaken for one of those.
+    """
+    return f"plan:{term_code}"
+
+
+def _as_semester(connection: Connection, term: dict[str, Any], actor: str) -> None:
+    """The plan's link to its portal term and its teaching weeks, where the rest of the app reads a semester's.
+
+    Written beside the plan, not instead of it: `term_links` is what lets a cohort's sets be
+    added to the semester and checked against the registrar, and `term_weeks` is what every
+    calendar counts "Week 5" from. The plan's own settings stay the one place they are set.
+    """
+    semester = semester_of(term["termCode"])
+    connection.execute(
+        text("""INSERT INTO term_links (term_id, portal_term_code) VALUES (:t, :c)
+                ON CONFLICT (term_id) DO UPDATE SET portal_term_code = excluded.portal_term_code"""),
+        {"t": semester, "c": term["termCode"]},
+    )
+    if not term["weekOne"]:
+        connection.execute(text("DELETE FROM term_weeks WHERE term_id = :t"), {"t": semester})
+        return
+    connection.execute(
+        text("""INSERT INTO term_weeks (term_id, week_one, without, updated_at, updated_by)
+                VALUES (:t, :week_one, :without, :at, :by)
+                ON CONFLICT (term_id) DO UPDATE SET week_one = excluded.week_one, without = excluded.without,
+                    updated_at = excluded.updated_at, updated_by = excluded.updated_by"""),
+        {"t": semester, "week_one": term["weekOne"], "without": json.dumps(term["without"]), "at": _now(), "by": actor},
+    )
+
+
 class InvalidPlan(ValueError):
     """Something a plan cannot hold, said in words."""
 
@@ -236,6 +273,7 @@ class PlanStore:
             return [
                 {
                     "termCode": row["term_code"],
+                    "semesterId": semester_of(row["term_code"]),
                     "name": row["name"],
                     "weekOne": row["week_one"],
                     "weeks": row["weeks"],
@@ -260,6 +298,7 @@ class PlanStore:
                         VALUES (:term, :name, :at, :by)"""),
                 {"term": code, "name": _short(name, "name") or code, "at": _now(), "by": actor},
             )
+            _as_semester(connection, self._term(connection, code), actor)
         return self.plan(code)
 
     def _term(self, connection: Connection, term_code: str) -> dict[str, Any]:
@@ -270,6 +309,7 @@ class PlanStore:
             raise PlanNotFound(term_code)
         return {
             "termCode": row["term_code"],
+            "semesterId": semester_of(row["term_code"]),
             "name": row["name"],
             "weekOne": row["week_one"],
             "weeks": row["weeks"],
@@ -320,6 +360,7 @@ class PlanStore:
                     "by": actor,
                 },
             )
+            _as_semester(connection, self._term(connection, term_code), actor)
         return self.plan(term_code)
 
     def plan(self, term_code: str) -> dict[str, Any]:

@@ -15,6 +15,8 @@ const BASE = `${API_BASE_URL}/api/v1/plans`;
 
 export type PlanSummary = {
   termCode: string;
+  /** What the plan goes by as a semester of the app: "plan:262720". */
+  semesterId: string;
   name: string;
   weekOne: string;
   weeks: number;
@@ -86,6 +88,7 @@ export type PlanClass = Slot & {
 
 export type Plan = {
   termCode: string;
+  semesterId: string;
   name: string;
   weekOne: string;
   weeks: number;

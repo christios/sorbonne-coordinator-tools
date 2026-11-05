@@ -51,7 +51,7 @@ export function TermWeeksPanel({ canChange }: { canChange: boolean }) {
   return (
     <div>
       <ul aria-label="Semesters" className="divide-y divide-[#eef1f5] rounded-lg border border-[#d9dee7] bg-white">
-        {(terms.data ?? []).map((term) => {
+        {(terms.data ?? []).filter((term) => !term.plannedFor).map((term) => {
           const calendar = weeks.data?.[term.id];
           const day = calendar?.weekOne ?? "";
           const without = calendar?.without ?? [];
@@ -127,6 +127,12 @@ export function TermWeeksPanel({ canChange }: { canChange: boolean }) {
           );
         })}
       </ul>
+      {(terms.data ?? []).some((term) => term.plannedFor) ? (
+        <p className="mt-2 text-xs text-[#667085]">
+          Semesters planned in the app ({(terms.data ?? []).filter((term) => term.plannedFor).map((term) => term.name).join(", ")})
+          keep their Week 1 and breaks in the Semester plan&apos;s own settings.
+        </p>
+      ) : null}
       <p className="mt-3 text-xs text-[#98a2b3]">
         A week without classes is not counted: the week after it takes the next number, and the timetable says &ldquo;No
         classes&rdquo; for it.

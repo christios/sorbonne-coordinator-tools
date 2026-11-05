@@ -24,7 +24,7 @@ function messageBoxes(): HTMLInputElement[] {
 }
 
 beforeEach(() => {
-  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+  vi.spyOn(timetables, "fetchHubTerms").mockResolvedValue([
     {
       id: "term-1",
       name: "Physics & Maths — Semester 1",

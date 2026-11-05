@@ -38,6 +38,7 @@ export function SemesterImport({
       setImported(term);
       setTimetable(null);
       queryClient.invalidateQueries({ queryKey: ["timetable-terms"] });
+      queryClient.invalidateQueries({ queryKey: ["hub-terms"] });
     },
   });
 
