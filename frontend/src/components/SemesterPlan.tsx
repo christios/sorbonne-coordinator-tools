@@ -142,12 +142,19 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     // A refusal for an old revision means the calendar is behind: show what is there now.
     void client.invalidateQueries({ queryKey: ["plan", chosen] });
   };
-  const done = () => {
+  /*
+   * Closed only once the plan on screen has the change in it: cleared any sooner, a moved
+   * class went back to where it was for the moment the plan took to be read again.
+   */
+  const done = async () => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: ["plan", chosen] }),
+      client.invalidateQueries({ queryKey: ["plans"] }),
+    ]);
     setDialog(null);
     setPending(null);
     setConfirmDelete(null);
     setError("");
-    refresh();
   };
   /** The teacher is the CRN's, as on the portal: said once, it is every class of the section's. */
   const teach = async (section: PlanSection | undefined, teacherName: string) => {
@@ -384,16 +391,22 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
    * with, in words, for its hover.
    */
   const classOf = new Map<PlacedSession, PlanClass>();
+  // A class dragged and dropped, waiting on "this one, the following, or all?": drawn where it was dropped.
+  const asked = pending?.verb === "change" ? pending : null;
   const sessions: PlacedSession[] = shownClasses.map((entry) => {
     const section = sectionsById.get(entry.sectionId);
     const its = clashes.get(entry) ?? [];
+    const moving = asked && asked.entry.seriesId === entry.seriesId && asked.entry.week === entry.week ? asked.changes : null;
+    const day = parseIsoDate(entry.meetsOn);
+    if (moving?.weekday) day.setDate(day.getDate() + moving.weekday - entry.weekday);
     const session: PlacedSession = {
       crn: section ? keyOf(section) : entry.sectionId,
       termCode: data.termCode,
-      date: entry.meetsOn,
-      start: entry.startsAt,
-      end: entry.endsAt,
-      room: entry.room,
+      date: toIsoDate(day),
+      start: moving?.startsAt ?? entry.startsAt,
+      end: moving?.endsAt ?? entry.endsAt,
+      room: moving?.room ?? entry.room,
+      tentative: Boolean(moving),
       clashes: its.length > 0,
       clashSaid: its
         .map((clash) => `${CLASH_WORDS[clash.kind]} ${sectionLabel(sectionsById.get(clash.with.sectionId))} (${clash.with.startsAt}–${clash.with.endsAt})`)

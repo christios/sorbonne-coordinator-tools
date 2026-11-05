@@ -852,7 +852,9 @@ function Class({
         outline ? "border-2 border-dashed bg-white" : "text-white"
       } ${cancelled ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
         opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""
-      } ${onGrab ? "cursor-grab touch-none active:cursor-grabbing" : ""} ${dimmed ? "opacity-40" : ""}`}
+      } ${onGrab ? "cursor-grab touch-none active:cursor-grabbing" : ""} ${dimmed ? "opacity-40" : ""} ${
+        session.tentative ? "outline-2 outline-dashed outline-offset-1 outline-[#1f4e79]" : ""
+      }`}
       style={{
         left,
         top,

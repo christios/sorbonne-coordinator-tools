@@ -49,6 +49,12 @@ export type PlacedSession = Session & {
    * semester plan says which teacher, room or students the two have in common.
    */
   clashSaid?: string;
+  /**
+   * Drawn where a change would put it, while the change is being asked about — the semester
+   * plan's "this class, the following ones, or all of them?" — so a dropped class stays
+   * where it was dropped instead of jumping back until the question is answered.
+   */
+  tentative?: boolean;
 };
 
 /** What the calendar prints about a CRN, and how it paints it. */
