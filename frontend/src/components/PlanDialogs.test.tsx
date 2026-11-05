@@ -1,7 +1,8 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { ScopeDialog, WeekPicker } from "@/components/PlanDialogs";
+import { PlanClassDialog, ScopeDialog, WeekPicker } from "@/components/PlanDialogs";
+import type { Plan } from "@/services/semesterPlans";
 
 describe("the question a change to a repeating class asks", () => {
   const ask = (week: number, onChoose = vi.fn()) =>
@@ -52,5 +53,48 @@ describe("the weeks a class meets in", () => {
     expect(onChange).toHaveBeenLastCalledWith([1, 3, 5]);
     fireEvent.click(screen.getByRole("button", { name: "4" }));
     expect(onChange).toHaveBeenLastCalledWith([1, 2, 4]);
+  });
+});
+
+describe("placing a class", () => {
+  it("brings the chosen class's teacher with it rather than leaving the field blank", async () => {
+    const plan = {
+      termCode: "262720",
+      name: "S2",
+      weekOne: "2027-01-11",
+      weeks: 14,
+      without: [],
+      holidays: [],
+      updatedAt: "",
+      updatedBy: "",
+      series: [],
+      classes: [],
+      skipped: [],
+      sections: [
+        {
+          id: "s1", crn: "22229", parentCrn: "", courseCode: "MATH-002", title: "Elements of Calculus GA- CM", ue: "",
+          component: "CM", programmes: ["FYS"], groupLabel: "GA", teacherName: "Bilal Maaz", hours: 60, hoursSaid: "60CM",
+          comments: "", position: 0, updatedAt: "", updatedBy: "",
+        },
+      ],
+    } satisfies Plan;
+    const onSave = vi.fn();
+    render(
+      <PlanClassDialog
+        open
+        plan={plan}
+        rooms={[]}
+        initial={{ sectionId: "", weekday: 1, startsAt: "08:30", endsAt: "10:00", room: "", teacherName: "", weeks: [1, 2], note: "" }}
+        busy={false}
+        error=""
+        onSave={onSave}
+        onClose={() => {}}
+      />,
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Class" }));
+    fireEvent.click(await screen.findByText("MATH-002 · Elements of Calculus GA- CM"));
+    expect((screen.getByPlaceholderText("Bilal Maaz") as HTMLInputElement).value).toBe("Bilal Maaz");
+    fireEvent.click(screen.getByRole("button", { name: "Place it" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ sectionId: "s1", teacherName: "Bilal Maaz" }));
   });
 });

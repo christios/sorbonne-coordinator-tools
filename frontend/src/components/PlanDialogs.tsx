@@ -202,7 +202,11 @@ export function PlanClassDialog({
           <SelectMenu
             label="Class"
             value={draft.sectionId}
-            onChange={(sectionId) => set({ sectionId })}
+            // The teacher is the class's own: choosing another class brings its teacher with it,
+            // rather than carrying over whatever was typed for the last one.
+            onChange={(sectionId) =>
+              set({ sectionId, teacherName: plan.sections.find((entry) => entry.id === sectionId)?.teacherName ?? "" })
+            }
             options={sectionOptions}
             placeholder="Choose the class to place"
             searchable
@@ -241,7 +245,7 @@ export function PlanClassDialog({
               searchPlaceholder="Search rooms"
             />
           </Titled>
-          <Field label="Teacher" hint={section?.teacherName && !draft.teacherName ? `The class's teacher: ${section.teacherName}` : undefined}>
+          <Field label="Teacher" hint={section?.crn ? `Teaches every class of CRN ${section.crn}, as on the portal.` : "Teaches every class of this section."}>
             <input
               value={draft.teacherName}
               onChange={(event) => set({ teacherName: event.target.value })}

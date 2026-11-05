@@ -11,7 +11,9 @@ import { SemesterExport } from "@/components/SemesterExport";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
-import { useRemembered } from "@/components/useRemembered";
+import { Zoom } from "@/components/TimelineZoom";
+import { useKeptNumber } from "@/services/keptNumber";
+import { HEIGHT, WIDTH } from "@/services/timelineZoom";
 import { buildCards, cardSubRows, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
 import { fetchActiveCrns, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
@@ -27,30 +29,11 @@ import type { SemesterExportInput } from "@/services/semesterPdf";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 
 /*
- * The two zooms, as the range a slider runs over.
- *
- * Width is in SCREENS: at 1 the week is exactly as wide as the room it has, and every
- * notch above that is a wider week you scroll. Expressed in pixels per minute instead, the
- * bottom half of the slider did nothing on a wide monitor, because anything narrower than
- * the screen was drawn at screen width anyway.
- *
- * Height is a share of the way from the whole week on the screen (0) to every box saying
- * everything (1), so every notch makes the classes taller (see `WeekTimeline`). It was a
- * class's height in pixels, and on a narrow week nearly all of the slider did nothing; a
- * height kept from then is past the top, and opens there, as the boxes did.
- */
-const WIDTH = { min: 1, max: 6, step: 0.1, start: 1 };
-/*
- * At the lowest notch of either, that axis is squeezed rather than zoomed: the whole week on
- * the screen with nothing to scroll, the boxes cut down to what fits (see `WeekTimeline`).
- */
-/*
  * On a phone a week one screen wide is a column of slivers — "MATH-" and "SCEN" — so it
  * opens three and a half screens wide there, readable, and scrolls sideways under the
  * days, which stay put. Only where this browser has not chosen a width of its own.
  */
 const widthStart = () => (typeof window !== "undefined" && window.innerWidth < 640 ? 3.5 : WIDTH.start);
-const HEIGHT = { min: 0, max: 1, step: 0.02, start: 1 };
 
 /** A section as the filters read it: the entry, and what its cohort, majors, set and classes are. */
 type SectionRow = TimetableEntry & { cohort: string; majors: string[]; subject: string; set: string; rooms: string[]; days: string[] };
@@ -638,46 +621,3 @@ function Warning({ label, lines }: { label: string; lines: string[] }) {
     </Tooltip.Provider>
   );
 }
-
-/** One axis of the zoom, as a slider: drag for size. */
-function Zoom({
-  label,
-  value,
-  min,
-  max,
-  step,
-  onChange,
-}: {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  start?: number;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <label className="inline-flex items-center gap-2 rounded-md border border-[#d3d9e2] bg-white px-2 py-1.5">
-      <span className="text-xs font-semibold text-[#667085]">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        aria-label={`${label} of a class`}
-        onChange={(event) => onChange(Number(event.target.value))}
-        className="h-1 w-16 cursor-pointer accent-[#1f4e79]"
-      />
-    </label>
-  );
-}
-
-/** A number this browser keeps, back inside its range if the range has moved since. */
-function useKeptNumber(key: string, range: { min: number; max: number; start: number }): [number, (next: number) => void] {
-  const [held, setHeld] = useRemembered(key);
-  const value = Number(held);
-  const kept = held && Number.isFinite(value) ? Math.min(range.max, Math.max(range.min, value)) : range.start;
-  return [kept, (next) => setHeld(String(next))];
-}
-

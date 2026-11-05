@@ -129,6 +129,9 @@ function json(method: string, body: unknown): RequestInit {
 
 const at = (termCode: string) => `${BASE}/${encodeURIComponent(termCode)}`;
 
+/** What a class from the plan's list carries when it is dragged onto the week. */
+export const SECTION_DRAG = "application/x-plan-section";
+
 export async function fetchPlans(): Promise<PlanSummary[]> {
   return (await answer<{ plans: PlanSummary[] }>(await apiFetch(BASE))).plans;
 }
@@ -143,6 +146,41 @@ export async function fetchPlan(termCode: string): Promise<Plan> {
 
 export async function settlePlan(termCode: string, settings: PlanSettings): Promise<Plan> {
   return answer(await apiFetch(`${at(termCode)}/settings`, json("PUT", settings)));
+}
+
+/** A class to place, changed: its teacher, mostly, which is the CRN's and so every class's. */
+export async function updateSection(termCode: string, section: PlanSection): Promise<PlanSection> {
+  return answer(
+    await apiFetch(`${at(termCode)}/sections/${encodeURIComponent(section.id)}`, json("PATCH", {
+      crn: section.crn,
+      parentCrn: section.parentCrn,
+      courseCode: section.courseCode,
+      title: section.title,
+      ue: section.ue,
+      component: section.component,
+      programmes: section.programmes,
+      groupLabel: section.groupLabel,
+      teacherName: section.teacherName,
+      hours: section.hours,
+      hoursSaid: section.hoursSaid,
+      comments: section.comments,
+      position: section.position,
+    })),
+  );
+}
+
+/**
+ * What a class's box calls its group, after the course code: "TD G1", "CM GA" — or, for one
+ * of several parallel classes with no group of their own, its name ("French A0 F4"), since
+ * "SCEN-101 · Language" eleven times over tells the eleven apart not at all.
+ */
+export function groupWords(section: PlanSection, parallel: boolean): string {
+  if (section.groupLabel) {
+    return section.groupLabel.toUpperCase().startsWith(section.component.toUpperCase())
+      ? section.groupLabel
+      : `${section.component} ${section.groupLabel}`.trim();
+  }
+  return parallel ? section.title : section.component;
 }
 
 export async function placeClass(termCode: string, input: SeriesInput): Promise<PlanSeries> {
@@ -199,11 +237,15 @@ export function weeksSaid(weeks: number[]): string {
   return `${weeks.length === 1 ? "Week" : "Weeks"} ${runs.join(", ")}`;
 }
 
-/** What a class is called in a box: its course and group, "MATH-002 · GA CM". */
+/**
+ * What a class is called in a box: its course and group, "MATH-002 · GA CM" — or, for a
+ * class with no group of its own, its name, which says more than its type: "French A0 F4"
+ * rather than eleven boxes reading "SCEN-101 · Language".
+ */
 export function sectionLabel(section: PlanSection | undefined): string {
   if (!section) return "A class";
-  const bits = [section.groupLabel, section.component].filter(Boolean).join(" ");
-  return [section.courseCode || section.title, bits].filter(Boolean).join(" · ");
+  if (!section.groupLabel) return section.title || section.courseCode;
+  return [section.courseCode || section.title, `${section.groupLabel} ${section.component}`.trim()].filter(Boolean).join(" · ");
 }
 
 export const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];

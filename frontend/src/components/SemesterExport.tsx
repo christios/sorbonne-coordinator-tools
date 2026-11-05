@@ -10,6 +10,7 @@ import {
   frameOf,
   semesterPages,
   semesterUnits,
+  sourceWords,
   type ExportZoom,
   type PaperSize,
   type SemesterExportInput,
@@ -128,7 +129,7 @@ export function SemesterExport({
 
       <p className="mt-4 text-sm text-[#344054]" aria-live="polite">
         {pages.length === 0 ? (
-          "The portal has booked no classes for these sections, so there is nothing to export."
+          `${sourceWords(input).empty} There is nothing to export.`
         ) : (
           <>
             <strong className="font-semibold">{pages.length} pages</strong> for the whole semester, over{" "}

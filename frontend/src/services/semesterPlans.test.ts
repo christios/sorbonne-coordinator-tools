@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clashesOf, mayShareStudents, plannedHours, weeksSaid, type Plan, type PlanClass, type PlanSection } from "@/services/semesterPlans";
+import { clashesOf, groupWords, mayShareStudents, plannedHours, weeksSaid, type Plan, type PlanClass, type PlanSection } from "@/services/semesterPlans";
 
 function section(id: string, fields: Partial<PlanSection> = {}): PlanSection {
   return {
@@ -104,5 +104,18 @@ describe("hours placed", () => {
   it("adds up each class's length", () => {
     const placed = plannedHours(plan([section("a")], [lesson("a"), lesson("a", { week: 2, startsAt: "10:15", endsAt: "11:15" })]));
     expect(placed.get("a")).toBe(2.5);
+  });
+});
+
+describe("what a box calls a class's group", () => {
+  it("puts the type before a group, once", () => {
+    expect(groupWords(section("a", { component: "TD", groupLabel: "G1" }), false)).toBe("TD G1");
+    expect(groupWords(section("b", { component: "TD", groupLabel: "TD 2" }), false)).toBe("TD 2");
+  });
+
+  it("names one of several parallel classes with no group of its own", () => {
+    const french = section("f", { component: "Language", title: "French A0 F4" });
+    expect(groupWords(french, true)).toBe("French A0 F4");
+    expect(groupWords(section("cm", { component: "CM" }), false)).toBe("CM");
   });
 });

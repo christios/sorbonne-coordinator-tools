@@ -1,35 +1,52 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarPlus, ChevronLeft, ChevronRight, Plus, Settings2 } from "lucide-react";
+import { CalendarPlus, ChevronLeft, ChevronRight, FileDown, Plus, Settings2 } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { NewPlanDialog, PlanClassDialog, PlanSettingsDialog, ScopeDialog, type ClassDraft } from "@/components/PlanDialogs";
-import { PlanWeek, SECTION_DRAG, type PlanDay } from "@/components/PlanWeek";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
+import { SemesterExport } from "@/components/SemesterExport";
+import { Zoom } from "@/components/TimelineZoom";
 import { usePageState } from "@/components/usePageState";
+import { WeekTimeline, type GridSlot } from "@/components/WeekTimeline";
+import { useKeptNumber } from "@/services/keptNumber";
+import { HEIGHT, WIDTH } from "@/services/timelineZoom";
 import { useRooms } from "@/services/rooms";
 import {
+  SECTION_DRAG,
   WEEKDAY_NAMES,
   changeClass,
   clashesOf,
   createPlan,
   fetchPlan,
   fetchPlans,
+  groupWords,
   placeClass,
   plannedHours,
   removeClass,
   sectionLabel,
   settlePlan,
+  updateSection,
   weeksSaid,
+  type Clash,
   type PlanClass,
   type PlanSection,
   type PlanSeries,
   type Scope,
   type SeriesChanges,
-  type Slot,
 } from "@/services/semesterPlans";
-import { assignColors, formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
+import type { SemesterExportInput } from "@/services/semesterPdf";
+import {
+  assignColors,
+  formatDayAndMonth,
+  isoToday,
+  parseIsoDate,
+  toIsoDate,
+  weekStartOf,
+  type CalendarCourse,
+  type PlacedSession,
+} from "@/services/weekSchedule";
 
 type Lens = "programme" | "teacher" | "room" | "course" | "all";
 
@@ -52,14 +69,34 @@ function distinct(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))].sort(byNumber);
 }
 
+/** The grid's key for a class to place: its CRN, or its own id until it has one. */
+const keyOf = (section: PlanSection) => section.crn || section.id;
+
+/** 1 for Monday, as the plan counts weekdays. */
+const weekdayOf = (date: string) => ((parseIsoDate(date).getDay() + 6) % 7) + 1;
+
+const CLASH_WORDS: Record<Clash["kind"], string> = {
+  teacher: "same teacher as",
+  room: "same room as",
+  students: "may share students with",
+};
+
+/** The Semester Timetable's buttons, so the two pages' controls look alike. */
+const CONTROL =
+  "inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50";
+const STEP =
+  "inline-flex h-8 w-8 items-center justify-center rounded-md border border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc] disabled:opacity-40";
+
 /**
- * A semester planned on a calendar before the registrar books it.
+ * A semester planned before the registrar books it, drawn on the Semester Timetable's own
+ * grid: the days down the side, the hours across, the same boxes in the same colours, and
+ * the same two zooms. What it adds is the drawing — see `editing` on `WeekTimeline`.
  *
  * One week at a time, seen through one lens: a programme (and one of its groups), a
  * teacher, a room or a course. Beside it, the classes still to place, each with the hours
  * placed against the hours asked for — drag one onto the week to place it. Everything is
- * saved as it is done; there is no draft and no Save button, because several coordinators
- * plan the same semester and each needs to see the others' classes.
+ * saved as it is done; several coordinators plan the same semester and each needs to see
+ * the others' classes.
  */
 export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPickTerm: (termCode: string) => void }) {
   const client = useQueryClient();
@@ -72,20 +109,29 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     // Somebody else may be planning the same semester.
     refetchInterval: 30_000,
   });
-  const { rooms } = useRooms();
+  const { rooms, roomOf } = useRooms();
 
   const [lens, setLens] = usePageState<Lens>("plan:lens", "programme");
   const [focus, setFocus] = usePageState<string>("plan:focus", "");
   const [group, setGroup] = usePageState<string>("plan:group", "");
   const [week, setWeek] = usePageState<number>("plan:week", 1);
   const [onlyToPlace, setOnlyToPlace] = usePageState<boolean>("plan:only-to-place", false);
+  const [widthZoom, setWidthZoom] = useKeptNumber("semester-plan:width", WIDTH);
+  const [heightZoom, setHeightZoom] = useKeptNumber("semester-plan:height", HEIGHT);
 
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [dialog, setDialog] = useState<{ draft: ClassDraft; entry?: PlanClass; series?: PlanSeries } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ entry: PlanClass; series: PlanSeries } | null>(null);
   const [error, setError] = useState("");
+
+  const data = plan.data;
+  const sectionsById = useMemo(() => new Map((data?.sections ?? []).map((section) => [section.id, section])), [data?.sections]);
+  const seriesById = useMemo(() => new Map((data?.series ?? []).map((series) => [series.id, series])), [data?.series]);
+  const clashes = useMemo(() => (data ? clashesOf(data) : new Map<PlanClass, Clash[]>()), [data]);
+  const placed = useMemo(() => (data ? plannedHours(data) : new Map<string, number>()), [data]);
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["plan", chosen] });
@@ -95,6 +141,19 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     setError(exc.message);
     // A refusal for an old revision means the calendar is behind: show what is there now.
     void client.invalidateQueries({ queryKey: ["plan", chosen] });
+  };
+  const done = () => {
+    setDialog(null);
+    setPending(null);
+    setConfirmDelete(null);
+    setError("");
+    refresh();
+  };
+  /** The teacher is the CRN's, as on the portal: said once, it is every class of the section's. */
+  const teach = async (section: PlanSection | undefined, teacherName: string) => {
+    if (section && teacherName.trim() !== section.teacherName) {
+      await updateSection(chosen, { ...section, teacherName: teacherName.trim() });
+    }
   };
 
   const settle = useMutation({
@@ -118,23 +177,31 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     onError: (exc: Error) => setError(exc.message),
   });
   const place = useMutation({
-    mutationFn: (draft: ClassDraft) => placeClass(chosen, draft),
-    onSuccess: () => {
-      setDialog(null);
-      setError("");
-      refresh();
+    mutationFn: async (draft: ClassDraft) => {
+      await teach(sectionsById.get(draft.sectionId), draft.teacherName);
+      return placeClass(chosen, { ...draft, teacherName: "" });
     },
+    onSuccess: done,
     onError: (exc: Error) => setError(exc.message),
   });
   const change = useMutation({
-    mutationFn: ({ series, scope, week: at, changes }: { series: PlanSeries; scope: Scope; week?: number; changes: SeriesChanges }) =>
-      changeClass(chosen, series.id, { scope, week: at, revision: series.revision, changes }),
-    onSuccess: () => {
-      setDialog(null);
-      setPending(null);
-      setError("");
-      refresh();
+    mutationFn: async ({
+      series,
+      scope,
+      week: at,
+      changes,
+      teacher,
+    }: {
+      series: PlanSeries;
+      scope: Scope;
+      week?: number;
+      changes: SeriesChanges;
+      teacher?: string;
+    }) => {
+      if (teacher !== undefined) await teach(sectionsById.get(series.sectionId), teacher);
+      if (Object.keys(changes).length) await changeClass(chosen, series.id, { scope, week: at, revision: series.revision, changes });
     },
+    onSuccess: done,
     onError: (exc: Error) => {
       setPending(null);
       failed(exc);
@@ -143,13 +210,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
   const remove = useMutation({
     mutationFn: ({ series, scope, week: at }: { series: PlanSeries; scope: Scope; week?: number }) =>
       removeClass(chosen, series.id, { scope, week: at, revision: series.revision }),
-    onSuccess: () => {
-      setDialog(null);
-      setPending(null);
-      setConfirmDelete(null);
-      setError("");
-      refresh();
-    },
+    onSuccess: done,
     onError: (exc: Error) => {
       setPending(null);
       setConfirmDelete(null);
@@ -157,12 +218,34 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     },
   });
 
-  const data = plan.data;
-  const sections = useMemo(() => new Map((data?.sections ?? []).map((section) => [section.id, section])), [data?.sections]);
-  const seriesById = useMemo(() => new Map((data?.series ?? []).map((series) => [series.id, series])), [data?.series]);
-  const colors = useMemo(() => assignColors(distinct((data?.sections ?? []).map((section) => section.courseCode))), [data?.sections]);
-  const clashes = useMemo(() => (data ? clashesOf(data) : new Map()), [data]);
-  const placed = useMemo(() => (data ? plannedHours(data) : new Map<string, number>()), [data]);
+  /*
+   * What the grid prints and how it paints, as the Semester Timetable does: one colour per
+   * course, in the order the plan lists them, the course code in bold and the group after it.
+   */
+  const courses = useMemo(() => {
+    const all = data?.sections ?? [];
+    const colors = assignColors(all.map((section) => section.courseCode));
+    const unlabelled = new Map<string, number>();
+    for (const section of all) {
+      if (!section.groupLabel) unlabelled.set(section.courseCode, (unlabelled.get(section.courseCode) ?? 0) + 1);
+    }
+    return new Map<string, CalendarCourse>(
+      all.map((section) => [
+        keyOf(section),
+        {
+          crn: section.crn,
+          code: section.courseCode,
+          title: section.title,
+          label: section.courseCode || section.title,
+          group: groupWords(section, (unlabelled.get(section.courseCode) ?? 0) > 1),
+          staff: section.teacherName,
+          tone: "solid",
+          color: colors.get(section.courseCode) ?? "#1f4e79",
+          openable: true,
+        },
+      ]),
+    );
+  }, [data?.sections]);
 
   // What each lens can be pointed at, from what the plan holds.
   const choices = useMemo(() => {
@@ -197,7 +280,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
   const classShown = (entry: PlanClass): boolean => {
     if (lens === "teacher") return entry.teacherName === focused;
     if (lens === "room") return entry.room === focused;
-    return sectionShown(sections.get(entry.sectionId));
+    return sectionShown(sectionsById.get(entry.sectionId));
   };
 
   if (plans.isLoading || (chosen && plan.isLoading)) return <ScreenLoading label="Reading the plan…" />;
@@ -208,28 +291,15 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     badge: entry.termCode,
     badgeTone: "muted" as const,
   }));
-  const header = (
-    <div className="flex flex-wrap items-end gap-3">
-      <div className="w-72">
-        <SelectMenu label="Semester" value={chosen} onChange={onPickTerm} options={planOptions} placeholder="No plan yet" />
-      </div>
-      {data ? (
-        <button
-          type="button"
-          onClick={() => setSettingsOpen(true)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-        >
-          <Settings2 size={15} /> Semester settings
-        </button>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => setNewOpen(true)}
-        className="inline-flex items-center gap-1.5 rounded-md px-2 py-2 text-sm font-semibold text-[#1f4e79] hover:underline"
-      >
-        <CalendarPlus size={15} /> New plan
-      </button>
+  const semesterPicker = (
+    <div className="w-64">
+      <SelectMenu label="Semester" value={chosen} onChange={onPickTerm} options={planOptions} placeholder="No plan yet" />
     </div>
+  );
+  const newPlanButton = (
+    <button type="button" onClick={() => setNewOpen(true)} className={CONTROL}>
+      <CalendarPlus size={14} aria-hidden="true" /> New plan
+    </button>
   );
   const newPlan = (
     <NewPlanDialog
@@ -246,13 +316,16 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
 
   if (!data) {
     return (
-      <div className="grid gap-4">
-        {header}
+      <section className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {semesterPicker}
+          {newPlanButton}
+        </div>
         <p className="text-sm text-[#667085]">
           {plan.isError ? (plan.error as Error).message : "There is no semester plan yet. Start one with New plan."}
         </p>
         {newPlan}
-      </div>
+      </section>
     );
   }
 
@@ -269,11 +342,20 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
       }}
     />
   );
+  const settingsButton = (
+    <button type="button" onClick={() => setSettingsOpen(true)} className={CONTROL}>
+      <Settings2 size={14} aria-hidden="true" /> Semester settings
+    </button>
+  );
 
   if (!data.weekOne || !data.weeks) {
     return (
-      <div className="grid gap-4">
-        {header}
+      <section className="flex h-full min-h-0 flex-col gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {semesterPicker}
+          {settingsButton}
+          {newPlanButton}
+        </div>
         <div className="rounded-lg border border-[#f0c36d] bg-[#fdf6e3] px-4 py-3 text-sm text-[#7a5d00]">
           Say when {data.name || data.termCode} starts and how many teaching weeks it has, in{" "}
           <button type="button" onClick={() => setSettingsOpen(true)} className="font-semibold underline">
@@ -283,34 +365,58 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
         </div>
         {settings}
         {newPlan}
-      </div>
+      </section>
     );
   }
 
   const calendar = { weekOne: data.weekOne, without: data.without };
   const shownWeek = Math.min(Math.max(1, week), data.weeks);
   const monday = weekStartOf(shownWeek, calendar);
-  const holidays = new Map(data.holidays.map((holiday) => [holiday.date, holiday.label || "Holiday"]));
-  const weekClasses = data.classes.filter((entry) => entry.week === shownWeek && classShown(entry));
-  const usesSaturday = data.classes.some((entry) => entry.week === shownWeek && entry.weekday === 6);
-  const days: PlanDay[] = Array.from({ length: usesSaturday ? 6 : 5 }, (_, index) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + index);
-    const iso = toIsoDate(date);
-    return { weekday: index + 1, date: iso, holiday: holidays.get(iso) };
-  });
-  const starts = data.classes.map((entry) => minutesOf(entry.startsAt));
-  const ends = data.classes.map((entry) => minutesOf(entry.endsAt));
-  const fromHour = Math.min(8, ...starts.map((minutes) => Math.floor(minutes / 60)));
-  const toHour = Math.max(19, ...ends.map((minutes) => Math.ceil(minutes / 60)));
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+  const shownClasses = data.classes.filter(classShown);
   const lost = data.skipped.filter((entry) => entry.week === shownWeek && classShown(entry));
+  const holidays = data.holidays.filter((holiday) => holiday.date >= toIsoDate(monday) && holiday.date <= toIsoDate(sunday));
+
+  /*
+   * The classes as the grid draws them: the whole semester's, so the hours across the top
+   * hold still from week to week, as on the Semester Timetable. Each carries what it clashes
+   * with, in words, for its hover.
+   */
+  const classOf = new Map<PlacedSession, PlanClass>();
+  const sessions: PlacedSession[] = shownClasses.map((entry) => {
+    const section = sectionsById.get(entry.sectionId);
+    const its = clashes.get(entry) ?? [];
+    const session: PlacedSession = {
+      crn: section ? keyOf(section) : entry.sectionId,
+      termCode: data.termCode,
+      date: entry.meetsOn,
+      start: entry.startsAt,
+      end: entry.endsAt,
+      room: entry.room,
+      clashes: its.length > 0,
+      clashSaid: its
+        .map((clash) => `${CLASH_WORDS[clash.kind]} ${sectionLabel(sectionsById.get(clash.with.sectionId))} (${clash.with.startsAt}–${clash.with.endsAt})`)
+        .join("; "),
+    };
+    classOf.set(session, entry);
+    return session;
+  });
+  const entryOf = (session: PlacedSession) =>
+    classOf.get(session) ??
+    shownClasses.find((entry) => {
+      const section = sectionsById.get(entry.sectionId);
+      return entry.meetsOn === session.date && entry.startsAt === session.start && section && keyOf(section) === session.crn;
+    });
 
   const allWeeks = Array.from({ length: data.weeks }, (_, index) => index + 1);
-  const draftFor = (sectionId: string, slot: Pick<Slot, "weekday" | "startsAt" | "endsAt">): ClassDraft => ({
+  const draftFor = (sectionId: string, slot: GridSlot): ClassDraft => ({
     sectionId,
-    ...slot,
+    weekday: weekdayOf(slot.date),
+    startsAt: slot.start,
+    endsAt: slot.end,
     room: lens === "room" ? focused : "",
-    teacherName: "",
+    teacherName: sectionsById.get(sectionId)?.teacherName ?? "",
     weeks: allWeeks,
     note: "",
   });
@@ -327,20 +433,21 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
         startsAt: entry.startsAt,
         endsAt: entry.endsAt,
         room: entry.room,
-        // The series' own word, not the class's teacher filled in from the class to place.
-        teacherName: (series.moves.find((move) => move.week === entry.week) ?? series).teacherName,
+        teacherName: sectionsById.get(entry.sectionId)?.teacherName ?? "",
         weeks: series.weeks,
         note: series.note,
       },
     });
   };
   /** A change to one dated class: asked about when its series has more than one week. */
-  const changeOne = (entry: PlanClass, series: PlanSeries, changes: SeriesChanges) => {
-    if (series.weeks.length === 1) {
-      change.mutate({ series, scope: "all", changes });
-    } else {
-      setPending({ verb: "change", entry, series, changes });
+  const changeOne = (entry: PlanClass, series: PlanSeries, changes: SeriesChanges, teacher?: string) => {
+    if (series.weeks.length === 1 || !Object.keys(changes).length) {
+      change.mutate({ series, scope: "all", changes, teacher });
+      return;
     }
+    // The teacher is the section's whatever the answer, so it is said now; the rest waits on it.
+    if (teacher !== undefined) void teach(sectionsById.get(series.sectionId), teacher).then(refresh, failed);
+    setPending({ verb: "change", entry, series, changes });
   };
   const save = (draft: ClassDraft) => {
     if (!dialog?.entry || !dialog.series) {
@@ -349,10 +456,10 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     }
     const { entry, series } = dialog;
     const own: SeriesChanges = {};
-    for (const key of ["weekday", "startsAt", "endsAt", "room", "teacherName"] as const) {
-      const before = key === "teacherName" ? dialog.draft.teacherName : entry[key];
-      if (draft[key] !== before) Object.assign(own, { [key]: draft[key] });
+    for (const key of ["weekday", "startsAt", "endsAt", "room"] as const) {
+      if (draft[key] !== entry[key]) Object.assign(own, { [key]: draft[key] });
     }
+    const teacher = draft.teacherName !== dialog.draft.teacherName ? draft.teacherName : undefined;
     const weeksChanged = draft.weeks.join() !== series.weeks.join();
     const noteChanged = draft.note !== series.note;
     if (weeksChanged || noteChanged) {
@@ -360,9 +467,10 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
         series,
         scope: "all",
         changes: { ...own, ...(weeksChanged ? { weeks: draft.weeks } : {}), ...(noteChanged ? { note: draft.note } : {}) },
+        teacher,
       });
-    } else if (Object.keys(own).length) {
-      changeOne(entry, series, own);
+    } else if (Object.keys(own).length || teacher !== undefined) {
+      changeOne(entry, series, own, teacher);
     } else {
       setDialog(null);
     }
@@ -373,7 +481,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     else setConfirmDelete({ entry: dialog.entry, series: dialog.series });
   };
 
-  const toPlace = (data.sections ?? []).filter((section) => sectionShown(section) || lens === "room");
+  const toPlace = data.sections.filter((section) => sectionShown(section) || lens === "room");
   const trayShown = onlyToPlace
     ? toPlace.filter((section) => (placed.get(section.id) ?? 0) < (section.hours ?? 0) || (!section.hours && !placed.get(section.id)))
     : toPlace;
@@ -383,15 +491,56 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
     detail: formatDayAndMonth(toIsoDate(weekStartOf(each, calendar))),
   }));
 
+  /*
+   * The PDF for the timetabling team: the Semester Timetable's own export, fed the plan's
+   * classes instead of the portal's, for whatever the lens shows.
+   */
+  const exportSections = new Map<string, SemesterExportInput["sections"][number]>();
+  for (const entry of shownClasses) {
+    const section = sectionsById.get(entry.sectionId);
+    if (!section) continue;
+    const held =
+      exportSections.get(section.id) ??
+      ({
+        crn: section.crn,
+        courseCode: section.courseCode,
+        title: section.title,
+        teacher: section.teacherName,
+        group: courses.get(keyOf(section))?.group ?? "",
+        meetings: [],
+        notes: [],
+      } satisfies SemesterExportInput["sections"][number]);
+    held.meetings.push({ meetsOn: entry.meetsOn, startsAt: entry.startsAt, endsAt: entry.endsAt, room: entry.room });
+    exportSections.set(section.id, held);
+  }
+  const roomSeats: Record<string, number> = {};
+  for (const entry of shownClasses) {
+    const seats = entry.room ? roomOf(entry.room)?.seats : null;
+    if (seats !== null && seats !== undefined) roomSeats[entry.room] = seats;
+  }
+  const lensSaid = lens === "all" ? "" : [focused, lens === "programme" && groupFocused ? groupFocused : ""].filter(Boolean).join(" ");
+  const exportInput: SemesterExportInput = {
+    semester: [data.name || data.termCode, lensSaid].filter(Boolean).join(" · "),
+    layout: lens === "room" ? "rooms-week" : "days",
+    sections: [...exportSections.values()],
+    roomSeats,
+    weekOne: calendar,
+    source: "plan",
+  };
+
   return (
-    <div className="grid gap-3">
-      {header}
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="w-40">
+    /*
+     * The page is exactly the screen and the grid scrolls inside it, as the Semester
+     * Timetable's does: the controls and the week are what you steer by, so they stay put.
+     */
+    <section className="flex h-full min-h-0 flex-col">
+      <div className="mb-2 flex shrink-0 flex-wrap items-center gap-3">
+        {semesterPicker}
+        <div className="w-36">
           <SelectMenu label="View by" value={lens} onChange={(value) => setLens(value as Lens)} options={LENSES} />
         </div>
         {lens !== "all" ? (
-          <div className="w-56">
+          <div className="w-48">
             <SelectMenu
               label={LENSES.find((entry) => entry.value === lens)?.label ?? ""}
               value={focused}
@@ -403,7 +552,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
           </div>
         ) : null}
         {lens === "programme" && groups.length ? (
-          <div className="w-40">
+          <div className="w-36">
             <SelectMenu
               label="Group"
               value={groupFocused}
@@ -412,81 +561,88 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
             />
           </div>
         ) : null}
-        <div className="ml-auto flex items-end gap-1.5">
-          <button
-            type="button"
-            aria-label="Previous week"
-            disabled={shownWeek <= 1}
-            onClick={() => setWeek(shownWeek - 1)}
-            className="rounded-md border border-[#d0d5dd] p-2 text-[#344054] hover:bg-[#f8fafc] disabled:opacity-40"
-          >
-            <ChevronLeft size={16} />
+        <div className="flex items-center gap-1.5">
+          <button type="button" aria-label="Previous week" disabled={shownWeek <= 1} onClick={() => setWeek(shownWeek - 1)} className={STEP}>
+            <ChevronLeft size={14} aria-hidden="true" />
           </button>
-          <div className="w-44">
+          <div className="w-40">
             <SelectMenu label="Week" value={String(shownWeek)} onChange={(value) => setWeek(Number(value))} options={weekOptions} />
           </div>
-          <button
-            type="button"
-            aria-label="Next week"
-            disabled={shownWeek >= data.weeks}
-            onClick={() => setWeek(shownWeek + 1)}
-            className="rounded-md border border-[#d0d5dd] p-2 text-[#344054] hover:bg-[#f8fafc] disabled:opacity-40"
-          >
-            <ChevronRight size={16} />
+          <button type="button" aria-label="Next week" disabled={shownWeek >= data.weeks} onClick={() => setWeek(shownWeek + 1)} className={STEP}>
+            <ChevronRight size={14} aria-hidden="true" />
           </button>
         </div>
+        <Zoom label="Width" value={widthZoom} {...WIDTH} onChange={setWidthZoom} />
+        <Zoom label="Height" value={heightZoom} {...HEIGHT} onChange={setHeightZoom} />
+        <button type="button" onClick={() => setExportOpen(true)} className={CONTROL}>
+          <FileDown size={14} aria-hidden="true" /> Export PDF
+        </button>
+        {settingsButton}
+        {newPlanButton}
       </div>
 
       {error && !dialog && !settingsOpen && !newOpen ? (
-        <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-2 text-sm text-[#a6292f]">
+        <p role="alert" className="mb-2 shrink-0 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-2 text-sm text-[#a6292f]">
           {error}
         </p>
       ) : null}
-      {lost.length ? (
-        <p className="rounded-md border border-[#f0c36d] bg-[#fdf6e3] px-4 py-2 text-sm text-[#7a5d00]">
-          Not held this week because of a holiday:{" "}
-          {lost.map((entry) => `${sectionLabel(sections.get(entry.sectionId))} (${WEEKDAY_NAMES[entry.weekday - 1]} ${entry.startsAt}, ${entry.holiday})`).join("; ")}
+      {holidays.length || lost.length ? (
+        <p className="mb-2 shrink-0 rounded-md border border-[#f0c36d] bg-[#fdf6e3] px-4 py-2 text-sm text-[#7a5d00]">
+          {holidays.map((holiday) => `${formatDayAndMonth(holiday.date)}: ${holiday.label || "holiday"}, no classes.`).join(" ")}
+          {lost.length
+            ? ` Not held: ${lost.map((entry) => `${sectionLabel(sectionsById.get(entry.sectionId))} (${WEEKDAY_NAMES[entry.weekday - 1]} ${entry.startsAt})`).join("; ")}.`
+            : ""}
         </p>
       ) : null}
 
-      <div className="flex min-w-0 gap-3">
-        <div className="min-w-0 flex-1">
-          <PlanWeek
-            days={days}
-            classes={weekClasses}
-            labelOf={(entry) => sectionLabel(sections.get(entry.sectionId))}
-            detailOf={(entry) => [`${entry.startsAt}–${entry.endsAt}`, entry.room, entry.teacherName].filter(Boolean)}
-            colorOf={(entry) => colors.get(sections.get(entry.sectionId)?.courseCode ?? "") ?? "#1f4e79"}
-            clashes={clashes}
-            fromHour={fromHour}
-            toHour={toHour}
-            onDraw={(slot) => {
-              setError("");
-              setDialog({ draft: draftFor(lens === "course" ? (toPlace[0]?.id ?? "") : "", slot) });
-            }}
-            onOpen={openClass}
-            onMove={(entry, slot) => {
-              const series = seriesById.get(entry.seriesId);
-              if (!series) return;
-              const changes: SeriesChanges = {};
-              if (slot.weekday !== entry.weekday) changes.weekday = slot.weekday;
-              if (slot.startsAt !== entry.startsAt) changes.startsAt = slot.startsAt;
-              if (slot.endsAt !== entry.endsAt) changes.endsAt = slot.endsAt;
-              if (Object.keys(changes).length) changeOne(entry, series, changes);
-            }}
-            onDropSection={(sectionId, slot) => {
-              setError("");
-              setDialog({ draft: draftFor(sectionId, slot) });
+      <div className="flex min-h-0 flex-1 gap-3">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <WeekTimeline
+            fills
+            weekStart={monday}
+            sessions={sessions}
+            courses={courses}
+            today={isoToday()}
+            widthZoom={widthZoom}
+            heightZoom={heightZoom}
+            squeeze={{ width: widthZoom <= WIDTH.min }}
+            atLeast={{ startMinute: 8 * 60, endMinute: 19 * 60 }}
+            seatsOf={(room) => roomOf(room)?.seats ?? null}
+            editing={{
+              onDraw: (slot) => {
+                setError("");
+                setDialog({ draft: draftFor(lens === "course" ? (toPlace[0]?.id ?? "") : "", slot) });
+              },
+              onOpen: (session) => {
+                const entry = entryOf(session);
+                if (entry) openClass(entry);
+              },
+              onMove: (session, slot) => {
+                const entry = entryOf(session);
+                const series = entry ? seriesById.get(entry.seriesId) : undefined;
+                if (!entry || !series) return;
+                const changes: SeriesChanges = {};
+                const weekday = weekdayOf(slot.date);
+                if (weekday !== entry.weekday) changes.weekday = weekday;
+                if (slot.start !== entry.startsAt) changes.startsAt = slot.start;
+                if (slot.end !== entry.endsAt) changes.endsAt = slot.end;
+                if (Object.keys(changes).length) changeOne(entry, series, changes);
+              },
+              dropType: SECTION_DRAG,
+              onDrop: (sectionId, slot) => {
+                setError("");
+                setDialog({ draft: draftFor(sectionId, slot) });
+              },
             }}
           />
-          <p className="mt-1.5 text-xs text-[#667085]">
-            Drag down an empty column to place a class, or drop one from the list. Drag a class to move it, its
-            bottom edge to change its length; click it to open it.
+          <p className="mt-1.5 shrink-0 text-xs text-[#667085]">
+            Drag along a day to place a class, or drop one from the list. Drag a class to move it, its right-hand end to
+            change its length; click it to open it.
           </p>
         </div>
 
-        <aside className="hidden w-80 shrink-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:flex" aria-label="Classes to place">
-          <div className="flex items-center justify-between gap-2 border-b border-[#eef1f5] px-3 py-2">
+        <aside className="hidden min-h-0 w-80 shrink-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:flex" aria-label="Classes to place">
+          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[#eef1f5] px-3 py-2">
             <h3 className="text-sm font-semibold text-[#171717]">Classes to place · {trayShown.length}</h3>
             <button
               type="button"
@@ -497,12 +653,13 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
               Still to place
             </button>
           </div>
-          <ul className="max-h-[70vh] divide-y divide-[#f2f4f7] overflow-y-auto">
+          <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto">
             {trayShown.map((section) => {
-              const done = placed.get(section.id) ?? 0;
+              const course = courses.get(keyOf(section));
+              const doneHours = placed.get(section.id) ?? 0;
               const asked = section.hours ?? 0;
-              const share = asked ? Math.min(1, done / asked) : done ? 1 : 0;
-              const over = asked > 0 && done > asked + 0.01;
+              const share = asked ? Math.min(1, doneHours / asked) : doneHours ? 1 : 0;
+              const over = asked > 0 && doneHours > asked + 0.01;
               return (
                 <li
                   key={section.id}
@@ -514,7 +671,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
                   className="cursor-grab px-3 py-2 hover:bg-[#f8fafc] active:cursor-grabbing"
                 >
                   <div className="flex items-start gap-2">
-                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: colors.get(section.courseCode) ?? "#1f4e79" }} />
+                    <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: course?.color ?? "#1f4e79" }} />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-semibold text-[#344054]" title={section.title}>
                         {section.title || section.courseCode}
@@ -527,7 +684,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
                           <div className={`h-full ${over ? "bg-[#d92d20]" : share >= 1 ? "bg-[#2f6b3d]" : "bg-[#1f4e79]"}`} style={{ width: `${share * 100}%` }} />
                         </div>
                         <span className={`shrink-0 text-xs tabular-nums ${over ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}>
-                          {Math.round(done * 10) / 10}
+                          {Math.round(doneHours * 10) / 10}
                           {asked ? ` of ${asked}` : ""} h
                         </span>
                       </div>
@@ -537,7 +694,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
                       aria-label={`Place ${section.title || section.courseCode}`}
                       onClick={() => {
                         setError("");
-                        setDialog({ draft: draftFor(section.id, { weekday: 1, startsAt: "08:30", endsAt: "10:00" }) });
+                        setDialog({ draft: draftFor(section.id, { date: toIsoDate(monday), start: "08:30", end: "10:00" }) });
                       }}
                       className="rounded p-1 text-[#1f4e79] hover:bg-[#e8edf3]"
                     >
@@ -602,7 +759,7 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
         title="Delete this class?"
         description={
           confirmDelete
-            ? `${sectionLabel(sections.get(confirmDelete.entry.sectionId))}, ${weeksSaid(confirmDelete.series.weeks)}. It comes off the plan for everybody.`
+            ? `${sectionLabel(sectionsById.get(confirmDelete.entry.sectionId))}, ${weeksSaid(confirmDelete.series.weeks)}. It comes off the plan for everybody.`
             : ""
         }
         confirmLabel="Delete"
@@ -610,9 +767,14 @@ export function SemesterPlan({ termCode, onPickTerm }: { termCode: string; onPic
         onConfirm={() => confirmDelete && remove.mutate({ series: confirmDelete.series, scope: "all" })}
         onClose={() => setConfirmDelete(null)}
       />
+      <SemesterExport
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        input={exportInput}
+        shown={`${exportSections.size} of ${data.sections.length} classes${lensSaid ? `, ${lensSaid}` : ""}`}
+      />
       {settings}
       {newPlan}
-    </div>
+    </section>
   );
 }
-

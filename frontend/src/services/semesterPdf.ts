@@ -101,7 +101,27 @@ export type SemesterExportInput = {
   /** Where the weeks are counted from, and the weeks without classes the count skips. */
   weekOne?: TeachingCalendar | string;
   sweptAt?: string;
+  /**
+   * Whose timetable it is: the registrar's booked classes (the default), or the department's
+   * plan of them, sent to the timetabling team before anything is booked. It changes the words,
+   * never the drawing — the team reads the plan in the shape it reads the timetable.
+   */
+  source?: "portal" | "plan";
 };
+
+/** What the file is called in its heading, and what it says when it has nothing to draw. */
+export function sourceWords(input: Pick<SemesterExportInput, "layout" | "source">): { heading: string; empty: string } {
+  if (input.source === "plan") {
+    return {
+      heading: input.layout === "days" ? "Semester plan" : "Semester plan · Rooms",
+      empty: "No classes are placed in the plan for these sections.",
+    };
+  }
+  return {
+    heading: input.layout === "days" ? "Semester Timetable" : "Rooms",
+    empty: "The portal has booked no classes for these sections.",
+  };
+}
 
 /** One class, as the export draws it. */
 type Klass = {
@@ -504,8 +524,8 @@ export function semesterPages(input: SemesterExportInput, zoom: ExportZoom, unit
 }
 
 /** "Semester-1-timetable.pdf", "Semester-1-rooms.pdf". */
-export function semesterFilename(input: Pick<SemesterExportInput, "semester" | "layout">): string {
-  const what = input.layout === "days" ? "timetable" : "rooms";
+export function semesterFilename(input: Pick<SemesterExportInput, "semester" | "layout" | "source">): string {
+  const what = `${input.source === "plan" ? "plan " : ""}${input.layout === "days" ? "timetable" : "rooms"}`;
   return `${[input.semester, what].filter(Boolean).join(" ").replace(/[^A-Za-z0-9]+/g, "-")}.pdf`;
 }
 
@@ -521,7 +541,8 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
   const frame = frameOf(input.layout, paper);
   const doc = new jsPDF({ unit: "pt", format: paper, orientation: "landscape" });
   const pages = semesterPages(input, zoom);
-  const heading = `${input.semester} · ${input.layout === "days" ? "Semester Timetable" : "Rooms"}`;
+  const said = sourceWords(input);
+  const heading = `${input.semester} · ${said.heading}`;
 
   if (!pages.length) {
     doc.setFont("helvetica", "bold");
@@ -530,7 +551,7 @@ export async function buildSemesterPdf(input: SemesterExportInput, zoom: ExportZ
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(...SOFT);
-    doc.text("The portal has booked no classes for these sections.", frame.left, frame.titleY + 16);
+    doc.text(said.empty, frame.left, frame.titleY + 16);
   }
 
   pages.forEach((page, index) => {

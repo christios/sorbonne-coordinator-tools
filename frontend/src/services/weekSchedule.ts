@@ -44,6 +44,11 @@ export type Session = {
 export type PlacedSession = Session & {
   /** Runs into another session of the same calendar on the same day. */
   clashes: boolean;
+  /**
+   * What the clash is, where the calendar knows better than "overlaps another class" — the
+   * semester plan says which teacher, room or students the two have in common.
+   */
+  clashSaid?: string;
 };
 
 /** What the calendar prints about a CRN, and how it paints it. */

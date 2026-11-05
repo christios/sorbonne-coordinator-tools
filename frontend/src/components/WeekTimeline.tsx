@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ClassFacts } from "@/components/ClassFacts";
 import { heightNeeded, linesIn } from "@/services/boxFit";
@@ -54,6 +54,35 @@ function ticks(from: number, to: number, every: number, worth: boolean): number[
   return found;
 }
 
+/** A quarter of an hour: what a class snaps to while it is drawn or dragged. */
+const SNAP = 15;
+/** A press that moves less than this is a click, not a drag. */
+const STILL = 4;
+/** What a click on an empty stretch of a day makes: the department's usual block. */
+const USUAL = 90;
+
+/** A stretch of one day on the grid: where a class is, or is to go. */
+export type GridSlot = { date: string; start: string; end: string };
+
+/** What the semester plan does with the grid's gestures. See `editing` below. */
+export type GridEditing = {
+  onDraw: (slot: GridSlot) => void;
+  onMove: (session: PlacedSession, slot: GridSlot) => void;
+  onOpen: (session: PlacedSession) => void;
+  /** A drag from elsewhere on the page, carrying data of this type, dropped on a day. */
+  dropType?: string;
+  onDrop?: (data: string, slot: GridSlot) => void;
+};
+
+type Gesture =
+  | { kind: "draw"; date: string; from: number; to: number; x: number; y: number; moved: boolean }
+  | { kind: "move"; session: PlacedSession; date: string; start: number; offset: number; x: number; y: number; moved: boolean }
+  | { kind: "stretch"; session: PlacedSession; end: number; x: number; y: number; moved: boolean };
+
+const clock = (minute: number) =>
+  `${String(Math.floor(minute / 60)).padStart(2, "0")}:${String(minute % 60).padStart(2, "0")}`;
+const snapped = (minute: number) => Math.round(minute / SNAP) * SNAP;
+
 /** A room as the grid names it, or "" for a class the portal has put in none. */
 const roomNameOf = (session: { room: string }) => formatRoom(session.room).trim();
 
@@ -107,6 +136,15 @@ type WeekTimelineProps = {
    * zoom's lowest notch, 0, does the same down the page.
    */
   squeeze?: { width: boolean };
+  /**
+   * The semester plan's gestures, on a week with its days down the side. Drag along an
+   * empty stretch of a day to draw a class there, or click it for ninety minutes; drag a
+   * class to move it to another day or hour, or its right-hand end to make it longer or
+   * shorter; click it to open it. Something dragged in from the page — a class from the
+   * plan's list — dropped on a day lands at that hour. Nothing is saved here: each gesture
+   * is handed up as a slot. Left out, the grid is the registrar's, and nothing on it moves.
+   */
+  editing?: GridEditing;
 };
 
 /** One row of the grid: a day, or a room, and the classes on it. */
@@ -149,6 +187,7 @@ export function WeekTimeline({
   seatsOf,
   registeredOf,
   squeeze,
+  editing: editingGiven,
 }: WeekTimelineProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
@@ -341,6 +380,154 @@ export function WeekTimeline({
     at < HALF_A_TIME ? "" : at > width - HALF_A_TIME ? "-translate-x-full" : "-translate-x-1/2";
   const nothing = byRoom && day ? "No classes this day." : "No classes this week.";
 
+  /*
+   * The plan's gestures. Only on a week of days, which is what a class is placed on; a room's
+   * row is a question about the rooms, not somewhere to put a class.
+   *
+   * The gesture is kept in a ref as well as in state: the window's listeners read the ref,
+   * and the page is told what happened once, when the pointer is let go — never from inside
+   * a state update, which React may run twice.
+   */
+  const editing = byRoom ? undefined : editingGiven;
+  const rowsOf = useRef(new Map<string, HTMLDivElement>());
+  const [gesture, setGesture] = useState<Gesture | null>(null);
+  const live = useRef<Gesture | null>(null);
+  const said = useRef(editing);
+  const scale = useRef({ perMinute, startMinute, endMinute });
+  useEffect(() => {
+    said.current = editing;
+    scale.current = { perMinute, startMinute, endMinute };
+  });
+  // A drag that ends on the box it started on still clicks it; this says not to open it.
+  const dragged = useRef(false);
+  const follow = (next: Gesture | null) => {
+    live.current = next;
+    setGesture(next);
+  };
+  const minuteAt = (clientX: number, date: string) => {
+    const row = rowsOf.current.get(date);
+    const { perMinute: per, startMinute: from, endMinute: to } = scale.current;
+    if (!row) return from;
+    return Math.max(from, Math.min(to, from + (clientX - row.getBoundingClientRect().left) / per));
+  };
+  const dateAt = (clientY: number, fallback: string) => {
+    let nearest = fallback;
+    let distance = Infinity;
+    for (const [date, row] of rowsOf.current) {
+      const box = row.getBoundingClientRect();
+      if (clientY >= box.top && clientY < box.bottom) return date;
+      const away = Math.min(Math.abs(clientY - box.top), Math.abs(clientY - box.bottom));
+      if (away < distance) {
+        distance = away;
+        nearest = date;
+      }
+    }
+    return nearest;
+  };
+  const active = gesture !== null;
+  useEffect(() => {
+    if (!active) return;
+    const moveTo = (event: PointerEvent) => {
+      const current = live.current;
+      if (!current) return;
+      const { endMinute: to } = scale.current;
+      const moved = current.moved || Math.abs(event.clientX - current.x) > STILL || Math.abs(event.clientY - current.y) > STILL;
+      if (current.kind === "draw") {
+        follow({ ...current, to: snapped(minuteAt(event.clientX, current.date)), moved });
+      } else if (current.kind === "stretch") {
+        const start = minutesOf(current.session.start);
+        follow({ ...current, end: Math.max(start + SNAP, snapped(minuteAt(event.clientX, current.session.date))), moved });
+      } else {
+        const date = dateAt(event.clientY, current.date);
+        const length = minutesOf(current.session.end) - minutesOf(current.session.start);
+        const start = Math.min(to - length, snapped(minuteAt(event.clientX, date) - current.offset));
+        follow({ ...current, date, start: Math.max(scale.current.startMinute, start), moved });
+      }
+    };
+    const finish = () => {
+      const current = live.current;
+      follow(null);
+      const handlers = said.current;
+      if (!current || !handlers) return;
+      const { endMinute: to } = scale.current;
+      if (current.kind === "draw") {
+        const from = Math.min(current.from, current.to);
+        const until = Math.max(current.from, current.to);
+        const [start, end] = current.moved && until - from >= SNAP ? [from, until] : [current.from, current.from + USUAL];
+        handlers.onDraw({ date: current.date, start: clock(start), end: clock(Math.min(to, end)) });
+        return;
+      }
+      if (!current.moved) return;
+      dragged.current = true;
+      if (current.kind === "stretch") {
+        handlers.onMove(current.session, { date: current.session.date, start: current.session.start, end: clock(current.end) });
+      } else {
+        const length = minutesOf(current.session.end) - minutesOf(current.session.start);
+        handlers.onMove(current.session, { date: current.date, start: clock(current.start), end: clock(current.start + length) });
+      }
+    };
+    const cancel = () => follow(null);
+    window.addEventListener("pointermove", moveTo);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointermove", moveTo);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", cancel);
+    };
+    // Bound once per gesture; everything they read is in refs.
+  }, [active]);
+
+  const startDraw = (event: ReactPointerEvent, date: string) => {
+    if (!editing || event.button !== 0 || (event.target as HTMLElement).closest("[data-box]")) return;
+    event.preventDefault();
+    const from = Math.floor(minuteAt(event.clientX, date) / SNAP) * SNAP;
+    follow({ kind: "draw", date, from, to: from, x: event.clientX, y: event.clientY, moved: false });
+  };
+  const startMove = (event: ReactPointerEvent, session: PlacedSession) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    dragged.current = false;
+    const offset = minuteAt(event.clientX, session.date) - minutesOf(session.start);
+    follow({
+      kind: "move",
+      session,
+      date: session.date,
+      start: minutesOf(session.start),
+      offset,
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+    });
+  };
+  const startStretch = (event: ReactPointerEvent, session: PlacedSession) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dragged.current = false;
+    follow({ kind: "stretch", session, end: minutesOf(session.end), x: event.clientX, y: event.clientY, moved: false });
+  };
+  /** Where the gesture under way would put a class on this row, if anywhere. */
+  const ghostOn = (date: string): { start: number; end: number } | null => {
+    if (!gesture || !gesture.moved) return null;
+    if (gesture.kind === "draw") {
+      return gesture.date === date ? { start: Math.min(gesture.from, gesture.to), end: Math.max(gesture.from, gesture.to) } : null;
+    }
+    if (gesture.kind === "stretch") {
+      return gesture.session.date === date ? { start: minutesOf(gesture.session.start), end: gesture.end } : null;
+    }
+    const length = minutesOf(gesture.session.end) - minutesOf(gesture.session.start);
+    return gesture.date === date ? { start: gesture.start, end: gesture.start + length } : null;
+  };
+  const moving = gesture && gesture.kind !== "draw" && gesture.moved ? gesture.session : null;
+  const openUnlessDragged = (picked: PlacedSession) => {
+    if (dragged.current) {
+      dragged.current = false;
+      return;
+    }
+    editing?.onOpen(picked);
+  };
+
   return (
     <div
       ref={box}
@@ -436,7 +623,38 @@ export function WeekTimeline({
                 );
               })()}
             </div>
-            <div className="relative" style={{ width, height: heightOf(index) + spare }}>
+            <div
+              ref={
+                editing
+                  ? (node) => {
+                      if (node) rowsOf.current.set(line.key, node);
+                      else rowsOf.current.delete(line.key);
+                    }
+                  : undefined
+              }
+              className={`relative ${editing ? "cursor-cell touch-none" : ""}`}
+              style={{ width, height: heightOf(index) + spare }}
+              aria-label={editing ? `${line.title}: drag along the hours to place a class` : undefined}
+              onPointerDown={editing ? (event) => startDraw(event, line.key) : undefined}
+              onDragOver={
+                editing?.dropType
+                  ? (event) => {
+                      if (event.dataTransfer.types.includes(editing.dropType ?? "")) event.preventDefault();
+                    }
+                  : undefined
+              }
+              onDrop={
+                editing?.dropType && editing.onDrop
+                  ? (event) => {
+                      const data = event.dataTransfer.getData(editing.dropType ?? "");
+                      if (!data) return;
+                      event.preventDefault();
+                      const start = snapped(minuteAt(event.clientX, line.key));
+                      editing.onDrop?.(data, { date: line.key, start: clock(start), end: clock(Math.min(endMinute, start + USUAL)) });
+                    }
+                  : undefined
+              }
+            >
               {bands.map((band, index) => (
                 <div key={band ?? "grid"}>
                   {quarters.map((minute) => (
@@ -464,6 +682,24 @@ export function WeekTimeline({
               {Array.from({ length: rows - 1 }, (_, row) => (
                 <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * laneOf(index) + GAP + spare / 2 }} />
               ))}
+              {(() => {
+                // Where a class being drawn or dragged would land, dashed, under the pointer.
+                const ghost = ghostOn(line.key);
+                if (!ghost) return null;
+                return (
+                  <div
+                    className="pointer-events-none absolute z-10 flex items-center rounded-md border-2 border-dashed border-[#1f4e79] bg-[#e8edf3]/80 px-1.5 text-[11px] font-semibold tabular-nums text-[#1f4e79]"
+                    style={{
+                      left: leftOf(ghost.start),
+                      width: Math.max(18, (ghost.end - ghost.start) * perMinute - 3),
+                      top: GAP + spare / 2,
+                      height: Math.max(14, heightOf(index) + spare - 2 * GAP - spare),
+                    }}
+                  >
+                    {clock(ghost.start)}–{clock(ghost.end)}
+                  </div>
+                );
+              })()}
               {boxes.map(({ session, lane: at, lanes, band }) => {
                 const name = `${line.key}-${session.date}-${session.crn}-${session.start}-${at}`;
                 return (
@@ -479,10 +715,17 @@ export function WeekTimeline({
                     top={at * laneOf(index) + GAP + spare / 2}
                     height={laneOf(index) - GAP}
                     line={index}
-                    onPick={onPick}
+                    onPick={editing ? openUnlessDragged : onPick}
                     clash={byRoom ? "booked into this room at the same time as another class" : "overlaps another class"}
                     seats={session.room && seatsOf ? seatsOf(session.room) : null}
                     registered={registeredOf ? registeredOf(session.crn) : null}
+                    {...(editing
+                      ? {
+                          onGrab: (event: ReactPointerEvent) => startMove(event, session),
+                          onStretch: (event: ReactPointerEvent) => startStretch(event, session),
+                          dimmed: moving === session,
+                        }
+                      : {})}
                   />
                 );
               })}
@@ -520,6 +763,9 @@ function Class({
   line,
   name,
   whole,
+  onGrab,
+  onStretch,
+  dimmed = false,
 }: {
   session: PlacedSession;
   course?: CalendarCourse;
@@ -538,6 +784,12 @@ function Class({
   name: string;
   whole: number;
   registered?: number | null;
+  /** On the plan: pressed to drag it somewhere else. */
+  onGrab?: (event: ReactPointerEvent) => void;
+  /** On the plan: its right-hand end, pressed to make it longer or shorter. */
+  onStretch?: (event: ReactPointerEvent) => void;
+  /** On the plan: drawn faint while it is being dragged, its new place dashed. */
+  dimmed?: boolean;
 }) {
   const color = course?.color ?? "#1f4e79";
   const outline = course?.tone === "outline";
@@ -560,11 +812,11 @@ function Class({
         cancelled ? "CANCELLED" : "",
         covered ? `covered by ${covered.coverTeacherName}` : "",
         session.change?.note ?? "",
-        session.clashes ? clash : "",
+        session.clashes ? (session.clashSaid ?? clash) : "",
       ].filter(Boolean),
     ),
   ].join(" · ");
-  const opens = Boolean(onPick && course?.openable);
+  const opens = Boolean(onPick && (course?.openable || onGrab));
   const Box = opens ? "button" : "article";
   // Inside its border, and then its padding: what the facts have to be drawn in.
   const inside = height - (outline ? 4 : 0);
@@ -593,13 +845,14 @@ function Class({
       aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
       data-line={line}
       data-box={name}
+      onPointerDown={onGrab}
       className={`absolute flex flex-col justify-center overflow-hidden px-1.5 py-0.5 text-left ${
         oneLine ? "rounded-sm" : "rounded-md"
       } ${
         outline ? "border-2 border-dashed bg-white" : "text-white"
       } ${cancelled ? "opacity-55" : ""} ${session.clashes ? "outline-2 -outline-offset-2 outline-[#d9a441]" : ""} ${
         opens ? "cursor-pointer hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[#1f4e79]" : ""
-      }`}
+      } ${onGrab ? "cursor-grab touch-none active:cursor-grabbing" : ""} ${dimmed ? "opacity-40" : ""}`}
       style={{
         left,
         top,
@@ -640,6 +893,9 @@ function Class({
             </span>
           ))}
         </span>
+      ) : null}
+      {onStretch ? (
+        <span aria-hidden="true" className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize" onPointerDown={onStretch} />
       ) : null}
     </Box>
   );
