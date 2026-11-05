@@ -108,7 +108,8 @@ export function DateField({
               avoidCollisions={false}
               data-calendar-placement={placement?.side ?? "bottom"}
               style={placement ? { maxHeight: placement.maxHeight } : undefined}
-              className="z-50 w-72 overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg outline-none"
+              // The menus' layer, above the dialogs a date is often asked for in.
+              className="z-[100] w-72 overflow-y-auto rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg outline-none"
             >
               <div className="flex items-center justify-between gap-2">
                 <button

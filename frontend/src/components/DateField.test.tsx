@@ -3,6 +3,32 @@ import { describe, expect, it, vi } from "vitest";
 
 import { chooseCalendarPlacement } from "./dateFieldPlacement";
 import { DateField } from "./DateField";
+import { Modal } from "./Modal";
+import { ModalDialog } from "./ModalDialog";
+
+/** The layer an element is drawn on: its own `z-` class, or the nearest one around it. */
+function layerOf(element: Element | null): number {
+  for (let at = element; at; at = at.parentElement) {
+    const found = /(?:^|\s)z-(?:\[(\d+)\]|(\d+))(?:\s|$)/.exec(at.className);
+    if (found) return Number(found[1] ?? found[2]);
+  }
+  return 0;
+}
+
+describe("a date asked for inside a dialog", () => {
+  it.each([
+    ["a dialog", (field: React.ReactNode) => <Modal open title="Semester settings" onClose={() => {}}>{field}</Modal>],
+    ["a form dialog", (field: React.ReactNode) => <ModalDialog open title="New task" onClose={() => {}}>{field}</ModalDialog>],
+  ])("opens its calendar over %s, not behind it", (_kind, inside) => {
+    render(inside(<DateField label="Week 1" value="" onChange={() => {}} />));
+    const dialog = screen.getByRole("dialog", { name: /Semester settings|New task/ });
+
+    fireEvent.click(screen.getByRole("button", { name: "Week 1" }));
+    const calendar = screen.getByRole("grid", { name: "Week 1 calendar" });
+
+    expect(layerOf(calendar)).toBeGreaterThanOrEqual(layerOf(dialog));
+  });
+});
 
 describe("DateField", () => {
   it("opens an in-app calendar picker from the compact date control", () => {
