@@ -622,16 +622,21 @@ function Empty({ children }: { children: ReactNode }) {
  * Counted from the semester's Week 1 in Settings. The department talks in week numbers —
  * "the Week 5 tutorial", "from Week 8" — and finding one used to mean pressing the arrow
  * and doing the arithmetic from the dates.
+ *
+ * The Semester plan steps its weeks with the same one, and says where its semester ends
+ * (`until`), since a semester being planned has weeks nothing is placed in yet.
  */
-function TeachingWeek({
+export function TeachingWeek({
   shown,
   weekOne,
   sessions,
+  until,
   onGo,
 }: {
   shown: Date;
   weekOne: TeachingCalendar | string;
   sessions: Session[];
+  until?: Date;
   onGo: (week: Date) => void;
 }) {
   /*
@@ -640,7 +645,10 @@ function TeachingWeek({
    */
   const first = weekStartOf(1, weekOne);
   const lastDay = sessions.reduce((last, session) => (session.date > last ? session.date : last), "");
-  const end = [mondayOf(shown), lastDay ? mondayOf(parseIsoDate(lastDay)) : first].reduce((a, b) => (a > b ? a : b), first);
+  const end = [mondayOf(shown), lastDay ? mondayOf(parseIsoDate(lastDay)) : first, until ?? first].reduce(
+    (a, b) => (a > b ? a : b),
+    first,
+  );
   const options: { value: string; label: string; detail: string }[] = [];
   for (let monday = first; monday <= end && options.length < 60; monday = shiftWeek(monday, 1)) {
     options.push({

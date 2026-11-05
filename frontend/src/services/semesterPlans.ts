@@ -26,6 +26,35 @@ export type PlanSummary = {
 
 export type Holiday = { date: string; label: string };
 
+/** Where a class sits on Groups & CRNs: a group of a set of a cohort. */
+export type Place = {
+  cohortId: string;
+  cohort: string;
+  setId: string;
+  /** The set's code: "TD", "CM", "LANG". */
+  set: string;
+  /** The set this one is nested in, if any: Philosophy tutorials inside the tutorials. */
+  parentSetId: string;
+  /** The languages: a set every cohort's students sit in. */
+  openToAll: boolean;
+  /** The set's only group, which every student of the cohort placed in it is in. */
+  onlyGroup: boolean;
+  groupId: string;
+  group: string;
+  /** For a group of a nested set: the parent set's groups it goes with. */
+  parentGroupIds: string[];
+  /** Groups to be scheduled at the same hour as this one, which so share no students. */
+  parallelWith: string[];
+  /** The sub-row it is for, when a major is taught the course apart from its group. */
+  majorId: string;
+  /** Whose majors it is for: the sub-rows it teaches, or the cohort's for a group with none. */
+  majors: string[];
+};
+
+/**
+ * A class to place, as Groups & CRNs says it: a group of a set taught one of its courses.
+ * The plan does not keep its own list; it is read from there each time the plan is opened.
+ */
 export type PlanSection = {
   id: string;
   crn: string;
@@ -46,6 +75,12 @@ export type PlanSection = {
   hours: number | null;
   /** The hours as the request wrote them: "60CM". */
   hoursSaid: string;
+  /** How long one session lasts, as Groups & CRNs says it: "1.5". */
+  duration: string;
+  /** Every group it is taught to — more than one for a CRN that two cohorts share. */
+  places: Place[];
+  /** Placed on the calendar but no longer on Groups & CRNs: it waits to be taken off. */
+  gone: boolean;
   comments: string;
   position: number;
   updatedAt: string;
@@ -151,33 +186,19 @@ export async function settlePlan(termCode: string, settings: PlanSettings): Prom
   return answer(await apiFetch(`${at(termCode)}/settings`, json("PUT", settings)));
 }
 
-/** A class to place, changed: its teacher, mostly, which is the CRN's and so every class's. */
-export async function updateSection(termCode: string, section: PlanSection): Promise<PlanSection> {
-  return answer(
-    await apiFetch(`${at(termCode)}/sections/${encodeURIComponent(section.id)}`, json("PATCH", {
-      crn: section.crn,
-      parentCrn: section.parentCrn,
-      courseCode: section.courseCode,
-      title: section.title,
-      ue: section.ue,
-      component: section.component,
-      programmes: section.programmes,
-      groupLabel: section.groupLabel,
-      teacherName: section.teacherName,
-      hours: section.hours,
-      hoursSaid: section.hoursSaid,
-      comments: section.comments,
-      position: section.position,
-    })),
-  );
+/** Take a class that is no longer on Groups & CRNs off the plan, with everywhere it was placed. */
+export async function removeSection(termCode: string, sectionId: string): Promise<void> {
+  return answer(await apiFetch(`${at(termCode)}/sections/${encodeURIComponent(sectionId)}`, { method: "DELETE" }));
 }
 
 /**
  * What a class's box calls its group, after the course code: "TD G1", "CM GA" — or, for one
  * of several parallel classes with no group of their own, its name ("French A0 F4"), since
- * "SCEN-101 · Language" eleven times over tells the eleven apart not at all.
+ * "SCEN-101 · Language" eleven times over tells the eleven apart not at all. A class from
+ * Groups & CRNs is called by its set and group, which is what its label already says: "TD 2".
  */
 export function groupWords(section: PlanSection, parallel: boolean): string {
+  if (section.places.length) return section.groupLabel;
   if (section.groupLabel) {
     return section.groupLabel.toUpperCase().startsWith(section.component.toUpperCase())
       ? section.groupLabel
@@ -208,6 +229,21 @@ export async function removeClass(
   return answer(
     await apiFetch(`${at(termCode)}/series/${encodeURIComponent(seriesId)}?${query}`, { method: "DELETE" }),
   );
+}
+
+const LONGEST_SESSION = 8 * 60;
+const pad = (value: number) => String(value).padStart(2, "0");
+
+/**
+ * When a class placed at `start` ends: one session as long as Groups & CRNs says, when it
+ * says one number ("1.5"); `otherwise` when it says none, or two ("1, 2").
+ */
+export function endOf(section: PlanSection | undefined, start: string, otherwise: string): string {
+  const said = section?.duration.trim() ?? "";
+  const minutes = said ? Math.round(Number(said) * 60) : Number.NaN;
+  if (!(minutes > 0 && minutes <= LONGEST_SESSION)) return otherwise;
+  const end = Math.min(minutesOf(start) + minutes, 23 * 60 + 59);
+  return `${pad(Math.floor(end / 60))}:${pad(end % 60)}`;
 }
 
 /** Hours of a class, from its two times. */
@@ -247,6 +283,8 @@ export function weeksSaid(weeks: number[]): string {
  */
 export function sectionLabel(section: PlanSection | undefined): string {
   if (!section) return "A class";
+  // A class from Groups & CRNs: its course, then its set and group, "MATH-002 · CM A".
+  if (section.places.length) return [section.courseCode || section.title, section.groupLabel].filter(Boolean).join(" · ");
   if (!section.groupLabel) return section.title || section.courseCode;
   return [section.courseCode || section.title, `${section.groupLabel} ${section.component}`.trim()].filter(Boolean).join(" · ");
 }
@@ -254,17 +292,53 @@ export function sectionLabel(section: PlanSection | undefined): string {
 export const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
 /**
- * Whether two classes of one programme may have students in common.
+ * Whether the students of two groups of Groups & CRNs are the same ones, other ones, or may be.
  *
- * A guess until the semester's student groups exist, kept to what the labels can say. Two
- * groups of the same course are parallel — G1 and G2 of a tutorial, two French groups —
- * unless one of them is for everybody (the lecture beside its tutorials). Different courses
- * share students when either is for everybody, or both name the same group. A lecture
- * group "GA" and a tutorial "G1" are not counted: which tutorials sit under which lecture
- * group is exactly what the labels do not say.
+ * Said by how the sets are built, not by who has been placed yet, so it holds while a
+ * semester is being planned:
+ *
+ *   - one group: the same students (a sub-row taught apart is the others' only when it is theirs)
+ *   - two groups of one set, or groups to be held at the same hour: never the same student
+ *   - two cohorts: nobody in common, unless one of the sets is open to every cohort
+ *   - a nested set's group and its parent set's: the same students when it goes with that group,
+ *     none when it goes with another
+ *   - a set of one group holds the whole cohort, so its students are everybody's
+ *   - anything else — two sets that cut a cohort differently, a language group — may be
+ */
+export function studentsOf(a: Place, b: Place): "same" | "none" | "maybe" {
+  if (a.groupId === b.groupId) return a.majorId && b.majorId && a.majorId !== b.majorId ? "none" : "same";
+  if (a.setId === b.setId || a.parallelWith.includes(b.groupId) || b.parallelWith.includes(a.groupId)) return "none";
+  if (a.openToAll || b.openToAll) return "maybe";
+  if (a.cohortId !== b.cohortId) return "none";
+  for (const [inner, outer] of [
+    [a, b],
+    [b, a],
+  ]) {
+    if (inner.parentSetId === outer.setId && inner.parentGroupIds.length) {
+      return inner.parentGroupIds.includes(outer.groupId) ? "same" : "none";
+    }
+  }
+  return a.onlyGroup || b.onlyGroup ? "same" : "maybe";
+}
+
+/**
+ * Whether two classes may have students in common.
+ *
+ * For classes from Groups & CRNs, from how their sets and groups are built (`studentsOf`).
+ *
+ * Otherwise a guess, kept to what the labels can say. Two groups of the same course are
+ * parallel — G1 and G2 of a tutorial, two French groups — unless one of them is for
+ * everybody (the lecture beside its tutorials). Different courses share students when
+ * either is for everybody, or both name the same group. A lecture group "GA" and a tutorial
+ * "G1" are not counted: which tutorials sit under which lecture group is exactly what the
+ * labels do not say.
  */
 export function mayShareStudents(a: PlanSection, b: PlanSection): boolean {
-  if (a.id === b.id || !a.programmes.some((programme) => b.programmes.includes(programme))) return false;
+  if (a.id === b.id) return false;
+  if (a.places.length && b.places.length) {
+    return a.places.some((one) => b.places.some((other) => studentsOf(one, other) !== "none"));
+  }
+  if (!a.programmes.some((programme) => b.programmes.includes(programme))) return false;
   if (a.courseCode && a.courseCode === b.courseCode) {
     return (!a.groupLabel) !== (!b.groupLabel) || (Boolean(a.groupLabel) && a.groupLabel === b.groupLabel);
   }

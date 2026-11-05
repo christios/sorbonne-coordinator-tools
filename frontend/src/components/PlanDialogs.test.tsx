@@ -57,7 +57,7 @@ describe("the weeks a class meets in", () => {
 });
 
 describe("placing a class", () => {
-  it("brings the chosen class's teacher with it rather than leaving the field blank", async () => {
+  it("shows the chosen class's teacher from Groups & CRNs, to be changed there", async () => {
     const plan = {
       termCode: "262720",
       semesterId: "plan:262720",
@@ -75,7 +75,12 @@ describe("placing a class", () => {
         {
           id: "s1", crn: "22229", parentCrn: "", courseCode: "MATH-002", title: "Elements of Calculus GA- CM", ue: "",
           component: "CM", programmes: ["FYS"], groupLabel: "GA", teacherName: "Bilal Maaz", hours: 60, hoursSaid: "60CM",
-          comments: "", position: 0, updatedAt: "", updatedBy: "",
+          duration: "1.5", places: [], gone: false, comments: "", position: 0, updatedAt: "", updatedBy: "",
+        },
+        {
+          id: "s2", crn: "22230", parentCrn: "", courseCode: "MATH-002", title: "Elements of Calculus GB- CM", ue: "",
+          component: "CM", programmes: ["FYS"], groupLabel: "GB", teacherName: "", hours: 60, hoursSaid: "60CM",
+          duration: "", places: [], gone: true, comments: "", position: 1, updatedAt: "", updatedBy: "",
         },
       ],
     } satisfies Plan;
@@ -93,9 +98,13 @@ describe("placing a class", () => {
       />,
     );
     fireEvent.click(screen.getByRole("combobox", { name: "Class" }));
-    fireEvent.click(await screen.findByText("MATH-002 · Elements of Calculus GA- CM"));
-    expect((screen.getByPlaceholderText("Bilal Maaz") as HTMLInputElement).value).toBe("Bilal Maaz");
+    // A class no longer on Groups & CRNs is not offered.
+    expect(screen.queryByText(/GB- CM/)).toBeNull();
+    fireEvent.click(await screen.findByText("MATH-002 · Elements of Calculus GA- CM · GA"));
+    expect(screen.getByText("Bilal Maaz")).toBeTruthy();
+    expect(screen.getByText(/Set on Groups & CRNs/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Bilal Maaz")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Place it" }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ sectionId: "s1", teacherName: "Bilal Maaz" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ sectionId: "s1" }));
   });
 });

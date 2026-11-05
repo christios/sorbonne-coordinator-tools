@@ -58,22 +58,6 @@ class SettingsInput(BaseModel):
     holidays: list[Holiday] = Field(default_factory=list, max_length=60)
 
 
-class SectionInput(BaseModel):
-    crn: str = Field(default="", max_length=10)
-    parentCrn: str = Field(default="", max_length=10)
-    courseCode: str = Field(default="", max_length=40)
-    title: str = Field(default="", max_length=200)
-    ue: str = Field(default="", max_length=40)
-    component: str = Field(default="", max_length=40)
-    programmes: list[str] = Field(default_factory=list, max_length=10)
-    groupLabel: str = Field(default="", max_length=40)
-    teacherName: str = Field(default="", max_length=160)
-    hours: float | None = Field(default=None, ge=0, le=500)
-    hoursSaid: str = Field(default="", max_length=60)
-    comments: str = Field(default="", max_length=2000)
-    position: int = Field(default=0, ge=0, le=100000)
-
-
 class SeriesInput(BaseModel):
     sectionId: str = Field(min_length=1, max_length=60)
     weekday: int = Field(ge=1, le=7)
@@ -134,31 +118,13 @@ def settle_plan(
         raise _refused(exc) from exc
 
 
-@router.post("/{term_code}/sections", status_code=status.HTTP_201_CREATED)
-def add_section(
-    term_code: str, body: SectionInput, request: Request, plans: PlanStore = Depends(get_plans)
-) -> dict[str, Any]:
-    try:
-        return plans.add_section(term_code, body.model_dump(), actor=_actor(request))
-    except (InvalidPlan, PlanNotFound) as exc:
-        raise _refused(exc) from exc
-
-
-@router.patch("/{term_code}/sections/{section_id}")
-def update_section(
-    term_code: str, section_id: str, body: SectionInput, request: Request, plans: PlanStore = Depends(get_plans)
-) -> dict[str, Any]:
-    try:
-        return plans.update_section(term_code, section_id, body.model_dump(), actor=_actor(request))
-    except (InvalidPlan, PlanNotFound) as exc:
-        raise _refused(exc) from exc
-
-
+# The classes themselves are Groups & CRNs': added, changed and removed there. All the plan
+# takes off is one that is no longer there, once nobody needs its placements.
 @router.delete("/{term_code}/sections/{section_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_section(term_code: str, section_id: str, plans: PlanStore = Depends(get_plans)) -> None:
     try:
         plans.remove_section(term_code, section_id)
-    except PlanNotFound as exc:
+    except (InvalidPlan, PlanNotFound) as exc:
         raise _refused(exc) from exc
 
 

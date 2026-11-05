@@ -107,7 +107,8 @@ export type ClassDraft = Slot & { sectionId: string; weeks: number[]; note: stri
 function sectionOption(section: PlanSection): SelectOption {
   return {
     value: section.id,
-    label: `${section.courseCode} · ${section.title}`,
+    // Every group of a course is a class of its own, so the group is what tells them apart.
+    label: [section.courseCode, section.title, section.groupLabel].filter(Boolean).join(" · "),
     badge: section.crn ? `CRN ${section.crn}` : undefined,
     badgeTone: "muted",
     searchText: `${section.crn} ${section.teacherName} ${section.programmes.join(" ")} ${section.groupLabel}`,
@@ -150,7 +151,11 @@ export function PlanClassDialog({
   useEffect(() => setDraft(initial), [initial]);
   const set = (patch: Partial<ClassDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const section = plan.sections.find((entry) => entry.id === draft.sectionId);
-  const sectionOptions = useMemo(() => plan.sections.map(sectionOption), [plan.sections]);
+  // A class no longer on Groups & CRNs is not placed again; it is only shown where it already is.
+  const sectionOptions = useMemo(
+    () => plan.sections.filter((entry) => !entry.gone || entry.id === draft.sectionId).map(sectionOption),
+    [plan.sections, draft.sectionId],
+  );
   const roomOptions = useMemo(() => {
     const known = [...new Set([...rooms, ...(draft.room ? [draft.room] : [])])].sort((a, b) =>
       a.localeCompare(b, undefined, { numeric: true }),
@@ -202,11 +207,7 @@ export function PlanClassDialog({
           <SelectMenu
             label="Class"
             value={draft.sectionId}
-            // The teacher is the class's own: choosing another class brings its teacher with it,
-            // rather than carrying over whatever was typed for the last one.
-            onChange={(sectionId) =>
-              set({ sectionId, teacherName: plan.sections.find((entry) => entry.id === sectionId)?.teacherName ?? "" })
-            }
+            onChange={(sectionId) => set({ sectionId })}
             options={sectionOptions}
             placeholder="Choose the class to place"
             searchable
@@ -245,14 +246,13 @@ export function PlanClassDialog({
               searchPlaceholder="Search rooms"
             />
           </Titled>
-          <Field label="Teacher" hint={section?.crn ? `Teaches every class of CRN ${section.crn}, as on the portal.` : "Teaches every class of this section."}>
-            <input
-              value={draft.teacherName}
-              onChange={(event) => set({ teacherName: event.target.value })}
-              placeholder={section?.teacherName || "Nobody named yet"}
-              className={INPUT}
-            />
-          </Field>
+          {/* The class's teacher is Groups & CRNs' to say, like the class itself. */}
+          <Titled title="Teacher">
+            <p className={`${INPUT} bg-[#f8fafc] ${section?.teacherName ? "text-[#344054]" : "text-[#98a2b3]"}`}>
+              {section?.teacherName || "Nobody named yet"}
+            </p>
+            <span className="text-xs text-[#667085]">Set on Groups & CRNs, for every class of this group.</span>
+          </Titled>
         </div>
         <div className="grid gap-1">
           <span className="text-sm font-medium text-[#344054]">Weeks</span>

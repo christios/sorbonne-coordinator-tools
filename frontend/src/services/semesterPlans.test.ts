@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { clashesOf, groupWords, mayShareStudents, plannedHours, weeksSaid, type Plan, type PlanClass, type PlanSection } from "@/services/semesterPlans";
+import {
+  clashesOf,
+  endOf,
+  groupWords,
+  mayShareStudents,
+  plannedHours,
+  studentsOf,
+  weeksSaid,
+  type Place,
+  type Plan,
+  type PlanClass,
+  type PlanSection,
+} from "@/services/semesterPlans";
 
 function section(id: string, fields: Partial<PlanSection> = {}): PlanSection {
   return {
@@ -16,10 +28,33 @@ function section(id: string, fields: Partial<PlanSection> = {}): PlanSection {
     teacherName: "",
     hours: null,
     hoursSaid: "",
+    duration: "",
+    places: [],
+    gone: false,
     comments: "",
     position: 0,
     updatedAt: "",
     updatedBy: "",
+    ...fields,
+  };
+}
+
+/** A group of a set of a cohort, as Groups & CRNs places a class. */
+function at(cohort: string, set: string, group: string, fields: Partial<Place> = {}): Place {
+  return {
+    cohortId: cohort,
+    cohort,
+    setId: `${cohort}-${set}`,
+    set,
+    parentSetId: "",
+    openToAll: false,
+    onlyGroup: false,
+    groupId: `${cohort}-${set}-${group}`,
+    group,
+    parentGroupIds: [],
+    parallelWith: [],
+    majorId: "",
+    majors: [],
     ...fields,
   };
 }
@@ -88,6 +123,48 @@ describe("which classes may share students", () => {
   });
 });
 
+describe("whose students two groups of Groups & CRNs are", () => {
+  const td1 = at("L1-S2", "TD", "1");
+  const td2 = at("L1-S2", "TD", "2");
+
+  it("keeps the groups of one set apart, and the cohorts apart", () => {
+    expect(studentsOf(td1, td1)).toBe("same");
+    expect(studentsOf(td1, td2)).toBe("none");
+    expect(studentsOf(td1, at("L2-S2", "TD", "1"))).toBe("none");
+  });
+
+  it("puts a nested group with the groups it goes with, and the cohort's one lecture with everybody", () => {
+    const philosophy = at("L1-S2", "PHIL-TD", "1", { parentSetId: td1.setId, parentGroupIds: [td1.groupId] });
+    expect(studentsOf(philosophy, td1)).toBe("same");
+    expect(studentsOf(td2, philosophy)).toBe("none");
+    expect(studentsOf(at("L1-S2", "CM", "1", { onlyGroup: true }), td2)).toBe("same");
+  });
+
+  it("cannot say for a language group or two sets that cut the cohort differently", () => {
+    expect(studentsOf(td1, at("FYS-S2", "LANG", "A0-F1", { openToAll: true }))).toBe("maybe");
+    expect(studentsOf(td1, at("L1-S2", "MTP", "2A"))).toBe("maybe");
+    // …but two language groups never share a student.
+    expect(studentsOf(at("FYS-S2", "LANG", "A0-F1", { openToAll: true }), at("FYS-S2", "LANG", "A0-F2", { openToAll: true }))).toBe("none");
+  });
+
+  it("is what a clash between two such classes goes by", () => {
+    const one = section("a", { places: [td1] });
+    const other = section("b", { courseCode: "PHYS-126", places: [td2] });
+    const lecture = section("c", { courseCode: "MATH-114", places: [at("L1-S2", "CM", "1", { onlyGroup: true })] });
+    expect(mayShareStudents(one, other)).toBe(false);
+    expect(mayShareStudents(one, lecture)).toBe(true);
+  });
+});
+
+describe("how long a class dropped on the week is", () => {
+  it("is one session as Groups & CRNs says it, or the slot when it says none or two", () => {
+    expect(endOf(section("a", { duration: "1.5" }), "08:30", "10:00")).toBe("10:00");
+    expect(endOf(section("a", { duration: "3" }), "13:00", "14:30")).toBe("16:00");
+    expect(endOf(section("a", { duration: "1, 2" }), "13:00", "14:30")).toBe("14:30");
+    expect(endOf(section("a"), "13:00", "14:30")).toBe("14:30");
+  });
+});
+
 describe("clashes", () => {
   it("finds the same teacher and the same room at overlapping hours, and not back-to-back classes", () => {
     const a = section("a", { courseCode: "MATH-002", programmes: ["L2"] });
@@ -112,6 +189,10 @@ describe("what a box calls a class's group", () => {
   it("puts the type before a group, once", () => {
     expect(groupWords(section("a", { component: "TD", groupLabel: "G1" }), false)).toBe("TD G1");
     expect(groupWords(section("b", { component: "TD", groupLabel: "TD 2" }), false)).toBe("TD 2");
+  });
+
+  it("calls a class from Groups & CRNs by its set and group", () => {
+    expect(groupWords(section("a", { component: "TD", groupLabel: "RDNS 3", places: [at("FYS-S2", "RDNS", "3")] }), false)).toBe("RDNS 3");
   });
 
   it("names one of several parallel classes with no group of its own", () => {

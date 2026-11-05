@@ -17,6 +17,51 @@ AT = "/api/v1/plans"
 TERM = "262720"
 
 
+SEMESTER = f"plan:{TERM}"
+
+
+class Groups:
+    """Groups & CRNs for the plan's semester, written the way that page keeps it."""
+
+    def __init__(self, store: PlanStore) -> None:
+        self.engine = store.engine
+
+    def _insert(self, table: str, **values: object) -> str:
+        columns = ", ".join(values)
+        marks = ", ".join(f":{key}" for key in values)
+        with self.engine.begin() as connection:
+            connection.execute(text(f"INSERT INTO {table} ({columns}) VALUES ({marks})"), values)  # noqa: S608
+        return str(values.get("id", ""))
+
+    def cohort(self, name: str) -> str:
+        return self._insert(
+            "student_cohorts", id=f"plan-test-{name}", name=name, created_at="2026-11-05", updated_at="2026-11-05"
+        )
+
+    def set(self, cohort: str, code: str, **fields: object) -> str:
+        return self._insert(
+            "cohort_scopes", id=f"{cohort}-{code}", cohort_id=cohort, code=code, term_id=SEMESTER, **fields
+        )
+
+    def course(self, scope: str, code: str, name: str = "", component: str = "", **fields: object) -> str:
+        return self._insert(
+            "scope_courses", id=f"{scope}-{code}", scope_id=scope, code=code, name=name, component=component, **fields
+        )
+
+    def group(self, scope: str, label: str, **fields: object) -> str:
+        return self._insert("scope_groups", id=f"{scope}-g{label}", scope_id=scope, label=label, **fields)
+
+    def major(self, group: str, program: str) -> str:
+        return self._insert("group_majors", id=f"{group}-{program}", group_id=group, program=program)
+
+    def cell(self, group: str, course: str, crn: str = "", **fields: object) -> None:
+        self._insert("group_crns", group_id=group, course_id=course, crn=crn, **fields)
+
+    def change(self, sql: str, **values: object) -> None:
+        with self.engine.begin() as connection:
+            connection.execute(text(sql), values)
+
+
 @pytest.fixture
 def plans() -> PlanStore:
     store = PlanStore(engine_for(TEST_DATABASE_URL))
@@ -24,7 +69,13 @@ def plans() -> PlanStore:
         connection.execute(text("DELETE FROM plan_terms"))
         connection.execute(text("DELETE FROM term_links WHERE term_id LIKE 'plan:%'"))
         connection.execute(text("DELETE FROM term_weeks WHERE term_id LIKE 'plan:%'"))
+        connection.execute(text("DELETE FROM student_cohorts WHERE id LIKE 'plan-test-%'"))
     return store
+
+
+@pytest.fixture
+def groups(plans: PlanStore) -> Groups:
+    return Groups(plans)
 
 
 @pytest.fixture
@@ -37,8 +88,11 @@ def client(plans: PlanStore) -> TestClient:
 
 
 @pytest.fixture
-def section(client: TestClient) -> dict:
-    """Second semester 2026-27: Week 1 is 11 January 2027, the week of 15 February is a break."""
+def section(client: TestClient, groups: Groups) -> dict:
+    """Second semester 2026-27: Week 1 is 11 January 2027, the week of 15 February is a break.
+
+    Foundation Year's lecture group A is taught Elements of Calculus, CRN 22229, by Bilal Maaz.
+    """
     assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
     settled = client.put(
         f"{AT}/{TERM}/settings",
@@ -51,23 +105,11 @@ def section(client: TestClient) -> dict:
         },
     )
     assert settled.status_code == 200, settled.text
-    made = client.post(
-        f"{AT}/{TERM}/sections",
-        json={
-            "crn": "22229",
-            "parentCrn": "23857",
-            "courseCode": "math-002",
-            "title": "Elements of Calculus GA- CM",
-            "component": "CM",
-            "programmes": ["FYS"],
-            "groupLabel": "GA",
-            "teacherName": "Bilal Maaz",
-            "hours": 60,
-            "hoursSaid": "60CM",
-        },
-    )
-    assert made.status_code == 201, made.text
-    return made.json()
+    fys = groups.cohort("FYS-S2")
+    lectures = groups.set(fys, "CM")
+    calculus = groups.course(lectures, "math-002", "Elements of Calculus", "CM")
+    groups.cell(groups.group(lectures, "A"), calculus, "22229", teacher="Bilal Maaz", hours="60", duration="1.5")
+    return next(each for each in client.get(f"{AT}/{TERM}").json()["sections"] if each["crn"] == "22229")
 
 
 def place(client: TestClient, section: dict, **fields) -> dict:
@@ -209,10 +251,64 @@ def test_a_class_is_checked_before_it_is_placed(client, section):
     assert "teaching weeks are 1 to 14" in beyond.json()["detail"]
 
 
-def test_a_crn_is_in_a_plan_once(client, section):
-    again = client.post(f"{AT}/{TERM}/sections", json={"crn": "22229", "courseCode": "MATH-002"})
-    assert again.status_code == 422
-    assert "in the plan already" in again.json()["detail"]
+def test_the_classes_to_place_are_each_group_of_a_set_taught_each_of_its_courses(client, groups, section):
+    l2 = groups.cohort("L2-S2")
+    tutorials = groups.set(l2, "TD")
+    algebra = groups.course(tutorials, "MATH-224", "Algebra 2", "TD", hours="30")
+    waves = groups.course(tutorials, "PHYS-213", "Waves", "TD")
+    maths = groups.group(tutorials, "Mathematics")
+    physics = groups.group(tutorials, "Physics")
+    # The mathematicians are not taught Waves; the physicists' Algebra is handed over halfway.
+    groups.cell(maths, waves, not_taught=True, major_id=groups.major(maths, "MATH"))
+    groups.cell(physics, algebra, "24001", teacher="Samar Ghantous", part=1)
+    groups.cell(physics, algebra, "24002", teacher="Rana Shabaneh", part=2)
+    groups.cell(physics, waves, "24003", retired=True)
+
+    plan = client.get(f"{AT}/{TERM}").json()
+    l2_classes = [
+        (each["courseCode"], each["groupLabel"], each["crn"], each["teacherName"], each["hours"], each["programmes"])
+        for each in plan["sections"]
+        if each["programmes"] == ["L2-S2"]
+    ]
+    assert l2_classes == [
+        # A class before it has a CRN, with the hours its course asks for.
+        ("MATH-224", "TD Mathematics", "", "", 30.0, ["L2-S2"]),
+        # Each half of a handed-over section, with its own CRN and teacher.
+        ("MATH-224", "TD Physics", "24001", "Samar Ghantous", 30.0, ["L2-S2"]),
+        ("MATH-224", "TD Physics", "24002", "Rana Shabaneh", 30.0, ["L2-S2"]),
+    ]
+    # Each class says whose majors it is for: the sub-rows it teaches.
+    maths_algebra = next(each for each in plan["sections"] if each["groupLabel"] == "TD Mathematics")
+    assert maths_algebra["places"][0]["majors"] == ["MATH"]
+    # Read again, nothing is added twice.
+    assert len(client.get(f"{AT}/{TERM}").json()["sections"]) == len(plan["sections"])
+    calculus = next(each for each in plan["sections"] if each["crn"] == "22229")
+    assert (calculus["teacherName"], calculus["hours"], calculus["duration"]) == ("Bilal Maaz", 60.0, "1.5")
+
+
+def test_one_crn_carried_by_two_cohorts_is_one_class_taught_to_both(client, groups, section):
+    l1 = groups.cohort("L1-S2")
+    lectures = groups.set(l1, "CM")
+    calculus = groups.course(lectures, "MATH-002", "Elements of Calculus", "CM")
+    groups.cell(groups.group(lectures, "1"), calculus, "22229")
+    shared = [each for each in client.get(f"{AT}/{TERM}").json()["sections"] if each["crn"] == "22229"]
+    assert len(shared) == 1
+    assert shared[0]["programmes"] == ["FYS-S2", "L1-S2"]
+    assert [place["cohort"] for place in shared[0]["places"]] == ["FYS-S2", "L1-S2"]
+
+
+def test_a_crn_entered_later_keeps_the_class_where_it_was_placed(client, groups, section):
+    l3 = groups.cohort("L3-S2")
+    lab = groups.set(l3, "TP")
+    optics = groups.course(lab, "PHYS-310", "Optics", "TP")
+    group = groups.group(lab, "1")
+    waiting = next(each for each in client.get(f"{AT}/{TERM}").json()["sections"] if each["courseCode"] == "PHYS-310")
+    place(client, waiting)
+    groups.cell(group, optics, "24500", teacher="Ahmed Menaa")
+    plan = client.get(f"{AT}/{TERM}").json()
+    now = next(each for each in plan["sections"] if each["courseCode"] == "PHYS-310")
+    assert (now["id"], now["crn"], now["teacherName"]) == (waiting["id"], "24500", "Ahmed Menaa")
+    assert {entry["sectionId"] for entry in plan["classes"]} >= {waiting["id"]}
 
 
 def test_the_semester_cannot_end_before_a_week_classes_are_planned_in(client, section):
@@ -222,8 +318,27 @@ def test_the_semester_cannot_end_before_a_week_classes_are_planned_in(client, se
     assert "week 12" in shorter.json()["detail"]
 
 
-def test_taking_a_class_off_the_plan_takes_its_series_with_it(client, section):
+def test_a_class_no_longer_on_groups_and_crns_leaves_or_waits_to_be_taken_off(client, groups, section):
+    fys = "plan-test-FYS-S2"
+    tutorials = groups.set(fys, "TD")
+    groups.course(tutorials, "MATH-006", "Calculus tutorials", "TD")
+    groups.group(tutorials, "1")
+    assert len(client.get(f"{AT}/{TERM}").json()["sections"]) == 2
+    # Still on Groups & CRNs, it is not the plan's to take off.
+    refused = client.delete(f"{AT}/{TERM}/sections/{section['id']}")
+    assert refused.status_code == 422
+
     place(client, section)
+    groups.change("DELETE FROM cohort_scopes WHERE cohort_id = :c", c=fys)
+    plan = client.get(f"{AT}/{TERM}").json()
+    # Never placed: gone with it. Placed: kept, said to be gone, and not placed again.
+    assert [(each["crn"], each["gone"]) for each in plan["sections"]] == [("22229", True)]
+    assert len(plan["classes"]) == 2
+    again = client.post(
+        f"{AT}/{TERM}/series",
+        json={"sectionId": section["id"], "weekday": 3, "startsAt": "08:30", "endsAt": "10:00", "weeks": [4]},
+    )
+    assert "no longer on Groups & CRNs" in again.json()["detail"]
     assert client.delete(f"{AT}/{TERM}/sections/{section['id']}").status_code == 204
     plan = client.get(f"{AT}/{TERM}").json()
     assert plan["sections"] == [] and plan["series"] == [] and plan["classes"] == []

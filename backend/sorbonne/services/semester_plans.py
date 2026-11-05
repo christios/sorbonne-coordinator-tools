@@ -1,9 +1,13 @@
 """A semester planned by the department before the registrar books it.
 
-A plan is a list of classes to place (one per CRN, with the hours asked for) and, for each,
-the series it has been placed as: a weekday, an hour, a room, and the teaching weeks it
-meets in. A series is how a coordinator thinks — "Tuesdays 8:30 to 10:00, weeks 1 to 12" —
-and a week of it changed on its own is a move, kept against that week. The dated classes
+A plan is a list of classes to place and, for each, the series it has been placed as: a
+weekday, an hour, a room, and the teaching weeks it meets in. The classes are not the plan's
+own: they are what Groups & CRNs says the semester has — every group of a set, for each
+course the set carries — read afresh whenever the plan is opened (see `classes_from_groups`).
+Groups & CRNs decides what is taught to whom; the plan decides when and where.
+
+A series is how a coordinator thinks — "Tuesdays 8:30 to 10:00, weeks 1 to 12" — and a
+week of it changed on its own is a move, kept against that week. The dated classes
 are worked out from the two and the semester's calendar, never stored: move Week 1, add a
 break, and every class follows, the way the rest of the timetable already counts weeks.
 
@@ -38,6 +42,13 @@ MONDAY, SUNDAY = 1, 7
 SCOPES = ("one", "following", "all")
 # What a single class can differ from its series by. The weeks and the note are the series'.
 OWN = ("weekday", "startsAt", "endsAt", "room", "teacherName")
+# What a class takes from Groups & CRNs each time the plan is opened: the plain fields, and
+# the ones kept as JSON.
+_FOLLOWED = (
+    "crn", "course_code", "title", "component", "group_label", "teacher_name", "hours", "hours_said", "duration",
+    "comments", "position",
+)
+_JSON = ("programmes", "cells", "places")
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 _SHORT_TIME = re.compile(r"^\d:[0-5]\d$")
 _TERM = re.compile(r"^\d{6}$")
@@ -209,11 +220,169 @@ def _section(row: Any, names: dict[str, str]) -> dict[str, Any]:
         "teacherName": row["teacher_name"],
         "hours": row["hours"],
         "hoursSaid": row["hours_said"],
+        "duration": row["duration"],
+        "places": json.loads(row["places"] or "[]"),
+        # Placed on the calendar, and no longer on Groups & CRNs: it waits to be taken off.
+        "gone": bool(row["gone_at"]),
         "comments": row["comments"],
         "position": row["position"],
         "updatedAt": row["updated_at"],
         "updatedBy": names.get(row["updated_by"], row["updated_by"]),
     }
+
+
+def _number(value: object) -> float | None:
+    """ "21.5" as 21.5; anything that is not one number, as nothing."""
+    try:
+        number = float(str(value or "").strip())
+    except ValueError:
+        return None
+    return number if 0 <= number <= MOST_HOURS else None
+
+
+def classes_from_groups(  # noqa: PLR0913 - one argument per table Groups & CRNs is kept in
+    scopes: list[Any],
+    courses: list[Any],
+    groups: list[Any],
+    majors: list[Any],
+    cells: list[Any],
+    teachers: dict[str, str],
+) -> list[dict[str, Any]]:
+    """The classes Groups & CRNs says a semester has, in the order it lists them.
+
+    A class is a group of a set taught one of the set's courses: TD 2 of Foundation Year's
+    tutorials taught MATH-006. It is a class from the moment the group and the course exist,
+    before anybody has a CRN for it, because that is when it can be planned. Left out are a
+    course every sub-row of a group is "not taught", and a part marked retired.
+
+    A sub-row with a CRN of its own for a course is a class of its own, for that sub-row's
+    students; a section handed over at mid-semester is a class per half, each with its CRN
+    and its teacher. One CRN is one class however many groups carry it — a lecture shared
+    by two cohorts is one room at one hour — and it lists every place it is taught to.
+
+    Each class names its cells, which is how it is found again next time even after its
+    CRN changes, and its places, which is how the calendar tells which classes may share
+    students: the cohort, the set (and the set it is nested in), the group and its parents.
+    """
+    cohorts_of_semester = sorted({scope["cohort_name"] for scope in scopes})
+    by_scope: dict[str, list[Any]] = {}
+    for course in courses:
+        by_scope.setdefault(course["scope_id"], []).append(course)
+    groups_of: dict[str, list[Any]] = {}
+    for group in groups:
+        groups_of.setdefault(group["scope_id"], []).append(group)
+    majors_of: dict[str, list[Any]] = {}
+    for major in majors:
+        majors_of.setdefault(major["group_id"], []).append(major)
+    held: dict[tuple[str, str, str], list[Any]] = {}
+    for cell in cells:
+        held.setdefault((cell["group_id"], cell["course_id"], cell["major_id"] or ""), []).append(cell)
+
+    found: list[dict[str, Any]] = []
+    by_crn: dict[str, dict[str, Any]] = {}
+
+    def add(item: dict[str, Any]) -> None:
+        same = by_crn.get(item["crn"]) if item["crn"] else None
+        if same is None:
+            item["position"] = len(found)
+            found.append(item)
+            if item["crn"]:
+                by_crn[item["crn"]] = item
+            return
+        same["cells"] += item["cells"]
+        same["places"] += item["places"]
+        same["programmes"] = sorted({*same["programmes"], *item["programmes"]})
+
+    for scope in scopes:
+        siblings = groups_of.get(scope["id"], [])
+        for group in siblings:
+            subrows = majors_of.get(group["id"], [])
+            for course in by_scope.get(scope["id"], []):
+                own = {major["id"]: held.get((group["id"], course["id"], major["id"]), []) for major in subrows}
+                # A sub-row with a CRN of its own for the course is taught it apart from the group.
+                apart = [
+                    major
+                    for major in subrows
+                    if any(cell["crn"] and not cell["not_taught"] for cell in own[major["id"]])
+                ]
+                with_group = [
+                    major
+                    for major in subrows
+                    if major not in apart and not any(cell["not_taught"] for cell in own[major["id"]])
+                ]
+                # Whose majors each class is for: its sub-rows', or the cohort's for a group with none.
+                everyone = [str(code) for code in _group_ids(scope["cohort_majors"])]
+                shared = held.get((group["id"], course["id"], ""), [])
+                taught = (
+                    [(None, shared, [major["program"] for major in with_group] or everyone)]
+                    if with_group or not subrows
+                    else []
+                )
+                taught += [(major, own[major["id"]], [major["program"]]) for major in apart]
+                for major, parts, programs in taught:
+                    live = [cell for cell in parts if not cell["retired"] and not cell["not_taught"]]
+                    if parts and not live:
+                        continue  # every part of it retired: no longer taught
+                    for cell in sorted(live, key=lambda row: row["part"]) or [None]:
+                        one = _class_of(scope, group, course, major, cell, teachers, len(siblings))
+                        one["places"][0]["majors"] = programs
+                        # A set open to every cohort is every cohort's: the languages.
+                        one["programmes"] = cohorts_of_semester if scope["open_to_all"] else [scope["cohort_name"]]
+                        add(one)
+    return found
+
+
+def _class_of(  # noqa: PLR0913 - the set, group, course, sub-row and cell a class is, and who teaches
+    scope: Any, group: Any, course: Any, major: Any | None, cell: Any | None, teachers: dict[str, str], siblings: int
+) -> dict[str, Any]:
+    """One class: a group (or one sub-row of it) taught a course, by one part of its section."""
+    asked = cell if cell is not None else course
+    hours_said = str((cell or {}).get("hours") or course["hours"] or "").strip()
+    teacher = _words((cell or {}).get("teacher")) or teachers.get((cell or {}).get("teacher_id") or "", "")
+    duration = str((cell or {}).get("duration") or course["duration"] or "").strip()
+    major_id = major["id"] if major else ""
+    label = f"{scope['code']} {group['label']}".strip()
+    return {
+        "crn": str((cell or {}).get("crn") or "").strip(),
+        "course_code": str(course["code"] or "").upper(),
+        "title": _words(course["name"]),
+        "component": _words(course["component"]) or scope["code"],
+        "group_label": f"{label} {major['program']}" if major else label,
+        "teacher_name": teacher or teachers.get(course["teacher_id"] or "", ""),
+        "hours": _number(hours_said),
+        "hours_said": hours_said,
+        "duration": duration,
+        "comments": str(asked["comments"] or "").strip()[:2000],
+        "cells": [f"{group['id']}|{course['id']}|{major_id}|{(cell or {}).get('part') or 1}"],
+        "places": [
+            {
+                "cohortId": scope["cohort_id"],
+                "cohort": scope["cohort_name"],
+                "setId": scope["id"],
+                "set": scope["code"],
+                "parentSetId": scope["parent_scope_id"] or "",
+                "openToAll": bool(scope["open_to_all"]),
+                # A set of one group holds every student of the cohort placed in it.
+                "onlyGroup": siblings == 1,
+                "groupId": group["id"],
+                "group": group["label"],
+                "parentGroupIds": _group_ids(group["parent_group_ids"]) or [
+                    group_id for group_id in [group["parent_group_id"]] if group_id
+                ],
+                "parallelWith": _group_ids(group["parallel_with"]),
+                "majorId": major_id,
+            }
+        ],
+    }
+
+
+def _group_ids(raw: object) -> list[str]:
+    """A JSON list of group ids as Groups & CRNs keeps them; anything else, none."""
+    try:
+        ids = json.loads(raw or "[]") if isinstance(raw, str) else raw
+    except ValueError:
+        return []
+    return [str(each) for each in ids if each] if isinstance(ids, list) else []
 
 
 def classes_of(term: dict[str, Any], series: list[dict[str, Any]], sections: dict[str, dict[str, Any]]):
@@ -364,7 +533,14 @@ class PlanStore:
         return self.plan(term_code)
 
     def plan(self, term_code: str) -> dict[str, Any]:
-        """The whole plan: the semester, its classes to place, its series, and the dated classes."""
+        """The whole plan: the semester, its classes to place, its series, and the dated classes.
+
+        The classes are brought in line with Groups & CRNs first, so what is drawn is what it
+        says now — a group added there a minute ago is a class to place here.
+        """
+        with self.engine.begin() as connection:
+            self._term(connection, term_code)
+            self._follow_groups(connection, term_code)
         with self.engine.connect() as connection:
             term = self._term(connection, term_code)
             section_rows = connection.execute(
@@ -394,107 +570,128 @@ class PlanStore:
 
     # ------------------------------------------------------------------ the classes to place
 
-    def _section_fields(self, fields: dict[str, Any]) -> dict[str, Any]:
-        hours = fields.get("hours")
-        if hours is not None:
-            hours = float(hours)
-            if not 0 <= hours <= MOST_HOURS:
-                raise InvalidPlan(f"Hours asked for are between 0 and {MOST_HOURS}.")
-        programmes: dict[str, str] = {}
-        for value in fields.get("programmes") or []:
-            words = _short(value, "programme")
-            if words:
-                programmes.setdefault(words.casefold(), words)
-        crn = str(fields.get("crn") or "").strip()
-        if crn and not crn.isdigit():
-            raise InvalidPlan(f"{crn!r} is not a CRN: CRNs are numbers.")
-        parent = str(fields.get("parentCrn") or "").strip()
-        if parent and not parent.isdigit():
-            raise InvalidPlan(f"{parent!r} is not a parent CRN: CRNs are numbers.")
-        title = _short(fields.get("title"), "class's name")
-        code = _short(fields.get("courseCode"), "course code").upper()
-        if not title and not code:
-            raise InvalidPlan("A class to place needs a course code or a name.")
-        return {
-            "crn": crn,
-            "parent_crn": parent,
-            "course_code": code,
-            "title": title,
-            "ue": _short(fields.get("ue"), "UE"),
-            "component": _short(fields.get("component"), "type"),
-            "programmes": json.dumps(list(programmes.values())),
-            "group_label": _short(fields.get("groupLabel"), "group"),
-            "teacher_name": _short(fields.get("teacherName"), "teacher's name"),
-            "hours": hours,
-            "hours_said": _short(fields.get("hoursSaid"), "hours as asked"),
-            "comments": str(fields.get("comments") or "").strip()[:2000],
-            "position": int(fields.get("position") or 0),
-        }
+    def _follow_groups(self, connection: Connection, term_code: str) -> None:
+        """Bring the plan's classes in line with what Groups & CRNs has for its semester.
 
-    def _crn_free(self, connection: Connection, term_code: str, crn: str, keeping: str = "") -> None:
-        if not crn:
-            return
-        taken = connection.execute(
-            text("SELECT title FROM plan_sections WHERE term_code = :term AND crn = :crn AND id <> :keeping"),
-            {"term": term_code, "crn": crn, "keeping": keeping},
-        ).first()
-        if taken:
-            raise InvalidPlan(f"CRN {crn} is in the plan already, as {taken[0] or 'another class'}.")
+        Each class is found again by its cells first and its CRN second, so a CRN entered or
+        corrected there leaves the class where it was placed. A class no longer there is
+        dropped if it was never placed, and kept, marked, if it was: taking a placement away
+        is for a coordinator to do, having seen it.
 
-    def add_section(self, term_code: str, fields: dict[str, Any], *, actor: str = "") -> dict[str, Any]:
-        section = self._section_fields(fields)
-        section_id = str(uuid.uuid4())
-        with self.engine.begin() as connection:
-            self._term(connection, term_code)
-            self._crn_free(connection, term_code, section["crn"])
+        Two people opening the plan at once would each add the new classes; the lock makes
+        the second wait for the first and then find nothing left to add.
+        """
+        connection.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": f"plan:{term_code}"})
+        wanted = self._classes_in_groups(connection, term_code)
+        rows = connection.execute(
+            text("SELECT * FROM plan_sections WHERE term_code = :term"), {"term": term_code}
+        ).mappings().all()
+        placed = set(
             connection.execute(
-                text("""INSERT INTO plan_sections (id, term_code, crn, parent_crn, course_code, title, ue, component,
-                            programmes, group_label, teacher_name, hours, hours_said, comments, position,
-                            updated_at, updated_by)
-                        VALUES (:id, :term, :crn, :parent_crn, :course_code, :title, :ue, :component,
-                            :programmes, :group_label, :teacher_name, :hours, :hours_said, :comments, :position,
-                            :at, :by)"""),
-                {**section, "id": section_id, "term": term_code, "at": _now(), "by": actor},
-            )
-        return self._one_section(section_id)
+                text("SELECT DISTINCT section_id FROM plan_series WHERE term_code = :term"), {"term": term_code}
+            ).scalars()
+        )
+        by_crn = {row["crn"]: row for row in rows if row["crn"]}
+        by_cell = {cell: row for row in rows for cell in json.loads(row["cells"] or "[]")}
+        kept: set[str] = set()
+        at = _now()
+        for item in wanted:
+            row = by_crn.get(item["crn"]) if item["crn"] else None
+            if row is None or row["id"] in kept:
+                row = next(
+                    (by_cell[cell] for cell in item["cells"] if cell in by_cell and by_cell[cell]["id"] not in kept),
+                    None,
+                )
+            values = {
+                **{key: item[key] for key in _FOLLOWED},
+                "programmes": json.dumps(item["programmes"]),
+                "cells": json.dumps(item["cells"]),
+                "places": json.dumps(item["places"]),
+                "term": term_code,
+                "at": at,
+            }
+            if row is None:
+                connection.execute(
+                    text("""INSERT INTO plan_sections (id, term_code, crn, course_code, title, component, programmes,
+                                group_label, teacher_name, hours, hours_said, duration, comments, position, cells,
+                                places, updated_at)
+                            VALUES (:id, :term, :crn, :course_code, :title, :component, :programmes, :group_label,
+                                :teacher_name, :hours, :hours_said, :duration, :comments, :position, :cells, :places,
+                                :at)"""),
+                    {**values, "id": str(uuid.uuid4())},
+                )
+                continue
+            kept.add(row["id"])
+            if row["gone_at"] or any(
+                (json.loads(row[key] or "[]") if key in _JSON else row[key])
+                != (json.loads(values[key]) if key in _JSON else values[key])
+                for key in (*_FOLLOWED, *_JSON)
+            ):
+                connection.execute(
+                    text("""UPDATE plan_sections SET crn = :crn, course_code = :course_code, title = :title,
+                                component = :component, programmes = :programmes, group_label = :group_label,
+                                teacher_name = :teacher_name, hours = :hours, hours_said = :hours_said,
+                                duration = :duration, comments = :comments, position = :position, cells = :cells,
+                                places = :places, gone_at = '', updated_at = :at
+                            WHERE id = :id"""),
+                    {**values, "id": row["id"]},
+                )
+        for row in rows:
+            if row["id"] in kept:
+                continue
+            if row["id"] in placed:
+                if not row["gone_at"]:
+                    connection.execute(
+                        text("UPDATE plan_sections SET gone_at = :at WHERE id = :id"), {"at": at, "id": row["id"]}
+                    )
+            else:
+                connection.execute(text("DELETE FROM plan_sections WHERE id = :id"), {"id": row["id"]})
 
-    def update_section(
-        self, term_code: str, section_id: str, fields: dict[str, Any], *, actor: str = ""
-    ) -> dict[str, Any]:
-        section = self._section_fields(fields)
-        with self.engine.begin() as connection:
-            self._crn_free(connection, term_code, section["crn"], keeping=section_id)
-            changed = connection.execute(
-                text("""UPDATE plan_sections SET crn = :crn, parent_crn = :parent_crn, course_code = :course_code,
-                            title = :title, ue = :ue, component = :component, programmes = :programmes,
-                            group_label = :group_label, teacher_name = :teacher_name, hours = :hours,
-                            hours_said = :hours_said, comments = :comments, position = :position,
-                            updated_at = :at, updated_by = :by
-                        WHERE id = :id AND term_code = :term"""),
-                {**section, "id": section_id, "term": term_code, "at": _now(), "by": actor},
-            )
-        if changed.rowcount == 0:
-            raise PlanNotFound(section_id)
-        return self._one_section(section_id)
+    def _classes_in_groups(self, connection: Connection, term_code: str) -> list[dict[str, Any]]:
+        """Read Groups & CRNs for the plan's semester and say what classes it holds."""
+        scopes = connection.execute(
+            text("""SELECT s.*, c.name AS cohort_name, c.major_codes AS cohort_majors FROM cohort_scopes s
+                    JOIN student_cohorts c ON c.id = s.cohort_id
+                    WHERE s.term_id = :semester
+                    ORDER BY s.open_to_all, c.name, s.position, s.code"""),
+            {"semester": semester_of(term_code)},
+        ).mappings().all()
+        ids = [scope["id"] for scope in scopes] or [""]
+
+        def rows(sql: str) -> list[Any]:
+            return list(connection.execute(text(sql), {"ids": ids}).mappings().all())
+
+        courses = rows("SELECT * FROM scope_courses WHERE scope_id = ANY(:ids) ORDER BY position, code")
+        groups = rows("SELECT * FROM scope_groups WHERE scope_id = ANY(:ids) ORDER BY position, label")
+        majors = rows("""SELECT m.* FROM group_majors m JOIN scope_groups g ON g.id = m.group_id
+                         WHERE g.scope_id = ANY(:ids) ORDER BY m.position, m.program""")
+        cells = rows("""SELECT gc.* FROM group_crns gc JOIN scope_groups g ON g.id = gc.group_id
+                        WHERE g.scope_id = ANY(:ids)""")
+        # The name an Active teacher goes by, for a section that names one by id and not in words.
+        teachers = dict(
+            connection.execute(
+                text("""SELECT a.id, coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), '')
+                        FROM active_teachers a LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id""")
+            ).all()
+        )
+        return classes_from_groups(scopes, courses, groups, majors, cells, teachers)
 
     def remove_section(self, term_code: str, section_id: str) -> None:
-        """Take a class off the plan, with everywhere it was placed."""
-        with self.engine.begin() as connection:
-            gone = connection.execute(
-                text("DELETE FROM plan_sections WHERE id = :id AND term_code = :term"),
-                {"id": section_id, "term": term_code},
-            )
-        if gone.rowcount == 0:
-            raise PlanNotFound(section_id)
+        """Take a class that is no longer on Groups & CRNs off the plan, with everywhere it was placed.
 
-    def _one_section(self, section_id: str) -> dict[str, Any]:
-        with self.engine.connect() as connection:
+        Only such a class: one Groups & CRNs still has would be back the next time the plan
+        is opened, without its placements. It is removed there, or its placements here.
+        """
+        with self.engine.begin() as connection:
             row = connection.execute(
-                text("SELECT * FROM plan_sections WHERE id = :id"), {"id": section_id}
-            ).mappings().first()
-        if not row:
-            raise PlanNotFound(section_id)
-        return _section(row, {row["updated_by"]: name_for(row["updated_by"])} if row["updated_by"] else {})
+                text("SELECT gone_at FROM plan_sections WHERE id = :id AND term_code = :term"),
+                {"id": section_id, "term": term_code},
+            ).first()
+            if row is None:
+                raise PlanNotFound(section_id)
+            if not row[0]:
+                raise InvalidPlan("This class is on Groups & CRNs: take it off there, or delete its classes here.")
+            connection.execute(text("DELETE FROM plan_sections WHERE id = :id"), {"id": section_id})
 
     # ------------------------------------------------------------------ placing classes
 
@@ -597,11 +794,13 @@ class PlanStore:
         with self.engine.begin() as connection:
             term = self._term(connection, term_code)
             section = connection.execute(
-                text("SELECT id FROM plan_sections WHERE id = :id AND term_code = :term"),
+                text("SELECT id, gone_at FROM plan_sections WHERE id = :id AND term_code = :term"),
                 {"id": str(fields.get("sectionId") or ""), "term": term_code},
             ).first()
             if not section:
                 raise InvalidPlan("Choose which class this is from the plan's classes to place.")
+            if section[1]:
+                raise InvalidPlan("This class is no longer on Groups & CRNs, so it cannot be placed again.")
             slot = self._slot(fields)
             weeks = self._weeks(fields.get("weeks"), term)
             series_id = self._insert_series(
