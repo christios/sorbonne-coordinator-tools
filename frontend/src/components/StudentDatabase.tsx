@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
@@ -20,6 +20,7 @@ import { PortalCourses } from "@/components/PortalCourses";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SemesterList } from "@/components/SemesterList";
+import { SemesterPlan } from "@/components/SemesterPlan";
 import { SemesterTimetable } from "@/components/SemesterTimetable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StudentRoster } from "@/components/StudentRoster";
@@ -59,6 +60,9 @@ const PAGES = [
   // application of its own beside this one, which put half of what is known about a
   // teacher behind a different front door.
   { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
+  // The department's own timetable, drawn before the registrar books it: the source a
+  // semester starts from, sent to the timetabling team and later held against the portal.
+  { id: "plan", name: "Semester plan", icon: CalendarCheck, group: "Timetables" },
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The department's whole week, one semester at a time. It was a screen opened from a
   // row of the list; it is where an afternoon of moving classes is spent, so it is a page.
@@ -160,6 +164,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   semesters: {
     title: "Semesters",
     blurb: "What the Student Hub holds, and whether students can see it yet.",
+  },
+  plan: {
+    title: "Semester plan",
+    blurb: "The semester as the department plans it, before the registrar books it: place each class on the week and repeat it over the teaching weeks.",
   },
   timetable: { title: "Semester Timetable" },
   rooms: { title: "Rooms" },
@@ -277,7 +285,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
    * every pixel the shell keeps for margins is a pixel of Friday afternoon. It asks, the
    * shell gives, and it gives it back on the way out.
    */
-  const fullBleed = page === "timetable" || page === "rooms";
+  const fullBleed = page === "timetable" || page === "rooms" || page === "plan";
   // The slot beside the page's title, for a page with controls of its own to put there.
   const [pageHeader, setPageHeader] = useState<HTMLDivElement | null>(null);
   // The teacher whose record is open, whichever list or page asked for it.
@@ -474,6 +482,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             <SemesterTimetable layout={page === "rooms" ? "rooms" : "days"} termId={detail} onPickTerm={openDetail} />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
+          {page === "plan" ? <SemesterPlan termCode={detail} onPickTerm={openDetail} /> : null}
         </div>
       </div>
     </div>

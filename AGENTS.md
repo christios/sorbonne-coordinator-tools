@@ -71,6 +71,17 @@ Important frontend boundaries:
   the workbook carries no other identifier. Readings are kept 50 deep so a wrong warning
   can be traced to the roster or the cohort. Do not add a live Teams or Graph dependency
   here without an approved scope.
+- **2026-11-05 — Semester plan:** a semester is planned in the app before the registrar books
+  it (Students and Timetables → Semester plan, `plan_*` tables from migration `0082`). A plan is
+  kept under the portal's term code, not a Student Hub semester, because a Hub semester is
+  created from the registrar's export, which is what does not exist yet. Classes are placed as
+  series over *teaching weeks* (Week 1, breaks and holidays are the plan's own settings) and the
+  dated classes are derived, never stored, so moving Week 1 moves every class. A change to a
+  repeating class asks this one / this and following / all; every change names the series'
+  revision. Coordinators and the Head of Department edit alike, with no approval step (user
+  decision, 5 Nov 2026). The plan is the source of what *should* happen; teacher hours,
+  timesheet pre-fill and the SCEN Requests feed keep reading the registrar's booked classes.
+  Next: the Excel workbook for the timetabling team, then plan-versus-portal comparison.
 - History controls belong inside the shared field/control layout. Do not manually position an icon beside individual text fields.
 - Legacy syllabus history can require a parent-path fallback for migrated structured data; preserve that compatibility in the store.
 - The teacher database was created by migration `0007`, which intentionally removed legacy requisition and requisition-folder data. Treat later destructive data migrations with the same explicit care.
