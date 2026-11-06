@@ -27,6 +27,7 @@ import {
   fetchHubTerms,
   saveAnnouncements,
 } from "@/services/timetables";
+import { semesterShown, useSemesterYears } from "@/services/semesterYears";
 
 const MAX_MESSAGE_LENGTH = 160;
 
@@ -159,6 +160,7 @@ export function AnnouncementEditor() {
   const queryClient = useQueryClient();
   // Announcements are the Hub's, shown above its students' timetables: its semesters only.
   const terms = useQuery({ queryKey: ["hub-terms"], queryFn: fetchHubTerms });
+  const yearOf = useSemesterYears();
   const [termId, setTermId] = useState("");
   const semesters = useMemo(() => terms.data ?? [], [terms.data]);
 
@@ -238,7 +240,7 @@ export function AnnouncementEditor() {
             onChange={setTermId}
             disabled={!semesters.length}
             placeholder={terms.isLoading ? "Loading…" : "No semester uploaded yet"}
-            options={semesters.map((term) => ({ value: term.id, label: term.name }))}
+            options={semesters.map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)) }))}
           />
         </div>
         <p className="text-sm text-[#667085]">

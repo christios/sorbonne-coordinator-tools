@@ -9,6 +9,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { usePageState } from "@/components/usePageState";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
+import { yearOfTermCode } from "@/services/semesterYears";
 
 const FILTER_KEY = "scen-portal-filter:courses";
 
@@ -131,7 +132,7 @@ export function PortalCourses() {
             <>
               {terms.length > 1 ? (
                 <div className="w-40">
-                  <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
+                  <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code, year: yearOfTermCode(code) }))} />
                 </div>
               ) : null}
               <button

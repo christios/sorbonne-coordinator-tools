@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
+import { LabelledPicker } from "@/components/LabelledPicker";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -22,6 +23,7 @@ import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
+import { semesterShown, useSemesterYears } from "@/services/semesterYears";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -81,6 +83,7 @@ export function CourseCards({
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   // Which portal term each semester is, so a cohort with no sets yet is still found under its own.
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const yearOf = useSemesterYears();
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -320,9 +323,10 @@ export function CourseCards({
   ].filter(Boolean) as WarningKind[];
 
   const pairs = [...new Set(byCohort.map((card) => `${card.cohortId}|${card.termId}`))];
+  // The semester and the files on the page's title line; the cohort with the list it narrows.
   const controls = (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="w-60">
+      <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
         <SelectMenu
           label="Semester"
           value={semester?.id ?? ""}
@@ -330,20 +334,12 @@ export function CourseCards({
           placeholder="No semester yet"
           options={semesters.map((term) => {
             const held = cards.filter((card) => card.termId === term.id).length;
-            return { value: term.id, label: term.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
-          })}
-        />
-      </div>
-      <div className="w-56">
-        <SelectMenu
-          label="Cohort"
-          value={chosen?.id ?? ""}
-          onChange={setCohortId}
-          // Short: the semester it is about is named in the menu beside it.
-          placeholder="No cohort yet"
-          options={semesterCohorts.map((cohort) => {
-            const held = cards.filter((card) => card.cohortId === cohort.id && inSemester(card)).length;
-            return { value: cohort.id, label: cohort.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
+            return {
+              value: term.id,
+              ...semesterShown(term.name, yearOf(term)),
+              badge: String(held),
+              badgeTone: held ? ("accent" as const) : ("muted" as const),
+            };
           })}
         />
       </div>
@@ -369,6 +365,29 @@ export function CourseCards({
         * works on its own.
         */}
       {header ? createPortal(controls, header) : <div className="mb-3">{controls}</div>}
+
+      {/* Which cohort, named above its picker as on the Cohorts page, over the list it narrows. */}
+      <div className="mb-3">
+        <LabelledPicker label="Cohort">
+          <SelectMenu
+            label="Cohort"
+            align="start"
+            value={chosen?.id ?? ""}
+            onChange={setCohortId}
+            placeholder="No cohort yet"
+            options={semesterCohorts.map((cohort) => {
+              const held = cards.filter((card) => card.cohortId === cohort.id && inSemester(card)).length;
+              return {
+                value: cohort.id,
+                label: cohort.name,
+                year: cohort.term,
+                badge: String(held),
+                badgeTone: held ? ("accent" as const) : ("muted" as const),
+              };
+            })}
+          />
+        </LabelledPicker>
+      </div>
 
       {filled ? (
         <p className="mb-3 rounded-md border border-[#bfdcc6] bg-[#f4faf5] px-4 py-2.5 text-sm text-[#2f6b3d]">

@@ -31,6 +31,7 @@ import {
   setParentCrn,
 } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
+import { yearOfTermCode } from "@/services/semesterYears";
 
 const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, required: true, defaultWidth: 90 },
@@ -295,7 +296,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
               <>
                 {terms.length > 1 ? (
                   <div className="w-40">
-                    <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code }))} />
+                    <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code, year: yearOfTermCode(code) }))} />
                   </div>
                 ) : null}
                 <button

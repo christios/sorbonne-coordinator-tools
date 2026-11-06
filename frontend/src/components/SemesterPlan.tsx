@@ -58,6 +58,7 @@ import {
   type CalendarCourse,
   type PlacedSession,
 } from "@/services/weekSchedule";
+import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
 type PlanRow = {
@@ -401,14 +402,15 @@ export function SemesterPlan({
 
   if (plans.isLoading || (chosen && plan.isLoading)) return <ScreenLoading label="Reading the plan…" />;
 
+  // The plan's name less its year, the year as a pill, and the portal's term code.
   const planOptions = (plans.data ?? []).map((entry) => ({
     value: entry.termCode,
-    label: entry.name || entry.termCode,
+    ...semesterShown(entry.name || entry.termCode, yearOfTermCode(entry.termCode)),
     badge: entry.termCode,
     badgeTone: "muted" as const,
   }));
   const semesterPicker = (
-    <div className="w-64">
+    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
       <SelectMenu label="Semester" value={chosen} onChange={onPickTerm} options={planOptions} placeholder="No plan yet" />
     </div>
   );

@@ -47,6 +47,7 @@ import { describeMismatch, fetchRegistrationCheck, fetchTermLinks, type Mismatch
 import { allChanges } from "@/services/pullHistory";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
+import { semesterShown, useSemesterYears } from "@/services/semesterYears";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import {
@@ -502,6 +503,7 @@ export function CohortsPage({
    * then holds that semester's cohorts, and "every cohort" means every one of them.
    */
   const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  const yearOf = useSemesterYears();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
@@ -777,7 +779,7 @@ export function CohortsPage({
 
   // On the page's title line, beside Global rules; in the page itself where there is no slot.
   const semesterPicker = (
-    <div className="w-60">
+    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
       <SelectMenu
         label="Semester"
         value={semester?.id ?? ""}
@@ -785,7 +787,12 @@ export function CohortsPage({
         placeholder="No semester yet"
         options={semesters.map((term) => {
           const held = semesterCohortsOf(term.id).length;
-          return { value: term.id, label: term.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
+          return {
+            value: term.id,
+            ...semesterShown(term.name, yearOf(term)),
+            badge: String(held),
+            badgeTone: held ? ("accent" as const) : ("muted" as const),
+          };
         })}
       />
     </div>

@@ -27,6 +27,7 @@ import { fetchSessionChanges } from "@/services/sessionChanges";
 import { useRooms } from "@/services/rooms";
 import type { SemesterExportInput } from "@/services/semesterPdf";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
+import { semesterShown, useSemesterYears } from "@/services/semesterYears";
 
 /*
  * On a phone a week one screen wide is a column of slivers — "MATH-" and "SCEN" — so it
@@ -123,6 +124,7 @@ export function SemesterTimetable({
   onPickTerm: (termId: string) => void;
 }) {
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
+  const yearOf = useSemesterYears();
   const all = terms.data ?? [];
   if (terms.isLoading) return <ScreenLoading label="Loading semesters…" />;
   if (terms.isError) {
@@ -135,14 +137,14 @@ export function SemesterTimetable({
   if (all.length === 0) return <p className="text-sm text-[#667085]">The Student Hub holds no semester yet.</p>;
   const term = all.find((candidate) => candidate.id === termId) ?? all.find((candidate) => candidate.isPublished) ?? all[0];
   const picker = (
-    <div className="w-44">
+    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
       <SelectMenu
         label="Semester"
         value={term.id}
         onChange={(next) => next && onPickTerm(next)}
         options={all.map((candidate) => ({
           value: candidate.id,
-          label: candidate.name,
+          ...semesterShown(candidate.name, yearOf(candidate)),
           detail: candidate.isPublished ? "Published" : "Hidden",
         }))}
       />
