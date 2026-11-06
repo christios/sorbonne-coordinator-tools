@@ -758,10 +758,6 @@ export function SemesterPlan({
           ) : null}
         </div>
       </div>
-      <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
-        <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
-      </div>
-
       {error && !dialog && !settingsOpen && !newOpen ? (
         <p role="alert" className="mb-2 shrink-0 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-2 text-sm text-[#a6292f]">
           {error}
@@ -775,6 +771,23 @@ export function SemesterPlan({
             : ""}
         </p>
       ) : null}
+
+      {/*
+        * The filters, and over the list beside the week its label — on this line, so the list's
+        * box starts level with the week's, labelled like the pickers' labels (Cohort, Semester).
+        * The banners sit above both, so nothing comes between the label and its box.
+        */}
+      <div className="mb-3 flex shrink-0 items-end gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+        </div>
+        <h3 className="-mb-2 hidden w-80 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#667085] lg:block">
+          Classes to place
+          <span className="ml-1.5 font-normal normal-case tabular-nums text-[#98a2b3]">
+            {trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : toPlace.length}
+          </span>
+        </h3>
+      </div>
 
       <div className="flex min-h-0 flex-1 gap-3">
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -824,13 +837,6 @@ export function SemesterPlan({
         </div>
 
         <aside className="hidden min-h-0 w-80 shrink-0 flex-col lg:flex" aria-label="Classes to place">
-          {/* Labelled like the pickers' labels (Cohort, Semester), above the box rather than in it. */}
-          <h3 className="mb-1 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-            Classes to place
-            <span className="ml-1.5 font-normal normal-case tabular-nums text-[#98a2b3]">
-              {trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : toPlace.length}
-            </span>
-          </h3>
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
           <div className="grid shrink-0 gap-2 border-b border-[#eef1f5] px-3 py-2.5">
             <label className="relative block">
