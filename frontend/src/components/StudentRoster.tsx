@@ -69,7 +69,6 @@ import {
   fetchCatalogue,
   fetchStudents,
   inSemester,
-  sameSemester,
   setCohort,
   type Cohort,
   type PlacementReport,
@@ -139,8 +138,11 @@ export function StudentRoster({
    * student we hold is fetched rather than a portal filter's, and each row carries the
    * warnings the page worked out for it.
    */
-  /** `among`: the cohorts "every cohort" means — the Cohorts page's semester's. All of them when absent. */
-  scope?: { cohortId: string | null; among?: string[] };
+  /**
+   * `among`: the cohorts "every cohort" means — the Cohorts page's semester's. All of them when absent.
+   * `termId`: that semester, whose cohort each student is read as in and moves are made in.
+   */
+  scope?: { cohortId: string | null; among?: string[]; termId?: string };
   /**
    * On a scoped table, whether it shows every cohort rather than this one. The page owns
    * the switch — it sits beside the cohort picker, which is where "which cohort" is asked.
@@ -193,18 +195,14 @@ export function StudentRoster({
   });
   /*
    * Which of each student's cohorts this table reads them as in: one per semester, so the
-   * semester decides. The Cohorts page says which (its semester's cohorts, `among`); the
-   * Students page reads the semester remembered with Groups & CRNs and the Cohorts page.
+   * semester decides. The Cohorts page says which (its semester); the Students page reads
+   * the semester remembered with Groups & CRNs and the Cohorts page.
    */
   const inView = useSemesterInView(cohorts);
-  const semesterIds = useMemo(() => {
-    if (scope?.among) return scope.among;
-    const own = scope?.cohortId ? cohorts.find((candidate) => candidate.id === scope.cohortId) : undefined;
-    if (own) return cohorts.filter((candidate) => sameSemester(candidate, own)).map((candidate) => candidate.id);
-    if (!scope && inView.semester) return inView.semesterCohorts.map((candidate) => candidate.id);
-    return undefined;
-  }, [scope, cohorts, inView.semester, inView.semesterCohorts]);
-  const seen = useMemo(() => inSemester(students.data ?? [], semesterIds), [students.data, semesterIds]);
+  const termId = scope ? scope.termId : inView.semester?.id;
+  // Where a move lands: that semester, or — in an app with no semester at all — none.
+  const moveTerm = termId ?? "";
+  const seen = useMemo(() => inSemester(students.data ?? [], termId), [students.data, termId]);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
   // Only so the Groups column can name a semester when a student is in more than one.
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -411,7 +409,7 @@ export function StudentRoster({
         terms: newTerms,
         yearLevel: newYearLevel.trim(),
       });
-      await setCohort([...selected], created.id, true);
+      await setCohort([...selected], created.id, moveTerm, true);
       return created;
     },
     onSuccess: () => {
@@ -431,20 +429,9 @@ export function StudentRoster({
     mutationFn: async ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) => {
       // Keeping the shared sets: the languages are the university's, not the cohort's, and
       // dropping them was a silent loss nobody knew to redo.
-      if (cohortId) return setCohort(ids, cohortId, true);
-      /*
-       * Out of their cohort: the one of the semester on screen, which need not be the same
-       * cohort for everybody ticked — so one request per cohort they leave. Somebody in
-       * none of this semester's is left alone, in whatever cohorts other semesters hold.
-       */
-      const leaving = new Map<string, string[]>();
-      for (const student of seen) {
-        if (!ids.includes(student.studentId) || !student.cohortId) continue;
-        leaving.set(student.cohortId, [...(leaving.get(student.cohortId) ?? []), student.studentId]);
-      }
-      let moved = 0;
-      for (const [from, who] of leaving) moved += await setCohort(who, null, true, from);
-      return moved;
+      // In the semester on screen only: their cohorts of other semesters, and the groups
+      // they sit in there, stay.
+      return setCohort(ids, cohortId, moveTerm, true);
     },
     onSuccess: () => {
       setSelected(new Set());
@@ -691,17 +678,7 @@ export function StudentRoster({
    * is worth stopping for is the delete nobody can see coming: leaving a cohort drops
    * every group held in it, in every semester, not the one on screen.
    */
-  const moveCost = (cohortId: string | null) =>
-    costOfMove(
-      seen,
-      chosen,
-      cohortId === null
-        ? null
-        : cohortId === NEW_COHORT
-          ? { id: NEW_COHORT, terms: newTerms }
-          : (cohorts.find((candidate) => candidate.id === cohortId) ?? { id: cohortId, terms: [] }),
-      termNames,
-    );
+  const moveCost = (cohortId: string | null) => costOfMove(seen, chosen, cohortId, moveTerm, termNames);
   const newCohortCost = describeCost(moveCost(NEW_COHORT));
   const requestMove = (cohortId: string | null) => {
     if (moveCost(cohortId).placements === 0) {
@@ -768,6 +745,8 @@ export function StudentRoster({
         open={moving}
         count={chosen.length}
         cohorts={cohorts}
+        termId={moveTerm}
+        semesterName={termNames[moveTerm] ?? ""}
         describe={(cohortId) => describeCost(moveCost(cohortId))}
         busy={move.isPending}
         onMove={(cohortId) => {

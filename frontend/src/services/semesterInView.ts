@@ -3,8 +3,8 @@
  *
  * Remembered with the Group schema's and Groups & CRNs' (SCHEMA_TERM), so choosing
  * Semester 2 on one of them means Semester 2 on the Cohorts page and on the Students table
- * too. A student is in one cohort per semester — L1-S1, then L1-S2 — and this is how a page
- * knows which of theirs to show.
+ * too. A cohort holds its students semester by semester, and this is how a page knows
+ * which semester's to show.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -14,21 +14,29 @@ import { useRemembered } from "@/components/useRemembered";
 import { fetchTermLinks } from "@/services/portalLists";
 import { SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
+import { useSemesterYears } from "@/services/semesterYears";
 import { fetchCourseCards, type Cohort } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 export function useSemesterInView(cohorts: Cohort[]) {
   const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  const yearOf = useSemesterYears();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
   const semesters = useMemo(() => terms.data ?? [], [terms.data]);
   const semesterCohortsOf = useCallback(
-    (semesterId: string) =>
-      cohortsIn(cohorts, links.data?.[semesterId] ?? "", (id) =>
-        (cards.data ?? []).some((held) => held.cohort.id === id && held.scopes.some((scope) => scope.termId === semesterId)),
-      ),
-    [cohorts, links.data, cards.data],
+    (semesterId: string) => {
+      const term = (terms.data ?? []).find((candidate) => candidate.id === semesterId);
+      return cohortsIn(
+        cohorts,
+        { id: semesterId, portalTerm: links.data?.[semesterId] ?? "", year: term ? yearOf(term) : "" },
+        (id) => (cards.data ?? []).some((held) => held.cohort.id === id && held.scopes.some((scope) => scope.termId === semesterId)),
+      );
+    },
+    // `yearOf` is rebuilt every render; what it reads is `links.data`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cohorts, links.data, cards.data, terms.data],
   );
   const semester =
     semesters.find((term) => term.id === termId) ??

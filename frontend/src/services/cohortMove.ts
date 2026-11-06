@@ -1,4 +1,4 @@
-import { cohortBeside, type Student } from "@/services/studentDatabase";
+import { cohortIn, type Student } from "@/services/studentDatabase";
 
 export type MoveCost = {
   /** Students who would lose at least one placement. */
@@ -20,16 +20,14 @@ export type MoveCost = {
 /**
  * What a move to another cohort would throw away.
  *
- * Leaving a cohort drops every group the student held in it — the groups belong to that
+ * Leaving a cohort drops the groups the student held in it — the groups belong to that
  * cohort's blocks, so keeping them would seat somebody in a matrix they are no longer
  * part of. That is right, and it is silent, so it is counted first: counting is what makes
  * the deletion a decision.
  *
- * A student is in one cohort per semester, and a move replaces only the cohort of the
- * target's semester: putting somebody in L1-S2 leaves them in L1-S1 with every S1 group,
- * and costs nothing. What it costs is the groups filed under the cohort they LEAVE — the
- * same rows the server deletes. With no target (out of their cohort) that is the cohort
- * they are read as in (`cohortId`, the semester on screen).
+ * A student is in one cohort per semester, and a move is made in one semester: it costs
+ * the groups of that semester filed under the cohort they leave — the same rows the server
+ * deletes. Their groups in other semesters stay.
  *
  * The sets open to every cohort — the languages — are counted as RETAINED, because
  * `set_cohort(keep_shared=True)` spares them outright.
@@ -37,7 +35,8 @@ export type MoveCost = {
 export function costOfMove(
   students: Student[],
   chosen: string[],
-  target: { id: string; terms: string[] } | null,
+  targetCohortId: string | null,
+  termId: string,
   termNames: Record<string, string>,
 ): MoveCost {
   const wanted = new Set(chosen);
@@ -48,10 +47,10 @@ export function costOfMove(
   let retained = 0;
   for (const student of students) {
     if (!wanted.has(student.studentId)) continue;
-    const leaving = target ? cohortBeside(student, target) : student.cohorts.find((held) => held.id === student.cohortId);
-    if (!leaving || leaving.id === target?.id) continue;
+    const leaving = cohortIn(student, termId);
+    if (!leaving || leaving.id === targetCohortId) continue;
     // A placement says which cohort it is filed under; one that does not predates saying so.
-    const filed = student.groups.filter((group) => (group.cohortId ?? leaving.id) === leaving.id);
+    const filed = student.groups.filter((group) => group.termId === termId && (group.cohortId ?? leaving.id) === leaving.id);
     const kept = filed.filter((group) => group.openToAll);
     const lost = filed.filter((group) => !group.openToAll);
     retained += kept.length;

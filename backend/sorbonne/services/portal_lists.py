@@ -1692,14 +1692,14 @@ class PortalListStore:
                                                            WHERE gc.group_id = ga.group_id AND gc.crn = r.crn
                                                              AND gc.retired = false)), '') AS held
                             FROM student_registrations r
-                            -- Their cohort of this CRN's semester, where they have one: a
-                            -- student is in L1-S1 and L1-S2, and the second is no answer
-                            -- about a first-semester section.
+                            -- Their cohort in this CRN's semester — the semester linked to
+                            -- its portal term — and failing that any of theirs.
                             LEFT JOIN LATERAL (
                                 SELECT sc.id, sc.name FROM cohort_members m
                                 JOIN student_cohorts sc ON sc.id = m.cohort_id
+                                LEFT JOIN term_links tl ON tl.term_id = m.term_id
                                 WHERE m.student_id = r.student_id
-                                ORDER BY (sc.term_codes::jsonb ? :t) DESC, sc.name
+                                ORDER BY (tl.portal_term_code = :t) IS TRUE DESC, m.term_id DESC
                                 LIMIT 1
                             ) c ON true
                             WHERE r.term_code = :t AND r.crn = :crn AND r.status = 'in_portal'
@@ -2164,12 +2164,13 @@ class PortalListStore:
         switches = self.check_settings(cohort_id)
         links = self.term_links()
         present = set(database.scope_terms(cohort_id))
-        members = database.cohort_members(cohort_id)
         found: list[Mismatch] = []
         coverage: list[TermCoverage] = []
         electives: list[Elective] = []
         for term_id in sorted(present | set(links)):
             term_code = links.get(term_id, "")
+            # The cohort's students in this semester: it holds them semester by semester.
+            members = database.cohort_members(cohort_id, term_id)
             # Two sections of one set, before anything about placement is asked.
             pulled_here = reads.pulled(term_code)
             found.extend(self._doubled_in_a_set(term_id, term_code, reads, members, pulled_here))

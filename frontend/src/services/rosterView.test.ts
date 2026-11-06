@@ -42,7 +42,7 @@ const student = (studentId: string, over: Partial<Student> = {}): Student => {
     ...over,
   };
   // The cohort they are read as in is one of theirs, unless the test says otherwise.
-  if (!over.cohorts && made.cohortId) made.cohorts = [{ id: made.cohortId, name: made.cohortName, since: made.cohortSince, terms: [] }];
+  if (!over.cohorts && made.cohortId) made.cohorts = [{ id: made.cohortId, name: made.cohortName, since: made.cohortSince, termId: "" }];
   return made;
 };
 

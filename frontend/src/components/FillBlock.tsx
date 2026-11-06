@@ -109,9 +109,8 @@ export function FillBlock({
   /**
    * Everyone this fill could seat: in the cohort, and not already in a group of this set.
    *
-   * "In the cohort" means the student's own record says so, and nothing else — one of
-   * their cohorts, since they have one per semester: L1-S1's fill takes a student who is
-   * in L1-S2 as well.
+   * "In the cohort" means the student's own record says so, and nothing else — in this
+   * set's semester, since a cohort holds its students semester by semester.
    *
    * This briefly also admitted anyone appearing in `fetchAssignments(cohort.id)`, on the
    * reasoning that holding a group filed under a cohort is a second way of belonging to it.
@@ -125,7 +124,7 @@ export function FillBlock({
   const everyone = useMemo<FillCandidate[]>(() => {
     if (!students.data || !assignments.data || !held.data) return [];
     return students.data
-      .filter((student) => isIn(student, cohort.id) && !assignments.data[student.studentId]?.[scope.id])
+      .filter((student) => isIn(student, cohort.id, scope.termId) && !assignments.data[student.studentId]?.[scope.id])
       .map((student) => {
         const others = { ...(assignments.data[student.studentId] ?? {}) };
         delete others[scope.id];

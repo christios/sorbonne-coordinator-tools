@@ -58,7 +58,8 @@ import {
   fetchStudents,
   fetchTeamsCheck,
   setCohort,
-  asSeenBy,
+  inSemester,
+  type CatalogueScope,
   type Cohort,
   type Student,
   type TeamsCheck,
@@ -86,10 +87,9 @@ function judge(
   evidence: Evidence,
   options: Options,
 ): { byCohort: Map<string, Warning[]>; arrivals: Map<string, Arrival[]> } {
-  // Each cohort reads a student by their cohort of ITS semester: in L1-S2's eyes somebody in
-  // L1-S1 and nothing for S2 is in no cohort, and their S1 placement date is not L1-S2's.
-  const placedFor = (cohort: Cohort) =>
-    asSeenBy(students, cohort).map((student) => ({ studentId: student.studentId, cohortId: student.cohortId, cohortSince: student.cohortSince }));
+  // The students as the semester on screen has them (`inSemester`): their cohort there, and
+  // when they were placed in it — a Semester 1 placement date is not Semester 2's.
+  const placed = students.map((student) => ({ studentId: student.studentId, cohortId: student.cohortId, cohortSince: student.cohortSince }));
   // The status is this application's, so it joins the portal's fields here rather than in
   // a pull. A student this browser holds no row for is still nothing to judge by — unless
   // the portal has dropped them, which is the one fact about them the status does carry.
@@ -106,7 +106,6 @@ function judge(
   for (const cohort of cohorts) {
     // The shared rules and this cohort's own; the outward look only when a rule asks for it.
     const own = rulesFor(rules, cohort.id);
-    const placed = placedFor(cohort);
     byCohort.set(cohort.id, warningsForCohort({ cohort, students: placed, rules: own, current, changes, options }));
     arrivals.set(cohort.id, arrivalsFor({ cohort, rules: own, students: placed, current, changes, options }));
   }
@@ -521,7 +520,7 @@ export function CohortsPage({
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
   const [addingArrival, setAddingArrival] = useState<Arrival | null>(null);
   const addArrival = useMutation({
-    mutationFn: (arrival: Arrival) => setCohort([arrival.studentId], cohortId, true),
+    mutationFn: (arrival: Arrival) => setCohort([arrival.studentId], cohortId, semester?.id ?? "", true),
     onSuccess: () => {
       setAddingArrival(null);
       afterPlacement(client);
@@ -539,8 +538,9 @@ export function CohortsPage({
   /** Every cohort judged, and this one's warnings by student, dismissed ones marked. */
   const judged = useMemo(() => {
     if (!evidence || !students.data || !rules.data) return null;
-    return judge(cohorts, students.data, rules.data, evidence, options);
-  }, [cohorts, evidence, students.data, rules.data, options]);
+    // The semester's cohorts, each judging the students as that semester has them.
+    return judge(semesterCohorts, inSemester(students.data, semester?.id), rules.data, evidence, options);
+  }, [semesterCohorts, semester, evidence, students.data, rules.data, options]);
 
   /*
    * Every cohort's sets and who sits where, for the groups that do not go with the group
@@ -594,30 +594,40 @@ export function CohortsPage({
    */
   const byCohort = useMemo(() => {
     const out = new Map<string, Warning[]>();
+    /*
+     * The semester on screen's only. A cohort holds its students and its sets semester by
+     * semester, so L1's Semester 2 sets are no warning on its Semester 1 table.
+     */
+    const onScreen = (termId?: string) => !semester || termId === semester.id;
     for (const cohort of cohorts) {
+      const scopesOf = (held: { scopes: CatalogueScope[] }) => held.scopes.filter((scope) => onScreen(scope.termId));
       out.set(cohort.id, [
         ...(judged?.byCohort.get(cohort.id) ?? []),
-        ...registrationWarnings(registrationsBy.get(cohort.id) ?? [], describeMismatch, readMismatch),
+        ...registrationWarnings(
+          (registrationsBy.get(cohort.id) ?? []).filter((mismatch) => onScreen(mismatch.termId)),
+          describeMismatch,
+          readMismatch,
+        ),
         // The courses outside the groups nobody has said yes to. Guarded like the column:
         // a browser holding new code against a server mid-deploy sees no field.
-        ...electiveWarnings(reportsBy.get(cohort.id)?.electives ?? []),
-        // A set this cohort has not placed them in, per semester, from the same reading the
-        // readiness panel publishes — so the two can never disagree about who is short.
-        ...readiness.terms.flatMap(({ termId, publication }) => {
+        ...electiveWarnings((reportsBy.get(cohort.id)?.electives ?? []).filter((elective) => onScreen(elective.termId))),
+        // A set this cohort has not placed them in, from the same reading the readiness
+        // panel publishes — so the two can never disagree about who is short.
+        ...readiness.terms.filter(({ termId }) => onScreen(termId)).flatMap(({ termId, publication }) => {
           const mine = publication?.cohorts.find((entry) => entry.cohortId === cohort.id);
           return mine ? groupWarnings(mine.unassigned, termId, nameOfTerm(termId)) : [];
         }),
         // A group that does not go with their group in the set it is linked to.
         ...linkWarnings(
-          catalogues.data?.find((held) => held.cohort.id === cohort.id)?.scopes ?? [],
+          scopesOf(catalogues.data?.find((held) => held.cohort.id === cohort.id) ?? { scopes: [] }),
           placedBy.get(cohort.id) ?? {},
         ),
         // A group they are exempt from every course of. The shared sets count too: a
         // language group is on another cohort's row and taken by this one's students.
         ...exemptGroupWarnings(
           [
-            ...(catalogues.data?.find((held) => held.cohort.id === cohort.id)?.scopes ?? []),
-            ...(catalogues.data ?? []).filter((held) => held.cohort.id !== cohort.id).flatMap((held) => held.scopes.filter((scope) => scope.openToAll)),
+            ...scopesOf(catalogues.data?.find((held) => held.cohort.id === cohort.id) ?? { scopes: [] }),
+            ...(catalogues.data ?? []).filter((held) => held.cohort.id !== cohort.id).flatMap((held) => scopesOf(held).filter((scope) => scope.openToAll)),
           ],
           placedBy.get(cohort.id) ?? {},
           everyExemption.data ?? [],
@@ -627,7 +637,7 @@ export function CohortsPage({
       ]);
     }
     return out;
-  }, [cohorts, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy, everyExemption.data, teamsBy]);
+  }, [cohorts, semester, judged, registrationsBy, reportsBy, readiness.terms, nameOfTerm, catalogues.data, placedBy, everyExemption.data, teamsBy]);
 
   /*
    * Every cohort's warnings by student, not only the cohort on screen.
@@ -785,8 +795,8 @@ export function CohortsPage({
     </div>
   );
   const emptySemester = Boolean(semester) && semesterCohorts.length === 0;
-  // The cohort this one was rolled over from: L1-S2 continues L1-S1.
-  const followed = cohort?.follows ? (cohorts.find((candidate) => candidate.id === cohort.follows) ?? null) : null;
+  // A cohort's students in the semester on screen — L1 holds its Semester 1 and its Semester 2 apart.
+  const countIn = (held: Cohort) => (semester ? (held.memberCounts?.[semester.id] ?? 0) : held.memberCount);
 
   return (
     <section>
@@ -795,7 +805,7 @@ export function CohortsPage({
         {header ? null : semesterPicker}
         <LabelledPicker
           label="Cohort"
-          hint={everywhere ? "showing every cohort" : followed ? `continues ${followed.name}` : undefined}
+          hint={everywhere ? "showing every cohort" : undefined}
           beside={
             /*
              * One cohort, or all of them — asked where "which cohort" is asked, as a
@@ -850,8 +860,9 @@ export function CohortsPage({
                   value: candidate.id,
                   label: candidate.name,
                   year: candidate.term,
-                  badge: String(candidate.memberCount),
-                  badgeTone: candidate.memberCount ? ("accent" as const) : ("muted" as const),
+                  // Its students in this semester.
+                  badge: String(countIn(candidate)),
+                  badgeTone: countIn(candidate) ? ("accent" as const) : ("muted" as const),
                   /*
                    * Counted by record rather than added up. "9 flagged" said that
                    * something is wrong nine times and nothing about what — and nine
@@ -1021,7 +1032,7 @@ export function CohortsPage({
           )}
           onPreselectTaken={onFocusTaken}
           // "Every cohort" is every cohort of the semester chosen.
-          scope={{ cohortId, among: semester ? semesterCohorts.map((candidate) => candidate.id) : undefined }}
+          scope={{ cohortId, among: semester ? semesterCohorts.map((candidate) => candidate.id) : undefined, termId: semester?.id }}
           everywhere={everywhere}
           warningsFor={warningsFor}
           electivesFor={electivesFor}

@@ -873,10 +873,11 @@ def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "", second
                             VALUES (:id, 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-                {"id": student, "cohort": cohort["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+                {"terms": ["term-1", "term-2"], "id": student, "cohort": cohort["id"]},
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=HUB_TERM)
@@ -1421,10 +1422,11 @@ def test_a_cohort_present_only_through_a_shared_set_is_still_covered(
                             VALUES ('B001', 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-            {"cohort": other["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+            {"terms": ["term-1", "term-2"], "cohort": other["id"]},
         )
     lang = database.add_scope(owner, code="LANG", name="Languages", term_id=HUB_TERM, open_to_all=True)
     french = database.add_group(lang, label="F1")
@@ -1455,10 +1457,11 @@ def test_a_language_group_on_another_cohort_s_row_is_expected_of_the_student_in_
                             VALUES ('B001', 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-            {"cohort": other["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+            {"terms": ["term-1", "term-2"], "cohort": other["id"]},
         )
     # A set of its own on the semester, as every real cohort has: a cohort with none is
     # not published for the semester at all, and the check has nothing to judge it by.
@@ -1587,10 +1590,11 @@ def test_clashes_are_readable_without_the_student_hub(client: TestClient, databa
                             VALUES ('A001', 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:c AS text), student_id FROM s WHERE CAST(:c AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-            {"c": cohort["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:c AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:c AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+            {"terms": ["term-1", "term-2"], "c": cohort["id"]},
         )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id="term-1")
     td = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id="term-1")
@@ -2188,10 +2192,11 @@ def cohort_with_a_split_section(database: StudentDatabase) -> str:
                             VALUES (:id, 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-                {"id": student, "cohort": cohort["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+                {"terms": ["term-1", "term-2"], "id": student, "cohort": cohort["id"]},
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     algebra = database.add_course(cm, code="MATH-351")
@@ -2948,10 +2953,11 @@ def merged_lecture_set(database: StudentDatabase) -> str:
                             VALUES (:id, 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-                {"id": student, "cohort": cohort["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+                {"terms": ["term-1", "term-2"], "id": student, "cohort": cohort["id"]},
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     shared = database.add_course(cm, code="CPSC-100")
@@ -3045,10 +3051,11 @@ def test_two_sub_rows_of_one_group_are_two_bundles_for_the_doubled_check(client:
                             VALUES ('A001', 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-            {"cohort": cohort["id"]},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+            {"terms": ["term-1", "term-2"], "cohort": cohort["id"]},
         )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     shared = database.add_course(cm, code="CPSC-100")

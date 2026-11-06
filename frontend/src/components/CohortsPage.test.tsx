@@ -34,7 +34,7 @@ const student = (studentId: string, cohortId: string | null, cohortSince = "2026
   cohortId,
   cohortName: cohortId ? "L1 Maths" : "",
   cohortSince,
-  cohorts: cohortId ? [{ id: cohortId, name: "L1 Maths", since: cohortSince, terms: [] }] : [],
+  cohorts: cohortId ? [{ id: cohortId, name: "L1 Maths", since: cohortSince, termId: "" }] : [],
   firstSeenAt: "2026-08-01T00:00:00Z",
   lastSeenAt: "2026-09-10T00:00:00Z",
   groups: [],
@@ -1307,7 +1307,8 @@ describe("taking an arrival in from the banner", () => {
     expect(await screen.findByText(/leave L1 Maths/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add to FYS-S1" }));
 
-    await waitFor(() => expect(moved).toHaveBeenCalledWith(["A001"], "c1", true));
+    // Into the cohort in the semester on screen, the shared sets kept.
+    await waitFor(() => expect(moved).toHaveBeenCalledWith(["A001"], "c1", expect.any(String), true));
   });
 });
 

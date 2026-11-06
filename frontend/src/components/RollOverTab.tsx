@@ -4,258 +4,187 @@ import { useMemo, useState } from "react";
 
 import { SelectMenu } from "@/components/SelectMenu";
 import { afterPlacement } from "@/services/afterPlacement";
-import { nextSemesterName } from "@/services/rollOver";
 import { fetchTermLinks } from "@/services/portalLists";
 import { semesterShown, useSemesterYears } from "@/services/semesterYears";
-import { fetchCohorts, rollOverCohort, type Cohort } from "@/services/studentDatabase";
+import { fetchCourseCards, rollOverCohort, type Cohort } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /**
- * The Roll over tab of a cohort's settings: this cohort carried into a later semester.
+ * The Semesters tab of a cohort's settings: the cohort's semesters, and rolling it over.
  *
- * L1-S1 gets its L1-S2 — the same majors, year level, allowed courses, Teams channels and
- * rules, and every one of its students. Nobody leaves L1-S1: a student is in one cohort per
- * semester, so they are in both, and keep the groups they sit in now. Rolling over again
- * only adds whoever has joined since. An L1-S2 somebody already made by hand is linked and
- * filled rather than made a second time.
+ * A cohort is a year's — L1, 2026-27 — and holds its students and its sets semester by
+ * semester. The tab lists each semester of its year with what L1 holds there, and carries
+ * one semester's students into another: L1's Semester 1 into its Semester 2. Nobody
+ * leaves Semester 1, and their groups there stay. Rolling over again only adds whoever has
+ * joined since; a student already in another cohort that semester is left there, and named.
  */
 export function RollOverTab({
   cohort,
   onDone,
 }: {
   cohort: Cohort;
-  /** Afterwards, to show the cohort rolled into: its semester, and the cohort. */
+  /** Afterwards, to show the cohort in the semester rolled into. */
   onDone?: (semesterId: string, cohortId: string) => void;
 }) {
   const client = useQueryClient();
   const yearOf = useSemesterYears();
-  const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const linksRead = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
   const links = useMemo(() => linksRead.data ?? {}, [linksRead.data]);
+  const counts = useMemo(() => cohort.memberCounts ?? {}, [cohort.memberCounts]);
 
-  // Its semester is its portal term — the latest, for a cohort that names more than one.
-  const own = [...cohort.terms].sort().pop() ?? "";
-  // A LATER semester linked to a portal term, the next one first: 262710 → 262720.
-  const targets = useMemo(
-    () =>
-      (terms.data ?? [])
-        .filter((term) => own && links[term.id] && links[term.id] > own)
-        .sort((left, right) => links[left.id].localeCompare(links[right.id])),
-    [terms.data, links, own],
-  );
-  const [targetId, setTargetId] = useState("");
-  const target = targets.find((term) => term.id === targetId) ?? targets[0] ?? null;
-  const code = target ? links[target.id] : "";
-
-  // The one it made before, or one made by hand under the name it would make — the server
-  // takes that rather than making a second L1-S2.
-  const next = nextSemesterName(cohort.name, code);
-  const ofTerm = (cohorts.data ?? []).filter((candidate) => candidate.id !== cohort.id && candidate.terms.includes(code));
-  const existing =
-    ofTerm.find((candidate) => candidate.follows === cohort.id) ??
-    ofTerm.find((candidate) => !candidate.follows && candidate.name.trim().toLowerCase() === next.toLowerCase()) ??
-    null;
-  const name = existing?.name ?? next;
-  const students = `${cohort.memberCount} student${cohort.memberCount === 1 ? "" : "s"}`;
-
-  const roll = useMutation({
-    mutationFn: () => rollOverCohort(cohort.id, code),
-    onSuccess: () => {
-      afterPlacement(client);
-      client.invalidateQueries({ queryKey: ["discrepancy-rules"] });
-      client.invalidateQueries({ queryKey: ["course-cards"] });
-    },
-  });
-
-  const shown = target ? semesterShown(target.name, yearOf(target)) : null;
-  const targetName = shown ? [shown.label, shown.year].filter(Boolean).join(" ") : "";
+  const nameOf = (term: { id: string; name: string }) => {
+    const shown = semesterShown(term.name, yearOf(term));
+    return [shown.label, shown.year].filter(Boolean).join(" ");
+  };
+  // Its sets in each semester, from the Groups & CRNs reading every page shares.
+  const setsIn = (termId: string) =>
+    (cards.data ?? []).find((held) => held.cohort.id === cohort.id)?.scopes.filter((scope) => scope.termId === termId).length ?? 0;
 
   /*
-   * The link, read from both ends: L1-S2's settings say it was rolled over from L1-S1, and
-   * L1-S1's say it was rolled into L1-S2. Only the second cohort holds the link, so the
-   * first finds it by looking for whoever names it.
+   * Its semesters: those of its year, and any it holds students or sets in. In the order the
+   * portal numbers them (262710 before 262720), so "the next one" means the next.
    */
-  const all = cohorts.data ?? [];
-  const from = cohort.follows ? (all.find((candidate) => candidate.id === cohort.follows) ?? null) : null;
-  const into = all.filter((candidate) => candidate.follows === cohort.id);
-  const semesterOf = (held: Cohort) => {
-    const term = (terms.data ?? []).find((candidate) => links[candidate.id] && held.terms.includes(links[candidate.id]));
-    if (!term) return held.terms.join(", ");
-    const named = semesterShown(term.name, yearOf(term));
-    return [named.label, named.year].filter(Boolean).join(" ");
-  };
-  const count = (held: Cohort) => `${held.memberCount} student${held.memberCount === 1 ? "" : "s"}`;
-  // From the second cohort's side, the same roll-over run again: whoever joined L1-S1 since.
-  const refresh = useMutation({
-    mutationFn: () => rollOverCohort(from?.id ?? "", own),
+  const semesters = useMemo(
+    () =>
+      (terms.data ?? [])
+        .filter(
+          (term) =>
+            (counts[term.id] ?? 0) > 0 ||
+            setsIn(term.id) > 0 ||
+            (cohort.term.trim() !== "" && yearOf(term) === cohort.term.trim()),
+        )
+        .sort((left, right) => (links[left.id] ?? "~").localeCompare(links[right.id] ?? "~") || left.name.localeCompare(right.name)),
+    // `yearOf` and `setsIn` read `links` and `cards`, which are listed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [terms.data, links, cards.data, cohort, counts],
+  );
+
+  // From the first semester that holds students; into the one after it.
+  const withStudents = semesters.filter((term) => (counts[term.id] ?? 0) > 0);
+  const [fromId, setFromId] = useState("");
+  const [intoId, setIntoId] = useState("");
+  const from = withStudents.find((term) => term.id === fromId) ?? withStudents[0] ?? null;
+  const intoOptions = semesters.filter((term) => term.id !== from?.id);
+  const after = from ? semesters.slice(semesters.findIndex((term) => term.id === from.id) + 1) : [];
+  const into = intoOptions.find((term) => term.id === intoId) ?? after[0] ?? intoOptions[0] ?? null;
+
+  const roll = useMutation({
+    mutationFn: () => rollOverCohort(cohort.id, from?.id ?? "", into?.id ?? ""),
     onSuccess: () => {
       afterPlacement(client);
       client.invalidateQueries({ queryKey: ["course-cards"] });
     },
   });
 
-  const linked =
-    from || into.length ? (
-      <section aria-label="Linked cohorts" className="rounded-md border border-[#d3d9e2] bg-[#f8fafc] px-4 py-3 text-sm text-[#344054]">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-[#667085]">Linked</h3>
-        {from ? (
-          <div className="mt-2">
-            <p>
-              Rolled over from <span className="font-semibold text-[#1f4e79]">{from.name}</span>
-              <span className="text-[#667085]">
-                {" "}
-                · {semesterOf(from)} · {count(from)}
-              </span>
-            </p>
-            {refresh.data ? (
-              <p className="mt-1.5 text-xs text-[#2f5d2a]">
-                {refresh.data.added
-                  ? `${refresh.data.added} student${refresh.data.added === 1 ? "" : "s"} from ${from.name} added.`
-                  : `Nobody new: every student of ${from.name} is here already.`}
-                {refresh.data.skipped.length ? (
-                  <span className="block text-[#8a6116]">
-                    {refresh.data.skipped.length} in another cohort of this semester, left where they are:{" "}
-                    <span className="font-mono">{refresh.data.skipped.join(", ")}</span>
-                  </span>
-                ) : null}
-              </p>
-            ) : (
-              <button
-                type="button"
-                disabled={refresh.isPending || !own}
-                onClick={() => refresh.mutate()}
-                className="mt-1.5 text-xs font-semibold text-[#1f4e79] underline decoration-[#b7c9dc] underline-offset-2 hover:decoration-[#1f4e79] disabled:text-[#9ba8b5]"
-              >
-                {refresh.isPending ? "Bringing them in…" : `Bring in whoever has joined ${from.name} since`}
-              </button>
-            )}
-            {refresh.error ? (
-              <p role="alert" className="mt-1.5 text-xs text-[#a6292f]">
-                {(refresh.error as Error).message}
-              </p>
-            ) : null}
-          </div>
-        ) : null}
-        {into.map((held) => (
-          <p key={held.id} className="mt-2">
-            Rolled over into <span className="font-semibold text-[#1f4e79]">{held.name}</span>
-            <span className="text-[#667085]">
-              {" "}
-              · {semesterOf(held)} · {count(held)}
-            </span>
-          </p>
-        ))}
-      </section>
-    ) : null;
+  const count = (n: number) => `${n} student${n === 1 ? "" : "s"}`;
+  const sets = (n: number) => `${n} set${n === 1 ? "" : "s"}`;
+
+  if (terms.isLoading || linksRead.isLoading) return <p className="text-sm text-[#667085]">Reading the semesters…</p>;
 
   return (
     <div className="space-y-5">
-      {linked}
-      {rollingOver()}
-    </div>
-  );
+      {/* Its semesters, each with what it holds there. */}
+      <section aria-label={`${cohort.name}'s semesters`} className="rounded-md border border-[#d3d9e2]">
+        <h3 className="border-b border-[#eef1f5] px-4 py-2 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+          {cohort.name}
+          {cohort.term ? <span className="ml-1.5 font-normal normal-case text-[#98a2b3]">{cohort.term}</span> : null}
+        </h3>
+        {semesters.length ? (
+          <ul className="divide-y divide-[#f2f4f7]">
+            {semesters.map((term) => (
+              <li key={term.id} className="flex items-baseline justify-between gap-3 px-4 py-2 text-sm">
+                <span className="font-semibold text-[#344054]">{nameOf(term)}</span>
+                <span className="text-xs tabular-nums text-[#667085]">
+                  {count(counts[term.id] ?? 0)} · {sets(setsIn(term.id))}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 py-3 text-sm text-[#667085]">
+            No semester of {cohort.term || "its year"} yet. Say its year on the Cohort tab.
+          </p>
+        )}
+      </section>
 
-  /** Rolling it over into a later semester, or why it cannot be. */
-  function rollingOver() {
-    if (roll.data) {
-      const result = roll.data;
-      return (
+      {roll.data ? (
         <div className="space-y-3">
           <p className="rounded-md border border-[#d7e3d4] bg-[#f3f8f1] px-3 py-2 text-sm text-[#2f5d2a]">
             <span className="inline-flex items-center gap-1.5 font-semibold">
               <Check size={14} aria-hidden="true" />
-              {result.cohort.name}
+              {count(roll.data.added)} added
             </span>{" "}
-            continues {cohort.name}: {result.added} student{result.added === 1 ? "" : "s"} added.
-            {result.skipped.length ? (
+            to {cohort.name} in {into ? nameOf(into) : "that semester"}.
+            {roll.data.skipped.length ? (
               <span className="mt-1 block text-[#8a6116]">
-                {result.skipped.length} already in another cohort of {targetName || "that semester"} — left where they are:{" "}
-                <span className="font-mono text-xs">{result.skipped.join(", ")}</span>
+                {roll.data.skipped.length} already in another cohort there — left where they are:{" "}
+                <span className="font-mono text-xs">{roll.data.skipped.join(", ")}</span>
               </span>
             ) : null}
           </p>
-          {onDone && target ? (
+          {onDone && into ? (
             <button
               type="button"
-              onClick={() => onDone(target.id, result.cohort.id)}
+              onClick={() => onDone(into.id, cohort.id)}
               className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white"
             >
-              Show {result.cohort.name}
+              Show {cohort.name} in {nameOf(into)}
             </button>
           ) : null}
         </div>
-      );
-    }
-
-    if (!own) {
-      return (
+      ) : !from ? (
+        <p className="text-sm text-[#667085]">{cohort.name} holds no students yet, so there is nobody to roll over.</p>
+      ) : !into ? (
         <p className="text-sm text-[#667085]">
-          {cohort.name} names no portal term, so there is no semester to roll it over from. Give it its term on the Cohort tab
-          first.
+          {cohort.name} has no other semester to roll its students into. Say its year on the Cohort tab.
         </p>
-      );
-    }
-    if (terms.isLoading || linksRead.isLoading) return <p className="text-sm text-[#667085]">Reading the semesters…</p>;
-    if (!targets.length) {
-      return (
-        <p className="text-sm text-[#667085]">
-          No semester after {own} is linked to a portal term yet, so there is nowhere to roll {cohort.name} over to.
-        </p>
-      );
-    }
-
-    return (
-      <div className="space-y-4">
-        <div className="w-fit min-w-[12rem] max-w-full">
-          <SelectMenu
-            label="Into"
-            value={target?.id ?? ""}
-            onChange={setTargetId}
-            placeholder="Which semester…"
-            options={targets.map((term) => ({
-              value: term.id,
-              ...semesterShown(term.name, yearOf(term)),
-            }))}
-          />
-        </div>
-
-        {target ? (
-          <div className="rounded-md border border-[#d3d9e2] px-4 py-3 text-sm text-[#344054]">
-            <p>
-              <span className="font-semibold">{cohort.name}</span> → <span className="font-semibold text-[#1f4e79]">{name}</span>
-            </p>
-            <p className="mt-1 text-xs text-[#667085]">
-              {existing && existing.follows !== cohort.id
-                ? `${existing.name} was made by hand: it is linked to ${cohort.name}, keeps its own settings, and takes its ${students}.`
-                : existing
-                  ? `${existing.name} is already there: adds whoever of its ${students} is not in it yet.`
-                  : `A new cohort with ${cohort.name}'s settings and rules, and its ${students}.`}
-            </p>
+      ) : (
+        <div className="space-y-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-[#667085]">Roll over</h3>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-[#344054]">
+            <div className="w-fit min-w-[12rem] max-w-full">
+              <SelectMenu
+                label="From"
+                value={from.id}
+                onChange={setFromId}
+                options={withStudents.map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)), badge: String(counts[term.id] ?? 0) }))}
+              />
+            </div>
+            <span aria-hidden="true">→</span>
+            <div className="w-fit min-w-[12rem] max-w-full">
+              <SelectMenu
+                label="Into"
+                value={into.id}
+                onChange={setIntoId}
+                options={intoOptions.map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)), badge: String(counts[term.id] ?? 0) }))}
+              />
+            </div>
           </div>
-        ) : null}
-
-        <p className="text-xs text-[#98a2b3]">
-          Nobody leaves {cohort.name}, and their groups in it stay. A student already in another cohort of{" "}
-          {targetName || "that semester"} is left where they are and named afterwards. The sets of groups are not copied: each
-          semester has its own, on the Group schema page.
-        </p>
-
-        <button
-          type="button"
-          disabled={!target || roll.isPending}
-          onClick={() => roll.mutate()}
-          className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] bg-white px-4 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:border-[#b7bec8] disabled:text-[#9ba8b5]"
-        >
-          <CalendarArrowUp size={15} aria-hidden="true" />
-          {roll.isPending ? "Rolling over…" : `Roll over into ${name}`}
-        </button>
-        {roll.error ? (
-          <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
-            {(roll.error as Error).message}
+          <p className="text-xs text-[#667085]">
+            {(counts[into.id] ?? 0) > 0
+              ? `${cohort.name} already holds ${count(counts[into.id] ?? 0)} in ${nameOf(into)}: this adds whoever of its ${count(counts[from.id] ?? 0)} in ${nameOf(from)} is not there yet.`
+              : `Copies ${cohort.name}'s ${count(counts[from.id] ?? 0)} in ${nameOf(from)} into ${nameOf(into)}.`}{" "}
+            Nobody leaves {nameOf(from)}, and their groups there stay. A student already in another cohort in{" "}
+            {nameOf(into)} is left there, and named.
           </p>
-        ) : null}
-      </div>
-    );
-  }
+          <button
+            type="button"
+            disabled={roll.isPending}
+            onClick={() => roll.mutate()}
+            className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] bg-white px-4 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:border-[#b7bec8] disabled:text-[#9ba8b5]"
+          >
+            <CalendarArrowUp size={15} aria-hidden="true" />
+            {roll.isPending ? "Rolling over…" : `Roll over into ${nameOf(into)}`}
+          </button>
+          {roll.error ? (
+            <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
+              {(roll.error as Error).message}
+            </p>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
 }

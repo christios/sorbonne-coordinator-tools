@@ -11,7 +11,10 @@ function student(
   return {
     studentId,
     status: "in_portal",
-    cohorts: cohortId ? [{ id: cohortId, name: cohortId, since: "", terms: [] }] : [],
+    // In the cohort in every semester its groups are in — or in no semester, where it has none.
+    cohorts: cohortId
+      ? [...new Set(groups.length ? groups.map((group) => group.termId) : [""])].map((termId) => ({ id: cohortId, name: cohortId, since: "", termId }))
+      : [],
     cohortId,
     cohortName: cohortId ?? "",
     cohortSince: "",
@@ -21,37 +24,35 @@ function student(
   };
 }
 
-/** A cohort to move to; with no portal terms, the same semester as every other such. */
-const to = (id: string, terms: string[] = []) => ({ id, terms });
-
 const TERMS = { "term-1": "Semester 1", "term-2": "Semester 2" };
 const td = (termId: string) => ({ termId, scopeCode: "TD", groupLabel: "1" });
 const rdns = (termId: string) => ({ termId, scopeCode: "RDNS", groupLabel: "4" });
 
 describe("what a cohort move would throw away", () => {
-  it("counts every placement of the cohort they leave, in each semester it is taught", () => {
+  it("counts every placement of the cohort they leave in that semester, and none of another's", () => {
     const cost = costOfMove(
       [student("A1", "fy", [td("term-1"), rdns("term-1"), td("term-2")])],
       ["A1"],
-      to("l1"),
+      "l1",
+      "term-1",
       TERMS,
     );
 
-    expect(cost).toEqual({ students: 1, placements: 3, semesters: ["Semester 1", "Semester 2"], retained: 0 });
+    expect(cost).toEqual({ students: 1, placements: 2, semesters: ["Semester 1"], retained: 0 });
   });
 
   it("costs nothing when they are already in the cohort being moved to", () => {
-    const cost = costOfMove([student("A1", "fy", [td("term-1")])], ["A1"], to("fy"), TERMS);
+    const cost = costOfMove([student("A1", "fy", [td("term-1")])], ["A1"], "fy", "term-1", TERMS);
 
     expect(cost).toEqual({ students: 0, placements: 0, semesters: [], retained: 0 });
   });
 
   it("costs nothing for a student nobody has placed", () => {
-    expect(costOfMove([student("A1", "fy")], ["A1"], to("l1"), TERMS).placements).toBe(0);
+    expect(costOfMove([student("A1", "fy")], ["A1"], "l1", "", TERMS).placements).toBe(0);
   });
 
   it("counts taking them out of their cohort, which is a move to no cohort", () => {
-    const cost = costOfMove([student("A1", "fy", [td("term-1")])], ["A1"], null, TERMS);
+    const cost = costOfMove([student("A1", "fy", [td("term-1")])], ["A1"], null, "term-1", TERMS);
 
     expect(cost.placements).toBe(1);
   });
@@ -60,37 +61,29 @@ describe("what a cohort move would throw away", () => {
     const cost = costOfMove(
       [student("A1", "fy", [td("term-1")]), student("A2", "fy", [td("term-1")])],
       ["A1"],
-      to("l1"),
+      "l1",
+      "term-1",
       TERMS,
     );
 
     expect(cost).toEqual({ students: 1, placements: 1, semesters: ["Semester 1"], retained: 0 });
   });
 
-  it("costs nothing to join the next semester's cohort: they keep the first and its groups", () => {
-    const rolled: Student = {
-      ...student("A1", "l1-s1", [td("term-1")]),
-      cohorts: [{ id: "l1-s1", name: "L1-S1", since: "", terms: ["262710"] }],
-    };
-
-    expect(costOfMove([rolled], ["A1"], to("l1-s2", ["262720"]), TERMS).placements).toBe(0);
-  });
-
-  it("counts only the groups filed under the cohort they leave", () => {
+  it("counts only the groups of the semester the move is made in", () => {
     const both: Student = {
-      ...student("A1", "l1-s2", [
-        { ...td("term-1"), cohortId: "l1-s1" },
-        { ...td("term-2"), cohortId: "l1-s2" },
-        { ...rdns("term-2"), cohortId: "l1-s2" },
+      ...student("A1", "l1", [
+        { ...td("term-1"), cohortId: "l1" },
+        { ...td("term-2"), cohortId: "l1" },
+        { ...rdns("term-2"), cohortId: "l1" },
       ]),
       cohorts: [
-        { id: "l1-s1", name: "L1-S1", since: "", terms: ["262710"] },
-        { id: "l1-s2", name: "L1-S2", since: "", terms: ["262720"] },
+        { id: "l1", name: "L1", since: "", termId: "term-1" },
+        { id: "l1", name: "L1", since: "", termId: "term-2" },
       ],
     };
 
-    // Into L2-S2: out of L1-S2, never L1-S1.
-    expect(costOfMove([both], ["A1"], to("l2-s2", ["262720"]), TERMS)).toEqual({
+    // Into L2 for Semester 2: out of L1 there, never in Semester 1.
+    expect(costOfMove([both], ["A1"], "l2", "term-2", TERMS)).toEqual({
       students: 1,
       placements: 2,
       semesters: ["Semester 2"],
@@ -98,8 +91,17 @@ describe("what a cohort move would throw away", () => {
     });
   });
 
+  it("costs nothing in a semester they are in no cohort of", () => {
+    const autumnOnly: Student = {
+      ...student("A1", "l1", [{ ...td("term-1"), cohortId: "l1" }]),
+      cohorts: [{ id: "l1", name: "L1", since: "", termId: "term-1" }],
+    };
+
+    expect(costOfMove([autumnOnly], ["A1"], "l2", "term-2", TERMS).placements).toBe(0);
+  });
+
   it("falls back to the semester's id when its name is not known", () => {
-    expect(costOfMove([student("A1", "fy", [td("term-9")])], ["A1"], to("l1"), TERMS).semesters).toEqual([
+    expect(costOfMove([student("A1", "fy", [td("term-9")])], ["A1"], "l1", "term-9", TERMS).semesters).toEqual([
       "term-9",
     ]);
   });
@@ -138,7 +140,7 @@ describe("what a move keeps", () => {
   const student = (over: Partial<Student> = {}): Student =>
     ({
       studentId: "A1", status: "in_portal", cohortId: "c1", cohortName: "L1", cohortSince: "",
-      cohorts: [{ id: "c1", name: "L1", since: "", terms: [] }],
+      cohorts: [{ id: "c1", name: "L1", since: "", termId: "t1" }],
       firstSeenAt: "", lastSeenAt: "",
       groups: [
         { termId: "t1", scopeCode: "TD", groupLabel: "1", openToAll: false },
@@ -148,14 +150,14 @@ describe("what a move keeps", () => {
     }) as Student;
 
   it("counts a shared placement as kept, not as lost", () => {
-    const cost = costOfMove([student()], ["A1"], to("c2"), {});
+    const cost = costOfMove([student()], ["A1"], "c2", "t1", {});
 
     expect(cost.placements).toBe(1);
     expect(cost.retained).toBe(1);
   });
 
   it("says so, so the warning does not overstate the damage", () => {
-    const said = describeCost(costOfMove([student()], ["A1"], to("c2"), { t1: "Semester 1" }));
+    const said = describeCost(costOfMove([student()], ["A1"], "c2", "t1", { t1: "Semester 1" }));
 
     expect(said).toMatch(/would lose 1 group placement/);
     expect(said).toMatch(/1 placement in sets open to every cohort — the languages — is kept/);
@@ -166,6 +168,6 @@ describe("what a move keeps", () => {
     // through, and this move genuinely needs no confirmation.
     const only = student({ groups: [{ termId: "t1", scopeCode: "LANG", groupLabel: "A1", openToAll: true }] });
 
-    expect(describeCost(costOfMove([only], ["A1"], to("c2"), {}))).toBe("");
+    expect(describeCost(costOfMove([only], ["A1"], "c2", "t1", {}))).toBe("");
   });
 });

@@ -244,7 +244,11 @@ class StudentDatabase:
             rows = (
                 connection.execute(
                     text("""SELECT c.*,
-                                (SELECT count(*) FROM cohort_members m WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT count(DISTINCT m.student_id) FROM cohort_members m
+                                 WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
+                                 FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
+                                       WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
                             FROM student_cohorts c ORDER BY c.name""")
                 )
@@ -258,7 +262,11 @@ class StudentDatabase:
             row = (
                 connection.execute(
                     text("""SELECT c.*,
-                                (SELECT count(*) FROM cohort_members m WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT count(DISTINCT m.student_id) FROM cohort_members m
+                                 WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
+                                 FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
+                                       WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
                             FROM student_cohorts c WHERE c.id = :id"""),
                     {"id": cohort_id},
@@ -353,125 +361,71 @@ class StudentDatabase:
         if deleted.rowcount == 0:
             raise CohortNotFound(cohort_id)
 
-    def roll_over(self, cohort_id: str, term_code: str, *, name: str = "", actor: str = "") -> dict[str, Any]:
-        """Carry a cohort into the next semester of its year: L1-S1 becomes L1-S2 as well.
+    def roll_over(self, cohort_id: str, from_term: str, to_term: str, *, actor: str = "") -> dict[str, Any]:
+        """Carry a cohort's students from one semester into another: L1's Semester 1 into its Semester 2.
 
-        The cohort of that semester is made once — the same year, majors, year level,
-        allowed courses, Teams channels, workbook sheet, its own rules and check settings —
-        under the portal term given, and it remembers the cohort it continues. Every
-        student of this one joins it. Nobody leaves this one: a rolled-over student is in
-        both, one cohort per semester, and keeps the groups they sit in now.
-
-        Rolling over again finds the cohort it made and only adds the students not in it
-        yet. A cohort already made by hand for that semester under the same name is taken
-        as the one, rather than a second of that name. A student already in another cohort
-        of that semester is left where they are and named: which of the two they belong in
-        is a coordinator's call, not this one's.
+        Nobody leaves the first semester: a rolled-over student is in L1 in both, and keeps
+        the groups they sit in now. The cohort is the same one, so its settings and rules
+        need no copying. Rolling over again only adds whoever has joined since. A student
+        already in another cohort that semester is left where they are and named: which of
+        the two they belong in is a coordinator's call, not this one's.
         """
-        code = _text(term_code)
-        if not re.fullmatch(r"\d{6}", code):
-            raise InvalidCohortMove("Say the portal term to roll over into: six digits, like 262720.")
-        source = self.get_cohort(cohort_id)
-        if code in source["terms"]:
-            raise InvalidCohortMove(f"{source['name']} is already a cohort of {code}.")
-        wanted = _text(name) or _next_semester_name(source["name"], code)
+        source, target = _text(from_term), _text(to_term)
+        if source == target:
+            raise InvalidCohortMove("Roll over into another semester than the one it is from.")
+        self.get_cohort(cohort_id)
+        now = _now()
         with self.engine.begin() as connection:
-            others = (
-                connection.execute(
-                    text("SELECT id, name, term_codes, follows FROM student_cohorts WHERE id <> :source"),
-                    {"source": cohort_id},
-                )
-                .mappings()
-                .all()
-            )
-            of_term = [row for row in others if code in json.loads(row["term_codes"] or "[]")]
-            target_id = next((row["id"] for row in of_term if row["follows"] == cohort_id), None)
-            if target_id is None:
-                # One somebody made by hand for that semester, under the name a roll-over would
-                # give it: that one, linked now, rather than a second L1-S2 beside it. Its own
-                # settings stand — whoever made it chose them.
-                target_id = next(
-                    (
-                        row["id"]
-                        for row in of_term
-                        if not row["follows"] and (row["name"] or "").strip().casefold() == wanted.casefold()
-                    ),
-                    None,
-                )
-                if target_id is not None:
-                    connection.execute(
-                        text("UPDATE student_cohorts SET follows = :source WHERE id = :target"),
-                        {"source": cohort_id, "target": target_id},
-                    )
-            now = _now()
-            if target_id is None:
-                target_id = str(uuid4())
-                connection.execute(
-                    text("""INSERT INTO student_cohorts
-                                (id, name, term, notes, major_codes, term_codes, year_level, allowed_codes,
-                                 workbook_tab, first_semester, teams_channels, follows, created_at, updated_at)
-                            SELECT :id, :name, term, '', major_codes, :terms, year_level, allowed_codes,
-                                   workbook_tab, first_semester, teams_channels, id, :now, :now
-                            FROM student_cohorts WHERE id = :source"""),
-                    {
-                        "id": target_id,
-                        "name": wanted,
-                        "terms": json.dumps([code]),
-                        "source": cohort_id,
-                        "now": now,
-                    },
-                )
-                # Its own rules and checks, as this cohort has them; the shared ones are everybody's.
-                connection.execute(
-                    text("""INSERT INTO discrepancy_rules
-                                (id, field, kind, values, position, created_at, updated_at, cohort_id)
-                            SELECT gen_random_uuid()::text, field, kind, values, position, :now, :now, :target
-                            FROM discrepancy_rules WHERE cohort_id = :source"""),
-                    {"source": cohort_id, "target": target_id, "now": now},
-                )
-                connection.execute(
-                    text("""INSERT INTO check_settings (name, cohort_id, enabled, threshold, updated_at)
-                            SELECT name, :target, enabled, threshold, :now FROM check_settings WHERE cohort_id = :source
-                            ON CONFLICT DO NOTHING"""),
-                    {"source": cohort_id, "target": target_id, "now": now},
-                )
-            semester = [other for other in self._same_semester(connection, target_id) if other != target_id]
             members = [
                 row[0]
                 for row in connection.execute(
-                    text("SELECT student_id FROM cohort_members WHERE cohort_id = :source ORDER BY student_id"),
-                    {"source": cohort_id},
+                    text("""SELECT student_id FROM cohort_members
+                            WHERE cohort_id = :cohort AND term_id = :term ORDER BY student_id"""),
+                    {"cohort": cohort_id, "term": source},
                 )
             ]
             elsewhere = {
                 row[0]
                 for row in connection.execute(
                     text("""SELECT student_id FROM cohort_members
-                            WHERE student_id = ANY(:ids) AND cohort_id = ANY(:semester)"""),
-                    {"ids": members or [""], "semester": semester or [""]},
+                            WHERE student_id = ANY(:ids) AND term_id = :term AND cohort_id <> :cohort"""),
+                    {"ids": members or [""], "term": target, "cohort": cohort_id},
                 )
             }
             joining = [student for student in members if student not in elsewhere]
             added = connection.execute(
-                text("""INSERT INTO cohort_members (cohort_id, student_id, since)
-                        SELECT :target, student_id, :now FROM unnest(CAST(:ids AS text[])) AS student_id
-                        ON CONFLICT (cohort_id, student_id) DO NOTHING
+                text("""INSERT INTO cohort_members (cohort_id, term_id, student_id, since)
+                        SELECT :cohort, :term, student_id, :now FROM unnest(CAST(:ids AS text[])) AS student_id
+                        ON CONFLICT DO NOTHING
                         RETURNING student_id"""),
-                {"target": target_id, "ids": joining, "now": now},
+                {"cohort": cohort_id, "term": target, "ids": joining, "now": now},
             ).scalars().all()
-            target_name = connection.execute(
-                text("SELECT name FROM student_cohorts WHERE id = :id"), {"id": target_id}
+            # The semester's portal term joins what the cohort expects, so the register checks it there too.
+            code = connection.execute(
+                text("SELECT portal_term_code FROM term_links WHERE term_id = :term"), {"term": target}
+            ).scalar()
+            if code:
+                terms = json.loads(
+                    connection.execute(
+                        text("SELECT term_codes FROM student_cohorts WHERE id = :id"), {"id": cohort_id}
+                    ).scalar()
+                    or "[]"
+                )
+                if code not in terms:
+                    connection.execute(
+                        text("UPDATE student_cohorts SET term_codes = :terms WHERE id = :id"),
+                        {"terms": json.dumps([*terms, code]), "id": cohort_id},
+                    )
+            name = connection.execute(
+                text("SELECT name FROM student_cohorts WHERE id = :id"), {"id": cohort_id}
             ).scalar()
             self._record(
                 connection,
-                [
-                    {"studentId": student, "kind": "cohort", "detail": {"from": "", "to": target_name}}
-                    for student in added
-                ],
+                [{"studentId": student, "kind": "cohort", "detail": {"from": "", "to": name}} for student in added],
                 actor=actor,
             )
-            self._touch(connection, target_id)
-        return {"cohort": self.get_cohort(target_id), "added": len(added), "skipped": sorted(elsewhere)}
+            self._touch(connection, cohort_id)
+        return {"cohort": self.get_cohort(cohort_id), "added": len(added), "skipped": sorted(elsewhere)}
 
     # -------------------------------------------------------- saved searches
 
@@ -675,12 +629,12 @@ class StudentDatabase:
                         LEFT JOIN group_majors m ON m.id = a.major_id
                         GROUP BY a.student_id
                     ) grp ON grp.student_id = s.student_id"""
-        # Their cohorts, one per semester, gathered the same way.
+        # Their cohort in each semester, gathered the same way.
         cohorts = """LEFT JOIN (
                         SELECT cm.student_id,
                                json_agg(json_build_object(
-                                   'id', c.id, 'name', c.name, 'since', cm.since, 'terms', c.term_codes)
-                                   ORDER BY c.name) AS cohorts
+                                   'id', c.id, 'name', c.name, 'since', cm.since, 'termId', cm.term_id)
+                                   ORDER BY cm.term_id, c.name) AS cohorts
                         FROM cohort_members cm
                         JOIN student_cohorts c ON c.id = cm.cohort_id
                         GROUP BY cm.student_id
@@ -705,97 +659,88 @@ class StudentDatabase:
             rows = connection.execute(text(query), parameters).mappings().all()
         return [_student(row, row["groups"] or []) for row in rows]
 
-    def set_cohort(  # noqa: PLR0913 - who, where to, what they may keep, where from, and who did it
+    def set_cohort(  # noqa: PLR0913 - who, where to, which semester, what they may keep, and who did it
         self,
         student_ids: list[str],
         cohort_id: str | None,
         keep_shared: bool = False,
         *,
-        from_cohort: str | None = None,
+        term_id: str = "",
         actor: str = "",
     ) -> int:
-        """Put students in a cohort, or take them out of `from_cohort` when `cohort_id` is None.
+        """Put students in a cohort for one semester, or out of theirs with `cohort_id` None.
 
-        A student has a cohort in each semester — L1-S1 and L1-S2 — so joining a cohort
-        replaces their cohort OF THAT SEMESTER and no other: moving a student into L2-S1
-        takes them out of L1-S1, and leaves their L1-S2 alone. Two cohorts share a semester
-        when they name a portal term in common, or when neither names one.
+        A cohort is a year's — L1 — and holds its students semester by semester; a student
+        is in one cohort per semester. Joining a cohort replaces their cohort of THAT
+        semester and no other: moving somebody into L2 in Semester 2 leaves them in L1 in
+        Semester 1, with the groups they sit in there.
 
-        Leaving a cohort drops any group the student held in it: those groups belong to
-        that cohort's blocks, so keeping the assignment would place them in a matrix they
-        are no longer part of. Their groups in the cohorts of other semesters stay.
+        Leaving a cohort drops the groups the student held in it that semester: those groups
+        belong to that cohort's blocks, so keeping the assignment would place them in a
+        matrix they are no longer part of.
 
         `keep_shared` excepts the sets open to EVERY cohort — the languages. Those are not
         the leaving cohort's matrix; they are the university's, and a student moving from
-        L1 to L2 does not thereby stop being in French A1. Dropping them was silent and
-        cost a placement nobody knew to redo. They are re-filed under the cohort joined,
-        since a placement is filed under the student's own cohort and read by it.
-
-        Only `open_to_all` scopes may be kept. A group of a cohort-owned scope cannot be:
-        `_placeable` would refuse to admit the mover to that scope at all, so the row would
-        assert a membership the rest of the system denies.
+        L1 to L2 does not thereby stop being in French A1. They are re-filed under the cohort
+        joined, since a placement is filed under the student's own cohort and read by it.
         """
         wanted = _clean_ids(student_ids)
         if not wanted:
             return 0
         if cohort_id is not None:
             self.get_cohort(cohort_id)
-        elif not from_cohort:
-            raise InvalidCohortMove("Say which cohort they leave.")
+        term = _text(term_id)
         now = _now()
         with self.engine.begin() as connection:
-            # The cohorts this move takes them out of: the joined cohort's semester's others,
-            # or the one they are leaving.
-            leaving = (
-                [other for other in self._same_semester(connection, cohort_id) if other != cohort_id]
-                if cohort_id is not None
-                else [from_cohort]
-            )
-            # The languages are the university's sets, not the leaving cohort's, so they
-            # are the one thing a move may keep.
-            spare_shared = " AND NOT s.open_to_all" if keep_shared else ""
-            # For the history: where each of them was in this semester, and which groups the move costs.
-            names = {row[0]: row[1] for row in connection.execute(text("SELECT id, name FROM student_cohorts"))}
+            # Where each of them is this semester, if anywhere other than where they are going.
             before = {
                 row[0]: row[1]
                 for row in connection.execute(
                     text("""SELECT student_id, cohort_id FROM cohort_members
-                            WHERE student_id = ANY(:ids) AND cohort_id = ANY(:leaving)"""),
-                    {"ids": wanted, "leaving": leaving or [""]},
+                            WHERE student_id = ANY(:ids) AND term_id = :term"""),
+                    {"ids": wanted, "term": term},
                 )
             }
+            leaving = sorted({cohort for cohort in before.values() if cohort != cohort_id})
+            # The languages are the university's sets, not the leaving cohort's, so they
+            # are the one thing a move may keep.
+            spare_shared = " AND NOT s.open_to_all" if keep_shared else ""
+            names = {row[0]: row[1] for row in connection.execute(text("SELECT id, name FROM student_cohorts"))}
+            # This semester's groups of the cohorts they leave — never another semester's.
+            parameters = {"ids": wanted, "leaving": leaving or [""], "term": term}
             lost = connection.execute(
                 text(
                     "SELECT a.student_id, s.code, g.label FROM group_assignments a "
                     "JOIN cohort_scopes s ON s.id = a.scope_id JOIN scope_groups g ON g.id = a.group_id "
-                    "WHERE a.student_id = ANY(:ids) AND a.cohort_id = ANY(:leaving)" + spare_shared  # noqa: S608
+                    "WHERE a.student_id = ANY(:ids) AND a.cohort_id = ANY(:leaving) AND s.term_id = :term"
+                    + spare_shared  # noqa: S608
                 ),
-                {"ids": wanted, "leaving": leaving or [""]},
+                parameters,
             ).all()
             connection.execute(
                 text(
                     "DELETE FROM group_assignments a USING cohort_scopes s "
                     "WHERE s.id = a.scope_id AND a.student_id = ANY(:ids) "
-                    "AND a.cohort_id = ANY(:leaving)" + spare_shared  # noqa: S608
+                    "AND a.cohort_id = ANY(:leaving) AND s.term_id = :term" + spare_shared  # noqa: S608
                 ),
-                {"ids": wanted, "leaving": leaving or [""]},
+                parameters,
             )
             if keep_shared and cohort_id is not None:
                 # An UPDATE and not a bare keep: `cohort_id` is IN the primary key and
                 # `assignments_of` reads by it, so a row left filed under the old cohort is
-                # invisible to every screen of the new one — kept in the table and lost on
-                # the page, which is worse than deleting it.
+                # invisible to every screen of the new one.
                 connection.execute(
                     text("""UPDATE group_assignments a
                             SET cohort_id = :cohort_id, updated_at = :now
                             FROM cohort_scopes s
-                            WHERE s.id = a.scope_id AND s.open_to_all
+                            WHERE s.id = a.scope_id AND s.open_to_all AND s.term_id = :term
                               AND a.student_id = ANY(:ids) AND a.cohort_id = ANY(:leaving)"""),
-                    {"ids": wanted, "cohort_id": cohort_id, "leaving": leaving or [""], "now": now},
+                    {**parameters, "cohort_id": cohort_id, "now": now},
                 )
             connection.execute(
-                text("DELETE FROM cohort_members WHERE student_id = ANY(:ids) AND cohort_id = ANY(:leaving)"),
-                {"ids": wanted, "leaving": leaving or [""]},
+                text("""DELETE FROM cohort_members
+                        WHERE student_id = ANY(:ids) AND term_id = :term AND cohort_id = ANY(:leaving)"""),
+                parameters,
             )
             present = [
                 row[0]
@@ -808,10 +753,10 @@ class StudentDatabase:
                 # here" is measured from, so it is set only when they join: re-saving a
                 # student into the cohort they are already in is not a placement.
                 connection.execute(
-                    text("""INSERT INTO cohort_members (cohort_id, student_id, since)
-                            SELECT :cohort_id, student_id, :now FROM unnest(CAST(:ids AS text[])) AS student_id
-                            ON CONFLICT (cohort_id, student_id) DO NOTHING"""),
-                    {"ids": present, "cohort_id": cohort_id, "now": now},
+                    text("""INSERT INTO cohort_members (cohort_id, term_id, student_id, since)
+                            SELECT :cohort_id, :term, student_id, :now FROM unnest(CAST(:ids AS text[])) AS student_id
+                            ON CONFLICT (cohort_id, term_id, student_id) DO NOTHING"""),
+                    {"ids": present, "cohort_id": cohort_id, "term": term, "now": now},
                 )
             connection.execute(
                 text("UPDATE students SET updated_at = :now WHERE student_id = ANY(:ids)"), {"ids": present, "now": now}
@@ -834,26 +779,16 @@ class StudentDatabase:
                 self._touch(connection, cohort_id)
         return len(present)
 
-    def _same_semester(self, connection: Connection, cohort_id: str | None) -> list[str]:
-        """The cohorts of this one's semester, itself included: those naming a portal term it names.
-
-        A cohort naming no term is of the same semester as every other such cohort, which is
-        how they all behaved when a student had one cohort.
-        """
-        rows = [
-            (row[0], set(json.loads(row[1] or "[]")))
-            for row in connection.execute(text("SELECT id, term_codes FROM student_cohorts"))
-        ]
-        mine = next((terms for row_id, terms in rows if row_id == cohort_id), set())
-        return [row_id for row_id, terms in rows if (terms & mine) or (not terms and not mine)]
-
-    def list_members(self, cohort_id: str) -> list[dict[str, Any]]:
-        """One cohort's students — the same records, narrowed to that cohort."""
+    def list_members(self, cohort_id: str, term_id: str | None = None) -> list[dict[str, Any]]:
+        """One cohort's students — the same records, narrowed to that cohort, in one semester or any."""
         self.get_cohort(cohort_id)
         return [
             student
             for student in self.list_students()
-            if any(cohort["id"] == cohort_id for cohort in student["cohorts"])
+            if any(
+                cohort["id"] == cohort_id and (term_id is None or cohort["termId"] == term_id)
+                for cohort in student["cohorts"]
+            )
         ]
 
     # ---------------------------------------------------------- discrepancies
@@ -1096,7 +1031,11 @@ class StudentDatabase:
                 _cohort(row)
                 for row in connection.execute(
                     text("""SELECT c.*,
-                                (SELECT count(*) FROM cohort_members m WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT count(DISTINCT m.student_id) FROM cohort_members m
+                                 WHERE m.cohort_id = c.id) AS member_count,
+                                (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
+                                 FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
+                                       WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
                             FROM student_cohorts c ORDER BY c.name""")
                 )
@@ -1208,7 +1147,7 @@ class StudentDatabase:
                 connection.execute(
                     text(_PLACE),
                     {
-                        "cohort": self._cohorts_of(connection, [student_id], cohort_id).get(student_id, cohort_id),
+                        "cohort": self._cohorts_of(connection, [student_id], scope_id).get(student_id, cohort_id),
                         "student": student_id,
                         "scope": scope_id,
                         "group": group_id,
@@ -1267,7 +1206,7 @@ class StudentDatabase:
                 after = {student: (None, "") for student in wanted}
             elif wanted:
                 now = _now()
-                mine = self._cohorts_of(connection, wanted, cohort_id)
+                mine = self._cohorts_of(connection, wanted, scope_id)
                 # The sub-row each takes: named per student, else the one for all, else none.
                 after = {
                     student: (group_id, self._major_of(connection, group_id, (majors or {}).get(student, major_id)))
@@ -1324,7 +1263,7 @@ class StudentDatabase:
             # A set open to every cohort takes anybody the department holds; every other
             # set takes its own cohort's students, and says who it turned away.
             held = self._placeable(connection, scope_id, cohort_id)
-            cohort_of = self._cohorts_of(connection, sorted({s for ids in placements.values() for s in ids}), cohort_id)
+            cohort_of = self._cohorts_of(connection, sorted({s for ids in placements.values() for s in ids}), scope_id)
             now = _now()
             rows: list[dict[str, Any]] = []
             seen: set[str] = set()
@@ -1463,31 +1402,35 @@ class StudentDatabase:
             held.setdefault(row["student_id"], {})[row["scope_id"]] = row["major_id"]
         return held
 
-    def _cohorts_of(self, connection: Connection, student_ids: list[str], owner: str) -> dict[str, str]:
-        """Whose student each of these is in the semester of a set `owner` holds.
+    def _cohorts_of(self, connection: Connection, student_ids: list[str], scope_id: str) -> dict[str, str]:
+        """Whose student each of these is in the semester of this set.
 
-        So a shared set files them under themselves: a language group of the first semester
-        is filed under the student's L1-S1, not their L1-S2, and not the set's owner.
+        So a shared set files them under themselves: a language group of Semester 1 is
+        filed under the student's cohort of Semester 1, not the set's owner.
         """
         if not student_ids:
             return {}
         return {
             row[0]: row[1]
             for row in connection.execute(
-                text("""SELECT student_id, cohort_id FROM cohort_members
-                        WHERE student_id = ANY(:ids) AND cohort_id = ANY(:semester)"""),
-                {"ids": student_ids, "semester": self._same_semester(connection, owner) or [""]},
+                text("""SELECT m.student_id, m.cohort_id FROM cohort_members m
+                        JOIN cohort_scopes s ON s.id = :scope AND s.term_id = m.term_id
+                        WHERE m.student_id = ANY(:ids)"""),
+                {"ids": student_ids, "scope": scope_id},
             )
         }
 
     def _placeable(self, connection: Connection, scope_id: str, cohort_id: str) -> set[str]:
-        """The students this set may hold: its cohort's, or the whole department's."""
+        """The students this set may hold: its cohort's in its semester, or the whole department's."""
         if self._open_to_all(connection, scope_id):
             return {row[0] for row in connection.execute(text("SELECT student_id FROM students"))}
         return {
             row[0]
             for row in connection.execute(
-                text("SELECT student_id FROM cohort_members WHERE cohort_id = :cohort"), {"cohort": cohort_id}
+                text("""SELECT m.student_id FROM cohort_members m
+                        JOIN cohort_scopes s ON s.id = :scope AND s.term_id = m.term_id
+                        WHERE m.cohort_id = :cohort"""),
+                {"cohort": cohort_id, "scope": scope_id},
             )
         }
 
@@ -1635,15 +1578,9 @@ class StudentDatabase:
             self._touch(connection, cohort_id)
         return applied
 
-    def student_ids_of(self, cohort_id: str) -> set[str]:
-        """Who this cohort holds. The roster is the registrar's, never a spreadsheet's."""
-        with self.engine.connect() as connection:
-            return {
-                row[0]
-                for row in connection.execute(
-                    text("SELECT student_id FROM cohort_members WHERE cohort_id = :id"), {"id": cohort_id}
-                )
-            }
+    def student_ids_of(self, cohort_id: str, term_id: str | None = None) -> set[str]:
+        """Who this cohort holds, in one semester or any. The roster is the registrar's, never a spreadsheet's."""
+        return self.cohort_members(cohort_id, term_id)
 
     def assignments_of(self, cohort_id: str) -> dict[str, dict[str, str]]:
         """`student id -> {scope id: group id}` for one cohort, for the screens."""
@@ -1702,8 +1639,9 @@ class StudentDatabase:
             )
             members = (
                 connection.execute(
-                    text("SELECT student_id, cohort_id FROM cohort_members WHERE cohort_id = ANY(:ids)"),
-                    {"ids": cohort_ids},
+                    text("""SELECT student_id, cohort_id FROM cohort_members
+                            WHERE cohort_id = ANY(:ids) AND term_id = :term"""),
+                    {"ids": cohort_ids, "term": term_id},
                 )
                 .mappings()
                 .all()
@@ -2091,13 +2029,15 @@ class StudentDatabase:
                 )
             )
 
-    def cohort_members(self, cohort_id: str) -> set[str]:
-        """Who belongs to this cohort — the ids only, which is all a check needs."""
+    def cohort_members(self, cohort_id: str, term_id: str | None = None) -> set[str]:
+        """Who belongs to this cohort, in one semester or in any — the ids only, which is all a check needs."""
         with self.engine.connect() as connection:
             return {
                 row[0]
                 for row in connection.execute(
-                    text("SELECT student_id FROM cohort_members WHERE cohort_id = :id"), {"id": cohort_id}
+                    text("""SELECT DISTINCT student_id FROM cohort_members
+                            WHERE cohort_id = :id AND (CAST(:term AS text) IS NULL OR term_id = :term)"""),
+                    {"id": cohort_id, "term": term_id},
                 )
             }
 
@@ -3151,38 +3091,26 @@ def _view(row) -> dict[str, Any]:
     }
 
 
-def _terms_of(raw: Any) -> list[str]:
-    """A cohort's portal terms as the membership query gives them: JSON, as stored, or a list."""
-    held = json.loads(raw or "[]") if isinstance(raw, str) else raw or []
-    return [str(code) for code in held] if isinstance(held, list) else []
-
-
-def _next_semester_name(name: str, term_code: str) -> str:
-    """What a rolled-over cohort is called: L1-S1 continues as L1-S2.
-
-    The semester at the end of the name moves on by one; a name that ends in none says the
-    portal term instead, so the two are never one name.
-    """
-    found = re.search(r"S(\d+)$", name)
-    if found:
-        return f"{name[: found.start()]}S{int(found.group(1)) + 1}"
-    return f"{name} ({term_code})"
+def _json_object(raw: Any) -> dict[str, Any]:
+    """A JSON object as a query gives it: text, as some drivers return it, or already a dict."""
+    held = json.loads(raw or "{}") if isinstance(raw, str) else raw or {}
+    return dict(held) if isinstance(held, dict) else {}
 
 
 def _student(row, groups: list[dict[str, str]]) -> dict[str, Any]:
     return {
         "studentId": row["student_id"],
         "status": row["status"],
-        # Every cohort they are in, one per semester: L1-S1 and L1-S2. Each says when they
-        # were placed in it — empty for a placement made before that was recorded, which the
-        # Cohorts page says rather than treating every change as since then — and its
-        # portal terms, which is how a page finds the student's cohort of its semester.
+        # Their cohort in each semester — L1 in Semester 1, and in Semester 2 once rolled
+        # over. Each says when they were placed in it: empty for a placement made before
+        # that was recorded, which the Cohorts page says rather than treating every change
+        # as since then.
         "cohorts": [
             {
                 "id": cohort["id"],
                 "name": cohort["name"] or "",
                 "since": cohort["since"] or "",
-                "terms": _terms_of(cohort["terms"]),
+                "termId": cohort["termId"] or "",
             }
             for cohort in (row["cohorts"] or [])
         ],
@@ -3270,9 +3198,10 @@ def _cohort(row) -> dict[str, Any]:
         # The Teams channels this cohort's students belong in, by display name — their
         # year's and "SCEN Students". None means the cohort is not compared against Teams.
         "teamsChannels": json.loads(row["teams_channels"] or "[]"),
-        # The cohort this one continues into a new semester: L1-S2 follows L1-S1.
-        "follows": row["follows"] or "",
+        # Its students in all, and in each semester: L1 holds 109 in Semester 1 and, once
+        # rolled over, 109 in Semester 2.
         "memberCount": row["member_count"],
+        "memberCounts": _json_object(row.get("member_counts")),
         "scopeCount": row["scope_count"],
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],

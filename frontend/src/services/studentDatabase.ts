@@ -39,9 +39,9 @@ export type Cohort = {
    * sync at all.
    */
   teamsChannels?: string[];
-  /** The cohort this one continues into a new semester: L1-S2 follows L1-S1. Empty for none. */
-  follows?: string;
+  /** Its students in all, and in each semester by its id: L1 holds 109 in Semester 1 and in Semester 2. */
   memberCount: number;
+  memberCounts?: Record<string, number>;
   scopeCount: number;
   createdAt: string;
   updatedAt: string;
@@ -812,22 +812,23 @@ export function clearExemption(studentId: string, courseId: string): Promise<voi
   });
 }
 
-/** One of the cohorts a student is in: one per semester, L1-S1 and then L1-S2. */
+/** A student's cohort in one semester: L1 in Semester 1, and L1 in Semester 2 once rolled over. */
 export type StudentCohort = {
   id: string;
   name: string;
   /** When they were placed in it; empty for a placement made before this was kept. */
   since: string;
-  /** Its portal terms, which say which semester it is: two cohorts that share one are rivals. */
-  terms: string[];
+  /** The semester, by the app's id for it — the one a set names. */
+  termId: string;
 };
 
 /**
- * One student, as our side knows them: an id, a status, and the cohorts they are in.
+ * One student, as our side knows them: an id, a status, and their cohort in each semester.
  *
- * A student is in one cohort per semester. `cohorts` is all of them; `cohortId`,
- * `cohortName` and `cohortSince` are the one of the semester on screen — see `inSemester`
- * — so a page about one semester reads a student as it always did.
+ * A cohort is a year's — L1 — and holds its students semester by semester; a student is in
+ * one cohort per semester. `cohorts` is every semester's; `cohortId`, `cohortName` and
+ * `cohortSince` are the semester on screen's — see `inSemester` — so a page about one
+ * semester reads a student as it always did.
  */
 export type Student = {
   studentId: string;
@@ -858,62 +859,47 @@ export type Student = {
   }[];
 };
 
-/**
- * Whether two cohorts are of one semester: they share a portal term, or neither names one.
- *
- * The server's own rule for which cohort a move replaces, so the two never disagree about
- * whether putting somebody in L1-S2 takes them out of L1-S1. (It does not: their terms differ.)
- */
-export function sameSemester(left: { terms: string[] }, right: { terms: string[] }): boolean {
-  if (!left.terms.length || !right.terms.length) return !left.terms.length && !right.terms.length;
-  return left.terms.some((term) => right.terms.includes(term));
+/** Their cohort in one semester, if any. */
+export function cohortIn(student: Pick<Student, "cohorts">, termId: string): StudentCohort | null {
+  return student.cohorts.find((held) => held.termId === termId) ?? null;
 }
 
-/** Their cohort of the semester `cohort` is in — `cohort` itself when they are in it. */
-export function cohortBeside(student: Pick<Student, "cohorts">, cohort: { id: string; terms: string[] }): StudentCohort | null {
-  return (
-    student.cohorts.find((held) => held.id === cohort.id) ??
-    student.cohorts.find((held) => sameSemester(held, cohort)) ??
-    null
-  );
+/** Whether they are in this cohort — in one semester, or in any. */
+export function isIn(student: Pick<Student, "cohorts">, cohortId: string, termId?: string): boolean {
+  return student.cohorts.some((held) => held.id === cohortId && (termId === undefined || held.termId === termId));
 }
 
-/** Whether they are in this cohort, whichever semester is on screen. */
-export function isIn(student: Pick<Student, "cohorts">, cohortId: string): boolean {
-  return student.cohorts.some((held) => held.id === cohortId);
-}
-
-/**
- * The cohort a student is in by default, when no semester has been chosen: the latest.
- *
- * The highest portal term wins, so a student in L1-S1 and L1-S2 reads as L1-S2's once
- * nothing says otherwise; a cohort that names no term comes last.
- */
+/** The cohort a student is read as in when no semester is named: the one they joined last. */
 export function latestCohort(cohorts: StudentCohort[]): StudentCohort | null {
-  const latest = (held: StudentCohort) => [...held.terms].sort().pop() ?? "";
-  return [...cohorts].sort((left, right) => latest(right).localeCompare(latest(left)) || left.name.localeCompare(right.name))[0] ?? null;
+  return [...cohorts].sort((left, right) => right.since.localeCompare(left.since) || left.name.localeCompare(right.name))[0] ?? null;
 }
 
-/** The student as one cohort holds them: `cohortId` and the rest are that membership. */
+/** The student as one membership has them: `cohortId` and the rest are that membership. */
 function seenAs<T extends Student>(student: T, held: StudentCohort | null): T {
   return { ...student, cohortId: held?.id ?? null, cohortName: held?.name ?? "", cohortSince: held?.since ?? "" };
 }
 
 /**
- * Students as one semester sees them: their cohort there, or none.
+ * Students as one semester sees them: their cohort in it, or none.
  *
- * `semesterCohorts` is that semester's cohorts (`cohortsIn`). With none given, each
- * student reads as their latest cohort's.
+ * With no semester named, each reads as the cohort they joined last.
  */
-export function inSemester<T extends Student>(students: T[], semesterCohorts?: Iterable<string>): T[] {
-  if (!semesterCohorts) return students.map((student) => seenAs(student, latestCohort(student.cohorts)));
-  const ids = new Set(semesterCohorts);
-  return students.map((student) => seenAs(student, student.cohorts.find((held) => ids.has(held.id)) ?? null));
+export function inSemester<T extends Student>(students: T[], termId?: string): T[] {
+  if (termId === undefined) return students.map((student) => seenAs(student, latestCohort(student.cohorts)));
+  return students.map((student) => seenAs(student, cohortIn(student, termId)));
 }
 
-/** Each student as `cohort`'s semester sees them, for a page about one cohort. */
-export function asSeenBy<T extends Student>(students: T[], cohort: { id: string; terms: string[] }): T[] {
-  return students.map((student) => seenAs(student, cohortBeside(student, cohort)));
+/**
+ * Students as one cohort has them — in one semester when it is named — for a page about
+ * that cohort: a group's roster, a fill. Somebody not in it reads as in none.
+ */
+export function asMemberOf<T extends Student>(students: T[], cohortId: string, termId?: string): T[] {
+  return students.map((student) =>
+    seenAs(
+      student,
+      student.cohorts.find((held) => held.id === cohortId && (termId === undefined || held.termId === termId)) ?? null,
+    ),
+  );
 }
 
 export type SyncReport = {
@@ -964,7 +950,7 @@ export function deleteView(viewId: string): Promise<void> {
   return request<void>(`${BASE}/views/${viewId}`, { method: "DELETE" });
 }
 
-/** The students, each read as their latest cohort's until a page names its semester (`inSemester`). */
+/** The students, each read as the cohort they joined last until a page names its semester (`inSemester`). */
 export async function fetchStudents(viewId = ""): Promise<Student[]> {
   const path = viewId ? `${BASE}/students?view=${encodeURIComponent(viewId)}` : `${BASE}/students`;
   const { students } = await request<{ students: Omit<Student, "cohortId" | "cohortName" | "cohortSince">[] }>(path);
@@ -982,40 +968,36 @@ export async function syncView(viewId: string, studentIds: string[], signal?: Ab
 }
 
 /**
- * Put students in a cohort, or take them out of `fromCohortId` with null.
+ * Put students in a cohort for one semester, or out of theirs with null.
  *
- * Joining a cohort replaces their cohort of that semester only: putting somebody in L1-S2
- * leaves them in L1-S1, and their S1 groups with it.
+ * A student is in one cohort per semester: this replaces their cohort of that semester
+ * only. Moving somebody into L2 in Semester 2 leaves them in L1 in Semester 1, and their
+ * Semester 1 groups with it.
  */
 export async function setCohort(
   studentIds: string[],
   cohortId: string | null,
+  /** The semester, by the app's id for it. */
+  termId: string,
   /** Keep the placements in sets open to every cohort. The languages are not the cohort's. */
   keepShared = false,
-  /** With a null cohort, the one they leave — they may be in one per semester. */
-  fromCohortId?: string | null,
 ): Promise<number> {
-  const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", {
-    studentIds,
-    cohortId,
-    keepShared,
-    ...(fromCohortId ? { fromCohortId } : {}),
-  });
+  const body = await send<{ moved: number }>(`${BASE}/students/cohort`, "POST", { studentIds, cohortId, termId, keepShared });
   return body.moved;
 }
 
-/** What rolling a cohort over did: the new cohort, who joined it, and who was already elsewhere. */
+/** What rolling a cohort over did: the cohort, who joined it there, and who was already elsewhere. */
 export type RollOver = { cohort: Cohort; added: number; skipped: string[] };
 
 /**
- * Carry a cohort into the next semester of its year: L1-S1 → L1-S2.
+ * Carry a cohort's students from one semester into another: L1's Semester 1 into its Semester 2.
  *
- * The new cohort takes this one's settings and rules and every one of its students, who
- * stay in this one too. Rolling over again adds whoever has joined since; a student who is
- * already in another cohort of that semester is left where they are, and named.
+ * Nobody leaves the first semester, and their groups there stay. Rolling over again adds
+ * whoever has joined since; a student already in another cohort of that semester is left
+ * where they are, and named.
  */
-export function rollOverCohort(cohortId: string, termCode: string, name = ""): Promise<RollOver> {
-  return send<RollOver>(`${BASE}/cohorts/${cohortId}/roll-over`, "POST", { termCode, name });
+export function rollOverCohort(cohortId: string, fromTermId: string, toTermId: string): Promise<RollOver> {
+  return send<RollOver>(`${BASE}/cohorts/${cohortId}/roll-over`, "POST", { fromTermId, toTermId });
 }
 
 /**

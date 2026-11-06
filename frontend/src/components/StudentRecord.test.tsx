@@ -24,7 +24,7 @@ const ROW: StudentRow = {
   cohortId: "cohort-1",
   cohortName: "Foundation Year",
   cohortSince: "",
-  cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
+  cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", termId: "" }],
   cohortNames: ["Foundation Year"],
   firstSeenAt: "",
   lastSeenAt: "",

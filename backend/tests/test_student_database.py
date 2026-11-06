@@ -3,6 +3,8 @@
 import pytest
 from uuid import uuid4
 
+from sqlalchemy import text
+
 from sorbonne.services.group_reference_import import parse_group_reference
 from sorbonne.services.workbook_diff import diff_reference
 from sorbonne.services.student_database import (
@@ -251,90 +253,84 @@ def test_moving_to_another_cohort_is_a_new_placement(database: StudentDatabase, 
     assert _since(database, "A001", other["id"]) >= first
 
 
-def test_a_student_has_a_cohort_in_each_semester(database: StudentDatabase) -> None:
-    """L1-S1 and L1-S2: joining the second leaves the first; another first-semester cohort replaces it."""
+def test_a_cohort_holds_its_students_semester_by_semester(database: StudentDatabase) -> None:
+    """L1 in Semester 1 and in Semester 2: moving them in one semester leaves the other alone."""
     # This file does not clear the record between tests, so the students are this test's own.
     a001 = f"S{uuid4().hex[:8].upper()}"
     _hold(database, a001)
-    first = database.create_cohort(name="L1-S1", term="2026-27", terms=["262710"])
-    second = database.create_cohort(name="L1-S2", term="2026-27", terms=["262720"])
-    elsewhere = database.create_cohort(name="L2-S1", term="2026-27", terms=["262710"])
+    l1 = database.create_cohort(name="L1", term="2026-27")
+    l2 = database.create_cohort(name="L2", term="2026-27")
+    spring_set = database.add_scope(l1["id"], code="TD", name="Tutorials", term_id="spring")
+    group = database.add_group(spring_set, label="1")
 
-    database.set_cohort([a001], first["id"])
-    database.set_cohort([a001], second["id"])
+    database.set_cohort([a001], l1["id"], term_id="autumn")
+    database.set_cohort([a001], l1["id"], term_id="spring")
+    database.assign(student_id=a001, scope_id=spring_set, group_id=group)
     student = next(s for s in database.list_students() if s["studentId"] == a001)
-    assert sorted(c["name"] for c in student["cohorts"]) == ["L1-S1", "L1-S2"]
+    assert sorted((c["name"], c["termId"]) for c in student["cohorts"]) == [("L1", "autumn"), ("L1", "spring")]
+    assert database.get_cohort(l1["id"])["memberCounts"] == {"autumn": 1, "spring": 1}
 
-    database.set_cohort([a001], elsewhere["id"])
+    # Into L2 for the autumn only: their spring in L1, and its group, stay.
+    database.set_cohort([a001], l2["id"], term_id="autumn")
     student = next(s for s in database.list_students() if s["studentId"] == a001)
-    assert sorted(c["name"] for c in student["cohorts"]) == ["L1-S2", "L2-S1"]
-    assert [c["terms"] for c in student["cohorts"] if c["name"] == "L1-S2"] == [["262720"]]
+    assert sorted((c["name"], c["termId"]) for c in student["cohorts"]) == [("L1", "spring"), ("L2", "autumn")]
+    assert [g["groupLabel"] for g in student["groups"]] == ["1"]
 
-    database.set_cohort([a001], None, from_cohort=second["id"])
+    # Out of their cohort in the spring: out of L1 there, and out of its group.
+    database.set_cohort([a001], None, term_id="spring")
     student = next(s for s in database.list_students() if s["studentId"] == a001)
-    assert [c["name"] for c in student["cohorts"]] == ["L2-S1"]
+    assert [(c["name"], c["termId"]) for c in student["cohorts"]] == [("L2", "autumn")]
+    assert student["groups"] == []
 
 
-def test_rolling_a_cohort_over_carries_its_settings_and_students_into_the_next_semester(
-    database: StudentDatabase,
-) -> None:
+def test_a_set_takes_only_the_students_its_cohort_holds_in_its_semester(database: StudentDatabase) -> None:
+    a001 = f"S{uuid4().hex[:8].upper()}"
+    _hold(database, a001)
+    l1 = database.create_cohort(name="L1", term="2026-27")
+    database.set_cohort([a001], l1["id"], term_id="autumn")
+    spring_set = database.add_scope(l1["id"], code="TD", name="Tutorials", term_id="spring")
+    group = database.add_group(spring_set, label="1")
+
+    placed = database.assign_many(scope_id=spring_set, student_ids=[a001], group_id=group)
+
+    assert (placed["assigned"], placed["skipped"]) == (0, [a001]), "in L1 in the autumn, not yet in the spring"
+
+
+def test_rolling_over_carries_a_cohorts_students_into_the_next_semester(database: StudentDatabase) -> None:
     a001, a002, a003, a004 = (f"R{uuid4().hex[:8].upper()}" for _ in range(4))
     for student in (a001, a002, a003):
         _hold(database, student)
-    # A name of its own: the test database keeps other tests' cohorts, and an "L1-S2" made by
-    # hand for 262720 would be taken as the one to roll into (see the test after this one).
-    tag = uuid4().hex[:6].upper()
-    first = database.create_cohort(
-        name=f"L1-{tag}-S1",
-        term="2026-27",
-        majors=["MATH", "PHYS"],
-        terms=["262710"],
-        year_level="L1",
-        allowed_codes=["SPRT"],
-    )
-    database.set_cohort([a001, a002, a003], first["id"])
-    # A003 is already in another cohort of the second semester, and stays there.
-    elsewhere = database.create_cohort(name="L2-S2", term="2026-27", terms=["262720"])
-    database.set_cohort([a003], elsewhere["id"])
+    # Semesters of its own: the test database keeps other tests' memberships.
+    autumn, spring = (f"{season}-{uuid4().hex[:6]}" for season in ("autumn", "spring"))
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO term_links (term_id, portal_term_code) VALUES (:t, '262720')"), {"t": spring}
+        )
+    l1 = database.create_cohort(name="L1", term="2026-27", terms=["262710"])
+    database.set_cohort([a001, a002, a003], l1["id"], term_id=autumn)
+    # A003 is already in another cohort in the spring, and stays there.
+    l2 = database.create_cohort(name="L2", term="2026-27")
+    database.set_cohort([a003], l2["id"], term_id=spring)
 
-    rolled = database.roll_over(first["id"], "262720")
+    rolled = database.roll_over(l1["id"], autumn, spring)
 
-    second = rolled["cohort"]
-    assert (second["name"], second["terms"], second["follows"]) == (f"L1-{tag}-S2", ["262720"], first["id"])
-    assert (second["majors"], second["yearLevel"], second["allowedCodes"], second["term"]) == (
-        ["MATH", "PHYS"], "L1", ["SPRT"], "2026-27"
-    )
+    assert rolled["cohort"]["id"] == l1["id"], "the same cohort, in another semester"
     assert (rolled["added"], rolled["skipped"]) == (2, [a003])
-    assert database.get_cohort(first["id"])["memberCount"] == 3, "nobody leaves the first semester's cohort"
+    assert rolled["cohort"]["memberCounts"] == {autumn: 3, spring: 2}, "nobody leaves the autumn"
+    # The spring's portal term is now one the cohort expects, so the register checks it there.
+    assert rolled["cohort"]["terms"] == ["262710", "262720"]
 
-    # Again: the same cohort, and only who is not in it yet.
+    # Again: only who is not in it yet.
     _hold(database, a004)
-    database.set_cohort([a004], first["id"])
-    again = database.roll_over(first["id"], "262720")
-    assert (again["cohort"]["id"], again["added"]) == (second["id"], 1)
+    database.set_cohort([a004], l1["id"], term_id=autumn)
+    again = database.roll_over(l1["id"], autumn, spring)
+    assert again["added"] == 1
 
 
-def test_rolling_over_takes_the_cohort_already_made_by_hand_for_that_semester(database: StudentDatabase) -> None:
-    """Somebody made L1-S2 on the Cohorts page before rolling over: that one, not a second L1-S2."""
-    a001 = f"R{uuid4().hex[:8].upper()}"
-    _hold(database, a001)
-    tag = uuid4().hex[:6].upper()
-    first = database.create_cohort(name=f"L1-{tag}-S1", terms=["262710"], year_level="L1")
-    database.set_cohort([a001], first["id"])
-    by_hand = database.create_cohort(name=f"l1-{tag}-s2", terms=["262720"], year_level="L1 by hand")
-
-    rolled = database.roll_over(first["id"], "262720")
-
-    assert rolled["cohort"]["id"] == by_hand["id"]
-    made = rolled["cohort"]
-    assert (made["follows"], made["yearLevel"], rolled["added"]) == (first["id"], "L1 by hand", 1)
-    assert sum(1 for held in database.list_cohorts() if held["name"].casefold() == f"l1-{tag}-s2".casefold()) == 1
-
-
-def test_a_cohort_is_not_rolled_over_into_its_own_semester(database: StudentDatabase) -> None:
-    first = database.create_cohort(name="L1-S1", terms=["262710"])
+def test_a_cohort_is_not_rolled_over_into_the_semester_it_is_from(database: StudentDatabase) -> None:
+    l1 = database.create_cohort(name="L1")
     with pytest.raises(InvalidCohortMove):
-        database.roll_over(first["id"], "262710")
+        database.roll_over(l1["id"], "autumn", "autumn")
 
 
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:

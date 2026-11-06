@@ -8,6 +8,7 @@ import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStor
 import * as rosters from "@/services/scenRosters";
 import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
+import * as timetables from "@/services/timetables";
 
 /** The columns come from the portal's own grid, so the tests describe one. */
 /** The roster is always showing one view, and everything stored is that view's. */
@@ -80,7 +81,7 @@ const HELD: database.Student[] = [
     cohortId: "cohort-1",
     cohortName: "Foundation Year",
     cohortSince: "",
-    cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
+    cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", termId: "" }],
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
     groups: [],
@@ -113,7 +114,7 @@ const HELD: database.Student[] = [
     cohortId: "cohort-1",
     cohortName: "Foundation Year",
     cohortSince: "",
-    cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
+    cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", termId: "" }],
     firstSeenAt: EARLIER,
     lastSeenAt: EARLIER,
     groups: [],
@@ -140,6 +141,24 @@ async function withNames() {
     rows: PULLED,
   });
   rememberSync(VIEW_ID, SYNCED);
+}
+
+/**
+ * A department with two semesters, A001 in Foundation Year in the first, and their groups as
+ * given. The table reads the first: the semester remembered, or failing that the first.
+ */
+function inSemesterOne(groups: database.Student["groups"]) {
+  vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+    { id: "term-1", name: "Semester 1" },
+    { id: "term-2", name: "Semester 2" },
+  ] as never);
+  vi.spyOn(database, "fetchStudents").mockResolvedValue(
+    HELD.map((student) =>
+      student.studentId === "A001"
+        ? { ...student, cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", termId: "term-1" }], groups }
+        : student,
+    ),
+  );
 }
 
 function renderRoster(preselect: string[] = []) {
@@ -492,22 +511,14 @@ describe("StudentRoster", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
-  it("stops first when the move would drop placements, and names every semester", async () => {
-    // Leaving a cohort deletes the groups held in it — in every semester, not the one
-    // being looked at. That is the deletion nobody can see coming.
-    vi.spyOn(database, "fetchStudents").mockResolvedValue(
-      HELD.map((student) =>
-        student.studentId === "A001"
-          ? {
-              ...student,
-              groups: [
-                { termId: "term-1", scopeCode: "TD", groupLabel: "1" },
-                { termId: "term-2", scopeCode: "TD", groupLabel: "3" },
-              ],
-            }
-          : student,
-      ),
-    );
+  it("stops first when the move would drop placements, counting the semester it is made in", async () => {
+    // Leaving a cohort deletes the groups held in it that semester. Their groups in another
+    // semester stay, and are not counted.
+    inSemesterOne([
+      { termId: "term-1", scopeCode: "TD", groupLabel: "1" },
+      { termId: "term-1", scopeCode: "RDNS", groupLabel: "4" },
+      { termId: "term-2", scopeCode: "TD", groupLabel: "3" },
+    ]);
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
     await withNames();
     renderRoster();
@@ -519,14 +530,13 @@ describe("StudentRoster", () => {
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/1 student would lose 2 group placements/)).toBeTruthy();
-    expect(within(dialog).getByText(/across 2 semesters/)).toBeTruthy();
+    expect(within(dialog).getByText(/1 student would lose 2 group placements in Semester 1\./)).toBeTruthy();
     expect(move).not.toHaveBeenCalled();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Move anyway" }));
     await waitFor(() => expect(move).toHaveBeenCalled());
     // `true` is keepShared: the languages are the university's sets, not the cohort's.
-    expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2", true]);
+    expect(move.mock.calls[0]).toEqual([["A001"], "cohort-2", "term-1", true]);
   });
 
   it("empties one semester's groups from its own button, and leaves the cohort alone", async () => {
@@ -624,13 +634,7 @@ describe("StudentRoster", () => {
   });
 
   it("lets the move be called off, and nothing is written", async () => {
-    vi.spyOn(database, "fetchStudents").mockResolvedValue(
-      HELD.map((student) =>
-        student.studentId === "A001"
-          ? { ...student, groups: [{ termId: "term-1", scopeCode: "TD", groupLabel: "1" }] }
-          : student,
-      ),
-    );
+    inSemesterOne([{ termId: "term-1", scopeCode: "TD", groupLabel: "1" }]);
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
     await withNames();
     renderRoster();
@@ -648,7 +652,8 @@ describe("StudentRoster", () => {
     expect(move).not.toHaveBeenCalled();
   });
 
-  it("takes students out of a cohort from its own button, with a null naming the cohort they leave", async () => {
+  it("takes students out of their cohort in the semester on screen, with a null and not a delete", async () => {
+    inSemesterOne([]);
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
     await withNames();
     renderRoster();
@@ -660,8 +665,8 @@ describe("StudentRoster", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Move anyway" }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
-    // They may be in one cohort per semester, so the one they leave is said.
-    expect(move.mock.calls[0]).toEqual([["A001"], null, true, "cohort-1"]);
+    // Out of their cohort in Semester 1 only: a cohort holds its students semester by semester.
+    expect(move.mock.calls[0]).toEqual([["A001"], null, "term-1", true]);
   });
 
   it("asks before taking them out of a cohort even when it costs nothing", async () => {

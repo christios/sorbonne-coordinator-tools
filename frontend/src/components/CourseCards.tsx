@@ -180,7 +180,9 @@ export function CourseCards({
   const inSemester = (card: Card) => !semester || card.termId === semester.id;
   const portalTerm = semester ? (links.data?.[semester.id] ?? "") : "";
   const semesterCohorts = semester
-    ? cohortsIn(cohorts, portalTerm, (id) => cards.some((card) => card.cohortId === id && inSemester(card)))
+    ? cohortsIn(cohorts, { id: semester.id, portalTerm, year: yearOf(semester) }, (id) =>
+        cards.some((card) => card.cohortId === id && inSemester(card)),
+      )
     : cohorts;
   const chosen =
     semesterCohorts.find((cohort) => cohort.id === cohortId) ??

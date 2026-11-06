@@ -176,10 +176,11 @@ def seed_students(database: StudentDatabase, cohort_id: str, ids: list[str]) -> 
                             VALUES (:id, 'in_portal', 'now', 'now', 'now')
                             ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
                             RETURNING student_id)
-                        INSERT INTO cohort_members (cohort_id, student_id)
-                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
-                        ON CONFLICT DO NOTHING"""),
-                {"id": student, "cohort": cohort_id},
+                        INSERT INTO cohort_members (cohort_id, term_id, student_id)
+                        SELECT CAST(:cohort AS text), term, student_id
+                        FROM s, unnest(CAST(:terms AS text[])) AS term WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT (term_id, student_id) DO UPDATE SET cohort_id = excluded.cohort_id"""),
+                {"terms": [TERM], "id": student, "cohort": cohort_id},
             )
 
 

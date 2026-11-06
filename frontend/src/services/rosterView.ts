@@ -32,7 +32,7 @@ export type StudentRow = {
   cohortName: string;
   /** When they were placed in that cohort; empty for a placement made before this was kept. */
   cohortSince: string;
-  /** Every cohort they are in, one per semester, earliest first: "L1-S1", "L1-S2". */
+  /** Their cohort in every semester; and the cohorts' names, once each: "L1", or "L1 · L2". */
   cohorts: StudentCohort[];
   cohortNames: string[];
   /** When we first held this student, and when the portal last returned them. */
@@ -190,10 +190,9 @@ export function groupSignature(
   return groupLabels(ordered, termNames).join(" · ");
 }
 
-/** Earliest semester first, so "L1-S1 · L1-S2" reads in the order the year does. */
-function inTermOrder(cohorts: StudentCohort[]): StudentCohort[] {
-  const first = (held: StudentCohort) => [...held.terms].sort()[0] ?? "~";
-  return [...cohorts].sort((left, right) => first(left).localeCompare(first(right)) || COLLATOR.compare(left.name, right.name));
+/** Their cohorts by name, once each, in the order they joined: "L1", or "L1 · L2" across semesters. */
+function cohortNamesOf(cohorts: StudentCohort[]): string[] {
+  return [...new Set([...cohorts].sort((left, right) => left.since.localeCompare(right.since)).map((held) => held.name))];
 }
 
 export function studentRows(
@@ -237,7 +236,7 @@ export function studentRows(
       cohortName: student.cohortName,
       cohortSince: student.cohortSince,
       cohorts: student.cohorts,
-      cohortNames: inTermOrder(student.cohorts).map((held) => held.name),
+      cohortNames: cohortNamesOf(student.cohorts),
       groups: groupLabels(student.groups ?? [], termNames),
       signature: groupSignature(student.groups ?? [], termNames),
       sets: setTokens(student.groups ?? [], termNames),

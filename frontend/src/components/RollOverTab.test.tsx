@@ -3,119 +3,78 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RollOverTab } from "@/components/RollOverTab";
-import { nextSemesterName } from "@/services/rollOver";
 import * as lists from "@/services/portalLists";
 import * as database from "@/services/studentDatabase";
 import type { Cohort } from "@/services/studentDatabase";
 import * as timetables from "@/services/timetables";
 
-const cohort = (id: string, name: string, terms: string[], over: Partial<Cohort> = {}): Cohort =>
-  ({ id, name, term: "2026-27", terms, memberCount: 100, follows: "", ...over }) as Cohort;
-
-const L1 = cohort("l1-s1", "L1-S1", ["262710"]);
 const SEMESTERS = [
-  { id: "hub-s1", name: "Semester 1 2026-27" },
   { id: "plan:262720", name: "Semester 2 2026-27" },
+  { id: "hub-s1", name: "Semester 1 2026-27" },
 ];
 const LINKS = { "hub-s1": "262710", "plan:262720": "262720" };
 
+const l1 = (memberCounts: Record<string, number>): Cohort =>
+  ({ id: "l1", name: "L1", term: "2026-27", terms: ["262710"], memberCount: 109, memberCounts }) as Cohort;
+
 afterEach(() => vi.restoreAllMocks());
 
-function show(others: Cohort[] = [], onDone = vi.fn(), of: Cohort = L1) {
+function show(cohort: Cohort, onDone = vi.fn()) {
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue(LINKS);
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue(SEMESTERS as never);
-  vi.spyOn(database, "fetchCohorts").mockResolvedValue([of, ...others]);
+  vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+    { cohort, scopes: [{ termId: "hub-s1" }, { termId: "hub-s1" }, { termId: "plan:262720" }] },
+  ] as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <RollOverTab cohort={of} onDone={onDone} />
+      <RollOverTab cohort={cohort} onDone={onDone} />
     </QueryClientProvider>,
   );
   return onDone;
 }
 
-describe("rolling a cohort over into the next semester", () => {
-  it("names the cohort it makes as the server does", () => {
-    expect(nextSemesterName("L1-S1", "262720")).toBe("L1-S2");
-    expect(nextSemesterName("FYS-S1", "262720")).toBe("FYS-S2");
-    expect(nextSemesterName("Licence 1", "262720")).toBe("Licence 1 (262720)");
+describe("a cohort's semesters, and rolling it over", () => {
+  it("lists each semester of its year with what it holds there, in the portal's order", async () => {
+    show(l1({ "hub-s1": 109 }));
+
+    const list = await screen.findByRole("region", { name: "L1's semesters" });
+    await waitFor(() =>
+      expect([...list.querySelectorAll("li")].map((row) => row.textContent)).toEqual([
+        "Semester 1 2026-27109 students · 2 sets",
+        "Semester 2 2026-270 students · 1 set",
+      ]),
+    );
   });
 
-  it("offers the next semester and says what the cohort becomes", async () => {
-    show();
-
-    expect(await screen.findByText(/A new cohort with L1-S1's settings and rules, and its 100 students/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Roll over into L1-S2" })).toBeTruthy();
-  });
-
-  it("rolls over into the chosen semester's portal term, then shows the cohort it made", async () => {
+  it("copies the first semester's students into the next one, then shows them there", async () => {
     const roll = vi.spyOn(database, "rollOverCohort").mockResolvedValue({
-      cohort: cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1" }),
-      added: 100,
+      cohort: l1({ "hub-s1": 109, "plan:262720": 109 }),
+      added: 109,
       skipped: [],
     });
-    const onDone = show();
+    const onDone = show(l1({ "hub-s1": 109 }));
 
-    await screen.findByText(/A new cohort with L1-S1's settings/);
-    fireEvent.click(screen.getByRole("button", { name: "Roll over into L1-S2" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Roll over into Semester 2 2026-27" }));
 
-    await waitFor(() => expect(roll).toHaveBeenCalledWith("l1-s1", "262720"));
-    expect(await screen.findByText(/100 students added/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Show L1-S2" }));
-    expect(onDone).toHaveBeenCalledWith("plan:262720", "l1-s2");
+    await waitFor(() => expect(roll).toHaveBeenCalledWith("l1", "hub-s1", "plan:262720"));
+    expect(await screen.findByText(/109 students added/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Show L1 in Semester 2 2026-27" }));
+    expect(onDone).toHaveBeenCalledWith("plan:262720", "l1");
   });
 
-  it("says which students were already in another cohort of that semester", async () => {
-    vi.spyOn(database, "rollOverCohort").mockResolvedValue({
-      cohort: cohort("l1-s2", "L1-S2", ["262720"]),
-      added: 99,
-      skipped: ["A000123"],
-    });
-    show();
+  it("says when the next semester already holds some, and names who was elsewhere", async () => {
+    vi.spyOn(database, "rollOverCohort").mockResolvedValue({ cohort: l1({}), added: 3, skipped: ["A000123"] });
+    show(l1({ "hub-s1": 109, "plan:262720": 105 }));
 
-    await screen.findByText(/A new cohort with L1-S1's settings/);
-    fireEvent.click(screen.getByRole("button", { name: "Roll over into L1-S2" }));
-
-    expect(await screen.findByText(/1 already in another cohort/)).toBeTruthy();
+    expect(await screen.findByText(/L1 already holds 105 students in Semester 2 2026-27/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Roll over into Semester 2 2026-27" }));
+    expect(await screen.findByText(/1 already in another cohort there/)).toBeTruthy();
     expect(screen.getByText("A000123")).toBeTruthy();
   });
 
-  it("takes an L1-S2 made by hand as the one to roll into", async () => {
-    show([cohort("by-hand", "L1-S2", ["262720"])]);
+  it("has nobody to roll over before it holds any students", async () => {
+    show(l1({}));
 
-    expect(await screen.findByText(/L1-S2 was made by hand: it is linked to L1-S1/)).toBeTruthy();
-  });
-
-  it("says when it has been rolled over before, and only adds who is missing", async () => {
-    show([cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1" })]);
-
-    expect(await screen.findByText(/L1-S2 is already there: adds whoever/)).toBeTruthy();
-  });
-
-  it("shows the link from the second cohort's side, and brings in who has joined the first since", async () => {
-    const L2 = cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1", memberCount: 98 });
-    const roll = vi.spyOn(database, "rollOverCohort").mockResolvedValue({ cohort: L2, added: 2, skipped: [] });
-    show([L1], vi.fn(), L2);
-
-    const linked = await screen.findByRole("region", { name: "Linked cohorts" });
-    expect(linked.textContent).toMatch(/Rolled over from L1-S1 · Semester 1 2026-27 · 100 students/);
-
-    fireEvent.click(screen.getByRole("button", { name: "Bring in whoever has joined L1-S1 since" }));
-
-    // The same roll-over, run from the first cohort into this one's term.
-    await waitFor(() => expect(roll).toHaveBeenCalledWith("l1-s1", "262720"));
-    expect(await screen.findByText("2 students from L1-S1 added.")).toBeTruthy();
-  });
-
-  it("shows the link from the first cohort's side", async () => {
-    show([cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1", memberCount: 98 })]);
-
-    const linked = await screen.findByRole("region", { name: "Linked cohorts" });
-    await waitFor(() => expect(linked.textContent).toMatch(/Rolled over into L1-S2 · Semester 2 2026-27 · 98 students/));
-  });
-
-  it("has nowhere to go from the last semester linked", async () => {
-    show([], vi.fn(), cohort("l1-s2", "L1-S2", ["262720"]));
-
-    expect(await screen.findByText(/No semester after 262720 is linked/)).toBeTruthy();
+    expect(await screen.findByText(/L1 holds no students yet/)).toBeTruthy();
   });
 });

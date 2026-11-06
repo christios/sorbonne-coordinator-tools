@@ -121,18 +121,18 @@ class ViewInput(BaseModel):
 
 
 class CohortAssignment(BaseModel):
-    """Move students into a cohort, or out of `fromCohortId` when cohortId is null.
+    """Move students into a cohort for one semester, or out of theirs when cohortId is null.
 
-    Into a cohort, they leave their cohort of the same semester only; a student has one
-    cohort per semester.
+    A cohort holds its students semester by semester, and a student is in one cohort per
+    semester: they leave their cohort of THAT semester only.
     """
 
     model_config = ConfigDict(populate_by_name=True)
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
     cohort_id: str | None = Field(default=None, alias="cohortId")
-    #: The cohort they leave, when they join none.
-    from_cohort_id: str | None = Field(default=None, alias="fromCohortId")
+    #: The semester, as the app names it (the one a set names). Empty is "no semester".
+    term_id: str = Field(default="", max_length=200, alias="termId")
     #: Keep the placements in sets open to EVERY cohort — the languages, which are not the
     #: leaving cohort's matrix. Defaults to false so every existing caller is unchanged.
     keep_shared: bool = Field(default=False, alias="keepShared")
@@ -440,7 +440,7 @@ def set_cohort(
     try:
         return {
             "moved": database.set_cohort(
-                body.student_ids, body.cohort_id, body.keep_shared, from_cohort=body.from_cohort_id, actor=actor
+                body.student_ids, body.cohort_id, body.keep_shared, term_id=body.term_id, actor=actor
             )
         }
     except CohortNotFound as exc:
@@ -450,20 +450,24 @@ def set_cohort(
 
 
 class RollOverInput(BaseModel):
-    """The portal term of the semester to carry a cohort into, and what to call it there."""
+    """The semester a cohort's students come from, and the one they are carried into."""
 
-    term_code: str = Field(alias="termCode", min_length=6, max_length=6)
-    name: str = Field(default="", max_length=120)
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_term_id: str = Field(alias="fromTermId", max_length=200)
+    to_term_id: str = Field(alias="toTermId", min_length=1, max_length=200)
 
 
 @router.post("/cohorts/{cohort_id}/roll-over")
 def roll_over(
     cohort_id: str, body: RollOverInput, request: Request, database: StudentDatabase = Depends(get_database)
 ) -> dict[str, Any]:
-    """L1-S1 into the second semester: L1-S2, its settings, and every one of its students."""
+    """L1's Semester 1 students into its Semester 2; nobody leaves Semester 1."""
     staff = getattr(request.state, "staff_user", None)
     try:
-        return database.roll_over(cohort_id, body.term_code, name=body.name, actor=getattr(staff, "email", "") or "")
+        return database.roll_over(
+            cohort_id, body.from_term_id, body.to_term_id, actor=getattr(staff, "email", "") or ""
+        )
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
     except InvalidCohortMove as exc:
@@ -471,9 +475,12 @@ def roll_over(
 
 
 @router.get("/cohorts/{cohort_id}/members")
-def list_members(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+def list_members(
+    cohort_id: str, term: str | None = None, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """A cohort's students — in one semester (`?term=`), or in any."""
     try:
-        return {"members": database.list_members(cohort_id)}
+        return {"members": database.list_members(cohort_id, term)}
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 
@@ -578,7 +585,7 @@ async def preview_workbook(
         held = database.catalogue_for_diff(cohort_id, term_id)
         groups = database.group_ids_by_label(cohort_id, term_id)
         assigned = database.assignments_of(cohort_id)
-        known_students = database.student_ids_of(cohort_id)
+        known_students = database.student_ids_of(cohort_id, term_id)
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 

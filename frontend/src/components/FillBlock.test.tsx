@@ -25,7 +25,7 @@ const student = (studentId: string): database.Student => ({
   cohortId: "cohort-1",
   cohortName: "Foundation Year",
   cohortSince: "",
-  cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
+  cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", termId: "" }],
   firstSeenAt: "",
   lastSeenAt: "",
   groups: [],
@@ -63,7 +63,7 @@ beforeEach(() => {
     student("A1"),
     student("A2"),
     student("A3"),
-    { ...student("B9"), cohortId: "cohort-2", cohorts: [{ id: "cohort-2", name: "L1", since: "", terms: [] }] },
+    { ...student("B9"), cohortId: "cohort-2", cohorts: [{ id: "cohort-2", name: "L1", since: "", termId: "" }] },
   ]);
   vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A1: { "scope-td": "td-1" }, A3: { "scope-rdns": "rdns-8" } });
   vi.spyOn(roster, "namesHeld").mockResolvedValue({ A2: "Amira Haddad", A3: "Bilal Saleh" });

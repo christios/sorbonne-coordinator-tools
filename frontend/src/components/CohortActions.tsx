@@ -170,7 +170,7 @@ export function CohortActions({
         <button
           type="button"
           aria-label={`${cohort.name} settings`}
-          title={`${cohort.name} settings — what it expects, its own rules, and rolling it over`}
+          title={`${cohort.name} settings — what it expects, its own rules, and its semesters`}
           onClick={() => {
             setTab("cohort");
             setName(cohort.name);
@@ -205,7 +205,7 @@ export function CohortActions({
           tab === "cohort"
             ? "Its name and year, and what it expects of its students in the portal's own codes. A cohort that expects nothing is judged on status alone."
             : tab === "rollover"
-              ? `The cohorts ${cohort.name} is linked to in other semesters, and rolling it over into a later one: the same settings and rules, and every one of its students.`
+              ? `${cohort.name} holds its students and its sets semester by semester. Roll over copies one semester's students into another.`
               : rulesDescription(scope)
         }
         onClose={() => setEditing(false)}
@@ -215,7 +215,7 @@ export function CohortActions({
               [
                 { id: "cohort", label: "Cohort" },
                 { id: "rules", label: `Rules · ${rules.drafts.length}` },
-                { id: "rollover", label: "Roll over" },
+                { id: "rollover", label: "Semesters" },
               ] as const
             ).map((item) => (
               <button

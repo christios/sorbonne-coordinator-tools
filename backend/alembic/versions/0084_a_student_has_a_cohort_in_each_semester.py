@@ -1,20 +1,19 @@
-"""A student has a cohort in each semester.
+"""A cohort holds its students semester by semester.
 
-A student was in one cohort (`students.cohort_id`), which was right while a cohort was the
-year. The department plans a semester at a time: L1-S1 for the first semester, L1-S2 for
-the second, each with its own sets and groups. A student in L1 is in both — and moving
-them into L1-S2 must not take them out of L1-S1, whose groups they are still sitting in.
+A student was in one cohort (`students.cohort_id`). A cohort is a year's — L1, 2026-27 —
+and the department works it a semester at a time: its sets are already kept per semester,
+and now so are its students. L1's Semester 2 starts as a copy of its Semester 1 (a roll
+over) and is changed from there; moving a student in Semester 2 leaves their Semester 1
+alone, and the groups they sit in there.
 
-So membership is a table of its own: a student may be in several cohorts, one per
-semester (a cohort's semester is its portal term). Joining a cohort replaces their cohort
-of that semester only.
+    cohort_members   who is in which cohort in which semester, and since when ("cohort
+                     since" was the student's; it is the membership's now). `term_id` is the
+                     app's semester — the one a set names — and a student is in at most one
+                     cohort per semester.
 
-    cohort_members          who is in which cohort, and since when ("cohort since" was
-                            the student's; it is now the membership's)
-    student_cohorts.follows the cohort this one continues — L1-S2 follows L1-S1 — set when
-                            a cohort is rolled over into the next semester of its year
-
-Every student's cohort is carried over as their one membership.
+Every student's cohort is carried over into each semester that cohort is in: the
+semesters it has sets on, and the ones linked to the portal terms it names. A cohort in
+neither keeps them under no semester ("").
 
 Revision ID: 0084
 Revises: 0083
@@ -37,20 +36,29 @@ def upgrade() -> None:
         sa.Column(
             "cohort_id", sa.Text(), sa.ForeignKey("student_cohorts.id", ondelete="CASCADE"), primary_key=True
         ),
+        sa.Column("term_id", sa.Text(), primary_key=True, server_default=""),
         sa.Column(
             "student_id", sa.Text(), sa.ForeignKey("students.student_id", ondelete="CASCADE"), primary_key=True
         ),
         # The moment they were placed in it: what "changed since we put them here" counts from.
         sa.Column("since", sa.Text(), nullable=False, server_default=""),
+        # One cohort per semester.
+        sa.UniqueConstraint("term_id", "student_id", name="cohort_members_one_per_semester"),
     )
     op.create_index("cohort_members_student", "cohort_members", ["student_id"])
     op.execute(
-        """INSERT INTO cohort_members (cohort_id, student_id, since)
-           SELECT cohort_id, student_id, coalesce(cohort_since, '') FROM students WHERE cohort_id IS NOT NULL"""
-    )
-    op.add_column(
-        "student_cohorts",
-        sa.Column("follows", sa.Text(), sa.ForeignKey("student_cohorts.id", ondelete="SET NULL"), nullable=True),
+        """INSERT INTO cohort_members (cohort_id, term_id, student_id, since)
+           SELECT s.cohort_id, coalesce(t.term_id, ''), s.student_id, coalesce(s.cohort_since, '')
+           FROM students s
+           JOIN student_cohorts c ON c.id = s.cohort_id
+           LEFT JOIN LATERAL (
+               SELECT sc.term_id FROM cohort_scopes sc WHERE sc.cohort_id = c.id
+               UNION
+               SELECT tl.term_id FROM term_links tl
+               WHERE tl.portal_term_code <> ''
+                 AND (coalesce(c.term_codes, '[]'))::jsonb ? tl.portal_term_code
+           ) t ON true
+           ON CONFLICT DO NOTHING"""
     )
     op.drop_index("students_cohort", table_name="students")
     op.drop_column("students", "cohort_since")
@@ -71,6 +79,5 @@ def downgrade() -> None:
                  FROM cohort_members ORDER BY student_id, since DESC) m
            WHERE m.student_id = s.student_id"""
     )
-    op.drop_column("student_cohorts", "follows")
     op.drop_index("cohort_members_student", table_name="cohort_members")
     op.drop_table("cohort_members")

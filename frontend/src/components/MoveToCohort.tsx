@@ -21,6 +21,8 @@ export function MoveToCohort({
   open,
   count,
   cohorts,
+  termId,
+  semesterName = "",
   onMove,
   describe,
   onNewCohort,
@@ -30,6 +32,9 @@ export function MoveToCohort({
   open: boolean;
   count: number;
   cohorts: Cohort[];
+  /** The semester the move is made in, by id and by name — a student is in one cohort per semester. */
+  termId?: string;
+  semesterName?: string;
   onMove: (cohortId: string) => void;
   /**
    * What this particular move would throw away, or "" when it throws nothing away.
@@ -54,7 +59,11 @@ export function MoveToCohort({
     <Modal
       open={open}
       title={`Move ${count} student${count === 1 ? "" : "s"}`}
-      description="A student is in one cohort per semester. Moving them replaces their cohort of that semester only: putting somebody in L1-S2 leaves them in L1-S1."
+      description={
+        semesterName
+          ? `Into a cohort for ${semesterName}. A student is in one cohort per semester, so this replaces their cohort of ${semesterName} only: their other semesters stay as they are.`
+          : "A student is in one cohort per semester. This replaces their cohort of this semester only."
+      }
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -92,8 +101,11 @@ export function MoveToCohort({
             value: cohort.id,
             label: cohort.name,
             year: cohort.term,
-            badge: String(cohort.memberCount),
-            badgeTone: cohort.memberCount ? ("accent" as const) : ("muted" as const),
+            // How many it holds in this semester, where the move lands.
+            badge: String(termId === undefined ? cohort.memberCount : (cohort.memberCounts?.[termId] ?? 0)),
+            badgeTone: (termId === undefined ? cohort.memberCount : (cohort.memberCounts?.[termId] ?? 0))
+              ? ("accent" as const)
+              : ("muted" as const),
           }))}
           onChange={setCohortId}
         />
