@@ -28,17 +28,23 @@ const portalRow = (id: string, name: string, year = "FY", major = "Mathematics")
 const SYNCED = "2026-08-22T09:00:00+00:00";
 const EARLIER = "2026-08-01T09:00:00+00:00";
 
-const student = (studentId: string, over: Partial<Student> = {}): Student => ({
-  studentId,
-  status: "in_portal",
-  cohortId: null,
-  cohortName: "",
-  cohortSince: "",
-  firstSeenAt: EARLIER,
-  lastSeenAt: SYNCED,
-  groups: [],
-  ...over,
-});
+const student = (studentId: string, over: Partial<Student> = {}): Student => {
+  const made: Student = {
+    studentId,
+    status: "in_portal",
+    cohorts: [],
+    cohortId: null,
+    cohortName: "",
+    cohortSince: "",
+    firstSeenAt: EARLIER,
+    lastSeenAt: SYNCED,
+    groups: [],
+    ...over,
+  };
+  // The cohort they are read as in is one of theirs, unless the test says otherwise.
+  if (!over.cohorts && made.cohortId) made.cohorts = [{ id: made.cohortId, name: made.cohortName, since: made.cohortSince, terms: [] }];
+  return made;
+};
 
 const PULL = [
   portalRow("A001", "Amira Haddad"),

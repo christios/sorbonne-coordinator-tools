@@ -36,6 +36,8 @@ const row = (over: Partial<StudentRow> = {}): StudentRow => ({
   cohortId: null,
   cohortName: "",
   cohortSince: "",
+  cohorts: [],
+  cohortNames: [],
   firstSeenAt: "2026-08-01T09:00:00+00:00",
   lastSeenAt: "2026-08-22T09:00:00+00:00",
   portal: { FULL_NAME: "Amira Haddad", YEARLEVEL_CODE: "FY", MAJOR_CODE_DESC: "Mathematics" },
@@ -242,7 +244,7 @@ describe("the values a column offers to the filter bar", () => {
   it("leaves out the blanks, which are not a value anybody filters for", () => {
     const cohort = COLUMNS.find((column) => column.id === "cohortName")!;
 
-    expect(optionsFor([row(), row({ cohortName: "L1" })], cohort)).toEqual([
+    expect(optionsFor([row(), row({ cohortName: "L1", cohortNames: ["L1"] })], cohort)).toEqual([
       { value: "L1", label: "L1" },
     ]);
   });

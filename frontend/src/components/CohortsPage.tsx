@@ -12,6 +12,7 @@ import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
+import { RollOverCohorts } from "@/components/RollOverCohorts";
 import { StudentRoster } from "@/components/StudentRoster";
 import { WARNING_ICONS, WARNING_TONES, type WarningIcon } from "@/components/StudentTable";
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
@@ -43,10 +44,10 @@ import {
   type WarningSource,
 } from "@/services/discrepancies";
 import { type Dismissal, dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
-import { describeMismatch, fetchRegistrationCheck, fetchTermLinks, type Mismatch, type RegistrationReport } from "@/services/portalLists";
+import { describeMismatch, fetchRegistrationCheck, type Mismatch, type RegistrationReport } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
-import { COHORT, SCHEMA_TERM } from "@/services/remembered";
-import { cohortsIn } from "@/services/semesterCohorts";
+import { COHORT } from "@/services/remembered";
+import { useSemesterInView } from "@/services/semesterInView";
 import { semesterShown, useSemesterYears } from "@/services/semesterYears";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
@@ -58,6 +59,7 @@ import {
   fetchStudents,
   fetchTeamsCheck,
   setCohort,
+  asSeenBy,
   type Cohort,
   type Student,
   type TeamsCheck,
@@ -85,7 +87,10 @@ function judge(
   evidence: Evidence,
   options: Options,
 ): { byCohort: Map<string, Warning[]>; arrivals: Map<string, Arrival[]> } {
-  const placed = students.map((student) => ({ studentId: student.studentId, cohortId: student.cohortId, cohortSince: student.cohortSince }));
+  // Each cohort reads a student by their cohort of ITS semester: in L1-S2's eyes somebody in
+  // L1-S1 and nothing for S2 is in no cohort, and their S1 placement date is not L1-S2's.
+  const placedFor = (cohort: Cohort) =>
+    asSeenBy(students, cohort).map((student) => ({ studentId: student.studentId, cohortId: student.cohortId, cohortSince: student.cohortSince }));
   // The status is this application's, so it joins the portal's fields here rather than in
   // a pull. A student this browser holds no row for is still nothing to judge by — unless
   // the portal has dropped them, which is the one fact about them the status does carry.
@@ -102,6 +107,7 @@ function judge(
   for (const cohort of cohorts) {
     // The shared rules and this cohort's own; the outward look only when a rule asks for it.
     const own = rulesFor(rules, cohort.id);
+    const placed = placedFor(cohort);
     byCohort.set(cohort.id, warningsForCohort({ cohort, students: placed, rules: own, current, changes, options }));
     arrivals.set(cohort.id, arrivalsFor({ cohort, rules: own, students: placed, current, changes, options }));
   }
@@ -502,28 +508,8 @@ export function CohortsPage({
    * theirs: S1's cohorts and S2's in one menu read as one list of years. The cohort menu
    * then holds that semester's cohorts, and "every cohort" means every one of them.
    */
-  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  const { setTermId, semesters, semester, semesterCohorts, semesterCohortsOf, links } = useSemesterInView(cohorts);
   const yearOf = useSemesterYears();
-  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
-  const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
-  const semesters = useMemo(() => terms.data ?? [], [terms.data]);
-  const semesterCohortsOf = useCallback(
-    (semesterId: string) =>
-      cohortsIn(cohorts, links.data?.[semesterId] ?? "", (id) =>
-        (cards.data ?? []).some((held) => held.cohort.id === id && held.scopes.some((scope) => scope.termId === semesterId)),
-      ),
-    [cohorts, links.data, cards.data],
-  );
-  const semester =
-    semesters.find((term) => term.id === termId) ??
-    semesters.find((term) => semesterCohortsOf(term.id).length > 0) ??
-    semesters[0] ??
-    null;
-  const semesterCohorts = useMemo(
-    () => (semester ? semesterCohortsOf(semester.id) : cohorts),
-    [semester, semesterCohortsOf, cohorts],
-  );
 
   // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
   // and its first otherwise, so a deleted cohort does not leave the page empty for ever.
@@ -648,14 +634,16 @@ export function CohortsPage({
    * Every cohort's warnings by student, not only the cohort on screen.
    *
    * The table is normally narrowed to one cohort, so this reads the same — a student
-   * belongs to one cohort and is judged by that cohort's rules, so there is nothing to
-   * collide. It matters when the search beside the table is widened to every cohort: a row
+   * is in one cohort of a semester and is judged by that cohort's rules, so there is
+   * nothing to collide. It matters when the search beside the table is widened to every cohort: a row
    * from elsewhere must carry its own warnings, or looking outside the cohort would
    * quietly report everybody else as clean.
    */
   const byStudent = useMemo(() => {
     const out = new Map<string, Warning[]>();
-    for (const warning of [...byCohort.values()].flat()) {
+    // The semester's cohorts only: a student in L1-S1 and L1-S2 is judged by the one on
+    // screen, and the other's warnings would be another semester's business on their row.
+    for (const warning of semesterCohorts.flatMap((held) => byCohort.get(held.id) ?? [])) {
       const held = dismissed.get(warning.key);
       const marked = held
         ? { ...warning, dismissed: true, dismissedBy: held.byName || held.byEmail, dismissedAt: held.at }
@@ -663,7 +651,7 @@ export function CohortsPage({
       out.set(warning.studentId, [...(out.get(warning.studentId) ?? []), marked]);
     }
     return out;
-  }, [byCohort, dismissed]);
+  }, [byCohort, dismissed, semesterCohorts]);
 
   /** This cohort's own, which is what every count and sentence on the page is about. */
   const mine = useMemo(() => {
@@ -798,6 +786,8 @@ export function CohortsPage({
     </div>
   );
   const emptySemester = Boolean(semester) && semesterCohorts.length === 0;
+  // The cohort this one was rolled over from: L1-S2 continues L1-S1.
+  const followed = cohort?.follows ? (cohorts.find((candidate) => candidate.id === cohort.follows) ?? null) : null;
 
   return (
     <section>
@@ -806,7 +796,7 @@ export function CohortsPage({
         {header ? null : semesterPicker}
         <LabelledPicker
           label="Cohort"
-          hint={everywhere ? "showing every cohort" : undefined}
+          hint={everywhere ? "showing every cohort" : followed ? `continues ${followed.name}` : undefined}
           beside={
             /*
              * One cohort, or all of them — asked where "which cohort" is asked, as a
@@ -889,12 +879,27 @@ export function CohortsPage({
         {cohort && !emptySemester ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
         {/* Making one, which until now could only happen as a side effect of moving students. */}
         <NewCohort onCreated={(created) => chooseCohort(created.id)} />
+        {/* The semester's cohorts carried into the next: L1-S1 → L1-S2, students and all. */}
+        {semester ? (
+          <RollOverCohorts
+            from={semester}
+            fromTerm={links[semester.id] ?? ""}
+            fromCohorts={semesterCohorts}
+            cohorts={cohorts}
+            semesters={semesters}
+            links={links}
+            onDone={(semesterId, firstCohortId) => {
+              setTermId(semesterId);
+              chooseCohort(firstCohortId);
+            }}
+          />
+        ) : null}
       </div>
 
       {emptySemester && semester ? (
         <p className="mt-4 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
           {semester.name} has no cohort yet. Make one with New cohort, giving it the semester&rsquo;s portal term
-          {links.data?.[semester.id] ? ` (${links.data[semester.id]})` : ""}.
+          {links[semester.id] ? ` (${links[semester.id]})` : ""}.
         </p>
       ) : null}
 
@@ -924,7 +929,7 @@ export function CohortsPage({
           description={
             addingArrival.cohortId
               ? `They leave ${cohorts.find((candidate) => candidate.id === addingArrival.cohortId)?.name ?? "their cohort"} and lose the groups they held there. The shared sets stay.`
-              : "They are in no cohort now, so nothing is lost."
+              : "They are in no other cohort of this semester, so nothing is lost. A cohort they are in for another semester keeps them."
           }
           confirmLabel={`Add to ${cohort.name}`}
           busy={addArrival.isPending}
@@ -1003,7 +1008,9 @@ export function CohortsPage({
           tools={({ selected }) => (
             <RegistrationChangesButton
               selected={selected}
-              cohorts={cohorts}
+              // "All cohorts" is the semester's, as on the table: a student rolled over is
+              // in an S1 cohort and an S2 one, and the worklist is about one semester.
+              cohorts={semesterCohorts}
               cohortId={cohortId}
               cohortName={cohort?.name ?? ""}
               nameOf={(studentId) => evidence.names.get(studentId) ?? ""}
@@ -1061,7 +1068,7 @@ function ArrivalsBanner({
   const [open, setOpen] = useState(false);
   const shown = open ? arrivals : arrivals.slice(0, 5);
   const where = (arrival: Arrival) =>
-    arrival.cohortId ? `in ${cohorts.find((candidate) => candidate.id === arrival.cohortId)?.name ?? "another cohort"}` : "in no cohort";
+    arrival.cohortId ? `in ${cohorts.find((candidate) => candidate.id === arrival.cohortId)?.name ?? "another cohort"}` : "in no cohort this semester";
   return (
     <div role="status" className="mt-3 rounded-md border border-[#bcd3ea] bg-[#eef5fb] px-4 py-3 text-sm text-[#1f4e79]">
       <p className="flex items-center gap-2 font-semibold">

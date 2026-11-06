@@ -24,6 +24,8 @@ const ROW: StudentRow = {
   cohortId: "cohort-1",
   cohortName: "Foundation Year",
   cohortSince: "",
+  cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
+  cohortNames: ["Foundation Year"],
   firstSeenAt: "",
   lastSeenAt: "",
   portal: { FULL_NAME: "Amira Haddad", STST_CODE: "AS", MAJOR_CODE_DESC: "Mathematics" },

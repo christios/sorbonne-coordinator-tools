@@ -15,6 +15,7 @@ import {
   fetchAssignments,
   fetchCohorts,
   fetchExemptions,
+  asSeenBy,
   fetchStudents,
   setExemption,
 } from "@/services/studentDatabase";
@@ -104,12 +105,15 @@ export function GroupRoster({
    */
   const record = useMemo(() => {
     if (!chosen) return null;
+    // Read as this group's cohort holds them: a student in L1-S1 and L1-S2 opened from an
+    // S1 group is the S1 cohort's student, whose S1 groups and register the record shows.
+    const own = { id: cohortId, terms: (cohorts.data ?? []).find((candidate) => candidate.id === cohortId)?.terms ?? [] };
     const rows = studentRows(
-      (students.data ?? []).filter((student) => student.studentId === chosen),
+      asSeenBy((students.data ?? []).filter((student) => student.studentId === chosen), own),
       (portal.data ?? []) as RosterRow[],
     );
     return rows[0] ?? null;
-  }, [chosen, students.data, portal.data]);
+  }, [chosen, students.data, portal.data, cohortId, cohorts.data]);
 
   /*
    * Who in this group does not take one of its courses.

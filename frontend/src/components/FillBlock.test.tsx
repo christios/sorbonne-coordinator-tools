@@ -25,6 +25,7 @@ const student = (studentId: string): database.Student => ({
   cohortId: "cohort-1",
   cohortName: "Foundation Year",
   cohortSince: "",
+  cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
   firstSeenAt: "",
   lastSeenAt: "",
   groups: [],
@@ -62,7 +63,7 @@ beforeEach(() => {
     student("A1"),
     student("A2"),
     student("A3"),
-    { ...student("B9"), cohortId: "cohort-2" },
+    { ...student("B9"), cohortId: "cohort-2", cohorts: [{ id: "cohort-2", name: "L1", since: "", terms: [] }] },
   ]);
   vi.spyOn(database, "fetchAssignments").mockResolvedValue({ A1: { "scope-td": "td-1" }, A3: { "scope-rdns": "rdns-8" } });
   vi.spyOn(roster, "namesHeld").mockResolvedValue({ A2: "Amira Haddad", A3: "Bilal Saleh" });
@@ -172,7 +173,7 @@ describe("choosing who a fill acts on", () => {
      * cohort holds that set — and on the real data admitting them turned Foundation Year's
      * lecture fill from one candidate into seventy-eight.
      */
-    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A2"), { ...student("C7"), cohortId: "" }]);
+    vi.spyOn(database, "fetchStudents").mockResolvedValue([student("A2"), { ...student("C7"), cohortId: "", cohorts: [] }]);
     vi.spyOn(database, "fetchAssignments").mockResolvedValue({ C7: { "scope-lang": "lang-1" } });
     show();
 

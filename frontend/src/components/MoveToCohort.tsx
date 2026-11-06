@@ -54,7 +54,7 @@ export function MoveToCohort({
     <Modal
       open={open}
       title={`Move ${count} student${count === 1 ? "" : "s"}`}
-      description="A student belongs to one cohort."
+      description="A student is in one cohort per semester. Moving them replaces their cohort of that semester only: putting somebody in L1-S2 leaves them in L1-S1."
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">

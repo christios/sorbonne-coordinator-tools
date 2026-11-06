@@ -660,6 +660,8 @@ def test_a_student_carries_the_groups_they_are_in_by_name(client: TestClient, co
         {
             "termId": "", "scopeCode": "TD", "groupLabel": "1", "major": "", "subRows": 0,
             "groupId": group_id, "openToAll": False,
+            # The cohort it is filed under, so a move counts only what it drops.
+            "cohortId": cohort_id,
         }
     ]
     assert held[STUDENTS[1]] == []

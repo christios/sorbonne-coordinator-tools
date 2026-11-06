@@ -15,7 +15,7 @@ import type { FieldChange } from "@/services/pullHistory";
 import { meetsTokens, setTokens, type GroupCrns } from "@/services/meets";
 import { displayNameOf, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import { subRowLabel } from "@/services/courseCards";
-import type { Student } from "@/services/studentDatabase";
+import type { Student, StudentCohort } from "@/services/studentDatabase";
 
 /** What the last sync found: the portal returned them, or it did not. */
 export type StudentStatus = "in_portal" | "not_in_portal";
@@ -27,10 +27,14 @@ export type StudentRow = {
   major: string;
   email: string;
   status: StudentStatus;
+  /** Their cohort of the semester on screen — see `inSemester` — or null. */
   cohortId: string | null;
   cohortName: string;
   /** When they were placed in that cohort; empty for a placement made before this was kept. */
   cohortSince: string;
+  /** Every cohort they are in, one per semester, earliest first: "L1-S1", "L1-S2". */
+  cohorts: StudentCohort[];
+  cohortNames: string[];
   /** When we first held this student, and when the portal last returned them. */
   firstSeenAt: string;
   lastSeenAt: string;
@@ -186,6 +190,12 @@ export function groupSignature(
   return groupLabels(ordered, termNames).join(" · ");
 }
 
+/** Earliest semester first, so "L1-S1 · L1-S2" reads in the order the year does. */
+function inTermOrder(cohorts: StudentCohort[]): StudentCohort[] {
+  const first = (held: StudentCohort) => [...held.terms].sort()[0] ?? "~";
+  return [...cohorts].sort((left, right) => first(left).localeCompare(first(right)) || COLLATOR.compare(left.name, right.name));
+}
+
 export function studentRows(
   students: Student[],
   portal: RosterRow[],
@@ -226,6 +236,8 @@ export function studentRows(
       cohortId: student.cohortId,
       cohortName: student.cohortName,
       cohortSince: student.cohortSince,
+      cohorts: student.cohorts,
+      cohortNames: inTermOrder(student.cohorts).map((held) => held.name),
       groups: groupLabels(student.groups ?? [], termNames),
       signature: groupSignature(student.groups ?? [], termNames),
       sets: setTokens(student.groups ?? [], termNames),
@@ -271,8 +283,8 @@ function matchesStatus(row: StudentRow, status: StatusFilter): boolean {
 
 function matchesCohort(row: StudentRow, cohort: string): boolean {
   if (!cohort) return true;
-  if (cohort === "none") return row.cohortId === null;
-  return row.cohortId === cohort;
+  if (cohort === "none") return row.cohorts.length === 0;
+  return row.cohorts.some((held) => held.id === cohort);
 }
 
 export function filterRows(rows: StudentRow[], filters: Filters): StudentRow[] {
@@ -322,6 +334,9 @@ export function countBy(rows: StudentRow[]): Record<StatusFilter, number> {
 
 /**
  * The one cohort a selection belongs to, or null when there isn't one.
+ *
+ * Their cohort of the semester on screen: a student in L1-S1 and L1-S2 is placed in the
+ * blocks of whichever semester the page is about.
  *
  * Blocks belong to a cohort, so a selection spanning two of them has no single block list
  * to choose from — and a student in no cohort has none at all. Rather than place what it

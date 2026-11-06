@@ -51,6 +51,7 @@ import {
   type Cohort,
   assignStudents,
   clearApproval,
+  cohortBeside,
   clearExemption,
   describeHistory,
   fetchApprovals,
@@ -222,13 +223,16 @@ export function StudentRecord({
       : [];
     // The other direction: a cohort they belong to by its expectations, that they are not
     // in — where that cohort has a rule asking to know.
+    // Each cohort asks about them as of its own semester: where they are in it, if anywhere.
     const arrivals = cohorts
-      .filter((candidate) => candidate.id !== row.cohortId)
-      .flatMap((candidate) =>
-        arrivalsFor({ cohort: candidate, rules: rulesFor(rules.data, candidate.id), students: placed, current, changes: changesOf, options }).map(
-          (arrival) => ({ ...arrival, cohort: candidate }),
-        ),
-      );
+      .filter((candidate) => !row.cohorts.some((held) => held.id === candidate.id))
+      .flatMap((candidate) => {
+        const there = cohortBeside(row, candidate);
+        const seen = [{ studentId: row.studentId, cohortId: there?.id ?? null, cohortSince: there?.since ?? "" }];
+        return arrivalsFor({ cohort: candidate, rules: rulesFor(rules.data, candidate.id), students: seen, current, changes: changesOf, options }).map(
+          (arrival) => ({ ...arrival, cohort: candidate, nowIn: there?.name ?? "" }),
+        );
+      });
     return { own, arrivals };
   }, [rules.data, schema.data, changes, row, cohort, cohorts]);
 
@@ -604,8 +608,19 @@ export function StudentRecord({
           <Field label="Portal">
             {row.status === "not_in_portal" ? <Pill tone="bad">Not in portal</Pill> : <Pill tone="good">In portal</Pill>}
           </Field>
-          <Field label="Cohort">
+          {/*
+            * The cohort this record is about, and any other semester's beside it, quieter:
+            * a student rolled over is in L1-S1 and L1-S2, and the record is one of them.
+            */}
+          <Field label={row.cohorts.length > 1 ? "Cohorts" : "Cohort"}>
             {cohort ? <Pill tone="accent">{cohort.name}</Pill> : <Pill tone="muted">No cohort</Pill>}
+            {row.cohorts
+              .filter((held) => held.id !== cohortId)
+              .map((held) => (
+                <span key={held.id} title="Their cohort of another semester" className="ml-1">
+                  <Pill tone="muted">{held.name}</Pill>
+                </span>
+              ))}
           </Field>
           {row.yearLevel ? (
             <Field label="Year">
@@ -655,7 +670,7 @@ export function StudentRecord({
                 {arrival.moved
                   ? `, from ${arrival.moved.from} on ${new Date(arrival.moved.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}`
                   : ""}
-                ), and is {cohort ? `in ${cohort.name}` : "in no cohort"}.
+                ), and is {arrival.nowIn ? `in ${arrival.nowIn}` : "in no cohort of its semester"}.
               </span>
             </li>
           ))}

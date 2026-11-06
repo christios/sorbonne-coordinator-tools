@@ -32,8 +32,8 @@ beforeEach(() => {
   ] as never);
   vi.spyOn(database, "fetchCohorts").mockResolvedValue([]);
   vi.spyOn(database, "fetchStudents").mockResolvedValue([
-    { studentId: "A001", status: "in_portal", cohortId: "c1", cohortName: "FYS-S1", cohortSince: "", firstSeenAt: "", lastSeenAt: "", groups: [] },
-    { studentId: "A003", status: "in_portal", cohortId: "c1", cohortName: "FYS-S1", cohortSince: "", firstSeenAt: "", lastSeenAt: "", groups: [] },
+    { studentId: "A001", status: "in_portal", cohortId: "c1", cohortName: "FYS-S1", cohortSince: "", cohorts: [{ id: "c1", name: "FYS-S1", since: "", terms: [] }], firstSeenAt: "", lastSeenAt: "", groups: [] },
+    { studentId: "A003", status: "in_portal", cohortId: "c1", cohortName: "FYS-S1", cohortSince: "", cohorts: [{ id: "c1", name: "FYS-S1", since: "", terms: [] }], firstSeenAt: "", lastSeenAt: "", groups: [] },
   ]);
   vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([]);
   vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([]);

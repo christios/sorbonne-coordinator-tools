@@ -34,6 +34,7 @@ const student = (studentId: string, cohortId: string | null, cohortSince = "2026
   cohortId,
   cohortName: cohortId ? "L1 Maths" : "",
   cohortSince,
+  cohorts: cohortId ? [{ id: cohortId, name: "L1 Maths", since: cohortSince, terms: [] }] : [],
   firstSeenAt: "2026-08-01T00:00:00Z",
   lastSeenAt: "2026-09-10T00:00:00Z",
   groups: [],

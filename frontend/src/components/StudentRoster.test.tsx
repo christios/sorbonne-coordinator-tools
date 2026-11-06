@@ -80,6 +80,7 @@ const HELD: database.Student[] = [
     cohortId: "cohort-1",
     cohortName: "Foundation Year",
     cohortSince: "",
+    cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
     groups: [],
@@ -90,6 +91,7 @@ const HELD: database.Student[] = [
     cohortId: null,
     cohortName: "",
     cohortSince: "",
+    cohorts: [],
     firstSeenAt: EARLIER,
     lastSeenAt: SYNCED,
     groups: [],
@@ -100,6 +102,7 @@ const HELD: database.Student[] = [
     cohortId: null,
     cohortName: "",
     cohortSince: "",
+    cohorts: [],
     firstSeenAt: SYNCED,
     lastSeenAt: SYNCED,
     groups: [],
@@ -110,6 +113,7 @@ const HELD: database.Student[] = [
     cohortId: "cohort-1",
     cohortName: "Foundation Year",
     cohortSince: "",
+    cohorts: [{ id: "cohort-1", name: "Foundation Year", since: "", terms: [] }],
     firstSeenAt: EARLIER,
     lastSeenAt: EARLIER,
     groups: [],
@@ -644,7 +648,7 @@ describe("StudentRoster", () => {
     expect(move).not.toHaveBeenCalled();
   });
 
-  it("takes students out of a cohort from its own button, with a null and not a delete", async () => {
+  it("takes students out of a cohort from its own button, with a null naming the cohort they leave", async () => {
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);
     await withNames();
     renderRoster();
@@ -656,7 +660,8 @@ describe("StudentRoster", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Move anyway" }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
-    expect(move.mock.calls[0]).toEqual([["A001"], null, true]);
+    // They may be in one cohort per semester, so the one they leave is said.
+    expect(move.mock.calls[0]).toEqual([["A001"], null, true, "cohort-1"]);
   });
 
   it("asks before taking them out of a cohort even when it costs nothing", async () => {

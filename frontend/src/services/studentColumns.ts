@@ -146,9 +146,11 @@ const OWN_COLUMNS: StudentColumn[] = [
   {
     id: "cohortName",
     displayName: "Cohort",
-    type: "option",
-    accessor: (row) => row.cohortName,
-    display: (row) => row.cohortName || "—",
+    // One per semester, so a student rolled over reads "L1-S1 · L1-S2", and a filter on
+    // L1-S2 finds them though they are still in L1-S1.
+    type: "multiOption",
+    accessor: (row) => row.cohortNames,
+    display: (row) => (row.cohortNames.length ? row.cohortNames.join(" · ") : "—"),
     defaultWidth: 180,
   },
   {

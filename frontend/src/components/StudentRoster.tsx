@@ -23,6 +23,7 @@ import { exportStudentTimetables } from "@/services/timetableExports";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
 import { costOfMove, describeCost } from "@/services/cohortMove";
+import { useSemesterInView } from "@/services/semesterInView";
 import { copyTable } from "@/services/copyCells";
 import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import { afterPlacement } from "@/services/afterPlacement";
@@ -67,6 +68,8 @@ import {
   createCohort,
   fetchCatalogue,
   fetchStudents,
+  inSemester,
+  sameSemester,
   setCohort,
   type Cohort,
   type PlacementReport,
@@ -188,6 +191,20 @@ export function StudentRoster({
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
   });
+  /*
+   * Which of each student's cohorts this table reads them as in: one per semester, so the
+   * semester decides. The Cohorts page says which (its semester's cohorts, `among`); the
+   * Students page reads the semester remembered with Groups & CRNs and the Cohorts page.
+   */
+  const inView = useSemesterInView(cohorts);
+  const semesterIds = useMemo(() => {
+    if (scope?.among) return scope.among;
+    const own = scope?.cohortId ? cohorts.find((candidate) => candidate.id === scope.cohortId) : undefined;
+    if (own) return cohorts.filter((candidate) => sameSemester(candidate, own)).map((candidate) => candidate.id);
+    if (!scope && inView.semester) return inView.semesterCohorts.map((candidate) => candidate.id);
+    return undefined;
+  }, [scope, cohorts, inView.semester, inView.semesterCohorts]);
+  const seen = useMemo(() => inSemester(students.data ?? [], semesterIds), [students.data, semesterIds]);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, staleTime: 60_000 });
   // Only so the Groups column can name a semester when a student is in more than one.
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -382,7 +399,7 @@ export function StudentRoster({
   useEffect(() => {
     if (!filterCohort) return;
     setEveryStudent(true);
-    setFilters([{ columnId: "cohortName", type: "option", operator: "is", values: [filterCohort] }]);
+    setFilters([{ columnId: "cohortName", type: "multiOption", operator: "include any of", values: [filterCohort] }]);
   }, [filterCohort, setFilters]);
 
   /** Create a cohort and put the selection in it, which is the only reason to make one here. */
@@ -411,10 +428,24 @@ export function StudentRoster({
   );
 
   const move = useMutation({
-    mutationFn: ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) =>
+    mutationFn: async ({ ids, cohortId }: { ids: string[]; cohortId: string | null }) => {
       // Keeping the shared sets: the languages are the university's, not the cohort's, and
       // dropping them was a silent loss nobody knew to redo.
-      setCohort(ids, cohortId, true),
+      if (cohortId) return setCohort(ids, cohortId, true);
+      /*
+       * Out of their cohort: the one of the semester on screen, which need not be the same
+       * cohort for everybody ticked — so one request per cohort they leave. Somebody in
+       * none of this semester's is left alone, in whatever cohorts other semesters hold.
+       */
+      const leaving = new Map<string, string[]>();
+      for (const student of seen) {
+        if (!ids.includes(student.studentId) || !student.cohortId) continue;
+        leaving.set(student.cohortId, [...(leaving.get(student.cohortId) ?? []), student.studentId]);
+      }
+      let moved = 0;
+      for (const [from, who] of leaving) moved += await setCohort(who, null, true, from);
+      return moved;
+    },
     onSuccess: () => {
       setSelected(new Set());
       setConfirmMove(null);
@@ -473,10 +504,10 @@ export function StudentRoster({
   // What each student does not take, and why — the Exempt from column.
   const exemptions = useQuery({ queryKey: ["exemptions", "every"], queryFn: fetchEveryExemption, retry: false });
   const exemptionsFor = useMemo(() => {
-    const cohortOf = new Map((students.data ?? []).map((student) => [student.studentId, student.cohortId]));
+    const cohortOf = new Map(seen.map((student) => [student.studentId, student.cohortId]));
     const tokens = exemptionTokens(exemptions.data ?? [], (studentId) => cohortOf.get(studentId) ?? null, catalogues.data ?? []);
     return (studentId: string) => tokens.get(studentId) ?? [];
-  }, [exemptions.data, students.data, catalogues.data]);
+  }, [exemptions.data, seen, catalogues.data]);
   // The same exemptions by course, so Meets leaves out the days of a course they do not take.
   const excusedFor = useMemo(() => {
     const held = new Map<string, Set<string>>();
@@ -492,7 +523,7 @@ export function StudentRoster({
   const everyRow = useMemo(
     () =>
       studentRows(
-        students.data ?? [],
+        seen,
         portalRows,
         changes,
         syncedAt,
@@ -504,7 +535,7 @@ export function StudentRoster({
         exemptionsFor,
         excusedFor,
       ),
-    [students.data, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor, excusedFor],
+    [seen, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor, excusedFor],
   );
   const rows = useMemo(() => {
     /*
@@ -619,8 +650,8 @@ export function StudentRoster({
    * they are in, and the table already knows which.
    */
   const semestersHeld = useMemo(
-    () => semestersHeldBy(students.data ?? [], chosen, termNames),
-    [students.data, chosen, termNames],
+    () => semestersHeldBy(seen, chosen, termNames),
+    [seen, chosen, termNames],
   );
 
   /*
@@ -635,7 +666,7 @@ export function StudentRoster({
       if (!placeInto) throw new Error("Select students who share a cohort.");
       const catalogue = await fetchCatalogue(placeInto, termId);
       let removed = 0;
-      for (const scopeId of setsToEmpty(students.data ?? [], chosen, termId, catalogue.scopes)) {
+      for (const scopeId of setsToEmpty(seen, chosen, termId, catalogue.scopes)) {
         removed += (await assignStudents(scopeId, chosen, null)).assigned;
       }
       return { removed, termName: semestersHeld.find((term) => term.termId === termId)?.termName ?? "" };
@@ -661,7 +692,16 @@ export function StudentRoster({
    * every group held in it, in every semester, not the one on screen.
    */
   const moveCost = (cohortId: string | null) =>
-    costOfMove(students.data ?? [], chosen, cohortId, termNames);
+    costOfMove(
+      seen,
+      chosen,
+      cohortId === null
+        ? null
+        : cohortId === NEW_COHORT
+          ? { id: NEW_COHORT, terms: newTerms }
+          : (cohorts.find((candidate) => candidate.id === cohortId) ?? { id: cohortId, terms: [] }),
+      termNames,
+    );
   const newCohortCost = describeCost(moveCost(NEW_COHORT));
   const requestMove = (cohortId: string | null) => {
     if (moveCost(cohortId).placements === 0) {

@@ -281,8 +281,16 @@ def test_rolling_a_cohort_over_carries_its_settings_and_students_into_the_next_s
     a001, a002, a003, a004 = (f"R{uuid4().hex[:8].upper()}" for _ in range(4))
     for student in (a001, a002, a003):
         _hold(database, student)
+    # A name of its own: the test database keeps other tests' cohorts, and an "L1-S2" made by
+    # hand for 262720 would be taken as the one to roll into (see the test after this one).
+    tag = uuid4().hex[:6].upper()
     first = database.create_cohort(
-        name="L1-S1", term="2026-27", majors=["MATH", "PHYS"], terms=["262710"], year_level="L1", allowed_codes=["SPRT"]
+        name=f"L1-{tag}-S1",
+        term="2026-27",
+        majors=["MATH", "PHYS"],
+        terms=["262710"],
+        year_level="L1",
+        allowed_codes=["SPRT"],
     )
     database.set_cohort([a001, a002, a003], first["id"])
     # A003 is already in another cohort of the second semester, and stays there.
@@ -292,7 +300,7 @@ def test_rolling_a_cohort_over_carries_its_settings_and_students_into_the_next_s
     rolled = database.roll_over(first["id"], "262720")
 
     second = rolled["cohort"]
-    assert (second["name"], second["terms"], second["follows"]) == ("L1-S2", ["262720"], first["id"])
+    assert (second["name"], second["terms"], second["follows"]) == (f"L1-{tag}-S2", ["262720"], first["id"])
     assert (second["majors"], second["yearLevel"], second["allowedCodes"], second["term"]) == (
         ["MATH", "PHYS"], "L1", ["SPRT"], "2026-27"
     )
@@ -304,6 +312,23 @@ def test_rolling_a_cohort_over_carries_its_settings_and_students_into_the_next_s
     database.set_cohort([a004], first["id"])
     again = database.roll_over(first["id"], "262720")
     assert (again["cohort"]["id"], again["added"]) == (second["id"], 1)
+
+
+def test_rolling_over_takes_the_cohort_already_made_by_hand_for_that_semester(database: StudentDatabase) -> None:
+    """Somebody made L1-S2 on the Cohorts page before rolling over: that one, not a second L1-S2."""
+    a001 = f"R{uuid4().hex[:8].upper()}"
+    _hold(database, a001)
+    tag = uuid4().hex[:6].upper()
+    first = database.create_cohort(name=f"L1-{tag}-S1", terms=["262710"], year_level="L1")
+    database.set_cohort([a001], first["id"])
+    by_hand = database.create_cohort(name=f"l1-{tag}-s2", terms=["262720"], year_level="L1 by hand")
+
+    rolled = database.roll_over(first["id"], "262720")
+
+    assert rolled["cohort"]["id"] == by_hand["id"]
+    made = rolled["cohort"]
+    assert (made["follows"], made["yearLevel"], rolled["added"]) == (first["id"], "L1 by hand", 1)
+    assert sum(1 for held in database.list_cohorts() if held["name"].casefold() == f"l1-{tag}-s2".casefold()) == 1
 
 
 def test_a_cohort_is_not_rolled_over_into_its_own_semester(database: StudentDatabase) -> None:

@@ -363,8 +363,10 @@ class StudentDatabase:
         both, one cohort per semester, and keeps the groups they sit in now.
 
         Rolling over again finds the cohort it made and only adds the students not in it
-        yet. A student already in another cohort of that semester is left where they are
-        and named: which of the two they belong in is a coordinator's call, not this one's.
+        yet. A cohort already made by hand for that semester under the same name is taken
+        as the one, rather than a second of that name. A student already in another cohort
+        of that semester is left where they are and named: which of the two they belong in
+        is a coordinator's call, not this one's.
         """
         code = _text(term_code)
         if not re.fullmatch(r"\d{6}", code):
@@ -372,11 +374,35 @@ class StudentDatabase:
         source = self.get_cohort(cohort_id)
         if code in source["terms"]:
             raise InvalidCohortMove(f"{source['name']} is already a cohort of {code}.")
+        wanted = _text(name) or _next_semester_name(source["name"], code)
         with self.engine.begin() as connection:
-            target = connection.execute(
-                text("SELECT id, term_codes FROM student_cohorts WHERE follows = :source"), {"source": cohort_id}
-            ).first()
-            target_id = target[0] if target and code in json.loads(target[1] or "[]") else None
+            others = (
+                connection.execute(
+                    text("SELECT id, name, term_codes, follows FROM student_cohorts WHERE id <> :source"),
+                    {"source": cohort_id},
+                )
+                .mappings()
+                .all()
+            )
+            of_term = [row for row in others if code in json.loads(row["term_codes"] or "[]")]
+            target_id = next((row["id"] for row in of_term if row["follows"] == cohort_id), None)
+            if target_id is None:
+                # One somebody made by hand for that semester, under the name a roll-over would
+                # give it: that one, linked now, rather than a second L1-S2 beside it. Its own
+                # settings stand — whoever made it chose them.
+                target_id = next(
+                    (
+                        row["id"]
+                        for row in of_term
+                        if not row["follows"] and (row["name"] or "").strip().casefold() == wanted.casefold()
+                    ),
+                    None,
+                )
+                if target_id is not None:
+                    connection.execute(
+                        text("UPDATE student_cohorts SET follows = :source WHERE id = :target"),
+                        {"source": cohort_id, "target": target_id},
+                    )
             now = _now()
             if target_id is None:
                 target_id = str(uuid4())
@@ -389,7 +415,7 @@ class StudentDatabase:
                             FROM student_cohorts WHERE id = :source"""),
                     {
                         "id": target_id,
-                        "name": _text(name) or _next_semester_name(source["name"], code),
+                        "name": wanted,
                         "terms": json.dumps([code]),
                         "source": cohort_id,
                         "now": now,
@@ -638,7 +664,10 @@ class StudentDatabase:
                                    'groupId', g.id,
                                    -- Whether the set is open to every cohort, so a move can
                                    -- count what it would KEEP as well as what it would drop.
-                                   'openToAll', sc.open_to_all)
+                                   'openToAll', sc.open_to_all,
+                                   -- The cohort it is filed under, so a move counts only what
+                                   -- it drops: joining L1-S2 keeps every L1-S1 group.
+                                   'cohortId', a.cohort_id)
                                    ORDER BY sc.code, g.label) AS groups
                         FROM group_assignments a
                         JOIN scope_groups g ON g.id = a.group_id

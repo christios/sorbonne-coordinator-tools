@@ -1,9 +1,9 @@
-import type { Student } from "@/services/studentDatabase";
+import { cohortBeside, type Student } from "@/services/studentDatabase";
 
 export type MoveCost = {
   /** Students who would lose at least one placement. */
   students: number;
-  /** Group assignments dropped, across every semester. */
+  /** Group assignments dropped, in the cohort they leave. */
   placements: number;
   /** The semesters they are in, named, so the cost is not read as "this one". */
   semesters: string[];
@@ -22,24 +22,22 @@ export type MoveCost = {
  *
  * Leaving a cohort drops every group the student held in it — the groups belong to that
  * cohort's blocks, so keeping them would seat somebody in a matrix they are no longer
- * part of. That is right, and it is silent, and it is not confined to the semester on
- * screen: a student moved in June loses the placements somebody made for them in
- * September. Counting them first is what makes the deletion a decision.
+ * part of. That is right, and it is silent, so it is counted first: counting is what makes
+ * the deletion a decision.
  *
- * The test is whether they are already in the cohort being moved to: if they are, the
- * move costs nothing.
+ * A student is in one cohort per semester, and a move replaces only the cohort of the
+ * target's semester: putting somebody in L1-S2 leaves them in L1-S1 with every S1 group,
+ * and costs nothing. What it costs is the groups filed under the cohort they LEAVE — the
+ * same rows the server deletes. With no target (out of their cohort) that is the cohort
+ * they are read as in (`cohortId`, the semester on screen).
  *
- * The two sides ask the same question now. An earlier note here worried that the server
- * deleted on the cohort each ASSIGNMENT is filed under while this counted on the cohort
- * the STUDENT belongs to — which would part company for a language set. They do not:
- * `assign` files a row under the student's own cohort, and `set_cohort(keep_shared=True)`
- * spares the sets open to every cohort outright. So the language groups are counted as
- * RETAINED here and kept there, rather than threatened here and quietly lost there.
+ * The sets open to every cohort — the languages — are counted as RETAINED, because
+ * `set_cohort(keep_shared=True)` spares them outright.
  */
 export function costOfMove(
   students: Student[],
   chosen: string[],
-  targetCohortId: string | null,
+  target: { id: string; terms: string[] } | null,
   termNames: Record<string, string>,
 ): MoveCost {
   const wanted = new Set(chosen);
@@ -50,9 +48,12 @@ export function costOfMove(
   let retained = 0;
   for (const student of students) {
     if (!wanted.has(student.studentId)) continue;
-    if (student.cohortId === targetCohortId) continue;
-    const kept = student.groups.filter((group) => group.openToAll);
-    const lost = student.groups.filter((group) => !group.openToAll);
+    const leaving = target ? cohortBeside(student, target) : student.cohorts.find((held) => held.id === student.cohortId);
+    if (!leaving || leaving.id === target?.id) continue;
+    // A placement says which cohort it is filed under; one that does not predates saying so.
+    const filed = student.groups.filter((group) => (group.cohortId ?? leaving.id) === leaving.id);
+    const kept = filed.filter((group) => group.openToAll);
+    const lost = filed.filter((group) => !group.openToAll);
     retained += kept.length;
     if (lost.length === 0) continue;
     losing += 1;
