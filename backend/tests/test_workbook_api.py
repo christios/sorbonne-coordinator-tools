@@ -172,10 +172,13 @@ def seed_students(database: StudentDatabase, cohort_id: str, ids: list[str]) -> 
     with database.engine.begin() as connection:
         for student in ids:
             connection.execute(
-                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
-                                              last_seen_at, updated_at)
-                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')
-                        ON CONFLICT (student_id) DO UPDATE SET cohort_id = :cohort"""),
+                text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES (:id, 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
                 {"id": student, "cohort": cohort_id},
             )
 

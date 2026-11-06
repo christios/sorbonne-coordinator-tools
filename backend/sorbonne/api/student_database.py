@@ -33,6 +33,7 @@ from sorbonne.services.student_database import (
     CohortNotFound,
     CommentNotFound,
     CourseNotFound,
+    InvalidCohortMove,
     InvalidRule,
     DuplicateFilterName,
     DuplicateLabel,
@@ -120,12 +121,18 @@ class ViewInput(BaseModel):
 
 
 class CohortAssignment(BaseModel):
-    """Move students into a cohort, or out of one when cohortId is null."""
+    """Move students into a cohort, or out of `fromCohortId` when cohortId is null.
+
+    Into a cohort, they leave their cohort of the same semester only; a student has one
+    cohort per semester.
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
     student_ids: list[str] = Field(default_factory=list, max_length=20_000, alias="studentIds")
     cohort_id: str | None = Field(default=None, alias="cohortId")
+    #: The cohort they leave, when they join none.
+    from_cohort_id: str | None = Field(default=None, alias="fromCohortId")
     #: Keep the placements in sets open to EVERY cohort — the languages, which are not the
     #: leaving cohort's matrix. Defaults to false so every existing caller is unchanged.
     keep_shared: bool = Field(default=False, alias="keepShared")
@@ -431,9 +438,36 @@ def set_cohort(
     staff = getattr(request.state, "staff_user", None)
     actor = getattr(staff, "email", "") or ""
     try:
-        return {"moved": database.set_cohort(body.student_ids, body.cohort_id, body.keep_shared, actor=actor)}
+        return {
+            "moved": database.set_cohort(
+                body.student_ids, body.cohort_id, body.keep_shared, from_cohort=body.from_cohort_id, actor=actor
+            )
+        }
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
+    except InvalidCohortMove as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+class RollOverInput(BaseModel):
+    """The portal term of the semester to carry a cohort into, and what to call it there."""
+
+    term_code: str = Field(alias="termCode", min_length=6, max_length=6)
+    name: str = Field(default="", max_length=120)
+
+
+@router.post("/cohorts/{cohort_id}/roll-over")
+def roll_over(
+    cohort_id: str, body: RollOverInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """L1-S1 into the second semester: L1-S2, its settings, and every one of its students."""
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        return database.roll_over(cohort_id, body.term_code, name=body.name, actor=getattr(staff, "email", "") or "")
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+    except InvalidCohortMove as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
 @router.get("/cohorts/{cohort_id}/members")

@@ -330,25 +330,31 @@ def test_students_are_moved_into_a_cohort_in_bulk(client: TestClient, cohort_id:
     )
 
     assert moved.json() == {"moved": 2}
-    holding = {row["studentId"]: row["cohortId"] for row in students_of(client, view_id)}
-    assert holding == {"A00021503": cohort_id, "A00021505": cohort_id, "A00021509": None}
+    holding = {row["studentId"]: [c["id"] for c in row["cohorts"]] for row in students_of(client, view_id)}
+    assert holding == {"A00021503": [cohort_id], "A00021505": [cohort_id], "A00021509": []}
 
 
-def test_a_null_cohort_takes_students_out_of_the_one_they_are_in(client: TestClient, cohort_id: str, view_id: str):
+def test_a_null_cohort_takes_students_out_of_the_one_named(client: TestClient, cohort_id: str, view_id: str):
     sync(client, view_id, STUDENTS)
     client.post(
         "/api/v1/student-database/students/cohort",
         json={"studentIds": STUDENTS, "cohortId": cohort_id},
     )
-
-    client.post(
+    # Out of nothing in particular is refused: a student may be in a cohort in each semester.
+    unnamed = client.post(
         "/api/v1/student-database/students/cohort",
         json={"studentIds": STUDENTS[:1], "cohortId": None},
     )
+    assert unnamed.status_code == 422
 
-    holding = {row["studentId"]: row["cohortId"] for row in students_of(client, view_id)}
-    assert holding["A00021503"] is None
-    assert holding["A00021505"] == cohort_id
+    client.post(
+        "/api/v1/student-database/students/cohort",
+        json={"studentIds": STUDENTS[:1], "cohortId": None, "fromCohortId": cohort_id},
+    )
+
+    holding = {row["studentId"]: [c["id"] for c in row["cohorts"]] for row in students_of(client, view_id)}
+    assert holding["A00021503"] == []
+    assert holding["A00021505"] == [cohort_id]
 
 
 def test_moving_into_a_cohort_that_is_gone_is_a_404(client: TestClient, view_id: str):
@@ -370,9 +376,7 @@ def test_the_student_record_carries_no_name(client: TestClient, view_id: str):
     assert set(row) == {
         "studentId",
         "status",
-        "cohortId",
-        "cohortName",
-        "cohortSince",
+        "cohorts",
         "firstSeenAt",
         "lastSeenAt",
         "groups",

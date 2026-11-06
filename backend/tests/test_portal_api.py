@@ -869,8 +869,13 @@ def build_cohort(database: StudentDatabase, maths_in_tutorials: str = "", second
     with database.engine.begin() as connection:
         for student in ("A001", "A002", "A003"):
             connection.execute(
-                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES (:id, 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
                 {"id": student, "cohort": cohort["id"]},
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
@@ -1412,8 +1417,13 @@ def test_a_cohort_present_only_through_a_shared_set_is_still_covered(
     other = database.create_cohort(name="L1 Maths", term="2026-27")
     with database.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                    VALUES ('B001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES ('B001', 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
             {"cohort": other["id"]},
         )
     lang = database.add_scope(owner, code="LANG", name="Languages", term_id=HUB_TERM, open_to_all=True)
@@ -1441,8 +1451,13 @@ def test_a_language_group_on_another_cohort_s_row_is_expected_of_the_student_in_
     other = database.create_cohort(name="L1 Maths", term="2026-27")
     with database.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                    VALUES ('B001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES ('B001', 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
             {"cohort": other["id"]},
         )
     # A set of its own on the semester, as every real cohort has: a cohort with none is
@@ -1568,8 +1583,13 @@ def test_clashes_are_readable_without_the_student_hub(client: TestClient, databa
     cohort = database.create_cohort(name="Foundation Year", term="2026-27")
     with database.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                    VALUES ('A001','in_portal',:c,'now','now','now')"""),
+            text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES ('A001', 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:c AS text), student_id FROM s WHERE CAST(:c AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
             {"c": cohort["id"]},
         )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id="term-1")
@@ -2164,8 +2184,13 @@ def cohort_with_a_split_section(database: StudentDatabase) -> str:
     with database.engine.begin() as connection:
         for student in ("A001", "A002"):
             connection.execute(
-                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES (:id, 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
                 {"id": student, "cohort": cohort["id"]},
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
@@ -2919,9 +2944,13 @@ def merged_lecture_set(database: StudentDatabase) -> str:
     with database.engine.begin() as connection:
         for student in ("A001", "A002"):
             connection.execute(
-                text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at,
-                                              last_seen_at, updated_at)
-                        VALUES (:id, 'in_portal', :cohort, 'now', 'now', 'now')"""),
+                text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES (:id, 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
                 {"id": student, "cohort": cohort["id"]},
             )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
@@ -3012,8 +3041,13 @@ def test_two_sub_rows_of_one_group_are_two_bundles_for_the_doubled_check(client:
     cohort = database.create_cohort(name="First year", term="2026-27")
     with database.engine.begin() as connection:
         connection.execute(
-            text("""INSERT INTO students (student_id, status, cohort_id, first_seen_at, last_seen_at, updated_at)
-                    VALUES ('A001', 'in_portal', :cohort, 'now', 'now', 'now')"""),
+            text("""WITH s AS (INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                            VALUES ('A001', 'in_portal', 'now', 'now', 'now')
+                            ON CONFLICT (student_id) DO UPDATE SET updated_at = excluded.updated_at
+                            RETURNING student_id)
+                        INSERT INTO cohort_members (cohort_id, student_id)
+                        SELECT CAST(:cohort AS text), student_id FROM s WHERE CAST(:cohort AS text) IS NOT NULL
+                        ON CONFLICT DO NOTHING"""),
             {"cohort": cohort["id"]},
         )
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)

@@ -8,6 +8,7 @@ from sorbonne.services.workbook_diff import diff_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
     DuplicateLabel,
+    InvalidCohortMove,
     InvalidRule,
     SavedSearch,
     StudentDatabase,
@@ -208,13 +209,18 @@ def _hold(database: StudentDatabase, *ids: str) -> None:
     database.sync_view(view["id"], list(ids))
 
 
+def _since(database: StudentDatabase, student_id: str, cohort_id: str) -> str:
+    """When the student was placed in that cohort, as their record says."""
+    student = next(s for s in database.list_students() if s["studentId"] == student_id)
+    return next(c["since"] for c in student["cohorts"] if c["id"] == cohort_id)
+
+
 def test_placing_a_student_records_when(database: StudentDatabase, cohort: dict) -> None:
     _hold(database, "A001")
 
     database.set_cohort(["A001"], cohort["id"])
 
-    student = next(s for s in database.list_students() if s["studentId"] == "A001")
-    assert student["cohortSince"], "placement should leave a moment behind"
+    assert _since(database, "A001", cohort["id"]), "placement should leave a moment behind"
 
 
 def test_re_saving_a_student_into_the_same_cohort_is_not_a_placement(
@@ -224,24 +230,86 @@ def test_re_saving_a_student_into_the_same_cohort_is_not_a_placement(
     # from. Moving it on a no-op would silently forgive every change made in between.
     _hold(database, "A001")
     database.set_cohort(["A001"], cohort["id"])
-    first = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
+    first = _since(database, "A001", cohort["id"])
 
     database.set_cohort(["A001"], cohort["id"])
 
-    again = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
-    assert again == first
+    assert _since(database, "A001", cohort["id"]) == first
 
 
 def test_moving_to_another_cohort_is_a_new_placement(database: StudentDatabase, cohort: dict) -> None:
     _hold(database, "A001")
     database.set_cohort(["A001"], cohort["id"])
-    first = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
+    first = _since(database, "A001", cohort["id"])
     other = database.create_cohort(name="Elsewhere")
 
     database.set_cohort(["A001"], other["id"])
 
-    moved = next(s for s in database.list_students() if s["studentId"] == "A001")["cohortSince"]
-    assert moved >= first and moved != first or moved > first
+    student = next(s for s in database.list_students() if s["studentId"] == "A001")
+    # Two cohorts of the same semester (neither names a term): the move takes them out of the first.
+    assert [c["id"] for c in student["cohorts"]] == [other["id"]]
+    assert _since(database, "A001", other["id"]) >= first
+
+
+def test_a_student_has_a_cohort_in_each_semester(database: StudentDatabase) -> None:
+    """L1-S1 and L1-S2: joining the second leaves the first; another first-semester cohort replaces it."""
+    # This file does not clear the record between tests, so the students are this test's own.
+    a001 = f"S{uuid4().hex[:8].upper()}"
+    _hold(database, a001)
+    first = database.create_cohort(name="L1-S1", term="2026-27", terms=["262710"])
+    second = database.create_cohort(name="L1-S2", term="2026-27", terms=["262720"])
+    elsewhere = database.create_cohort(name="L2-S1", term="2026-27", terms=["262710"])
+
+    database.set_cohort([a001], first["id"])
+    database.set_cohort([a001], second["id"])
+    student = next(s for s in database.list_students() if s["studentId"] == a001)
+    assert sorted(c["name"] for c in student["cohorts"]) == ["L1-S1", "L1-S2"]
+
+    database.set_cohort([a001], elsewhere["id"])
+    student = next(s for s in database.list_students() if s["studentId"] == a001)
+    assert sorted(c["name"] for c in student["cohorts"]) == ["L1-S2", "L2-S1"]
+    assert [c["terms"] for c in student["cohorts"] if c["name"] == "L1-S2"] == [["262720"]]
+
+    database.set_cohort([a001], None, from_cohort=second["id"])
+    student = next(s for s in database.list_students() if s["studentId"] == a001)
+    assert [c["name"] for c in student["cohorts"]] == ["L2-S1"]
+
+
+def test_rolling_a_cohort_over_carries_its_settings_and_students_into_the_next_semester(
+    database: StudentDatabase,
+) -> None:
+    a001, a002, a003, a004 = (f"R{uuid4().hex[:8].upper()}" for _ in range(4))
+    for student in (a001, a002, a003):
+        _hold(database, student)
+    first = database.create_cohort(
+        name="L1-S1", term="2026-27", majors=["MATH", "PHYS"], terms=["262710"], year_level="L1", allowed_codes=["SPRT"]
+    )
+    database.set_cohort([a001, a002, a003], first["id"])
+    # A003 is already in another cohort of the second semester, and stays there.
+    elsewhere = database.create_cohort(name="L2-S2", term="2026-27", terms=["262720"])
+    database.set_cohort([a003], elsewhere["id"])
+
+    rolled = database.roll_over(first["id"], "262720")
+
+    second = rolled["cohort"]
+    assert (second["name"], second["terms"], second["follows"]) == ("L1-S2", ["262720"], first["id"])
+    assert (second["majors"], second["yearLevel"], second["allowedCodes"], second["term"]) == (
+        ["MATH", "PHYS"], "L1", ["SPRT"], "2026-27"
+    )
+    assert (rolled["added"], rolled["skipped"]) == (2, [a003])
+    assert database.get_cohort(first["id"])["memberCount"] == 3, "nobody leaves the first semester's cohort"
+
+    # Again: the same cohort, and only who is not in it yet.
+    _hold(database, a004)
+    database.set_cohort([a004], first["id"])
+    again = database.roll_over(first["id"], "262720")
+    assert (again["cohort"]["id"], again["added"]) == (second["id"], 1)
+
+
+def test_a_cohort_is_not_rolled_over_into_its_own_semester(database: StudentDatabase) -> None:
+    first = database.create_cohort(name="L1-S1", terms=["262710"])
+    with pytest.raises(InvalidCohortMove):
+        database.roll_over(first["id"], "262710")
 
 
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:

@@ -838,7 +838,7 @@ class PortalListStore:
             ours = {
                 row[0]
                 for row in connection.execute(
-                    text("SELECT student_id FROM students WHERE cohort_id IS NOT NULL AND student_id = ANY(:ids)"),
+                    text("SELECT DISTINCT student_id FROM cohort_members WHERE student_id = ANY(:ids)"),
                     {"ids": sorted({change["studentId"] for change in changes})},
                 )
             }
@@ -1681,7 +1681,7 @@ class PortalListStore:
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
-                    text("""SELECT r.student_id, coalesce(s.cohort_id, '') AS cohort_id,
+                    text("""SELECT r.student_id, coalesce(c.id, '') AS cohort_id,
                                    coalesce(c.name, '') AS cohort_name,
                                    coalesce((SELECT string_agg(cs.code || ' ' || sg.label, ', ' ORDER BY cs.code)
                                              FROM group_assignments ga
@@ -1692,8 +1692,16 @@ class PortalListStore:
                                                            WHERE gc.group_id = ga.group_id AND gc.crn = r.crn
                                                              AND gc.retired = false)), '') AS held
                             FROM student_registrations r
-                            LEFT JOIN students s ON s.student_id = r.student_id
-                            LEFT JOIN student_cohorts c ON c.id = s.cohort_id
+                            -- Their cohort of this CRN's semester, where they have one: a
+                            -- student is in L1-S1 and L1-S2, and the second is no answer
+                            -- about a first-semester section.
+                            LEFT JOIN LATERAL (
+                                SELECT sc.id, sc.name FROM cohort_members m
+                                JOIN student_cohorts sc ON sc.id = m.cohort_id
+                                WHERE m.student_id = r.student_id
+                                ORDER BY (sc.term_codes::jsonb ? :t) DESC, sc.name
+                                LIMIT 1
+                            ) c ON true
                             WHERE r.term_code = :t AND r.crn = :crn AND r.status = 'in_portal'
                             ORDER BY r.student_id"""),
                     {"t": term_code, "crn": crn},
