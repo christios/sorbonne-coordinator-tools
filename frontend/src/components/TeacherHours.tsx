@@ -51,7 +51,7 @@ import { fetchTimetableTerms } from "@/services/timetables";
 import { TEACHER_THREAD } from "@/services/threads";
 import { DEFAULT_APART, TEACHER_REMEDIES, type Severity } from "@/services/teacherWarnings";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 /**
  * What every teacher is carrying this semester.
@@ -74,7 +74,7 @@ import { semesterShown, useSemesterYears } from "@/services/semesterYears";
 export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
@@ -303,7 +303,7 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
             label="Semester"
             value={chosenTerm}
             onChange={setTermId}
-            options={termIds.map((id) => ({ value: id, ...semesterShown(termName(id), yearOf({ id, name: termName(id) })) }))}
+            options={termIds.map((id) => ({ value: id, ...shownOf({ id, name: termName(id) }) }))}
           />
         </LabelledPicker>
         <div className="min-w-0">

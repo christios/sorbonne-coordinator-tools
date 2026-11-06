@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 
@@ -15,6 +16,7 @@ import {
   type Scope,
   type Slot,
 } from "@/services/semesterPlans";
+import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portalLists";
 import { formatDayAndMonth, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
@@ -402,6 +404,21 @@ export function PlanSettingsDialog({
   const setHoliday = (index: number, patch: Partial<Holiday>) =>
     set({ holidays: draft.holidays.map((each, at) => (at === index ? { ...each, ...patch } : each)) });
   const ready = draft.weekOne !== "" && draft.weeks >= 1 && draft.without.every(Boolean) && draft.holidays.every((each) => each.date);
+  // The plan's short name, saved with the rest — Cancel leaves it as it was.
+  const client = useQueryClient();
+  const shortNames = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false });
+  const semesterId = `plan:${plan.termCode}`;
+  const savedShort = shortNames.data?.[semesterId] ?? "";
+  const [short, setShort] = useState(savedShort);
+  useEffect(() => {
+    if (open) setShort(savedShort);
+  }, [open, savedShort]);
+  const save = () => {
+    if (short.trim() !== savedShort) {
+      void setSemesterShortName(semesterId, short.trim()).then(() => client.invalidateQueries({ queryKey: ["semester-short-names"] }));
+    }
+    onSave(draft);
+  };
 
   return (
     <Modal
@@ -414,16 +431,22 @@ export function PlanSettingsDialog({
           <button type="button" onClick={onClose} className={SECONDARY}>
             Cancel
           </button>
-          <button type="button" disabled={!ready || busy} onClick={() => onSave(draft)} className={PRIMARY}>
+          <button type="button" disabled={!ready || busy} onClick={save} className={PRIMARY}>
             {busy ? "Saving…" : "Save"}
           </button>
         </div>
       }
     >
       <div className="grid gap-4">
-        <Field label="Name">
-          <input value={draft.name} onChange={(event) => set({ name: event.target.value })} className={INPUT} />
-        </Field>
+        <div className="grid grid-cols-[1fr_auto] gap-3">
+          <Field label="Name">
+            <input value={draft.name} onChange={(event) => set({ name: event.target.value })} className={INPUT} />
+          </Field>
+          {/* What the menus call it, in front of its name: S2. */}
+          <Field label="Short name">
+            <input value={short} maxLength={12} placeholder="S2" onChange={(event) => setShort(event.target.value)} className={`${INPUT} w-24`} />
+          </Field>
+        </div>
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <DateField label="Week 1" value={draft.weekOne} onChange={(weekOne) => set({ weekOne })} required />
           <Field label="Teaching weeks" hint="Breaks not counted">

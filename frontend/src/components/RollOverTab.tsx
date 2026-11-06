@@ -5,7 +5,7 @@ import { useMemo, useState } from "react";
 import { SelectMenu } from "@/components/SelectMenu";
 import { afterPlacement } from "@/services/afterPlacement";
 import { fetchTermLinks } from "@/services/portalLists";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown, useSemesterYears } from "@/services/semesterYears";
 import { fetchCourseCards, rollOverCohort, type Cohort } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -28,6 +28,7 @@ export function RollOverTab({
 }) {
   const client = useQueryClient();
   const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const linksRead = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
@@ -35,7 +36,7 @@ export function RollOverTab({
   const counts = useMemo(() => cohort.memberCounts ?? {}, [cohort.memberCounts]);
 
   const nameOf = (term: { id: string; name: string }) => {
-    const shown = semesterShown(term.name, yearOf(term));
+    const shown = shownOf(term);
     return [shown.label, shown.year].filter(Boolean).join(" ");
   };
   // Its sets in each semester, from the Groups & CRNs reading every page shares.
@@ -149,7 +150,7 @@ export function RollOverTab({
                 label="From"
                 value={from.id}
                 onChange={setFromId}
-                options={withStudents.map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)), badge: String(counts[term.id] ?? 0) }))}
+                options={withStudents.map((term) => ({ value: term.id, ...shownOf(term), badge: String(counts[term.id] ?? 0) }))}
               />
             </div>
             <span aria-hidden="true">→</span>
@@ -158,7 +159,7 @@ export function RollOverTab({
                 label="Into"
                 value={into.id}
                 onChange={setIntoId}
-                options={intoOptions.map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)), badge: String(counts[term.id] ?? 0) }))}
+                options={intoOptions.map((term) => ({ value: term.id, ...shownOf(term), badge: String(counts[term.id] ?? 0) }))}
               />
             </div>
           </div>

@@ -2,6 +2,7 @@ import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
 import { useEffect, useRef, useState, type ComponentType } from "react";
 
+import { SemesterTag } from "@/components/SemesterTag";
 import { YearPill } from "@/components/YearPill";
 
 export type SelectOption = {
@@ -10,6 +11,8 @@ export type SelectOption = {
   searchText?: string;
   /** An academic year — "2026-27" — shown as its own pill, so the label need not carry it. */
   year?: string;
+  /** A semester's short name — "S2" — shown as a square tag in front of the label. */
+  short?: string;
   /** A count or short status, shown as a pill beside the label. */
   badge?: string;
   /** "muted" for a badge that means nothing yet — a view nobody has synced. */
@@ -157,7 +160,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const selectedLabel = multiple ? placeholder : (selected[0]?.label ?? placeholder);
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
-    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.label} ${option.year ?? ""} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
+    ? normalizedQuery ? options.filter((option) => normalizeSearch(`${option.short ?? ""} ${option.label} ${option.year ?? ""} ${option.searchText ?? ""}`).includes(normalizedQuery)) : options.slice(0, 50)
     : options;
   const hasMoreSearchResults = searchable && !normalizedQuery && options.length > visibleOptions.length;
 
@@ -263,6 +266,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               {selected.length === 1 && selected[0].badge !== undefined && selected[0].badgePlacement === "leading" ? (
                 <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
               ) : null}
+              {selected.length === 1 && selected[0].short ? <SemesterTag short={selected[0].short} /> : null}
               {selectedLabel}
             </span>
           )}
@@ -294,6 +298,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               {option.badge !== undefined && option.badgePlacement === "leading" ? (
                 <Badge text={option.badge} tone={option.badgeTone} />
               ) : null}
+              {option.short ? <SemesterTag short={option.short} /> : null}
               {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
               <span className="min-w-0 flex-1 whitespace-normal break-words">
                 {option.label}

@@ -59,6 +59,7 @@ import {
   type CalendarCourse,
   type PlacedSession,
 } from "@/services/weekSchedule";
+import { fetchSemesterShortNames } from "@/services/portalLists";
 import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
@@ -186,6 +187,8 @@ export function SemesterPlan({
 }) {
   const client = useQueryClient();
   const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans });
+  // A plan is the semester `plan:<code>`, and may have a short name like any other.
+  const shortNames = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false, staleTime: 60_000 });
   const chosen = termCode || plans.data?.[0]?.termCode || "";
   const plan = useQuery({
     queryKey: ["plan", chosen],
@@ -403,11 +406,10 @@ export function SemesterPlan({
 
   if (plans.isLoading || (chosen && plan.isLoading)) return <ScreenLoading label="Reading the plan…" />;
 
-  // The plan's name less its year, the year as a pill, and the portal's term code.
   const planOptions = (plans.data ?? []).map((entry) => ({
     value: entry.termCode,
-    // The name and its year, as every other semester menu says it; the portal code means nothing here.
-    ...semesterShown(entry.name || entry.termCode, yearOfTermCode(entry.termCode)),
+    // The name, its year and its short name, as every other semester menu says them.
+    ...semesterShown(entry.name || entry.termCode, yearOfTermCode(entry.termCode), shortNames.data?.[`plan:${entry.termCode}`] ?? ""),
   }));
   const semesterPicker = (
     <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">

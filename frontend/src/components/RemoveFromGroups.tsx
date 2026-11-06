@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { describeRemoval, type SemesterHeld } from "@/services/groupRemoval";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 /**
  * Taking a selection out of the groups they hold in one semester, keeping their cohort.
@@ -39,7 +39,7 @@ export function RemoveFromGroups({
   // One semester is the answer rather than a question; several is a choice worth making.
   const only = semesters.length === 1 ? semesters[0].termId : "";
   const [termId, setTermId] = useState(only);
-  const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   useEffect(() => {
     if (open) setTermId(only);
   }, [open, only]);
@@ -84,7 +84,7 @@ export function RemoveFromGroups({
               placeholder="Which semester…"
               options={semesters.map((term) => ({
                 value: term.termId,
-                ...semesterShown(term.termName, yearOf({ id: term.termId, name: term.termName })),
+                ...shownOf({ id: term.termId, name: term.termName }),
                 badge: `${term.placements} placement${term.placements === 1 ? "" : "s"}`,
                 badgeTone: "accent" as const,
               }))}

@@ -9,7 +9,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { fetchTermLinks } from "@/services/portalLists";
+import { fetchSemesterShortNames, fetchTermLinks } from "@/services/portalLists";
 
 /** "2026-27" for the term code "262720": its first four digits are the two years. */
 export function yearOfTermCode(code: string): string {
@@ -32,8 +32,9 @@ export function withoutYear(name: string, year: string): string {
  * A semester as a menu option shows it: its name, less the year, and the year as a pill.
  * Spread into the option, with whatever count or badge the menu adds.
  */
-export function semesterShown(name: string, year: string): { label: string; year?: string } {
-  return year ? { label: withoutYear(name, year), year } : { label: name };
+export function semesterShown(name: string, year: string, short = ""): { label: string; year?: string; short?: string } {
+  const named = short ? { short } : {};
+  return year ? { label: withoutYear(name, year), year, ...named } : { label: name, ...named };
 }
 
 /**
@@ -43,4 +44,15 @@ export function semesterShown(name: string, year: string): { label: string; year
 export function useSemesterYears(): (term: { id: string; name: string }) => string {
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false, staleTime: 60_000 });
   return (term) => yearOfTermCode(links.data?.[term.id] ?? "") || yearInName(term.name);
+}
+
+/**
+ * A semester as every menu shows it: its name less the year, the year as a pill, and the
+ * short name a coordinator gave it (S1, S2) as a tag in front. Shared, so the same semester
+ * reads the same on every page.
+ */
+export function useSemesterShown(): (term: { id: string; name: string }) => { label: string; year?: string; short?: string } {
+  const yearOf = useSemesterYears();
+  const shorts = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false, staleTime: 60_000 });
+  return (term) => semesterShown(term.name, yearOf(term), shorts.data?.[term.id] ?? "");
 }

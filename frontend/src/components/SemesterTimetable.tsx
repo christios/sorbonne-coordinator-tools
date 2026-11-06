@@ -27,7 +27,7 @@ import { fetchSessionChanges } from "@/services/sessionChanges";
 import { useRooms } from "@/services/rooms";
 import type { SemesterExportInput } from "@/services/semesterPdf";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 /*
  * On a phone a week one screen wide is a column of slivers — "MATH-" and "SCEN" — so it
@@ -124,7 +124,7 @@ export function SemesterTimetable({
   onPickTerm: (termId: string) => void;
 }) {
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
-  const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   const all = terms.data ?? [];
   if (terms.isLoading) return <ScreenLoading label="Loading semesters…" />;
   if (terms.isError) {
@@ -144,7 +144,7 @@ export function SemesterTimetable({
         onChange={(next) => next && onPickTerm(next)}
         options={all.map((candidate) => ({
           value: candidate.id,
-          ...semesterShown(candidate.name, yearOf(candidate)),
+          ...shownOf(candidate),
           detail: candidate.isPublished ? "Published" : "Hidden",
         }))}
       />

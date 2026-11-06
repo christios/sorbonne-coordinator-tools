@@ -26,7 +26,7 @@ import {
   placeStudents,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 /** Taking a student out of a block is a real choice, so it is an option and not a blank. */
 const OUT = "__out__";
@@ -93,7 +93,7 @@ export function PlaceInBlock({
     setRows((current) => follow(current.map((row, at) => (at === index ? { ...row, ...patch, because: "" } : row)), index));
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
-  const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   // So a section that has chosen a teacher is named by the department's record rather than
   // by whatever the registrar typed on it.
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
@@ -464,7 +464,7 @@ export function PlaceInBlock({
           label="Semester"
           value={termId}
           placeholder="Which semester…"
-          options={(terms.data ?? []).map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)) }))}
+          options={(terms.data ?? []).map((term) => ({ value: term.id, ...shownOf(term) }))}
           onChange={setTermId}
         />
 

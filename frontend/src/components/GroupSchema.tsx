@@ -36,7 +36,7 @@ import {
   updateScope,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
@@ -133,7 +133,7 @@ export function GroupSchema({
   // The two panes fill the room under the totals, and each scrolls inside itself.
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   /*
    * The programmes the registrar has for this browser's students, which is the vocabulary
@@ -290,7 +290,7 @@ export function GroupSchema({
             value={termId}
             onChange={setTermId}
             placeholder="Which semester…"
-            options={(terms.data ?? []).map((term) => ({ value: term.id, ...semesterShown(term.name, yearOf(term)) }))}
+            options={(terms.data ?? []).map((term) => ({ value: term.id, ...shownOf(term) }))}
           />
         </LabelledPicker>
         <LabelledPicker label="Cohort">

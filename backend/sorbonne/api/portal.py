@@ -204,6 +204,12 @@ class TermLinkInput(BaseModel):
     portalTermCode: str = Field(default="", max_length=20)
 
 
+class SemesterShortNameInput(BaseModel):
+    """A semester's short name for the menus — S1, S2, Summer. Empty clears it."""
+
+    shortName: str = Field(default="", max_length=12)
+
+
 def _actor(request: Request) -> str:
     staff = getattr(request.state, "staff_user", None)
     return getattr(staff, "email", "") or ""
@@ -645,6 +651,20 @@ def term_links(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
 @router.put("/term-links/{term_id}")
 def link_term(term_id: str, body: TermLinkInput, store: PortalListStore = Depends(get_store)) -> dict[str, str]:
     return store.link_term(term_id, body.portalTermCode)
+
+
+@router.get("/semester-short-names")
+def semester_short_names(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """Each semester's short name, by the app's id for it."""
+    return {"shortNames": store.semester_short_names()}
+
+
+@router.put("/semester-short-names/{term_id}")
+def set_semester_short_name(
+    term_id: str, body: SemesterShortNameInput, store: PortalListStore = Depends(get_store)
+) -> dict[str, str]:
+    """Coordinator Tools' own name for a semester; the Student Hub's is never touched."""
+    return store.set_semester_short_name(term_id, body.shortName)
 
 
 @router.get("/terms/{term_id}/crns")

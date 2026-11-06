@@ -47,7 +47,7 @@ import { describeMismatch, fetchRegistrationCheck, type Mismatch, type Registrat
 import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
 import { useSemesterInView } from "@/services/semesterInView";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import {
@@ -507,7 +507,7 @@ export function CohortsPage({
    * then holds that semester's cohorts, and "every cohort" means every one of them.
    */
   const { setTermId, semesters, semester, semesterCohorts, semesterCohortsOf, links } = useSemesterInView(cohorts);
-  const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
 
   // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
   // and its first otherwise, so a deleted cohort does not leave the page empty for ever.
@@ -786,7 +786,7 @@ export function CohortsPage({
           const held = semesterCohortsOf(term.id).length;
           return {
             value: term.id,
-            ...semesterShown(term.name, yearOf(term)),
+            ...shownOf(term),
             badge: String(held),
             badgeTone: held ? ("accent" as const) : ("muted" as const),
           };

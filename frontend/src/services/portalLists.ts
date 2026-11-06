@@ -628,6 +628,16 @@ export async function fetchTermLinks(): Promise<Record<string, string>> {
   return (await request<{ links: Record<string, string> }>("/term-links")).links;
 }
 
+/** Each semester's short name — S1, S2 — by the app's id for it. Coordinator Tools' own, never the Hub's. */
+export async function fetchSemesterShortNames(): Promise<Record<string, string>> {
+  return (await request<{ shortNames: Record<string, string> }>("/semester-short-names")).shortNames;
+}
+
+/** Name a semester for the menus, or clear its name with "". At most twelve characters. */
+export function setSemesterShortName(termId: string, shortName: string): Promise<{ termId: string; shortName: string }> {
+  return send<{ termId: string; shortName: string }>(`/semester-short-names/${encodeURIComponent(termId)}`, "PUT", { shortName });
+}
+
 export function linkTerm(termId: string, portalTermCode: string): Promise<{ termId: string; portalTermCode: string }> {
   return send(`/term-links/${encodeURIComponent(termId)}`, "PUT", { portalTermCode });
 }

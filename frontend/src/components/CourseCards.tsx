@@ -23,7 +23,7 @@ import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
-import { semesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown, useSemesterYears } from "@/services/semesterYears";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -84,6 +84,7 @@ export function CourseCards({
   // Which portal term each semester is, so a cohort with no sets yet is still found under its own.
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const yearOf = useSemesterYears();
+  const shownOf = useSemesterShown();
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -338,7 +339,7 @@ export function CourseCards({
             const held = cards.filter((card) => card.termId === term.id).length;
             return {
               value: term.id,
-              ...semesterShown(term.name, yearOf(term)),
+              ...shownOf(term),
               badge: String(held),
               badgeTone: held ? ("accent" as const) : ("muted" as const),
             };

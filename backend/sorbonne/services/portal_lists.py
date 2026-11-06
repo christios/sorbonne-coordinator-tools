@@ -2100,6 +2100,25 @@ class PortalListStore:
                 connection.execute(text("DELETE FROM term_links WHERE term_id = :t"), {"t": term_id})
         return {"termId": term_id, "portalTermCode": code}
 
+    def semester_short_names(self) -> dict[str, str]:
+        """Each semester's short name — S1, S2 — by the app's id for it."""
+        with self.engine.connect() as connection:
+            return dict(connection.execute(text("SELECT term_id, short_name FROM semester_short_names")).all())
+
+    def set_semester_short_name(self, term_id: str, short_name: str) -> dict[str, str]:
+        """Name a semester for the menus, or clear its name with an empty one."""
+        short = _text(short_name)
+        with self.engine.begin() as connection:
+            if short:
+                connection.execute(
+                    text("""INSERT INTO semester_short_names (term_id, short_name) VALUES (:t, :s)
+                            ON CONFLICT (term_id) DO UPDATE SET short_name = excluded.short_name"""),
+                    {"t": term_id, "s": short},
+                )
+            else:
+                connection.execute(text("DELETE FROM semester_short_names WHERE term_id = :t"), {"t": term_id})
+        return {"termId": term_id, "shortName": short}
+
     def crns_for_term(self, term_id: str) -> dict[str, Any]:
         """Every portal CRN of the term a Hub semester is linked to, keyed by CRN."""
         code = self.term_links().get(term_id, "")

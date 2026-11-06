@@ -7,6 +7,9 @@ import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PayCycleCell } from "@/components/PayCycleCell";
 import { PortalTermLink } from "@/components/PortalTermLink";
+import { SemesterShortName } from "@/components/SemesterShortName";
+import { SemesterTag } from "@/components/SemesterTag";
+import { fetchSemesterShortNames } from "@/services/portalLists";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
@@ -37,6 +40,7 @@ export function SemesterList({
   const queryClient = useQueryClient();
   // The Hub's semesters only: what is done here — publish, update, delete — is done on the Hub.
   const terms = useQuery({ queryKey: ["hub-terms"], queryFn: fetchHubTerms });
+  const shortNames = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false });
   const [pendingDelete, setPendingDelete] = useState<TimetableTerm | null>(null);
   const [updating, setUpdating] = useState<TimetableTerm | null>(null);
   const [importing, setImporting] = useState(false);
@@ -141,6 +145,7 @@ export function SemesterList({
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Sessions</th>
                         <th scope="col" className="px-4 py-3 text-right font-semibold">Students</th>
                         <th scope="col" className="px-4 py-3 font-semibold">Students can see it</th>
+                        <th scope="col" className="px-4 py-3 font-semibold">Short name</th>
                         <th scope="col" className="px-4 py-3 font-semibold">Portal term</th>
                         {/* What a part-time claim covers, which is the semester's to decide. */}
                         <th scope="col" className="px-4 py-3 font-semibold">Pay periods</th>
@@ -152,6 +157,7 @@ export function SemesterList({
                         <tr key={term.id} className="border-t border-[#e4e8ef]">
                           <td className="px-6 py-4">
                             <span className="inline-flex items-center gap-1.5">
+                              <SemesterTag short={shortNames.data?.[term.id] ?? ""} />
                               <span className="font-semibold text-[#171717]">{term.name}</span>
                               <button
                                 type="button"
@@ -185,6 +191,10 @@ export function SemesterList({
                             >
                               {term.isPublished ? "Published" : "Hidden"}
                             </button>
+                          </td>
+                          <td className="px-4 py-4">
+                            {/* What the menus call it, in front of its name: S1, S2. Ours, not the Hub's. */}
+                            <SemesterShortName termId={term.id} label={`Short name of ${term.name}`} />
                           </td>
                           <td className="px-4 py-4">
                             <PortalTermLink termId={term.id} />

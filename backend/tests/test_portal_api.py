@@ -8,6 +8,7 @@ where the registrar's registrations differ from the groups we placed a cohort in
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from uuid import uuid4
 
 import pytest
 from fastapi import status
@@ -3113,3 +3114,18 @@ def test_setting_the_parent_of_a_crn_that_is_gone_says_so(client: TestClient):
 
     assert answer.status_code == status.HTTP_404_NOT_FOUND, answer.text
     assert "registered CRN" in answer.json()["detail"]
+
+
+def test_a_semester_has_a_short_name_for_the_menus(client: TestClient):
+    """S1, S2: Coordinator Tools' own name for a semester, set, changed and cleared."""
+    term = f"short-{uuid4().hex[:6]}"
+
+    saved = client.put(f"{BASE}/semester-short-names/{term}", json={"shortName": "  S2 "})
+    assert saved.json() == {"termId": term, "shortName": "S2"}
+    assert client.get(f"{BASE}/semester-short-names").json()["shortNames"][term] == "S2"
+
+    client.put(f"{BASE}/semester-short-names/{term}", json={"shortName": ""})
+    assert term not in client.get(f"{BASE}/semester-short-names").json()["shortNames"]
+
+    too_long = client.put(f"{BASE}/semester-short-names/{term}", json={"shortName": "Second semester"})
+    assert too_long.status_code == 422
