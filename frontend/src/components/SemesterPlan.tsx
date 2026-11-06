@@ -406,9 +406,8 @@ export function SemesterPlan({
   // The plan's name less its year, the year as a pill, and the portal's term code.
   const planOptions = (plans.data ?? []).map((entry) => ({
     value: entry.termCode,
+    // The name and its year, as every other semester menu says it; the portal code means nothing here.
     ...semesterShown(entry.name || entry.termCode, yearOfTermCode(entry.termCode)),
-    badge: entry.termCode,
-    badgeTone: "muted" as const,
   }));
   const semesterPicker = (
     <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">

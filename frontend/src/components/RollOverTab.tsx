@@ -216,8 +216,6 @@ export function RollOverTab({
             options={targets.map((term) => ({
               value: term.id,
               ...semesterShown(term.name, yearOf(term)),
-              badge: links[term.id],
-              badgeTone: "muted" as const,
             }))}
           />
         </div>
