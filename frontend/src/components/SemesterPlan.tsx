@@ -823,12 +823,16 @@ export function SemesterPlan({
           </p>
         </div>
 
-        <aside className="hidden min-h-0 w-80 shrink-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:flex" aria-label="Classes to place">
-          <div className="grid shrink-0 gap-2 border-b border-[#eef1f5] px-3 py-2">
-            <h3 className="text-sm font-semibold text-[#171717]">
-              Classes to place · {trayShown.length}
-              {trayShown.length !== toPlace.length ? <span className="font-normal text-[#98a2b3]"> of {toPlace.length}</span> : null}
-            </h3>
+        <aside className="hidden min-h-0 w-80 shrink-0 flex-col lg:flex" aria-label="Classes to place">
+          {/* Labelled like the pickers' labels (Cohort, Semester), above the box rather than in it. */}
+          <h3 className="mb-1 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+            Classes to place
+            <span className="ml-1.5 font-normal normal-case tabular-nums text-[#98a2b3]">
+              {trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : toPlace.length}
+            </span>
+          </h3>
+          <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
+          <div className="grid shrink-0 gap-2 border-b border-[#eef1f5] px-3 py-2.5">
             <label className="relative block">
               <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
               <input
@@ -967,6 +971,7 @@ export function SemesterPlan({
               </li>
             ) : null}
           </ul>
+          </div>
         </aside>
       </div>
 
