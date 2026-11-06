@@ -13,6 +13,7 @@ import { rulesDescription, schemaNote, useRuleDrafts } from "@/services/ruleDraf
 import { fetchPortalCourses, fetchRegistrationCheck } from "@/services/portalLists";
 import { fetchSchema } from "@/services/scenRosters";
 import { SelectMenu } from "@/components/SelectMenu";
+import { RollOverTab } from "@/components/RollOverTab";
 import { type Cohort, type TeamsChannelCheck, deleteCohort, fetchTeamsCheck, updateCohort } from "@/services/studentDatabase";
 
 /**
@@ -43,10 +44,13 @@ function teamsStatus(check: TeamsChannelCheck | undefined, members: number): str
 export function CohortActions({
   cohort,
   onShowMembers,
+  onRolledOver,
 }: {
   cohort: Cohort;
   /** Left out where the members are already on screen, as on the Cohorts page. */
   onShowMembers?: (cohort: Cohort) => void;
+  /** After a roll-over, to show the cohort it made: its semester, and the cohort. */
+  onRolledOver?: (semesterId: string, cohortId: string) => void;
 }) {
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -66,7 +70,7 @@ export function CohortActions({
    * of the shared ones. The rules had a button of their own beside the table; they are a
    * tab here, and save with the rest when anything in them has changed.
    */
-  const [tab, setTab] = useState<"cohort" | "rules">("cohort");
+  const [tab, setTab] = useState<"cohort" | "rules" | "rollover">("cohort");
   const scope = { kind: "cohort" as const, cohort };
   const rules = useRuleDrafts(scope, editing);
   const schema = useQuery({ queryKey: ["portal-schema"], queryFn: fetchSchema, enabled: editing, staleTime: 60_000 });
@@ -166,7 +170,7 @@ export function CohortActions({
         <button
           type="button"
           aria-label={`${cohort.name} settings`}
-          title={`${cohort.name} settings — what it expects, and its own rules`}
+          title={`${cohort.name} settings — what it expects, its own rules, and rolling it over`}
           onClick={() => {
             setTab("cohort");
             setName(cohort.name);
@@ -200,7 +204,9 @@ export function CohortActions({
         description={
           tab === "cohort"
             ? "Its name and year, and what it expects of its students in the portal's own codes. A cohort that expects nothing is judged on status alone."
-            : rulesDescription(scope)
+            : tab === "rollover"
+              ? `Gives ${cohort.name} its cohort for a later semester, with the same settings and rules and every one of its students.`
+              : rulesDescription(scope)
         }
         onClose={() => setEditing(false)}
         header={
@@ -209,6 +215,7 @@ export function CohortActions({
               [
                 { id: "cohort", label: "Cohort" },
                 { id: "rules", label: `Rules · ${rules.drafts.length}` },
+                { id: "rollover", label: "Roll over" },
               ] as const
             ).map((item) => (
               <button
@@ -255,6 +262,19 @@ export function CohortActions({
       >
         {tab === "rules" ? (
           <RulesList scope={scope} drafts={rules.drafts} setDrafts={rules.setDrafts} cohortId={rules.cohortId} open={editing} />
+        ) : null}
+        {tab === "rollover" ? (
+          <RollOverTab
+            cohort={cohort}
+            onDone={
+              onRolledOver
+                ? (semesterId, cohortId) => {
+                    setEditing(false);
+                    onRolledOver(semesterId, cohortId);
+                  }
+                : undefined
+            }
+          />
         ) : null}
         <div className={tab === "cohort" ? "space-y-4" : "hidden"}>
           <div className="grid gap-4 sm:grid-cols-[1fr_9rem]">

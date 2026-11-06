@@ -63,7 +63,7 @@ export function NewCohort({ onCreated }: { onCreated?: (cohort: Cohort) => void 
       <Modal
         open={open}
         title="New cohort"
-        description="A cohort is one semester's students — L1-S1, then L1-S2 — and its portal term says which semester. Its sets of groups are defined on the Group schema page. To carry a cohort into the next semester, use Roll over instead."
+        description="A cohort is one semester's students — L1-S1, then L1-S2 — and its portal term says which semester. Its sets of groups are defined on the Group schema page. To carry a cohort into the next semester, use the Roll over tab of its settings instead."
         onClose={() => setOpen(false)}
         footer={
           <div className="flex items-center justify-end gap-3">

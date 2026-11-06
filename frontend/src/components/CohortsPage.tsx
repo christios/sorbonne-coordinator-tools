@@ -12,7 +12,6 @@ import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
-import { RollOverCohorts } from "@/components/RollOverCohorts";
 import { StudentRoster } from "@/components/StudentRoster";
 import { WARNING_ICONS, WARNING_TONES, type WarningIcon } from "@/components/StudentTable";
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
@@ -876,24 +875,19 @@ export function CohortsPage({
           />
         </LabelledPicker>
         {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}
-        {cohort && !emptySemester ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
-        {/* Making one, which until now could only happen as a side effect of moving students. */}
-        <NewCohort onCreated={(created) => chooseCohort(created.id)} />
-        {/* The semester's cohorts carried into the next: L1-S1 → L1-S2, students and all. */}
-        {semester ? (
-          <RollOverCohorts
-            from={semester}
-            fromTerm={links[semester.id] ?? ""}
-            fromCohorts={semesterCohorts}
-            cohorts={cohorts}
-            semesters={semesters}
-            links={links}
-            onDone={(semesterId, firstCohortId) => {
+        {cohort && !emptySemester ? (
+          <CohortActions
+            key={cohort.id}
+            cohort={cohort}
+            // Rolled over: show the cohort it made, in its semester.
+            onRolledOver={(semesterId, rolledId) => {
               setTermId(semesterId);
-              chooseCohort(firstCohortId);
+              chooseCohort(rolledId);
             }}
           />
         ) : null}
+        {/* Making one, which until now could only happen as a side effect of moving students. */}
+        <NewCohort onCreated={(created) => chooseCohort(created.id)} />
       </div>
 
       {emptySemester && semester ? (
