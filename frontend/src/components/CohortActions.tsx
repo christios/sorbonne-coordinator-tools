@@ -205,7 +205,7 @@ export function CohortActions({
           tab === "cohort"
             ? "Its name and year, and what it expects of its students in the portal's own codes. A cohort that expects nothing is judged on status alone."
             : tab === "rollover"
-              ? `Gives ${cohort.name} its cohort for a later semester, with the same settings and rules and every one of its students.`
+              ? `The cohorts ${cohort.name} is linked to in other semesters, and rolling it over into a later one: the same settings and rules, and every one of its students.`
               : rulesDescription(scope)
         }
         onClose={() => setEditing(false)}

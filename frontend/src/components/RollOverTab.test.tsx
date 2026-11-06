@@ -2,7 +2,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { RollOverTab, nextSemesterName } from "@/components/RollOverTab";
+import { RollOverTab } from "@/components/RollOverTab";
+import { nextSemesterName } from "@/services/rollOver";
 import * as lists from "@/services/portalLists";
 import * as database from "@/services/studentDatabase";
 import type { Cohort } from "@/services/studentDatabase";
@@ -88,6 +89,28 @@ describe("rolling a cohort over into the next semester", () => {
     show([cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1" })]);
 
     expect(await screen.findByText(/L1-S2 is already there: adds whoever/)).toBeTruthy();
+  });
+
+  it("shows the link from the second cohort's side, and brings in who has joined the first since", async () => {
+    const L2 = cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1", memberCount: 98 });
+    const roll = vi.spyOn(database, "rollOverCohort").mockResolvedValue({ cohort: L2, added: 2, skipped: [] });
+    show([L1], vi.fn(), L2);
+
+    const linked = await screen.findByRole("region", { name: "Linked cohorts" });
+    expect(linked.textContent).toMatch(/Rolled over from L1-S1 · Semester 1 2026-27 · 100 students/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Bring in whoever has joined L1-S1 since" }));
+
+    // The same roll-over, run from the first cohort into this one's term.
+    await waitFor(() => expect(roll).toHaveBeenCalledWith("l1-s1", "262720"));
+    expect(await screen.findByText("2 students from L1-S1 added.")).toBeTruthy();
+  });
+
+  it("shows the link from the first cohort's side", async () => {
+    show([cohort("l1-s2", "L1-S2", ["262720"], { follows: "l1-s1", memberCount: 98 })]);
+
+    const linked = await screen.findByRole("region", { name: "Linked cohorts" });
+    await waitFor(() => expect(linked.textContent).toMatch(/Rolled over into L1-S2 · Semester 2 2026-27 · 98 students/));
   });
 
   it("has nowhere to go from the last semester linked", async () => {
