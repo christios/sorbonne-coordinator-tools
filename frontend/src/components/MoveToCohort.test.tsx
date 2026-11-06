@@ -37,7 +37,7 @@ describe("moving students to another cohort", () => {
     // assignment is filed under, and that is already the destination. The dialog
     // nevertheless announced the loss, every time, in either direction.
     show(() => "");
-    await choose(/^L1\b/);
+    await choose(/(^| )L1\b/);
 
     expect(screen.queryByText(/drops every group/i)).toBeNull();
     expect(screen.queryByText(/would lose/i)).toBeNull();
@@ -45,7 +45,7 @@ describe("moving students to another cohort", () => {
 
   it("says what the move costs once a cohort with something to lose is chosen", async () => {
     show((cohortId) => (cohortId === "cohort-2" ? "2 students would lose 5 group placements in Semester 1." : ""));
-    await choose(/^L1\b/);
+    await choose(/(^| )L1\b/);
 
     expect(screen.getByText(/2 students would lose 5 group placements/)).toBeTruthy();
   });

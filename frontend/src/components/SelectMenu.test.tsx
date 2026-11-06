@@ -216,7 +216,7 @@ describe("a multi-select says what is chosen", () => {
     expect(trigger.textContent).not.toContain("—");
 
     fireEvent.click(trigger);
-    expect(screen.getByRole("option", { name: /L1 Maths\s*academic year\s*2025-26/ })).toBeTruthy();
+    expect(screen.getByRole("option", { name: /^academic year\s*2025-26\s*L1 Maths/ })).toBeTruthy();
   });
 
   it("finds a cohort by its year, which the label no longer carries", () => {

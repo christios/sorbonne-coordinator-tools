@@ -28,7 +28,7 @@ describe("a semester's short name", () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith("term-1", "Fall"));
   });
 
-  it("shows in a semester menu as a tag in front of the name, beside the year", () => {
+  it("shows in a semester menu as a tag in front of the name, with the year beside it", () => {
     render(
       <SelectMenu
         label="Semester"
@@ -39,7 +39,7 @@ describe("a semester's short name", () => {
     );
 
     const chosen = screen.getByRole("combobox", { name: "Semester" });
-    expect(chosen.textContent).toBe("short name S2Semester 2academic year 2026-27");
+    expect(chosen.textContent).toBe("short name S2academic year 2026-27Semester 2");
   });
 
   it("is left out where a semester has none", () => {

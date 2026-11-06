@@ -630,7 +630,7 @@ describe("after placing them from their own record", () => {
 
     await pick("Groups", "I'll choose");
     // Its academic year beside it, from the portal term it is linked to.
-    await pick("Semester", /^Semester 1\s*academic year 2026-27/);
+    await pick("Semester", /^academic year 2026-27\s*Semester 1/);
     await pick("Block", /TD/);
     await pick("Group", /Group 1/);
     fireEvent.click(screen.getByRole("button", { name: /Place 1/ }));

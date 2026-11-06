@@ -23,7 +23,7 @@ import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
-import { useSemesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShortNames, useSemesterShown, useSemesterYears } from "@/services/semesterYears";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -85,6 +85,7 @@ export function CourseCards({
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const yearOf = useSemesterYears();
   const shownOf = useSemesterShown();
+  const shortOf = useSemesterShortNames();
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
@@ -383,6 +384,8 @@ export function CourseCards({
               return {
                 value: cohort.id,
                 label: cohort.name,
+                // The semester's tag and the cohort's year in front of its name.
+                short: shortOf(semester?.id),
                 year: cohort.term,
                 badge: String(held),
                 badgeTone: held ? ("accent" as const) : ("muted" as const),

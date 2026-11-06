@@ -484,7 +484,7 @@ describe("StudentRoster", () => {
     fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
     fireEvent.click(screen.getByLabelText("Select Nadia Newcomer"));
     await openMove();
-    await choose("Move to cohort", /^L1\b/);
+    await choose("Move to cohort", /(^| )L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 2/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
@@ -504,7 +504,7 @@ describe("StudentRoster", () => {
 
     fireEvent.click(screen.getByLabelText("Select Karim Nasser"));
     await openMove();
-    await choose("Move to cohort", /^L1\b/);
+    await choose("Move to cohort", /(^| )L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());
@@ -526,7 +526,7 @@ describe("StudentRoster", () => {
 
     fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
     await openMove();
-    await choose("Move to cohort", /^L1\b/);
+    await choose("Move to cohort", /(^| )L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     const dialog = await screen.findByRole("dialog");
@@ -642,7 +642,7 @@ describe("StudentRoster", () => {
 
     fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
     await openMove();
-    await choose("Move to cohort", /^L1\b/);
+    await choose("Move to cohort", /(^| )L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     const dialog = await screen.findByRole("dialog");
@@ -692,7 +692,7 @@ describe("StudentRoster", () => {
 
     fireEvent.click(screen.getByLabelText("Select everyone shown"));
     await openMove();
-    await choose("Move to cohort", /^L1\b/);
+    await choose("Move to cohort", /(^| )L1\b/);
     fireEvent.click(screen.getByRole("button", { name: /Move 1/ }));
 
     await waitFor(() => expect(move).toHaveBeenCalled());

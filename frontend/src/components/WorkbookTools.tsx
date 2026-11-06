@@ -14,7 +14,7 @@ import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
 import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel } from "@/services/timetableExport";
 import { downloadWorkbook, labelIn, prefixOf, readingsFor, shortYear } from "@/services/workbookExport";
-import { useSemesterShown } from "@/services/semesterYears";
+import { useSemesterShortNames, useSemesterShown } from "@/services/semesterYears";
 
 /**
  * The files: the group workbook out, and the admissions list out.
@@ -82,6 +82,7 @@ export function WorkbookTools({
   const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
   const shownOf = useSemesterShown();
+  const shortOf = useSemesterShortNames();
   useEffect(() => {
     if (!cohortId && cohorts[0]) setCohortId(cohorts[0].id);
     if (!termId && terms[0]) setTermId(terms[0].id);
@@ -278,7 +279,7 @@ export function WorkbookTools({
   return (
     <Modal open={open} title="Workbook and lists" onClose={onClose}>
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
-        <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((candidate) => ({ value: candidate.id, label: candidate.name }))} />
+        <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((candidate) => ({ value: candidate.id, label: candidate.name, short: shortOf(termId), year: candidate.term }))} />
         <SelectMenu label="Semester" value={termId} onChange={setTermId} placeholder="Choose a semester" options={terms.map((term) => ({ value: term.id, ...shownOf(term) }))} />
       </div>
       <p className="mb-3 text-xs text-[#98a2b3]">

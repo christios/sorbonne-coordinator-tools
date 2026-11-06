@@ -47,7 +47,7 @@ import { describeMismatch, fetchRegistrationCheck, type Mismatch, type Registrat
 import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
 import { useSemesterInView } from "@/services/semesterInView";
-import { useSemesterShown } from "@/services/semesterYears";
+import { useSemesterShortNames, useSemesterShown } from "@/services/semesterYears";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import {
@@ -508,6 +508,7 @@ export function CohortsPage({
    */
   const { setTermId, semesters, semester, semesterCohorts, semesterCohortsOf, links } = useSemesterInView(cohorts);
   const shownOf = useSemesterShown();
+  const shortOf = useSemesterShortNames();
 
   // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
   // and its first otherwise, so a deleted cohort does not leave the page empty for ever.
@@ -859,6 +860,8 @@ export function CohortsPage({
                 return {
                   value: candidate.id,
                   label: candidate.name,
+                  // The semester's tag and the cohort's year in front of its name: "S1 2026-27 L1".
+                  short: shortOf(semester?.id),
                   year: candidate.term,
                   // Its students in this semester.
                   badge: String(countIn(candidate)),

@@ -53,6 +53,15 @@ export function useSemesterYears(): (term: { id: string; name: string }) => stri
  */
 export function useSemesterShown(): (term: { id: string; name: string }) => { label: string; year?: string; short?: string } {
   const yearOf = useSemesterYears();
+  const shortOf = useSemesterShortNames();
+  return (term) => semesterShown(term.name, yearOf(term), shortOf(term.id));
+}
+
+/**
+ * Each semester's short name by its id — S1, S2 — or "". For the menus that name a cohort
+ * within a semester: the cohort carries its semester's tag, "S1 · L1".
+ */
+export function useSemesterShortNames(): (termId: string | undefined) => string {
   const shorts = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false, staleTime: 60_000 });
-  return (term) => semesterShown(term.name, yearOf(term), shorts.data?.[term.id] ?? "");
+  return (termId) => (termId ? (shorts.data?.[termId] ?? "") : "");
 }

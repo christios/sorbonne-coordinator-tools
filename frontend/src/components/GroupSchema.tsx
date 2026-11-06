@@ -36,7 +36,7 @@ import {
   updateScope,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
-import { useSemesterShown } from "@/services/semesterYears";
+import { useSemesterShortNames, useSemesterShown } from "@/services/semesterYears";
 
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
@@ -134,6 +134,7 @@ export function GroupSchema({
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
+  const shortOf = useSemesterShortNames();
   const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
   /*
    * The programmes the registrar has for this browser's students, which is the vocabulary
@@ -299,7 +300,7 @@ export function GroupSchema({
             value={cohortId}
             onChange={setCohortId}
             placeholder="Which cohort…"
-            options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name, year: cohort.term }))}
+            options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name, short: shortOf(termId), year: cohort.term }))}
           />
         </LabelledPicker>
         {/* The cohort's totals beside its pickers, rather than a line of their own under them. */}

@@ -23,6 +23,7 @@ export function MoveToCohort({
   cohorts,
   termId,
   semesterName = "",
+  semesterShort = "",
   onMove,
   describe,
   onNewCohort,
@@ -32,9 +33,10 @@ export function MoveToCohort({
   open: boolean;
   count: number;
   cohorts: Cohort[];
-  /** The semester the move is made in, by id and by name — a student is in one cohort per semester. */
+  /** The semester the move is made in, by id, name and short name — a student is in one cohort per semester. */
   termId?: string;
   semesterName?: string;
+  semesterShort?: string;
   onMove: (cohortId: string) => void;
   /**
    * What this particular move would throw away, or "" when it throws nothing away.
@@ -100,6 +102,8 @@ export function MoveToCohort({
           options={cohorts.map((cohort) => ({
             value: cohort.id,
             label: cohort.name,
+            // The semester the move lands in, and the cohort's year, in front of its name.
+            short: semesterShort,
             year: cohort.term,
             // How many it holds in this semester, where the move lands.
             badge: String(termId === undefined ? cohort.memberCount : (cohort.memberCounts?.[termId] ?? 0)),

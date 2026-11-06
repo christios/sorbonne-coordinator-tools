@@ -9,7 +9,7 @@ export type SelectOption = {
   value: string;
   label: string;
   searchText?: string;
-  /** An academic year — "2026-27" — shown as its own pill, so the label need not carry it. */
+  /** An academic year — "2026-27" — shown as its own pill in front of the label, so the label need not carry it. */
   year?: string;
   /** A semester's short name — "S2" — shown as a square tag in front of the label. */
   short?: string;
@@ -266,11 +266,12 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               {selected.length === 1 && selected[0].badge !== undefined && selected[0].badgePlacement === "leading" ? (
                 <Badge text={selected[0].badge} tone={selected[0].badgeTone} />
               ) : null}
+              {/* The semester's tag and the year in front of the name, as the open list has them. */}
               {selected.length === 1 && selected[0].short ? <SemesterTag short={selected[0].short} /> : null}
+              {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} /> : null}
               {selectedLabel}
             </span>
           )}
-          {selected.length === 1 && selected[0].year ? <YearPill year={selected[0].year} className="ml-2" /> : null}
           {selected.length === 1 && selected[0].badge !== undefined && selected[0].badgePlacement !== "leading" ? (
             <Badge text={selected[0].badge} tone={selected[0].badgeTone} fit />
           ) : null}
@@ -298,12 +299,11 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
               {option.badge !== undefined && option.badgePlacement === "leading" ? (
                 <Badge text={option.badge} tone={option.badgeTone} />
               ) : null}
+              {/* The semester's tag, then the year, in front of the name: a column down the list. */}
               {option.short ? <SemesterTag short={option.short} /> : null}
+              {option.year ? <YearPill year={option.year} /> : null}
               {/* Wrapped, never clipped: an option a coordinator cannot read is one they cannot choose. */}
-              <span className="min-w-0 flex-1 whitespace-normal break-words">
-                {option.label}
-                {option.year ? <YearPill year={option.year} className="ml-2 align-[0.05em]" /> : null}
-              </span>
+              <span className="min-w-0 flex-1 whitespace-normal break-words">{option.label}</span>
               {option.badge !== undefined && option.badgePlacement !== "leading" ? (
                 <Badge text={option.badge} tone={option.badgeTone} />
               ) : null}
