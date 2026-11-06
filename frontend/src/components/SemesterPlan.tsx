@@ -8,6 +8,7 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { TeachingWeek } from "@/components/SectionTimetable";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SemesterExport } from "@/components/SemesterExport";
+import { SortMenu } from "@/components/SortMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { Zoom } from "@/components/TimelineZoom";
 import { usePageState } from "@/components/usePageState";
@@ -839,17 +840,21 @@ export function SemesterPlan({
         <aside className="hidden min-h-0 w-80 shrink-0 flex-col lg:flex" aria-label="Classes to place">
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
           <div className="grid shrink-0 gap-2 border-b border-[#eef1f5] px-3 py-2.5">
-            <label className="relative block">
-              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
-              <input
-                type="search"
-                aria-label="Search classes to place"
-                value={traySearch}
-                onChange={(event) => setTraySearch(event.target.value)}
-                placeholder="Course, group, CRN, teacher"
-                className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
-              />
-            </label>
+            {/* The search, and the order as an icon beside it rather than a row of its own. */}
+            <div className="flex items-center gap-1.5">
+              <label className="relative block min-w-0 flex-1">
+                <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
+                <input
+                  type="search"
+                  aria-label="Search classes to place"
+                  value={traySearch}
+                  onChange={(event) => setTraySearch(event.target.value)}
+                  placeholder="Course, group, CRN, teacher"
+                  className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
+                />
+              </label>
+              <SortMenu value={traySort} options={TRAY_SORT} onChange={setTraySort} />
+            </div>
             {/* Which of them, as chips that say how many each holds and wrap rather than cut a word. */}
             <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
               {TRAY_SHOW.map((option) => {
@@ -873,12 +878,6 @@ export function SemesterPlan({
                   </button>
                 );
               })}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 text-xs font-medium text-[#667085]">Sort by</span>
-              <div className="min-w-0 flex-1">
-                <SelectMenu label="Sort by" value={traySort} onChange={(value) => setTraySort(value as TraySort)} options={TRAY_SORT} />
-              </div>
             </div>
           </div>
           <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto">
