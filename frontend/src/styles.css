@@ -7,9 +7,12 @@
  * the space either side was the band the cap left plus that padding. It is now a quarter
  * of that at every screen size — the padding alone where the screen is narrower than the
  * cap, and a quarter of the band too where it is wider.
+ *
+ * Plus half a rem on every page (6 Nov 2026): at a quarter alone the controls sat four to
+ * eight pixels from the edge of the screen, which read as cramped.
  */
 @utility page-gutters {
-  padding-inline: calc(0.25 * (max(0px, (100% - var(--page-cap, 100%)) / 2) + var(--page-pad, 1rem)));
+  padding-inline: calc(0.5rem + 0.25 * (max(0px, (100% - var(--page-cap, 100%)) / 2) + var(--page-pad, 1rem)));
 }
 
 body {

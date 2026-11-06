@@ -233,7 +233,7 @@ export function App() {
         </div>
       ) : activeTool === "settings" ? (
         <StaffSettings />
-      ) : activeTool === "roster" ? <div className="grid w-full gap-6 page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-1.5 lg:grid-cols-[360px_1fr]">
+      ) : activeTool === "roster" ? <div className="grid w-full gap-6 page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-3 lg:grid-cols-[360px_1fr]">
         <aside className="space-y-4">
           <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
             <div className="mb-4 flex items-center justify-between">
@@ -335,7 +335,7 @@ function AppWelcome({
   const visibleApps = granted.filter((app) => `${app.name} ${app.description} ${app.keywords}`.toLowerCase().includes(normalizedSearch));
 
   return (
-    <section className="w-full page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-2.5">
+    <section className="w-full page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-3">
       <div className="max-w-2xl">
         <p className="text-sm font-semibold text-[#a6292f]">Workspace</p>
         <h2 className="mt-2 text-3xl font-semibold tracking-tight text-[#171717]">Choose an app</h2>

@@ -69,7 +69,7 @@ export function StaffSettings() {
     }`;
 
   return (
-    <div className="w-full page-gutters [--page-cap:70rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-2">
+    <div className="w-full page-gutters [--page-cap:70rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-3">
       {/* No line under the title: the tabs below already say what Settings holds. */}
       <header>
         <h2 className="text-2xl font-semibold tracking-tight text-[#171717]">Settings</h2>
