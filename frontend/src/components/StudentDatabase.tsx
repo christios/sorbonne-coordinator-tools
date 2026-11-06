@@ -381,19 +381,24 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             {page === "students" ? (
               <ViewBar views={available} viewId={viewId} onChoose={setViewId} />
             ) : null}
-            {/* Filled by Groups & CRNs, which puts its cohort and its files here. */}
-            <div ref={setPageHeader} className="empty:hidden" />
-            {page === "cohorts" ? (
-              <button
-                type="button"
-                onClick={() => setSharedRulesOpen(true)}
-                className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
-              >
-                <Globe size={15} aria-hidden="true" />
-                Global rules
-                <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{sharedCount}</span>
-              </button>
-            ) : null}
+            {/*
+              * Filled by the page below: Groups & CRNs puts its semester, cohort and files here,
+              * the Cohorts page its semester — beside Global rules, one group on the right.
+              */}
+            <div className="flex flex-wrap items-center gap-2">
+              <div ref={setPageHeader} className="empty:hidden" />
+              {page === "cohorts" ? (
+                <button
+                  type="button"
+                  onClick={() => setSharedRulesOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                >
+                  <Globe size={15} aria-hidden="true" />
+                  Global rules
+                  <span className="tabular-nums text-xs font-normal text-[#98a2b3]">{sharedCount}</span>
+                </button>
+              ) : null}
+            </div>
 
           </header>
 
@@ -446,7 +451,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
-            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} onFocusTaken={() => setCohortFocus(null)} />
+            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} onFocusTaken={() => setCohortFocus(null)} header={pageHeader} />
           ) : null}
           {page === "cohorts" ? (
             <DiscrepancyRulesEditor open={sharedRulesOpen} scope={{ kind: "shared" }} onClose={() => setSharedRulesOpen(false)} />

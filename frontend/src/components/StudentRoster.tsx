@@ -136,7 +136,8 @@ export function StudentRoster({
    * student we hold is fetched rather than a portal filter's, and each row carries the
    * warnings the page worked out for it.
    */
-  scope?: { cohortId: string | null };
+  /** `among`: the cohorts "every cohort" means — the Cohorts page's semester's. All of them when absent. */
+  scope?: { cohortId: string | null; among?: string[] };
   /**
    * On a scoped table, whether it shows every cohort rather than this one. The page owns
    * the switch — it sits beside the cohort picker, which is where "which cohort" is asked.
@@ -522,7 +523,7 @@ export function StudentRoster({
     const population = !scope
       ? everyRow
       : everywhere
-        ? everyRow.filter((row) => Boolean(row.cohortId))
+        ? everyRow.filter((row) => Boolean(row.cohortId) && (!scope.among || scope.among.includes(row.cohortId ?? "")))
         : everyRow.filter((row) => (scope.cohortId === null ? !row.cohortId : row.cohortId === scope.cohortId));
     if (focus.length === 0) return population;
     const wanted = new Set(focus);

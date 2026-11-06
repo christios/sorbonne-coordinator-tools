@@ -21,6 +21,7 @@ import { clashName, clashesIn, describeClashCoverage } from "@/services/publicat
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
+import { cohortsIn } from "@/services/semesterCohorts";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -175,10 +176,9 @@ export function CourseCards({
     semesters.find((term) => term.id === termId) ?? semesters.find((term) => cards.some((card) => card.termId === term.id)) ?? semesters[0] ?? null;
   const inSemester = (card: Card) => !semester || card.termId === semester.id;
   const portalTerm = semester ? (links.data?.[semester.id] ?? "") : "";
-  const semesterCohorts = cohorts.filter(
-    (cohort) =>
-      !semester || cards.some((card) => card.cohortId === cohort.id && inSemester(card)) || (portalTerm && cohort.terms.includes(portalTerm)),
-  );
+  const semesterCohorts = semester
+    ? cohortsIn(cohorts, portalTerm, (id) => cards.some((card) => card.cohortId === id && inSemester(card)))
+    : cohorts;
   const chosen =
     semesterCohorts.find((cohort) => cohort.id === cohortId) ??
     semesterCohorts.find((cohort) => cards.some((card) => card.cohortId === cohort.id && inSemester(card))) ??

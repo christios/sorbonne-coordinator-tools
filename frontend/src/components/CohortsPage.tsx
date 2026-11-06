@@ -1,6 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, RotateCcw, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { useStaffUser } from "@/components/useStaffUser";
 import { CohortActions } from "@/components/CohortActions";
@@ -42,9 +43,10 @@ import {
   type WarningSource,
 } from "@/services/discrepancies";
 import { type Dismissal, dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
-import { describeMismatch, fetchRegistrationCheck, type Mismatch, type RegistrationReport } from "@/services/portalLists";
+import { describeMismatch, fetchRegistrationCheck, fetchTermLinks, type Mismatch, type RegistrationReport } from "@/services/portalLists";
 import { allChanges } from "@/services/pullHistory";
-import { COHORT } from "@/services/remembered";
+import { COHORT, SCHEMA_TERM } from "@/services/remembered";
+import { cohortsIn } from "@/services/semesterCohorts";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import {
@@ -249,8 +251,11 @@ export function CohortsPage({
   cohorts,
   focus,
   onFocusTaken,
+  header,
 }: {
   cohorts: Cohort[];
+  /** The slot on the page's title line, beside Global rules, where the semester goes. */
+  header?: HTMLElement | null;
   /**
    * A cohort and some of its students to land on — how Groups & CRNs hands over the
    * people a set has not placed. This is where placing happens, so this is where
@@ -491,13 +496,40 @@ export function CohortsPage({
     };
   }, []);
 
-  // Land on a cohort rather than on nothing — the remembered one when it still exists,
-  // and the first otherwise, so a deleted cohort does not leave the page empty for ever.
+  /*
+   * The semester first, as on Groups & CRNs and the Group schema, and remembered with
+   * theirs: S1's cohorts and S2's in one menu read as one list of years. The cohort menu
+   * then holds that semester's cohorts, and "every cohort" means every one of them.
+   */
+  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, retry: false });
+  const semesters = useMemo(() => terms.data ?? [], [terms.data]);
+  const semesterCohortsOf = useCallback(
+    (semesterId: string) =>
+      cohortsIn(cohorts, links.data?.[semesterId] ?? "", (id) =>
+        (cards.data ?? []).some((held) => held.cohort.id === id && held.scopes.some((scope) => scope.termId === semesterId)),
+      ),
+    [cohorts, links.data, cards.data],
+  );
+  const semester =
+    semesters.find((term) => term.id === termId) ??
+    semesters.find((term) => semesterCohortsOf(term.id).length > 0) ??
+    semesters[0] ??
+    null;
+  const semesterCohorts = useMemo(
+    () => (semester ? semesterCohortsOf(semester.id) : cohorts),
+    [semester, semesterCohortsOf, cohorts],
+  );
+
+  // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
+  // and its first otherwise, so a deleted cohort does not leave the page empty for ever.
   useEffect(() => {
-    if (!cohorts.length) return;
-    if (cohorts.some((candidate) => candidate.id === cohortId)) return;
-    chooseCohort(cohorts[0].id);
-  }, [cohorts, cohortId, chooseCohort]);
+    if (!semesterCohorts.length) return;
+    if (semesterCohorts.some((candidate) => candidate.id === cohortId)) return;
+    chooseCohort(semesterCohorts[0].id);
+  }, [semesterCohorts, cohortId, chooseCohort]);
 
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
   const [addingArrival, setAddingArrival] = useState<Arrival | null>(null);
@@ -687,11 +719,13 @@ export function CohortsPage({
    * the table — they read the picked cohort alone, so "Dismissed 4" sat over a table of
    * thirty dismissed pills from the other cohorts.
    */
+  // Every cohort of the semester chosen, not of every semester.
   const everyones = useMemo(() => {
+    const keys = new Set(semesterCohorts.flatMap((candidate) => (byCohort.get(candidate.id) ?? []).map((warning) => warning.key)));
     const held = new Map<string, Warning>();
-    for (const list of byStudent.values()) for (const warning of list) held.set(warning.key, warning);
+    for (const list of byStudent.values()) for (const warning of list) if (keys.has(warning.key)) held.set(warning.key, warning);
     return [...held.values()];
-  }, [byStudent]);
+  }, [semesterCohorts, byCohort, byStudent]);
   const all = everywhere ? everyones : mine;
   const flaggedStudents = flaggedIn(all);
   const counts: Record<WarningSource, number> = {
@@ -741,9 +775,28 @@ export function CohortsPage({
     );
   }
 
+  // On the page's title line, beside Global rules; in the page itself where there is no slot.
+  const semesterPicker = (
+    <div className="w-60">
+      <SelectMenu
+        label="Semester"
+        value={semester?.id ?? ""}
+        onChange={setTermId}
+        placeholder="No semester yet"
+        options={semesters.map((term) => {
+          const held = semesterCohortsOf(term.id).length;
+          return { value: term.id, label: term.name, badge: String(held), badgeTone: held ? ("accent" as const) : ("muted" as const) };
+        })}
+      />
+    </div>
+  );
+  const emptySemester = Boolean(semester) && semesterCohorts.length === 0;
+
   return (
     <section>
+      {header ? createPortal(semesterPicker, header) : null}
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+        {header ? null : semesterPicker}
         <LabelledPicker
           label="Cohort"
           hint={everywhere ? "showing every cohort" : undefined}
@@ -791,11 +844,11 @@ export function CohortsPage({
           <SelectMenu
             label="Cohort"
             align="start"
-            value={everywhere ? "" : cohortId}
-            placeholder={everywhere ? "Every cohort" : undefined}
+            value={everywhere ? "" : semesterCohorts.length ? cohortId : ""}
+            placeholder={everywhere ? "Every cohort" : semesterCohorts.length ? undefined : "No cohort yet"}
             onChange={chooseCohort}
             options={[
-              ...cohorts.map((candidate) => {
+              ...semesterCohorts.map((candidate) => {
                 const held = byCohort.get(candidate.id) ?? [];
                 return {
                   value: candidate.id,
@@ -826,10 +879,17 @@ export function CohortsPage({
           />
         </LabelledPicker>
         {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}
-        {cohort ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
+        {cohort && !emptySemester ? <CohortActions key={cohort.id} cohort={cohort} /> : null}
         {/* Making one, which until now could only happen as a side effect of moving students. */}
         <NewCohort onCreated={(created) => chooseCohort(created.id)} />
       </div>
+
+      {emptySemester && semester ? (
+        <p className="mt-4 rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
+          {semester.name} has no cohort yet. Make one with New cohort, giving it the semester&rsquo;s portal term
+          {links.data?.[semester.id] ? ` (${links.data[semester.id]})` : ""}.
+        </p>
+      ) : null}
 
       {silent.length ? (
         <p role="status" className="mt-3 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-4 py-2.5 text-sm text-[#8a6116]">
@@ -839,7 +899,7 @@ export function CohortsPage({
         </p>
       ) : null}
 
-      {cohort && arrivals.length ? (
+      {cohort && arrivals.length && !emptySemester ? (
         <ArrivalsBanner
           cohort={cohort}
           cohorts={cohorts}
@@ -881,7 +941,7 @@ export function CohortsPage({
         />
       ) : null}
 
-      {flaggedStudents || dismissedCount ? (
+      {(flaggedStudents || dismissedCount) && !emptySemester ? (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           {flaggedStudents ? <SourceFilter showing={showing} onToggle={toggleShowing} counts={counts} teams={teamsKnown} /> : null}
           {/*
@@ -919,7 +979,7 @@ export function CohortsPage({
         </div>
       ) : null}
 
-      <div className="mt-3">
+      <div className={emptySemester ? "hidden" : "mt-3"}>
         {/*
           * Keyed on the cohort: switching cohorts is switching populations, and the
           * selection, filters and scroll of the last one should not carry over.
@@ -952,7 +1012,8 @@ export function CohortsPage({
             />
           )}
           onPreselectTaken={onFocusTaken}
-          scope={{ cohortId }}
+          // "Every cohort" is every cohort of the semester chosen.
+          scope={{ cohortId, among: semester ? semesterCohorts.map((candidate) => candidate.id) : undefined }}
           everywhere={everywhere}
           warningsFor={warningsFor}
           electivesFor={electivesFor}
