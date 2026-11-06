@@ -363,3 +363,31 @@ def test_a_plan_is_a_semester_of_the_app_linked_to_its_portal_term_with_its_week
     client.put(f"{AT}/{TERM}/settings", json={"name": "S2", "weekOne": "", "weeks": 14})
     with plans.engine.connect() as connection:
         assert connection.execute(text("SELECT count(*) FROM term_weeks WHERE term_id = 'plan:262720'")).scalar() == 0
+
+
+def test_a_semester_made_here_is_deleted_with_its_classes_once_no_cohort_has_anything_in_it(client, plans, section):
+    place(client, section)
+    # The set FYS-S2 holds there keeps it.
+    refused = client.delete(f"{AT}/{TERM}")
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == (
+        "Semester 2 2026-27 holds 1 set. Take them out of it on Group schema and Cohorts before deleting it."
+    )
+
+    with plans.engine.begin() as connection:
+        connection.execute(text("DELETE FROM cohort_scopes WHERE term_id = :t"), {"t": SEMESTER})
+        connection.execute(
+            text("INSERT INTO semester_short_names (term_id, short_name) VALUES (:t, 'S2')"), {"t": SEMESTER}
+        )
+    assert client.delete(f"{AT}/{TERM}").status_code == 204
+
+    assert client.get(f"{AT}/{TERM}").status_code == 404
+    assert client.get(AT).json()["plans"] == []
+    with plans.engine.connect() as connection:
+        for table in ("term_links", "term_weeks", "semester_short_names", "plan_series"):
+            column = "term_code" if table == "plan_series" else "term_id"
+            held = connection.execute(
+                text(f"SELECT count(*) FROM {table} WHERE {column} = :t"),  # noqa: S608 - fixed names
+                {"t": TERM if table == "plan_series" else SEMESTER},
+            ).scalar()
+            assert held == 0, table

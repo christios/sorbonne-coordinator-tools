@@ -10,7 +10,6 @@
 import {
   ArrowLeftRight,
   Building2,
-  CalendarDays,
   HardDrive,
   KeyRound,
   MinusCircle,
@@ -29,8 +28,6 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string; Icon:
   { section: "programme-codes", label: "Programme codes", Icon: ArrowLeftRight, adminOnly: false },
   // What the Exempt button offers — "LEA track", "Repeater"; everybody's to read.
   { section: "exemption-reasons", label: "Exemption reasons", Icon: MinusCircle, adminOnly: false },
-  // Where each semester's Week 1 is; everybody's to read, an administrator's to set.
-  { section: "semesters", label: "Semesters", Icon: CalendarDays, adminOnly: false },
   // Who the Head of Department is, which every Part Time Sheet is signed with; an administrator's to set.
   { section: "department", label: "Department", Icon: Building2, adminOnly: false },
   // What this browser holds and nobody else does: the portal's names and their history.

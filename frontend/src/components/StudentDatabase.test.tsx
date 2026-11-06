@@ -234,9 +234,11 @@ describe("students and their timetables in one place", () => {
     renderApp();
     const pane = await screen.findByRole("complementary", { name: /students and timetables/i });
 
-    for (const name of ["Students", "Groups & CRNs", "Semesters", "Announcements"]) {
+    for (const name of ["Students", "Groups & CRNs", "Semesters", "Semester plan"]) {
       expect(within(pane).getByRole("button", { name })).toBeTruthy();
     }
+    // The Student Hub is hidden for now: Announcements only ever edited it.
+    expect(within(pane).queryByRole("button", { name: "Announcements" })).toBeNull();
   });
 
   it("calls the register by what it lists, which is CRNs and not courses", async () => {
@@ -249,12 +251,12 @@ describe("students and their timetables in one place", () => {
     expect(within(pane).queryByRole("button", { name: "Active courses" })).toBeNull();
   });
 
-  it("reaches the semesters the Student Hub holds", async () => {
+  it("reaches the semesters, and makes a new one there", async () => {
     renderApp();
 
     await open(/^Semesters$/);
 
-    expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /New semester/ })).toBeTruthy();
     // Uploading one is retired: the hours now come from the registrar's own timetable.
     expect(screen.queryByRole("button", { name: /Import a timetable/ })).toBeNull();
   });
@@ -263,8 +265,13 @@ describe("students and their timetables in one place", () => {
     vi.spyOn(timetables, "fetchTimetableStatus").mockResolvedValue({ configured: false, host: null });
     renderApp();
 
-    await open(/^Semesters$/);
+    await open(/^Semester Timetable$/);
     expect(await screen.findByText("Timetable uploads are not configured")).toBeTruthy();
+
+    // Semesters are made here, not on the Hub, so they are managed without it.
+    await open(/^Semesters$/);
+    expect(await screen.findByRole("button", { name: /New semester/ })).toBeTruthy();
+    expect(screen.queryByText("Timetable uploads are not configured")).toBeNull();
 
     // The roster is this application's own, so a missing platform must not close it.
     await open(/^Students$/);
@@ -304,7 +311,7 @@ describe("keeping your place", () => {
     await startAt("#/database/semesters");
     renderApp();
 
-    expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /New semester/ })).toBeTruthy();
   });
 
   it("writes the page into the address when one is chosen", async () => {
@@ -347,6 +354,6 @@ describe("keeping your place", () => {
     window.location.hash = "#/database/semesters";
     window.dispatchEvent(new HashChangeEvent("hashchange"));
 
-    expect(await screen.findByText(/Semesters on the Student Hub/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /New semester/ })).toBeTruthy();
   });
 });

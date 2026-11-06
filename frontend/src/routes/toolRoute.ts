@@ -8,7 +8,6 @@ export type SettingsSection =
   | "checks"
   | "programme-codes"
   | "exemption-reasons"
-  | "semesters"
   | "department"
   | "this-browser";
 

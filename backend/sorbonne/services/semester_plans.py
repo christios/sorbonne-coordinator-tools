@@ -488,6 +488,34 @@ class PlanStore:
             "updatedBy": row["updated_by"],
         }
 
+    def delete(self, term_code: str) -> None:
+        """Delete a semester made here, with every class placed in it, once no cohort has anything in it.
+
+        The classes placed are the plan's own and go with it. The sets and the students are the
+        cohorts': a semester somebody has put sets or students in says so, and stays, until they
+        are taken out of it on Group schema and Cohorts.
+        """
+        semester = semester_of(term_code)
+        with self.engine.begin() as connection:
+            term = self._term(connection, term_code)
+            sets = connection.execute(
+                text("SELECT count(*) FROM cohort_scopes WHERE term_id = :t"), {"t": semester}
+            ).scalar_one()
+            students = connection.execute(
+                text("SELECT count(DISTINCT student_id) FROM cohort_members WHERE term_id = :t"), {"t": semester}
+            ).scalar_one()
+            if sets or students:
+                held = " and ".join(
+                    f"{n} {word}{'' if n == 1 else 's'}" for n, word in ((sets, "set"), (students, "student")) if n
+                )
+                raise InvalidPlan(
+                    f"{term['name']} holds {held}. Take them out of it on Group schema and Cohorts before deleting it."
+                )
+            # What the rest of the app keeps about it under its id.
+            for table in ("term_links", "term_weeks", "semester_short_names", "term_pay_cycles"):
+                connection.execute(text(f"DELETE FROM {table} WHERE term_id = :t"), {"t": semester})  # noqa: S608 - fixed names
+            connection.execute(text("DELETE FROM plan_terms WHERE term_code = :term"), {"term": term_code})
+
     def settle(self, term_code: str, fields: dict[str, Any], *, actor: str = "") -> dict[str, Any]:
         """The semester's name, Week 1, how many teaching weeks, its breaks and its holidays."""
         week_one = str(fields.get("weekOne") or "").strip()

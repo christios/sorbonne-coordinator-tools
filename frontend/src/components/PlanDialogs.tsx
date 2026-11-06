@@ -524,47 +524,82 @@ export function PlanSettingsDialog({
   );
 }
 
-/** A new plan, kept under the portal's term code. */
-export function NewPlanDialog({
+/**
+ * A new semester: the portal's code for it, its name, and the short name the menus show.
+ *
+ * Kept under the portal's code, so its sets, its plan and its timetable can be held against
+ * what the registrar books — which is also why a code another semester already goes by is
+ * refused here, before anything is made.
+ */
+export function NewSemesterDialog({
   open,
   busy,
   error,
+  taken,
   onCreate,
   onClose,
 }: {
   open: boolean;
   busy: boolean;
   error: string;
-  onCreate: (termCode: string, name: string) => void;
+  /** The semesters there are, by the portal code each goes by. */
+  taken: Record<string, string>;
+  onCreate: (semester: { termCode: string; name: string; short: string }) => void;
   onClose: () => void;
 }) {
   const [termCode, setTermCode] = useState("");
   const [name, setName] = useState("");
-  const ready = /^\d{6}$/.test(termCode);
+  const [short, setShort] = useState("");
+  useEffect(() => {
+    if (!open) return;
+    setTermCode("");
+    setName("");
+    setShort("");
+  }, [open]);
+  const already = /^\d{6}$/.test(termCode) ? taken[termCode] : undefined;
+  const ready = /^\d{6}$/.test(termCode) && !already && name.trim() !== "";
+  const create = () => ready && onCreate({ termCode, name: name.trim(), short: short.trim() });
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title="New semester plan"
-      description="A plan is kept under the portal's code for the semester, so it can be compared with what the registrar books."
+      title="New semester"
+      description="Kept under the portal's code for it, so its sets, its plan and its timetable can be held against what the registrar books."
       footer={
         <div className="flex justify-end gap-3">
           <button type="button" onClick={onClose} className={SECONDARY}>
             Cancel
           </button>
-          <button type="button" disabled={!ready || busy} onClick={() => onCreate(termCode, name)} className={PRIMARY}>
-            {busy ? "Creating…" : "Create"}
+          <button type="button" disabled={!ready || busy} onClick={create} className={PRIMARY}>
+            {busy ? "Creating…" : "Create semester"}
           </button>
         </div>
       }
     >
       <div className="grid gap-4">
         <Field label="Portal term code" hint="Six digits: 262720 is the second semester of 2026-27.">
-          <input inputMode="numeric" value={termCode} onChange={(event) => setTermCode(event.target.value.replace(/\D/g, "").slice(0, 6))} className={INPUT} />
+          <input
+            inputMode="numeric"
+            value={termCode}
+            onChange={(event) => setTermCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            className={INPUT}
+          />
         </Field>
-        <Field label="Name">
-          <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Semester 2 2026-27" className={INPUT} />
-        </Field>
+        {already ? (
+          <p role="alert" className="-mt-2 text-sm text-[#a6292f]">
+            {already} is {termCode} already.
+          </p>
+        ) : null}
+        <div className="grid grid-cols-[1fr_auto] gap-3">
+          <Field label="Name">
+            <input value={name} onChange={(event) => setName(event.target.value)} placeholder="Semester 2 2026-27" className={INPUT} />
+          </Field>
+          {/* What the menus call it, in front of its name. */}
+          <Field label="Short name">
+            <input value={short} maxLength={12} placeholder="S2" onChange={(event) => setShort(event.target.value)} className={`${INPUT} w-24`} />
+          </Field>
+        </div>
+        <p className="text-xs text-[#667085]">Its teaching weeks and holidays are set in its Settings once it is made.</p>
         {error ? (
           <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
             {error}

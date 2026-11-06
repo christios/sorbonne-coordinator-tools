@@ -178,6 +178,11 @@ export async function createPlan(termCode: string, name: string): Promise<Plan> 
   return answer(await apiFetch(BASE, json("POST", { termCode, name })));
 }
 
+/** Delete a semester made here and the classes placed in it; refused while a cohort has sets or students in it. */
+export async function deletePlan(termCode: string): Promise<void> {
+  return answer(await apiFetch(at(termCode), { method: "DELETE" }));
+}
+
 export async function fetchPlan(termCode: string): Promise<Plan> {
   return answer(await apiFetch(at(termCode)));
 }

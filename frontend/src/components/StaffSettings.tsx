@@ -5,7 +5,6 @@ import { useEffect, useState, type ReactNode } from "react";
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
-import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { HeadOfDepartmentPanel } from "@/components/HeadOfDepartmentPanel";
 import { PayRatesPanel } from "@/components/PayRatesPanel";
 import { ThisBrowser } from "@/components/ThisBrowser";
@@ -94,8 +93,6 @@ export function StaffSettings() {
         <AppProgrammeCodes />
       ) : page === "exemption-reasons" ? (
         <AppExemptionReasons />
-      ) : page === "semesters" ? (
-        <AppSemesters />
       ) : page === "department" ? (
         <AppDepartment />
       ) : page === "this-browser" ? (
@@ -169,23 +166,6 @@ function AppProgrammeCodes() {
         treats the two as the same students.
       </PageHeading>
       <ProgrammeCodesPanel canChange={Boolean(user?.isAdmin)} />
-    </section>
-  );
-}
-
-/**
- * Where each semester's Week 1 is, which the semester timetable counts its weeks from.
- * An administrator's to set, since it changes the week numbers everybody sees.
- */
-function AppSemesters() {
-  const user = useStaffUser();
-  return (
-    <section className="mt-6 max-w-2xl">
-      <PageHeading title="Week 1 of each semester" about="What Week 1 is used for">
-        The semester timetable numbers its weeks from the first teaching week, and lets you jump straight to any of
-        them. Any day of that week will do.
-      </PageHeading>
-      <TermWeeksPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
 }

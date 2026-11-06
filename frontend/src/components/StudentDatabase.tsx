@@ -60,10 +60,11 @@ const PAGES = [
   // application of its own beside this one, which put half of what is known about a
   // teacher behind a different front door.
   { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
+  // Where a semester is made and managed; the pages under it pick one.
+  { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The department's own timetable, drawn before the registrar books it: the source a
   // semester starts from, sent to the timetabling team and later held against the portal.
-  { id: "plan", name: "Semester plan", icon: CalendarCheck, group: "Timetables" },
-  { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
+  { id: "plan", name: "Semester plan", icon: CalendarCheck, group: "Timetables", parent: "semesters" },
   // The department's whole week, one semester at a time. It was a screen opened from a
   // row of the list; it is where an afternoon of moving classes is spent, so it is a page.
   { id: "timetable", name: "Semester Timetable", icon: CalendarRange, group: "Timetables", parent: "semesters" },
@@ -84,6 +85,12 @@ const PAGES = [
 ] as const;
 
 type PageId = (typeof PAGES)[number]["id"];
+
+/**
+ * Pages kept but left out of the menu. The Student Hub is hidden for now (6 November 2026):
+ * Announcements only ever edited the Hub. Its address still opens it.
+ */
+const HIDDEN_PAGES = new Set<PageId>(["announcements"]);
 
 /**
  * Pages that were folded into another one, and the address that still points at them.
@@ -332,7 +339,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
       <SidePane
         label="Students and timetables pages"
         heading="Students and timetables"
-        items={PAGES.map(({ id, name, icon, group, ...rest }) => ({ id, name, icon, group, ...rest }))}
+        items={PAGES.filter(({ id }) => !HIDDEN_PAGES.has(id)).map(({ id, name, icon, group, ...rest }) => ({ id, name, icon, group, ...rest }))}
         activeId={page}
         onSelect={(id) => openPage(id as PageId)}
         // Who is signed in, and their settings, belong at the foot of whichever pane is
@@ -479,15 +486,28 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {onPlatform && status.isLoading ? (
             <ScreenLoading label="Checking the Student Hub connection…" />
           ) : null}
-          {onPlatform && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
-          {page === "semesters" && status.data?.configured ? (
-            <SemesterList host={status.data.host} onOpenWeek={(termId) => openPage("timetable", termId)} />
+          {onPlatform && page !== "semesters" && !status.isLoading && !status.data?.configured ? <PlatformNotConfigured /> : null}
+          {/* Semesters are made and managed here, whether or not the Student Hub is connected. */}
+          {page === "semesters" && !status.isLoading ? (
+            <SemesterList
+              host={status.data?.host ?? null}
+              hub={Boolean(status.data?.configured)}
+              onOpenWeek={(termId) => openPage("timetable", termId)}
+              onOpenPlan={(termCode) => openPage("plan", termCode)}
+            />
           ) : null}
           {(page === "timetable" || page === "rooms") && status.data?.configured ? (
             <SemesterTimetable layout={page === "rooms" ? "rooms" : "days"} termId={detail} onPickTerm={openDetail} />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
-          {page === "plan" ? <SemesterPlan termCode={detail} onPickTerm={openDetail} onOpenGroups={() => openPage("groups")} /> : null}
+          {page === "plan" ? (
+            <SemesterPlan
+              termCode={detail}
+              onPickTerm={openDetail}
+              onOpenGroups={() => openPage("groups")}
+              onOpenSemesters={() => openPage("semesters")}
+            />
+          ) : null}
         </div>
       </div>
     </div>

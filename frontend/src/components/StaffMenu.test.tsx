@@ -52,7 +52,6 @@ describe("StaffMenu", () => {
       "Checks",
       "Programme codes",
       "Exemption reasons",
-      "Semesters",
       "Department",
       "This browser",
       "Sign out",

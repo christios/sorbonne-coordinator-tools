@@ -1,9 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, CalendarPlus, ChevronLeft, ChevronRight, Download, Plus, Search, Settings2 } from "lucide-react";
+import { CalendarCheck, ChevronLeft, ChevronRight, Download, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
-import { NewPlanDialog, PlanClassDialog, PlanSettingsDialog, ScopeDialog, type ClassDraft } from "@/components/PlanDialogs";
+import { PlanClassDialog, ScopeDialog, type ClassDraft } from "@/components/PlanDialogs";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TeachingWeek } from "@/components/SectionTimetable";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -24,7 +24,6 @@ import {
   WEEKDAY_NAMES,
   changeClass,
   clashesOf,
-  createPlan,
   endOf,
   fetchPlan,
   fetchPlans,
@@ -34,7 +33,6 @@ import {
   removeClass,
   removeSection,
   sectionLabel,
-  settlePlan,
   weeksSaid,
   type Clash,
   type PlanClass,
@@ -180,10 +178,13 @@ export function SemesterPlan({
   termCode,
   onPickTerm,
   onOpenGroups,
+  onOpenSemesters,
 }: {
   termCode: string;
   onPickTerm: (termCode: string) => void;
   onOpenGroups?: () => void;
+  /** Where a semester is made and its weeks are set: this page only picks one. */
+  onOpenSemesters?: () => void;
 }) {
   const client = useQueryClient();
   const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans });
@@ -210,9 +211,7 @@ export function SemesterPlan({
   const [widthZoom, setWidthZoom] = useKeptNumber("semester-plan:width", WIDTH);
   const [heightZoom, setHeightZoom] = useKeptNumber("semester-plan:height", HEIGHT);
 
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [newOpen, setNewOpen] = useState(false);
   const [dialog, setDialog] = useState<{ draft: ClassDraft; entry?: PlanClass; series?: PlanSeries } | null>(null);
   const [pending, setPending] = useState<Pending | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ entry: PlanClass; series: PlanSeries } | null>(null);
@@ -225,14 +224,6 @@ export function SemesterPlan({
   const clashes = useMemo(() => (data ? clashesOf(data) : new Map<PlanClass, Clash[]>()), [data]);
   const placed = useMemo(() => (data ? plannedHours(data) : new Map<string, number>()), [data]);
 
-  const refresh = () => {
-    void client.invalidateQueries({ queryKey: ["plan", chosen] });
-    void client.invalidateQueries({ queryKey: ["plans"] });
-  };
-  // A plan is a semester of the app: its name, its link and its weeks are read everywhere.
-  const semestersChanged = () => {
-    for (const key of ["timetable-terms", "term-links", "term-weeks"]) void client.invalidateQueries({ queryKey: [key] });
-  };
   const failed = (exc: Error) => {
     setError(exc.message);
     // A refusal for an old revision means the calendar is behind: show what is there now.
@@ -254,28 +245,6 @@ export function SemesterPlan({
     setError("");
   };
 
-  const settle = useMutation({
-    mutationFn: (settings: Parameters<typeof settlePlan>[1]) => settlePlan(chosen, settings),
-    onSuccess: (fresh) => {
-      client.setQueryData(["plan", chosen], fresh);
-      setSettingsOpen(false);
-      setError("");
-      refresh();
-      semestersChanged();
-    },
-    onError: (exc: Error) => setError(exc.message),
-  });
-  const create = useMutation({
-    mutationFn: ({ code, name }: { code: string; name: string }) => createPlan(code, name),
-    onSuccess: (fresh) => {
-      setNewOpen(false);
-      setError("");
-      void client.invalidateQueries({ queryKey: ["plans"] });
-      semestersChanged();
-      onPickTerm(fresh.termCode);
-    },
-    onError: (exc: Error) => setError(exc.message),
-  });
   const place = useMutation({
     // Taught by the group's teacher on Groups & CRNs, so the series names nobody of its own.
     mutationFn: (draft: ClassDraft) => placeClass(chosen, { ...draft, teacherName: "" }),
@@ -416,75 +385,39 @@ export function SemesterPlan({
       <SelectMenu label="Semester" value={chosen} onChange={onPickTerm} options={planOptions} placeholder="No plan yet" />
     </div>
   );
-  const newPlanButton = (
-    <button type="button" onClick={() => setNewOpen(true)} className={CONTROL}>
-      <CalendarPlus size={14} aria-hidden="true" /> New plan
-    </button>
-  );
-  const newPlan = (
-    <NewPlanDialog
-      open={newOpen}
-      busy={create.isPending}
-      error={newOpen ? error : ""}
-      onCreate={(code, name) => create.mutate({ code, name })}
-      onClose={() => {
-        setNewOpen(false);
-        setError("");
-      }}
-    />
-  );
+  // The semester is made, named and given its weeks on the Semesters page.
+  const semestersLink = (words: string) =>
+    onOpenSemesters ? (
+      <button type="button" onClick={onOpenSemesters} className="font-semibold underline">
+        {words}
+      </button>
+    ) : (
+      words
+    );
 
   if (!data) {
     return (
       <section className="flex h-full min-h-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          {semesterPicker}
-          {newPlanButton}
-        </div>
+        <div className="flex flex-wrap items-center gap-3">{semesterPicker}</div>
         <p className="text-sm text-[#667085]">
-          {plan.isError ? (plan.error as Error).message : "There is no semester plan yet. Start one with New plan."}
+          {plan.isError ? (
+            (plan.error as Error).message
+          ) : (
+            <>There is no semester to plan yet. Make one on the {semestersLink("Semesters")} page.</>
+          )}
         </p>
-        {newPlan}
       </section>
     );
   }
 
-  const settings = (
-    <PlanSettingsDialog
-      open={settingsOpen}
-      plan={data}
-      busy={settle.isPending}
-      error={settingsOpen ? error : ""}
-      onSave={(value) => settle.mutate(value)}
-      onClose={() => {
-        setSettingsOpen(false);
-        setError("");
-      }}
-    />
-  );
-  const settingsButton = (
-    <button type="button" onClick={() => setSettingsOpen(true)} className={CONTROL}>
-      <Settings2 size={14} aria-hidden="true" /> Semester settings
-    </button>
-  );
-
   if (!data.weekOne || !data.weeks) {
     return (
       <section className="flex h-full min-h-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">
-          {semesterPicker}
-          {settingsButton}
-          {newPlanButton}
-        </div>
+        <div className="flex flex-wrap items-center gap-3">{semesterPicker}</div>
         <div className="rounded-lg border border-[#f0c36d] bg-[#fdf6e3] px-4 py-3 text-sm text-[#7a5d00]">
-          Say when {data.name || data.termCode} starts and how many teaching weeks it has, in{" "}
-          <button type="button" onClick={() => setSettingsOpen(true)} className="font-semibold underline">
-            Semester settings
-          </button>
-          . Classes are placed by teaching week, so the calendar needs them first.
+          Say when {data.name || data.termCode} starts and how many teaching weeks it has, in its Settings on the{" "}
+          {semestersLink("Semesters")} page. Classes are placed by teaching week, so the calendar needs them first.
         </div>
-        {settings}
-        {newPlan}
       </section>
     );
   }
@@ -743,8 +676,6 @@ export function SemesterPlan({
           <button type="button" onClick={() => setExportOpen(true)} className={CONTROL}>
             <Download size={14} aria-hidden="true" /> Export
           </button>
-          {settingsButton}
-          {newPlanButton}
           <span className="text-xs text-[#98a2b3]">{`${shownIds.size} of ${data.sections.length}`}</span>
           {narrowed ? (
             <button
@@ -760,7 +691,7 @@ export function SemesterPlan({
           ) : null}
         </div>
       </div>
-      {error && !dialog && !settingsOpen && !newOpen ? (
+      {error && !dialog ? (
         <p role="alert" className="mb-2 shrink-0 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-2 text-sm text-[#a6292f]">
           {error}
         </p>
@@ -1058,8 +989,6 @@ export function SemesterPlan({
         input={exportInput}
         shown={`${exportSections.size} of ${data.sections.length} classes`}
       />
-      {settings}
-      {newPlan}
     </section>
   );
 }

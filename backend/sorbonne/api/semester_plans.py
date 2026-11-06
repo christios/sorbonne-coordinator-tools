@@ -108,6 +108,15 @@ def read_plan(term_code: str, plans: PlanStore = Depends(get_plans)) -> dict[str
         raise _refused(exc) from exc
 
 
+@router.delete("/{term_code}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_plan(term_code: str, plans: PlanStore = Depends(get_plans)) -> None:
+    """The semester and the classes placed in it; refused while a cohort has sets or students in it."""
+    try:
+        plans.delete(term_code)
+    except (InvalidPlan, PlanNotFound) as exc:
+        raise _refused(exc) from exc
+
+
 @router.put("/{term_code}/settings")
 def settle_plan(
     term_code: str, body: SettingsInput, request: Request, plans: PlanStore = Depends(get_plans)
