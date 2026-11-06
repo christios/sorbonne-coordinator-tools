@@ -17,6 +17,8 @@ import {
   type Slot,
 } from "@/services/semesterPlans";
 import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portalLists";
+import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
+import { fetchPayCycles, setPayCycle } from "@/services/teachers";
 import { formatDayAndMonth, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
@@ -25,6 +27,9 @@ const PRIMARY =
   "rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63] disabled:bg-[#9ba8b5]";
 const SECONDARY =
   "rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]";
+
+/** Every day a pay period may open on. Later than the 28th and February would have none. */
+const PAY_DAYS = Array.from({ length: 28 }, (_, at) => at + 1);
 
 function Field({ label, children, hint }: { label: string; children: ReactNode; hint?: string }) {
   return (
@@ -413,9 +418,19 @@ export function PlanSettingsDialog({
   useEffect(() => {
     if (open) setShort(savedShort);
   }, [open, savedShort]);
+  // Which day its pay periods open on, saved with the rest too.
+  const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles, retry: false });
+  const savedPayDay = opensOnFor(cycles.data?.cycles ?? {}, semesterId, cycles.data?.default ?? PERIOD_OPENS_ON);
+  const [payDay, setPayDay] = useState(savedPayDay);
+  useEffect(() => {
+    if (open) setPayDay(savedPayDay);
+  }, [open, savedPayDay]);
   const save = () => {
     if (short.trim() !== savedShort) {
       void setSemesterShortName(semesterId, short.trim()).then(() => client.invalidateQueries({ queryKey: ["semester-short-names"] }));
+    }
+    if (payDay !== savedPayDay) {
+      void setPayCycle(semesterId, payDay).then(() => client.invalidateQueries({ queryKey: ["pay-cycles"] }));
     }
     onSave(draft);
   };
@@ -513,6 +528,21 @@ export function PlanSettingsDialog({
             <Plus size={15} /> Add a holiday
           </button>
           <span className="text-xs text-[#667085]">A class that falls on a holiday is not held; the plan lists what each holiday takes away.</span>
+        </div>
+        <div className="grid gap-1">
+          <span className="text-sm font-medium text-[#344054]">Pay periods</span>
+          <div className="w-56">
+            <SelectMenu
+              label="Pay periods"
+              value={String(payDay)}
+              onChange={(chosen) => setPayDay(Number(chosen))}
+              disabled={cycles.isLoading}
+              options={PAY_DAYS.map((day) => ({ value: String(day), label: `Opens ${cycleLabel(day)}` }))}
+            />
+          </div>
+          <span className="text-xs text-[#667085]">
+            What a part-time claim covers: now {periodLabel(periodContaining(new Date(), payDay))}.
+          </span>
         </div>
         {error ? (
           <p role="alert" className="rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">

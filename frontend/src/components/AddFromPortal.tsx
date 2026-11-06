@@ -130,7 +130,7 @@ export function AddFromPortal({
         </p>
       ) : null}
       {termId && portal.data && !linked ? (
-        <p className="mt-3 text-sm text-[#8a6116]">This semester is not linked to a portal term. Set the portal term on the Semesters page, and sync the Courses list for it.</p>
+        <p className="mt-3 text-sm text-[#8a6116]">This semester is not linked to a portal term, so the portal has no list of courses for it.</p>
       ) : null}
       {course ? (
         <>

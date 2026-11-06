@@ -117,7 +117,7 @@ export function UnlinkedTermWarning({ termId }: { termId: string }) {
       className="inline-flex items-center gap-1 rounded-full bg-[#fdf3f3] px-2 py-0.5 text-xs font-semibold text-[#a6292f] hover:underline"
     >
       <AlertTriangle size={12} aria-hidden="true" />
-      Semester not linked to a portal term — link it on Semesters
+      Semester not linked to a portal term
     </a>
   );
 }

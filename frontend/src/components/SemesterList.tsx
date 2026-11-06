@@ -7,7 +7,6 @@ import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { NewSemesterDialog, PlanSettingsDialog } from "@/components/PlanDialogs";
 import { PayCycleCell } from "@/components/PayCycleCell";
-import { PortalTermLink } from "@/components/PortalTermLink";
 import { SemesterShortName } from "@/components/SemesterShortName";
 import { SemesterTag } from "@/components/SemesterTag";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
@@ -267,10 +266,7 @@ export function SemesterList({
                 <thead className="text-xs uppercase tracking-wide text-[#667085]">
                   <tr>
                     <th scope="col" className="py-3 pl-6 pr-3 font-semibold">Semester</th>
-                    <th scope="col" className="px-3 py-3 font-semibold">Short name</th>
                     <th scope="col" className="px-3 py-3 font-semibold">Portal term</th>
-                    {/* What a part-time claim covers, which is the semester's to decide. */}
-                    <th scope="col" className="px-3 py-3 font-semibold">Pay periods</th>
                     {hubControls ? <th scope="col" className="px-3 py-3 font-semibold">Student Hub</th> : null}
                     <th scope="col" className="py-3 pl-2 pr-4" />
                   </tr>
@@ -307,21 +303,17 @@ export function SemesterList({
                         </span>
                       </td>
                       <td className="px-3 py-4">
-                        {/* What the menus call it, in front of its name: S1, S2. Ours, not the Hub's. */}
-                        <SemesterShortName termId={row.id} label={`Short name of ${row.name}`} />
-                      </td>
-                      <td className="px-3 py-4">
-                        {row.kind === "own" ? (
-                          // Made under it: the plan, its sets and its timetable are kept by this code.
-                          <span className="tabular-nums text-[#344054]" title="The portal term this semester was made for">
+                        {/*
+                          * Fixed, for every semester: its sets, its students and its plan are
+                          * filed by it, so changing it is not an edit but a move.
+                          */}
+                        {row.code ? (
+                          <span className="tabular-nums text-[#344054]" title="The portal term this semester is">
                             {row.code}
                           </span>
                         ) : (
-                          <PortalTermLink termId={row.id} />
+                          <span className="text-xs text-[#98a2b3]">None</span>
                         )}
-                      </td>
-                      <td className="px-3 py-4">
-                        <PayCycleCell termId={row.id} termName={row.name} />
                       </td>
                       {hubControls ? (
                         <td className="px-3 py-4">
@@ -416,8 +408,8 @@ export function SemesterList({
       {settingsOf?.kind === "own" ? <OwnSemesterSettings plan={settingsOf.plan} onClose={() => setSettingsOf(null)} /> : null}
       <Modal
         open={settingsOf?.kind === "hub"}
-        title={`Teaching weeks of ${settingsOf?.name ?? ""}`}
-        description="Where Week 1 is, and the weeks without classes the count skips. Every calendar counts its weeks from them."
+        title="Semester settings"
+        description={`${settingsOf?.name ?? ""}. Saved as each is changed.`}
         onClose={() => setSettingsOf(null)}
         footer={
           <div className="flex justify-end">
@@ -427,7 +419,25 @@ export function SemesterList({
           </div>
         }
       >
-        {settingsOf?.kind === "hub" ? <TermWeeksPanel canChange={isAdmin} termId={settingsOf.id} /> : null}
+        {settingsOf?.kind === "hub" ? (
+          <div className="grid gap-5">
+            <label className="grid w-fit gap-1 text-sm font-medium text-[#344054]">
+              Short name
+              <SemesterShortName termId={settingsOf.id} label="Short name" />
+            </label>
+            <div className="grid gap-1">
+              <span className="text-sm font-medium text-[#344054]">Teaching weeks</span>
+              <TermWeeksPanel canChange={isAdmin} termId={settingsOf.id} />
+            </div>
+            {/* What a part-time claim covers, which is the semester's to decide. */}
+            <div className="grid gap-1">
+              <span className="text-sm font-medium text-[#344054]">Pay periods</span>
+              <div className="w-56">
+                <PayCycleCell termId={settingsOf.id} termName={settingsOf.name} />
+              </div>
+            </div>
+          </div>
+        ) : null}
       </Modal>
 
       <SemesterImport host={host} open={importing} onClose={() => setImporting(false)} />

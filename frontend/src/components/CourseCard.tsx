@@ -603,7 +603,7 @@ export function SectionDialog({
             <input aria-label={`CRN for ${label}`} value={draft.crn} inputMode="numeric" onChange={(event) => set({ crn: event.target.value })} placeholder="23223" className={field} />
           )}
           <span className="mt-1 block text-[11px] text-[#98a2b3]">
-            {portal ? "From the portal's list for this semester. Clearing it removes the section." : "This semester is not linked to a portal term, so the CRN is typed. Link it on the Semesters page."}
+            {portal ? "From the portal's list for this semester. Clearing it removes the section." : "This semester is not linked to a portal term, so the CRN is typed."}
           </span>
         </div>
         <div>

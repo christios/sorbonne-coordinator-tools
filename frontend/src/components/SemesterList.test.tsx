@@ -234,9 +234,40 @@ describe("the Student Hub, hidden for now", () => {
 
     const row = await screen.findByRole("row", { name: /Physics & Maths/ });
     expect(within(row).getByText("Week 1 from 31 Aug 2026")).toBeTruthy();
+    // Its portal term is said, not typed: its sets and students are filed by it.
+    expect(within(row).getByText("262710")).toBeTruthy();
+    expect(within(row).queryByRole("textbox")).toBeNull();
     expect(within(row).getByRole("button", { name: "Settings of Physics & Maths — Semester 1" })).toBeTruthy();
     for (const name of ["Hidden", "Publish", "Delete", /Rename/]) expect(within(row).queryByRole("button", { name })).toBeNull();
     expect(screen.queryByText(/Uploading a timetable is retired/)).toBeNull();
     expect(screen.queryByRole("columnheader", { name: "Student Hub" })).toBeNull();
+  });
+});
+
+describe("a semester's settings", () => {
+  it("keep a Hub semester's short name, teaching weeks and pay periods", async () => {
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings of Physics & Maths — Semester 1" }));
+
+    const dialog = within(await screen.findByRole("dialog", { name: "Semester settings" }));
+    expect(dialog.getByRole("textbox", { name: "Short name" })).toBeTruthy();
+    expect(dialog.getByText("Teaching weeks")).toBeTruthy();
+    expect(dialog.getByText("Pay periods")).toBeTruthy();
+  });
+
+  it("keep a semester made here's short name and pay periods beside its weeks and holidays", async () => {
+    vi.spyOn(plans, "fetchPlans").mockResolvedValue([SPRING]);
+    vi.spyOn(plans, "fetchPlan").mockResolvedValue({ ...SPRING, without: [], holidays: [] } as unknown as Plan);
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings of Semester 2 2026-27" }));
+
+    const dialog = within(await screen.findByRole("dialog", { name: "Semester settings" }));
+    expect(dialog.getByRole("textbox", { name: "Short name" })).toBeTruthy();
+    expect(dialog.getByText("Holidays")).toBeTruthy();
+    expect(dialog.getByText("Pay periods")).toBeTruthy();
+    // Neither is a column of the list any more.
+    expect(screen.queryByRole("columnheader", { name: /Short name|Pay periods/ })).toBeNull();
   });
 });
