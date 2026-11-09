@@ -3129,3 +3129,74 @@ def test_a_semester_has_a_short_name_for_the_menus(client: TestClient):
 
     too_long = client.put(f"{BASE}/semester-short-names/{term}", json={"shortName": "Second semester"})
     assert too_long.status_code == 422
+
+
+# ------------------------------------------- active courses and teachers, semester by semester
+#
+# Semester 2 starts with nothing active: its courses are chosen from the portal's list for it,
+# and its teachers are brought over from Semester 1 or chosen. A course or a teacher stays one
+# record — a UE, a portal link, the time sheets that hang on it — active in each semester said.
+
+SPRING = "262720"
+
+
+def test_a_course_is_active_in_the_semesters_it_is_chosen_for_with_their_crns_alone(client: TestClient):
+    made = make_filter(client, "courses")
+    sync = lambda rows: client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": rows})  # noqa: E731
+    sync([course("22151", "MATH-001"), {**course("32151", "MATH-001"), "termCode": SPRING}])
+
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"], "termCode": TERM})
+    autumn = client.get(f"{BASE}/active-courses", params={"term": TERM}).json()["courses"]
+    assert [(row["courseCode"], row["crnCount"], row["terms"]) for row in autumn] == [("MATH-001", 1, [TERM])]
+    # Semester 2 starts with nothing active, and the course's Semester 2 CRN is not taken in.
+    assert client.get(f"{BASE}/active-courses", params={"term": SPRING}).json()["courses"] == []
+    assert [row["crn"] for row in client.get(f"{BASE}/active-crns").json()["crns"]] == ["22151"]
+    # Nor is it flagged as one the register has not taken in: the course is not active there.
+    assert client.get(f"{BASE}/register-check", params={"term": SPRING}).json()["arrived"] == []
+
+    # Chosen for Semester 2 too: the same course, active in both, with that term's CRN.
+    added = client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"], "termCode": SPRING}).json()
+    assert added == {"added": 1, "skipped": 0}
+    [both] = client.get(f"{BASE}/active-courses", params={"term": SPRING}).json()["courses"]
+    assert (both["terms"], both["crnCount"]) == ([TERM, SPRING], 1)
+
+    # Off Semester 2 again: its CRN goes, and Semester 1 keeps the course and its own.
+    client.delete(f"{BASE}/active-courses/{both['id']}", params={"term": SPRING})
+    assert client.get(f"{BASE}/active-courses", params={"term": SPRING}).json()["courses"] == []
+    assert [row["crn"] for row in client.get(f"{BASE}/active-crns").json()["crns"]] == ["22151"]
+    [kept] = client.get(f"{BASE}/active-courses", params={"term": TERM}).json()["courses"]
+    assert kept["id"] == both["id"]
+
+    # Off the last semester it was active in, it is off the list.
+    client.delete(f"{BASE}/active-courses/{kept['id']}", params={"term": TERM})
+    assert client.get(f"{BASE}/active-courses").json()["courses"] == []
+
+
+def test_a_teacher_carries_on_into_a_semester_and_leaves_it_alone(client: TestClient):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001", "A002"], "termCode": TERM})
+    teachers_in = lambda term: client.get(f"{BASE}/active-teachers", params={"term": term}).json()["teachers"]  # noqa: E731
+    autumn = {row["fullName"]: row for row in teachers_in(TERM)}
+    assert sorted(autumn) == ["Ahlem Trabelsi", "Bilal Maaz"]
+    assert client.get(f"{BASE}/active-teachers", params={"term": SPRING}).json()["teachers"] == []
+
+    # Brought over from Semester 1: who carries on, chosen.
+    brought = client.post(
+        f"{BASE}/active-teachers/activate", json={"ids": [autumn["Bilal Maaz"]["id"]], "termCode": SPRING}
+    ).json()
+    assert brought == {"added": 1}
+    [spring] = client.get(f"{BASE}/active-teachers", params={"term": SPRING}).json()["teachers"]
+    assert (spring["fullName"], spring["terms"]) == ("Bilal Maaz", [TERM, SPRING])
+
+    # Chosen from the portal for Semester 2: the same record made active there, not a second row.
+    again = client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"], "termCode": SPRING}).json()
+    assert again == {"added": 1, "linked": 0, "skipped": 0}
+    assert len(client.get(f"{BASE}/active-teachers").json()["teachers"]) == 2
+
+    # Leaving Semester 2 leaves Semester 1 and the record alone.
+    assert client.delete(
+        f"{BASE}/active-teachers/{spring['id']}", params={"term": SPRING}
+    ).status_code == status.HTTP_204_NO_CONTENT
+    assert [row["fullName"] for row in teachers_in(SPRING)] == ["Ahlem Trabelsi"]
+    still = {row["fullName"]: row for row in teachers_in(TERM)}
+    assert still["Bilal Maaz"]["terms"] == [TERM]

@@ -952,12 +952,32 @@ class PortalListStore:
 
     # ---------------------------------------------------------- active teachers
 
-    def list_active_teachers(self) -> list[dict[str, Any]]:
-        """The department's own list, with what the portal knows about each when it is there."""
+    def list_active_teachers(self, term_code: str = "") -> list[dict[str, Any]]:
+        """The department's own list, with what the portal knows about each when it is there.
+
+        For one semester when `term_code` (a portal term, 262710) is said: the teachers
+        active in it, and the sections of that semester each is down to teach.
+        """
+        term = _text(term_code)
+        params = {"term": term} if term else {}
+        only = (
+            " WHERE EXISTS (SELECT 1 FROM active_teacher_terms x WHERE x.active_id = a.id AND x.term_code = :term)"
+            if term
+            else ""
+        )
+        # A section is in a semester through its set, and the set's semester through its portal term.
+        in_term = (
+            """ AND EXISTS (SELECT 1 FROM scope_courses c
+                            JOIN cohort_scopes s ON s.id = c.scope_id
+                            JOIN term_links l ON l.term_id = s.term_id
+                            WHERE c.id = gc.course_id AND l.portal_term_code = :term)"""
+            if term
+            else ""
+        )
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
-                    text("""SELECT a.*, p.teacher_status, p.category, p.type, p.last_term, p.department,
+                    text(f"""SELECT a.*, p.teacher_status, p.category, p.type, p.last_term, p.department,
                                    p.rank, p.courses, p.institution, p.status AS portal_status,
                                    -- The name the part-time database holds, which can be the
                                    -- longer one: the registrar issues an address for "Suzanne
@@ -969,11 +989,14 @@ class PortalListStore:
                                    -- is where a name is corrected and where an address is issued, and
                                    -- a part-time record written a year ago should not outrank it.
                                    coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), '') AS shown_name,
-                                   coalesce(nullif(p.psuad_email, ''), nullif(a.email, ''), '') AS shown_email
+                                   coalesce(nullif(p.psuad_email, ''), nullif(a.email, ''), '') AS shown_email,
+                                   (SELECT coalesce(json_agg(x.term_code ORDER BY x.term_code), '[]')
+                                      FROM active_teacher_terms x WHERE x.active_id = a.id) AS terms
                             FROM active_teachers a
                             LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
-                            LEFT JOIN part_time_teachers t ON t.id = a.part_time_teacher_id
-                            ORDER BY shown_name, a.id""")
+                            LEFT JOIN part_time_teachers t ON t.id = a.part_time_teacher_id{only}
+                            ORDER BY shown_name, a.id"""),  # noqa: S608 - fixed clauses
+                    params,
                 )
                 .mappings()
                 .all()
@@ -985,16 +1008,18 @@ class PortalListStore:
             # link, so a single count would say "not in our planning" about every teacher in
             # the department and read as a bug rather than as a backlog.
             planned = connection.execute(
-                text("""SELECT gc.teacher_id, count(*) FROM group_crns gc
-                        WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher_id, '') <> ''
-                        GROUP BY gc.teacher_id""")
+                text(f"""SELECT gc.teacher_id, count(*) FROM group_crns gc
+                        WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher_id, '') <> ''{in_term}
+                        GROUP BY gc.teacher_id"""),  # noqa: S608 - fixed clauses
+                params,
             ).all()
             written = [
                 (row[0], row[1])
                 for row in connection.execute(
-                    text("""SELECT coalesce(gc.teacher, ''), count(*) FROM group_crns gc
-                            WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher, '') <> ''
-                            GROUP BY coalesce(gc.teacher, '')""")
+                    text(f"""SELECT coalesce(gc.teacher, ''), count(*) FROM group_crns gc
+                            WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher, '') <> ''{in_term}
+                            GROUP BY coalesce(gc.teacher, '')"""),  # noqa: S608 - fixed clauses
+                    params,
                 )
             ]
         linked_by_id = dict(planned)
@@ -1300,11 +1325,12 @@ class PortalListStore:
                 {"t": teacher_id, "id": active_id},
             )
 
-    def add_active_teachers(
+    def add_active_teachers(  # noqa: PLR0912, PLR0915 - two lists, each matched its own way
         self,
         *,
         portal_teacher_ids: list[str],
         part_time: list[dict[str, str]],
+        term_code: str = "",
         actor: str = "",
     ) -> dict[str, int]:
         """Choose teachers from the portal, or bring them from the part-time database.
@@ -1312,19 +1338,51 @@ class PortalListStore:
         One person, one row: a portal teacher whose university e-mail is already on an
         active record from the part-time side is joined to it rather than listed twice,
         and the other way round. A portal id the portal list does not hold is skipped.
+
+        Into the semester `term_code` (a portal term) when it is said: somebody already on
+        the department's list from another semester is made active in this one too, rather
+        than listed again, and counts as added.
         """
         now = _now()
+        term = _text(term_code)
         added = linked = skipped = 0
         with self.engine.begin() as connection:
             held = connection.execute(text("SELECT * FROM active_teachers")).mappings().all()
             by_portal = {row["portal_teacher_id"]: row for row in held if row["portal_teacher_id"]}
             by_part_time = {row["part_time_teacher_id"]: row for row in held if row["part_time_teacher_id"]}
             by_email = {row["email"].casefold(): row for row in held if row["email"]}
+            active_in = (
+                {
+                    row[0]
+                    for row in connection.execute(
+                        text("SELECT active_id FROM active_teacher_terms WHERE term_code = :t"), {"t": term}
+                    )
+                }
+                if term
+                else set()
+            )
+
+            def activate(active_id: str) -> bool:
+                if not term or not active_id or active_id in active_in:
+                    return False
+                connection.execute(
+                    text("""INSERT INTO active_teacher_terms (active_id, term_code) VALUES (:id, :t)
+                            ON CONFLICT DO NOTHING"""),
+                    {"id": active_id, "t": term},
+                )
+                active_in.add(active_id)
+                return True
 
             for raw in portal_teacher_ids:
                 teacher_id = _text(raw).upper()
-                if not teacher_id or teacher_id in by_portal:
+                if not teacher_id:
                     skipped += 1
+                    continue
+                if teacher_id in by_portal:
+                    if activate(by_portal[teacher_id]["id"]):
+                        added += 1
+                    else:
+                        skipped += 1
                     continue
                 portal = (
                     connection.execute(
@@ -1344,14 +1402,16 @@ class PortalListStore:
                         text("UPDATE active_teachers SET portal_teacher_id = :t WHERE id = :id"),
                         {"t": teacher_id, "id": same["id"]},
                     )
+                    activate(same["id"])
                     linked += 1
                     continue
+                new_id = str(uuid4())
                 connection.execute(
                     text("""INSERT INTO active_teachers
                                 (id, portal_teacher_id, part_time_teacher_id, full_name, email, added_at, added_by)
                             VALUES (:id, :t, '', :name, :email, :now, :actor)"""),
                     {
-                        "id": str(uuid4()),
+                        "id": new_id,
                         "t": teacher_id,
                         "name": _text(portal["full_name"]),
                         "email": email,
@@ -1359,15 +1419,22 @@ class PortalListStore:
                         "actor": _text(actor),
                     },
                 )
-                by_portal[teacher_id] = {"portal_teacher_id": teacher_id}
+                activate(new_id)
+                by_portal[teacher_id] = {"id": new_id, "portal_teacher_id": teacher_id}
                 if email:
                     by_email[email.casefold()] = {"id": "", "portal_teacher_id": teacher_id, "part_time_teacher_id": ""}
                 added += 1
 
             for record in part_time:
                 part_time_id = _text(record.get("id"))
-                if not part_time_id or part_time_id in by_part_time:
+                if not part_time_id:
                     skipped += 1
+                    continue
+                if part_time_id in by_part_time:
+                    if activate(by_part_time[part_time_id]["id"]):
+                        added += 1
+                    else:
+                        skipped += 1
                     continue
                 email = _text(record.get("email"))
                 same = by_email.get(email.casefold()) if email else None
@@ -1376,14 +1443,16 @@ class PortalListStore:
                         text("UPDATE active_teachers SET part_time_teacher_id = :p WHERE id = :id"),
                         {"p": part_time_id, "id": same["id"]},
                     )
+                    activate(same["id"])
                     linked += 1
                     continue
+                new_id = str(uuid4())
                 connection.execute(
                     text("""INSERT INTO active_teachers
                                 (id, portal_teacher_id, part_time_teacher_id, full_name, email, added_at, added_by)
                             VALUES (:id, '', :p, :name, :email, :now, :actor)"""),
                     {
-                        "id": str(uuid4()),
+                        "id": new_id,
                         "p": part_time_id,
                         "name": _text(record.get("fullName")),
                         "email": email,
@@ -1391,11 +1460,38 @@ class PortalListStore:
                         "actor": _text(actor),
                     },
                 )
-                by_part_time[part_time_id] = {"part_time_teacher_id": part_time_id}
+                activate(new_id)
+                by_part_time[part_time_id] = {"id": new_id, "part_time_teacher_id": part_time_id}
                 added += 1
         return {"added": added, "linked": linked, "skipped": skipped}
 
-    def remove_active_teacher(self, active_id: str) -> int:
+    def activate_teachers(self, active_ids: list[str], term_code: str) -> int:
+        """Make teachers on the department's list active in one more semester: who carries on.
+
+        How Semester 2 starts from Semester 1 — chosen, not copied wholesale. Somebody
+        already active there is left as they are. Returns how many were made active.
+        """
+        term = _text(term_code)
+        if not term:
+            raise ValueError("Say which semester they are active in.")
+        ids = [_text(each) for each in active_ids if _text(each)]
+        added = 0
+        with self.engine.begin() as connection:
+            known = [
+                row[0]
+                for row in connection.execute(
+                    text("SELECT id FROM active_teachers WHERE id = ANY(:ids)"), {"ids": ids or [""]}
+                )
+            ]
+            for active_id in known:
+                added += connection.execute(
+                    text("""INSERT INTO active_teacher_terms (active_id, term_code) VALUES (:id, :t)
+                            ON CONFLICT DO NOTHING"""),
+                    {"id": active_id, "t": term},
+                ).rowcount
+        return added
+
+    def remove_active_teacher(self, active_id: str, term_code: str = "") -> int:
         """Take somebody off the department's list, and off the sections that chose them.
 
         Both, in one transaction, because a section's `teacher_id` names a row of this list
@@ -1409,8 +1505,35 @@ class PortalListStore:
         for a key to point at. Widening it to NULL is a change to every reader of a section.
         So the invariant lives here, at the one place that deletes, and the count it returns
         is what the page warned about before asking.
+
+        From one semester when `term_code` is said: they stop being active in it, and that
+        semester's sections let go of them. Their record — and the time sheets, roles and
+        links that hang on it — stays while another semester still counts them, and goes
+        with the last.
         """
+        term = _text(term_code)
         with self.engine.begin() as connection:
+            if connection.execute(
+                text("SELECT 1 FROM active_teachers WHERE id = :id"), {"id": active_id}
+            ).first() is None:
+                raise ActiveTeacherNotFound(active_id)
+            if term:
+                connection.execute(
+                    text("DELETE FROM active_teacher_terms WHERE active_id = :id AND term_code = :t"),
+                    {"id": active_id, "t": term},
+                )
+                if connection.execute(
+                    text("SELECT 1 FROM active_teacher_terms WHERE active_id = :id"), {"id": active_id}
+                ).first():
+                    return connection.execute(
+                        text("""UPDATE group_crns gc SET teacher_id = ''
+                                WHERE gc.teacher_id = :id AND EXISTS (
+                                    SELECT 1 FROM scope_courses c
+                                    JOIN cohort_scopes s ON s.id = c.scope_id
+                                    JOIN term_links l ON l.term_id = s.term_id
+                                    WHERE c.id = gc.course_id AND l.portal_term_code = :t)"""),
+                        {"id": active_id, "t": term},
+                    ).rowcount
             loosened = connection.execute(
                 text("UPDATE group_crns SET teacher_id = '' WHERE teacher_id = :id"), {"id": active_id}
             ).rowcount
@@ -1454,7 +1577,7 @@ class PortalListStore:
         return [_active_crn(row) for row in rows]
 
     def add_active_crns(
-        self, *, course_codes: list[str], crns: list[dict[str, str]], actor: str = ""
+        self, *, course_codes: list[str], crns: list[dict[str, str]], term_code: str = "", actor: str = ""
     ) -> dict[str, int]:
         """Take CRNs into the register: every one the portal lists for a course, or named ones.
 
@@ -1473,11 +1596,15 @@ class PortalListStore:
                 code = _text(raw).upper()
                 if not code:
                     continue
+                # In the semester the page is on, when it says which.
                 wanted.extend(
                     (row[0], row[1], code)
                     for row in connection.execute(
-                        text("SELECT term_code, crn FROM portal_courses WHERE upper(course_code) = :code"),
-                        {"code": code},
+                        text(
+                            "SELECT term_code, crn FROM portal_courses WHERE upper(course_code) = :code"
+                            + (" AND term_code = :term" if _text(term_code) else "")
+                        ),
+                        {"code": code, "term": _text(term_code)},
                     )
                 )
             for record in crns:
@@ -1511,6 +1638,13 @@ class PortalListStore:
                     },
                 )
                 held.add((term_code, crn))
+                # A course with a CRN registered in a term is active in that term.
+                connection.execute(
+                    text("""INSERT INTO active_course_terms (course_code, term_code)
+                            SELECT course_code, :t FROM active_courses WHERE course_code = :code
+                            ON CONFLICT DO NOTHING"""),
+                    {"t": term_code, "code": code},
+                )
                 added += 1
         return {"added": added, "skipped": skipped}
 
@@ -1913,6 +2047,8 @@ class PortalListStore:
                                     p.title, p.teacher_name, p.registered
                              FROM portal_courses p
                              JOIN active_courses a ON a.course_code = upper(p.course_code)
+                             -- Only for a course active in the term the CRN is in.
+                             JOIN active_course_terms k ON k.course_code = a.course_code AND k.term_code = p.term_code
                              WHERE p.status = 'in_portal'
                                AND NOT EXISTS (SELECT 1 FROM active_course_crns r
                                                 WHERE r.term_code = p.term_code AND r.crn = p.crn)
@@ -1923,14 +2059,22 @@ class PortalListStore:
                 .mappings()
                 .all()
             )
+            # A section is in the term through its set's semester.
+            section_term = (
+                """ AND EXISTS (SELECT 1 FROM cohort_scopes s JOIN term_links l ON l.term_id = s.term_id
+                                WHERE s.id = c.scope_id AND l.portal_term_code = :term)"""
+                if term
+                else ""
+            )
             unregistered = (
                 connection.execute(
-                    text("""SELECT DISTINCT gc.crn, c.code AS course_code
+                    text(f"""SELECT DISTINCT gc.crn, c.code AS course_code
                             FROM group_crns gc
                             JOIN scope_courses c ON c.id = gc.course_id
                             WHERE gc.crn <> '' AND gc.retired = false
-                              AND NOT EXISTS (SELECT 1 FROM active_course_crns r WHERE r.crn = gc.crn)
-                            ORDER BY c.code, gc.crn""")
+                              AND NOT EXISTS (SELECT 1 FROM active_course_crns r WHERE r.crn = gc.crn){section_term}
+                            ORDER BY c.code, gc.crn"""),  # noqa: S608 - fixed clauses
+                    params,
                 )
                 .mappings()
                 .all()
@@ -1962,22 +2106,39 @@ class PortalListStore:
             ],
         }
 
-    def list_active_courses(self) -> list[dict[str, Any]]:
-        """The department's own list of courses, with how the portal knows each."""
+    def list_active_courses(self, term_code: str = "") -> list[dict[str, Any]]:
+        """The department's own list of courses, with how the portal knows each.
+
+        For one semester when `term_code` (a portal term) is said: the courses active in it,
+        and its CRNs — the register's and the portal's — in that term alone.
+        """
+        term = _text(term_code)
+        params = {"term": term} if term else {}
+        only = (
+            " WHERE EXISTS (SELECT 1 FROM active_course_terms t"
+            " WHERE t.course_code = a.course_code AND t.term_code = :term)"
+            if term
+            else ""
+        )
+        register_term = " AND r.term_code = :term" if term else ""
+        portal_term = " AND c.term_code = :term" if term else ""
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
-                    text("""SELECT a.*,
+                    text(f"""SELECT a.*,
                                    (SELECT count(*) FROM active_course_crns r
-                                     WHERE r.course_code = a.course_code) AS crn_count,
+                                     WHERE r.course_code = a.course_code{register_term}) AS crn_count,
                                    (SELECT count(*) FROM portal_courses c
-                                     WHERE upper(c.course_code) = a.course_code) AS portal_crn_count,
+                                     WHERE upper(c.course_code) = a.course_code{portal_term}) AS portal_crn_count,
                                    (SELECT count(DISTINCT c.term_code) FROM portal_courses c
                                      WHERE upper(c.course_code) = a.course_code) AS term_count,
                                    (SELECT max(c.term_code) FROM portal_courses c
-                                     WHERE upper(c.course_code) = a.course_code) AS last_term
-                            FROM active_courses a
-                            ORDER BY a.course_code""")
+                                     WHERE upper(c.course_code) = a.course_code) AS last_term,
+                                   (SELECT coalesce(json_agg(t.term_code ORDER BY t.term_code), '[]')
+                                      FROM active_course_terms t WHERE t.course_code = a.course_code) AS terms
+                            FROM active_courses a{only}
+                            ORDER BY a.course_code"""),  # noqa: S608 - fixed clauses
+                    params,
                 )
                 .mappings()
                 .all()
@@ -1986,51 +2147,94 @@ class PortalListStore:
         return [_active_course(row, parents.get(row["course_code"])) for row in rows]
 
     def add_active_courses(
-        self, *, course_codes: list[str], by_hand: list[dict[str, str]], actor: str = ""
+        self, *, course_codes: list[str], by_hand: list[dict[str, str]], term_code: str = "", actor: str = ""
     ) -> dict[str, int]:
         """Choose courses from the portal's list, or add one the portal does not list yet.
 
         One code, one row, however many CRNs or terms the portal lists it in: the title
         is the portal's latest word for it. A code the portal list does not hold is
         skipped rather than invented — that is what the by-hand path is for.
+
+        Into the semester `term_code` (a portal term) when it is said: the course is active
+        in it, and brings that term's CRNs alone into the register. A course already on the
+        list from another semester is made active in this one too, and counts as added.
         """
         now = _now()
+        term = _text(term_code)
         added = skipped = 0
         with self.engine.begin() as connection:
             held = {
                 row[0]
                 for row in connection.execute(text("SELECT course_code FROM active_courses"))
             }
+            active_in = (
+                {
+                    row[0]
+                    for row in connection.execute(
+                        text("SELECT course_code FROM active_course_terms WHERE term_code = :t"), {"t": term}
+                    )
+                }
+                if term
+                else set()
+            )
+
+            def take(code: str) -> None:
+                if term:
+                    connection.execute(
+                        text("""INSERT INTO active_course_terms (course_code, term_code) VALUES (:code, :t)
+                                ON CONFLICT DO NOTHING"""),
+                        {"code": code, "t": term},
+                    )
+                    active_in.add(code)
+                self._take_in_crns(connection, code, now, actor, term)
+
             for raw in course_codes:
                 code = _text(raw).upper()
-                if not code or code in held:
+                if not code:
                     skipped += 1
+                    continue
+                if code in held:
+                    if term and code not in active_in:
+                        take(code)
+                        added += 1
+                    else:
+                        skipped += 1
                     continue
                 title = _course_title(connection, code)
                 if title is None:
                     skipped += 1
                     continue
                 self._insert_active_course(connection, code, title, now, actor)
-                self._take_in_crns(connection, code, now, actor)
+                take(code)
                 held.add(code)
                 added += 1
             for record in by_hand:
                 code = _text(record.get("courseCode")).upper()
-                if not code or code in held:
+                if not code:
                     skipped += 1
                     continue
+                if code in held:
+                    if term and code not in active_in:
+                        take(code)
+                        added += 1
+                    else:
+                        skipped += 1
+                    continue
                 self._insert_active_course(connection, code, _text(record.get("title")), now, actor)
-                self._take_in_crns(connection, code, now, actor)
+                take(code)
                 held.add(code)
                 added += 1
         return {"added": added, "skipped": skipped}
 
     @staticmethod
-    def _take_in_crns(connection: Connection, code: str, now: str, actor: str) -> None:
-        """Every CRN the portal lists for this course, as the register's rows."""
+    def _take_in_crns(connection: Connection, code: str, now: str, actor: str, term: str = "") -> None:
+        """Every CRN the portal lists for this course — in one term when it is said — as the register's rows."""
         for term_code, crn in connection.execute(
-            text("SELECT term_code, crn FROM portal_courses WHERE upper(course_code) = :code"),
-            {"code": code},
+            text(
+                "SELECT term_code, crn FROM portal_courses WHERE upper(course_code) = :code"
+                + (" AND term_code = :term" if term else "")
+            ),
+            {"code": code, "term": term},
         ):
             connection.execute(
                 text("""INSERT INTO active_course_crns
@@ -2038,6 +2242,12 @@ class PortalListStore:
                         VALUES (:id, :term_code, :crn, :code, '', :now, :actor)
                         ON CONFLICT (term_code, crn) DO NOTHING"""),
                 {"id": str(uuid4()), "term_code": term_code, "crn": crn, "code": code, "now": now, "actor": actor},
+            )
+            # A course with a CRN registered in a term is active in that term.
+            connection.execute(
+                text("""INSERT INTO active_course_terms (course_code, term_code) VALUES (:code, :t)
+                        ON CONFLICT DO NOTHING"""),
+                {"code": code, "t": term_code},
             )
 
     @staticmethod
@@ -2063,11 +2273,30 @@ class PortalListStore:
             raise ActiveCourseNotFound(active_id)
         return next(course for course in self.list_active_courses() if course["id"] == active_id)
 
-    def remove_active_course(self, active_id: str) -> None:
+    def remove_active_course(self, active_id: str, term_code: str = "") -> None:
+        """Take a course off the department's list, with its CRNs in the register.
+
+        From one semester when `term_code` is said: its CRNs of that term go, and the course
+        stays — with its UE — while another semester still has it, and goes with the last.
+        """
+        term = _text(term_code)
         with self.engine.begin() as connection:
             code = connection.execute(
                 text("SELECT course_code FROM active_courses WHERE id = :id"), {"id": active_id}
             ).scalar()
+            if code and term:
+                connection.execute(
+                    text("DELETE FROM active_course_terms WHERE course_code = :code AND term_code = :t"),
+                    {"code": code, "t": term},
+                )
+                connection.execute(
+                    text("DELETE FROM active_course_crns WHERE course_code = :code AND term_code = :t"),
+                    {"code": code, "t": term},
+                )
+                if connection.execute(
+                    text("SELECT 1 FROM active_course_terms WHERE course_code = :code"), {"code": code}
+                ).first():
+                    return
             # Its CRNs go with it: they were in the register because the course was.
             if code:
                 connection.execute(
@@ -2870,6 +3099,8 @@ def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
         # The CRN the portal's own row for this course has, which the register offers as
         # each section's parent. Empty when the portal has no such row, or more than one.
         "portalParentCrn": "" if parent is None else parent["crn"],
+        # The portal terms it is active in: 262710, 262720.
+        "terms": list(row.get("terms") or []),
     }
 
 
@@ -3085,6 +3316,8 @@ def _active(row: Any) -> dict[str, Any]:
         "courses": row["courses"] or "",
         "institution": row["institution"] or "",
         "portalStatus": row["portal_status"] or "",
+        # The portal terms it is active in: 262710, 262720.
+        "terms": list(row.get("terms") or []),
     }
 
 

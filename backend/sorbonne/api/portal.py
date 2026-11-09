@@ -159,6 +159,15 @@ class LinkPartTimeInput(BaseModel):
 class ActiveTeachersInput(BaseModel):
     portalTeacherIds: list[str] = Field(default_factory=list, max_length=2000)
     partTime: list[PartTimeRef] = Field(default_factory=list, max_length=2000)
+    #: The semester, as the portal's term code (262720); empty for the whole list.
+    termCode: str = Field(default="", max_length=10)
+
+
+class ActivateTeachersInput(BaseModel):
+    """Teachers on the department's list who carry on into a semester: chosen from the last."""
+
+    ids: list[str] = Field(min_length=1, max_length=2000)
+    termCode: str = Field(min_length=1, max_length=10)
 
 
 class ByHandCourse(BaseModel):
@@ -171,6 +180,8 @@ class ByHandCourse(BaseModel):
 class ActiveCoursesInput(BaseModel):
     courseCodes: list[str] = Field(default_factory=list, max_length=2000)
     byHand: list[ByHandCourse] = Field(default_factory=list, max_length=200)
+    #: The semester, as the portal's term code (262720); empty for the whole list.
+    termCode: str = Field(default="", max_length=10)
 
 
 class ActiveCourseUpdate(BaseModel):
@@ -192,6 +203,8 @@ class ActiveCrnsInput(BaseModel):
     #: Every CRN the portal lists for these courses joins the register.
     courseCodes: list[str] = Field(default_factory=list, max_length=2000)
     crns: list[RegisterCrn] = Field(default_factory=list, max_length=5000)
+    #: The semester, as the portal's term code (262720); empty for the whole list.
+    termCode: str = Field(default="", max_length=10)
 
 
 class ActiveCrnUpdate(BaseModel):
@@ -336,8 +349,9 @@ def list_teachers(filter: str = "", store: PortalListStore = Depends(get_store))
 
 
 @router.get("/active-teachers")
-def list_active_teachers(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
-    return {"teachers": store.list_active_teachers()}
+def list_active_teachers(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """The department's teachers; those active in one semester when `term` (262720) is said."""
+    return {"teachers": store.list_active_teachers(term)}
 
 
 @router.get("/active-teachers/matches")
@@ -402,21 +416,33 @@ def add_active_teachers(
     return store.add_active_teachers(
         portal_teacher_ids=body.portalTeacherIds,
         part_time=[record.model_dump() for record in body.partTime],
+        term_code=body.termCode,
         actor=_actor(request),
     )
 
 
-@router.delete("/active-teachers/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_active_teacher(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
+@router.post("/active-teachers/activate")
+def activate_teachers(body: ActivateTeachersInput, store: PortalListStore = Depends(get_store)) -> dict[str, int]:
+    """Who carries on into a semester: teachers already on the list, made active in it too."""
     try:
-        store.remove_active_teacher(active_id)
+        return {"added": store.activate_teachers(body.ids, body.termCode)}
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
+@router.delete("/active-teachers/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_active_teacher(active_id: str, term: str = "", store: PortalListStore = Depends(get_store)) -> None:
+    """Off the list in one semester when `term` is said; off it altogether otherwise."""
+    try:
+        store.remove_active_teacher(active_id, term)
     except ActiveTeacherNotFound as exc:
         raise _missing("active teacher") from exc
 
 
 @router.get("/active-courses")
-def list_active_courses(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
-    return {"courses": store.list_active_courses()}
+def list_active_courses(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+    """The department's courses; those active in one semester when `term` (262720) is said."""
+    return {"courses": store.list_active_courses(term)}
 
 
 @router.post("/active-courses")
@@ -427,6 +453,7 @@ def add_active_courses(
     return store.add_active_courses(
         course_codes=body.courseCodes,
         by_hand=[record.model_dump() for record in body.byHand],
+        term_code=body.termCode,
         actor=_actor(request),
     )
 
@@ -459,6 +486,7 @@ def add_active_crns(
     return store.add_active_crns(
         course_codes=body.courseCodes,
         crns=[record.model_dump() for record in body.crns],
+        term_code=body.termCode,
         actor=_actor(request),
     )
 
@@ -622,9 +650,10 @@ def settle_collision(
 
 
 @router.delete("/active-courses/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_active_course(active_id: str, store: PortalListStore = Depends(get_store)) -> None:
+def remove_active_course(active_id: str, term: str = "", store: PortalListStore = Depends(get_store)) -> None:
+    """Off the list in one semester when `term` is said, with that term's CRNs; off it altogether otherwise."""
     try:
-        store.remove_active_course(active_id)
+        store.remove_active_course(active_id, term)
     except ActiveCourseNotFound as exc:
         raise _missing("active course") from exc
 
