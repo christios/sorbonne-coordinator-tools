@@ -86,9 +86,9 @@ export function CourseCards({
   const yearOf = useSemesterYears();
   const shownOf = useSemesterShown();
   const shortOf = useSemesterShortNames();
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   // The department's courses: a card's title, UE and parent CRN are read from here.
-  const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   // The register: what each CRN hangs from, which the workbook's Parent CRN column is.
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   /*

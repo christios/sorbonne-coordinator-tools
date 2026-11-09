@@ -52,7 +52,7 @@ export function CourseRecord({
 }) {
   const code = courseCode.trim().toUpperCase();
   const client = useQueryClient();
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses(), enabled: open });
   const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns(), enabled: open });
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
@@ -65,7 +65,7 @@ export function CourseRecord({
    * empty, so a card that printed only the written name showed a dash for every section
    * anybody had actually staffed — the better-staffed a course was, the emptier it looked.
    */
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers(), enabled: open });
   const nameOf = (teacherId: string) =>
     (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
 

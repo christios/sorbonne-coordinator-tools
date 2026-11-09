@@ -104,7 +104,7 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
   const [catalogues, terms, courses, registered, links] = await Promise.all([
     client.fetchQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards }),
     client.fetchQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms }).catch(() => []),
-    client.fetchQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses }),
+    client.fetchQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() }),
     client.fetchQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() }),
     read.links().catch(() => ({}) as Record<string, string>),
   ]);

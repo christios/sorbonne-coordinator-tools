@@ -355,8 +355,8 @@ export function CapacityPage() {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   // The same cohort Groups & CRNs and the Group schema are on, remembered by this browser.
   const [cohortId, setCohortId] = useRemembered(COHORT);
   /*

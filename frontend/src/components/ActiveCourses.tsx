@@ -11,11 +11,11 @@ import { REMEDIES, warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarni
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ClassChangesBanner } from "@/components/ClassChanges";
 import { Modal } from "@/components/Modal";
+import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SelectionBar } from "@/components/SelectionActions";
 import { TimetablesButton } from "@/components/TimetablesButton";
-import { usePageState } from "@/components/usePageState";
 import { exportCrnTimetable } from "@/services/timetableExports";
 import {
   type ActiveCourse,
@@ -31,7 +31,6 @@ import {
   setParentCrn,
 } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
-import { yearOfTermCode } from "@/services/semesterYears";
 
 const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, required: true, defaultWidth: 90 },
@@ -124,7 +123,8 @@ const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
  */
 export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: string[]) => void } = {}) {
   const client = useQueryClient();
-  const [term, setTerm] = usePageState("active-crns:term", "");
+  // The semester the register is shown for: its CRNs, and the courses active in it.
+  const { semesters, semester, setTermId, term } = usePortalSemester();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ActiveCrn | null>(null);
@@ -133,7 +133,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   const [showingCourse, setShowingCourse] = useState("");
 
   const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const courses = useQuery({ queryKey: ["active-courses", term], queryFn: () => fetchActiveCourses(term) });
   const check = useQuery({ queryKey: ["register-check", term], queryFn: () => fetchRegisterCheck(term), retry: false });
 
   const refresh = () => {
@@ -143,7 +143,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
     client.invalidateQueries({ queryKey: ["course-cards"] });
   };
   const addCourse = useMutation({
-    mutationFn: (course: { courseCode: string; title: string }) => addActiveCourses({ byHand: [course] }),
+    mutationFn: (course: { courseCode: string; title: string }) => addActiveCourses({ byHand: [course], termCode: term }),
     onSuccess: () => {
       setAdding(false);
       refresh();
@@ -165,10 +165,6 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
   });
 
   const held = useMemo(() => crns.data ?? [], [crns.data]);
-  const terms = useMemo(() => [...new Set(held.map((row) => row.termCode))].sort().reverse(), [held]);
-  useEffect(() => {
-    if (terms.length && !terms.includes(term)) setTerm(terms[0]);
-  }, [terms, term, setTerm]);
   const rows = useMemo(() => held.filter((row) => !term || row.termCode === term), [held, term]);
 
   const renderCell = (row: ActiveCrn, column: GridColumn<ActiveCrn>) => {
@@ -291,14 +287,10 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             onSelectedChange={setSelected}
             renderCell={renderCell}
             onRowClick={setEditing}
-            empty="Nothing registered yet. Choose the department's courses on the Courses page and their CRNs come with them."
+            empty={`Nothing registered for ${semester?.name ?? "this semester"} yet. Choose its courses on the Courses page and their CRNs come with them.`}
             toolbar={
               <>
-                {terms.length > 1 ? (
-                  <div className="w-40">
-                    <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code, year: yearOfTermCode(code) }))} />
-                  </div>
-                ) : null}
+                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
                 <button
                   type="button"
                   onClick={() => {
@@ -338,9 +330,8 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
           </SelectionBar>
 
           <p className="mt-2 text-xs text-[#98a2b3]">
-            {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} on the department&apos;s list,
-            {" "}
-            {rows.length} of their CRNs registered{term ? ` for ${term}` : ""}.
+            {(courses.data ?? []).length} course{(courses.data ?? []).length === 1 ? "" : "s"} active in{" "}
+            {semester?.name ?? "this semester"}, {rows.length} of their CRNs registered.
           </p>
         </>
       )}

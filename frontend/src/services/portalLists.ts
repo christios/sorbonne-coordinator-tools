@@ -267,6 +267,8 @@ export type ActiveTeacher = {
    */
   sections?: number;
   linkedSections?: number;
+  /** The portal terms they are active in: 262710, 262720. */
+  terms?: string[];
 };
 
 /**
@@ -326,19 +328,30 @@ export async function linkPartTimeTeacher(activeId: string, partTimeTeacherId: s
   await send<void>(`/active-teachers/${encodeURIComponent(activeId)}/link-part-time`, "POST", { partTimeTeacherId });
 }
 
-export async function fetchActiveTeachers(): Promise<ActiveTeacher[]> {
-  return (await request<{ teachers: ActiveTeacher[] }>("/active-teachers")).teachers;
+/** The department's teachers; with a portal term (262720), those active in that semester. */
+export async function fetchActiveTeachers(term = ""): Promise<ActiveTeacher[]> {
+  return (await request<{ teachers: ActiveTeacher[] }>(`/active-teachers${term ? `?term=${encodeURIComponent(term)}` : ""}`)).teachers;
 }
 
+/** Teachers into the semester `termCode`: somebody already on the list is made active there too. */
 export function addActiveTeachers(input: {
   portalTeacherIds?: string[];
   partTime?: { id: string; fullName: string; email: string }[];
+  termCode?: string;
 }): Promise<{ added: number; linked: number; skipped: number }> {
   return send("/active-teachers", "POST", { portalTeacherIds: [], partTime: [], ...input });
 }
 
-export function removeActiveTeacher(activeId: string): Promise<void> {
-  return request<void>(`/active-teachers/${encodeURIComponent(activeId)}`, { method: "DELETE" });
+/** Off the list in one semester when `term` is said, keeping the record while another counts them. */
+export function removeActiveTeacher(activeId: string, term = ""): Promise<void> {
+  return request<void>(`/active-teachers/${encodeURIComponent(activeId)}${term ? `?term=${encodeURIComponent(term)}` : ""}`, {
+    method: "DELETE",
+  });
+}
+
+/** Who carries on into a semester: teachers on the list, made active in `termCode` too. */
+export function activateTeachers(ids: string[], termCode: string): Promise<{ added: number }> {
+  return send("/active-teachers/activate", "POST", { ids, termCode });
 }
 
 /**
@@ -380,6 +393,8 @@ export type ActiveCourse = {
    * Empty when the portal has no such row, or more than one.
    */
   portalParentCrn: string;
+  /** The portal terms it is active in: 262710, 262720. */
+  terms?: string[];
 };
 
 /**
@@ -537,6 +552,8 @@ export async function fetchActiveCrns(term = ""): Promise<ActiveCrn[]> {
 export function addActiveCrns(input: {
   courseCodes?: string[];
   crns?: { termCode: string; crn: string; courseCode?: string }[];
+  /** For `courseCodes`: that term's CRNs alone. */
+  termCode?: string;
 }): Promise<{ added: number; skipped: number }> {
   return send("/active-crns", "POST", { courseCodes: [], crns: [], ...input });
 }
@@ -597,13 +614,16 @@ export function fetchRegisterCheck(term = ""): Promise<RegisterCheck> {
   return request<RegisterCheck>(`/register-check${term ? `?term=${encodeURIComponent(term)}` : ""}`);
 }
 
-export async function fetchActiveCourses(): Promise<ActiveCourse[]> {
-  return (await request<{ courses: ActiveCourse[] }>("/active-courses")).courses;
+/** The department's courses; with a portal term (262720), those active in that semester. */
+export async function fetchActiveCourses(term = ""): Promise<ActiveCourse[]> {
+  return (await request<{ courses: ActiveCourse[] }>(`/active-courses${term ? `?term=${encodeURIComponent(term)}` : ""}`)).courses;
 }
 
+/** Courses into the semester `termCode`, with that term's CRNs; one already listed is made active there too. */
 export function addActiveCourses(input: {
   courseCodes?: string[];
   byHand?: { courseCode: string; title: string }[];
+  termCode?: string;
 }): Promise<{ added: number; skipped: number }> {
   return send("/active-courses", "POST", { courseCodes: [], byHand: [], ...input });
 }
@@ -616,8 +636,11 @@ export function updateActiveCourse(
   return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
 }
 
-export function removeActiveCourse(activeId: string): Promise<void> {
-  return request<void>(`/active-courses/${encodeURIComponent(activeId)}`, { method: "DELETE" });
+/** Off the list in one semester when `term` is said, with that term's CRNs; the course stays while another has it. */
+export function removeActiveCourse(activeId: string, term = ""): Promise<void> {
+  return request<void>(`/active-courses/${encodeURIComponent(activeId)}${term ? `?term=${encodeURIComponent(term)}` : ""}`, {
+    method: "DELETE",
+  });
 }
 
 export async function fetchRegistrations(studentId: string): Promise<Registration[]> {

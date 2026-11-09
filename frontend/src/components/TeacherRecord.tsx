@@ -62,11 +62,11 @@ export function TeacherRecord({
 }) {
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open, retry: false });
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses(), enabled: open });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns(), enabled: open });
   // A teacher opened from the portal's list may not be on the department's; if they are,
   // their sections are found by our id rather than by the spelling of their name.
-  const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const active = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers(), enabled: open });
   const held =
     (teacher.id ? (active.data ?? []).find((row) => row.id === teacher.id) : null) ??
     (teacher.portalTeacherId

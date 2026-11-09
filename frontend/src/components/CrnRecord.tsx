@@ -67,13 +67,13 @@ export function CrnRecord({
   /** Take these students to the Students table, where each row opens its record. */
   onShowStudents?: (ids: string[]) => void;
 }) {
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses(), enabled: open });
   /*
    * Choosing an Active teacher for a section fills its id and leaves the written name
    * empty, so a card reading the written name alone had nothing to show for exactly the
    * sections somebody had staffed properly.
    */
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers(), enabled: open });
   const nameOf = (teacherId: string) =>
     (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });

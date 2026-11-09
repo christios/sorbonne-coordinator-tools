@@ -1,14 +1,16 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, EyeOff, Link2, RotateCcw, Trash2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, CalendarArrowUp, EyeOff, Link2, RotateCcw, Trash2, UserPlus, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 
+import { BringOverTeachers } from "@/components/BringOverTeachers";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { ClassChangesBanner } from "@/components/ClassChanges";
 import { InfoTip } from "@/components/InfoTip";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
+import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectionBar } from "@/components/SelectionActions";
 import { AvailabilityCell, AvailabilityTabs, FreeWhenPicker, type Showing } from "@/components/TeacherAvailability";
@@ -312,12 +314,14 @@ function WarningsCell({
  */
 export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
   const client = useQueryClient();
-  const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  // The semester the list is for: who is active in it, and the sections of it they teach.
+  const { semesters, semester, setTermId, term } = usePortalSemester();
+  const active = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term) });
   const matches = useQuery({ queryKey: ["teacher-matches"], queryFn: fetchTeacherMatches, retry: false });
   // The planning, for the Teaches column: which component types each teacher's sections are.
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   const cards = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
@@ -449,6 +453,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [picking, setPicking] = useState(false);
+  const [bringing, setBringing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);
 
   const refresh = () => {
@@ -479,14 +484,16 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
     onSettled: () => refresh(),
   });
   const add = useMutation({
-    mutationFn: (input: { partTime?: PartTimeTeacher[]; portalTeacherIds?: string[] }) => addActiveTeachers(input),
+    mutationFn: (input: { partTime?: PartTimeTeacher[]; portalTeacherIds?: string[] }) =>
+      addActiveTeachers({ ...input, termCode: term }),
     onSuccess: () => {
       setPicking(false);
       refresh();
     },
   });
   const remove = useMutation({
-    mutationFn: (ids: string[]) => removeEach(ids, removeActiveTeacher),
+    // From this semester alone: the record stays while another semester counts them.
+    mutationFn: (ids: string[]) => removeEach(ids, (id) => removeActiveTeacher(id, term)),
     // Settled, not success: closing only on success is what left a live-looking button
     // over an error banner rendered underneath this dialog's own backdrop.
     onSettled: (_removed, error) => {
@@ -565,9 +572,18 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           onSelectedChange={setSelected}
           renderCell={cell}
           onRowClick={onOpenTeacher}
-          empty="Nobody yet. Choose teachers on the Teachers page, or add them from the part-time database."
+          empty={`Nobody active in ${semester?.name ?? "this semester"} yet. Bring teachers over from another semester, choose them on the Teachers page, or add them from the part-time database.`}
           toolbar={
             <>
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              <button
+                type="button"
+                disabled={!term}
+                onClick={() => setBringing(true)}
+                className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
+              >
+                <CalendarArrowUp size={15} aria-hidden="true" /> Bring over from another semester
+              </button>
               <button
                 type="button"
                 onClick={() => setPicking(true)}
@@ -663,9 +679,16 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
         onClose={() => setPicking(false)}
       />
 
+      <BringOverTeachers
+        open={bringing}
+        term={term}
+        semesterName={semester?.name ?? "this semester"}
+        onClose={() => setBringing(false)}
+      />
+
       <ConfirmDialog
         open={confirmRemove}
-        title={`Remove ${selected.size} from active teachers?`}
+        title={`Remove ${selected.size} from ${semester?.name ?? "this semester"}'s active teachers?`}
         /*
          * The sections are said out loud, because removing somebody clears them.
          *
@@ -677,10 +700,10 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
          */
         description={
           chosenOn(active.data, selected)
-            ? `They stay in the portal's list and in the part-time database. ${chosenOn(active.data, selected)} ${
-                chosenOn(active.data, selected) === 1 ? "section has" : "sections have"
-              } them chosen and will be left with no teacher chosen.`
-            : "They stay in the portal's list and in the part-time database; only the department's list forgets them."
+            ? `They stay active in any other semester, in the portal's list and in the part-time database. ${chosenOn(active.data, selected)} ${
+                chosenOn(active.data, selected) === 1 ? "section" : "sections"
+              } of this semester ${chosenOn(active.data, selected) === 1 ? "has" : "have"} them chosen and will be left with no teacher chosen.`
+            : "They stay active in any other semester, in the portal's list and in the part-time database; only this semester's list forgets them."
         }
         confirmLabel="Remove"
         busy={remove.isPending}

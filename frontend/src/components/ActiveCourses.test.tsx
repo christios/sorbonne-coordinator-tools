@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveCourses, CrnDialog } from "@/components/ActiveCourses";
 import * as lists from "@/services/portalLists";
+import * as timetables from "@/services/timetables";
 import * as dismissals from "@/services/warningDismissals";
 
 const EMPTY: lists.RegisterCheck = {
@@ -55,7 +56,7 @@ describe("who the registrar says teaches a section", () => {
 
     show();
 
-    expect(await screen.findByText(/Nothing registered yet/)).toBeTruthy();
+    expect(await screen.findByText(/Nothing registered for this semester yet/)).toBeTruthy();
     expect(screen.queryByText(/staffs differently/)).toBeNull();
   });
 
@@ -271,7 +272,48 @@ describe("classes the registrar has changed", () => {
 
     show();
 
-    expect(await screen.findByText(/Nothing registered yet/)).toBeTruthy();
+    expect(await screen.findByText(/Nothing registered for this semester yet/)).toBeTruthy();
     expect(screen.queryByText(/has changed the classes in/)).toBeNull();
+  });
+});
+
+/*
+ * The register is kept semester by semester: the page shows the semester in view — the one
+ * every page shares — and a course added by hand is active in that semester alone.
+ */
+describe("the register of one semester", () => {
+  it("shows the semester chosen, and adds a course to it", async () => {
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY);
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "plan:262710", name: "Semester 1 2026-27" },
+      { id: "plan:262720", name: "Semester 2 2026-27" },
+    ] as timetables.TimetableTerm[]);
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "plan:262710": "262710", "plan:262720": "262720" });
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([
+      crnRow({ crn: "22151", courseCode: "MATH-001" }),
+      crnRow({ crn: "32151", courseCode: "MATH-114", termCode: "262720" }),
+    ]);
+    const courses = vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([]);
+    const add = vi.spyOn(lists, "addActiveCourses").mockResolvedValue({ added: 1, skipped: 0 });
+    show();
+
+    expect(await screen.findByText("MATH-001")).toBeTruthy();
+    expect(screen.queryByText("MATH-114")).toBeNull();
+    await waitFor(() => expect(courses).toHaveBeenCalledWith("262710"));
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Semester" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Semester 2/ }));
+    expect(await screen.findByText("MATH-114")).toBeTruthy();
+    expect(screen.queryByText("MATH-001")).toBeNull();
+    await waitFor(() => expect(courses).toHaveBeenCalledWith("262720"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Add a course by hand/ }));
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.change(dialog.getAllByRole("textbox")[0], { target: { value: "MATH-200" } });
+    fireEvent.change(dialog.getAllByRole("textbox")[1], { target: { value: "Topology" } });
+    fireEvent.click(dialog.getByRole("button", { name: /^Add/ }));
+    await waitFor(() =>
+      expect(add).toHaveBeenCalledWith({ byHand: [{ courseCode: "MATH-200", title: "Topology" }], termCode: "262720" }),
+    );
   });
 });

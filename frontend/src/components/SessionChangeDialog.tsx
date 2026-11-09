@@ -30,7 +30,7 @@ export function SessionChangeDialog({
   onClose: () => void;
 }) {
   const client = useQueryClient();
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const [kind, setKind] = useState<ChangeKind | "planned">(existing?.kind ?? "planned");
   const [coverId, setCoverId] = useState(existing?.coverTeacherId || (existing?.coverTeacherName ? TYPED : ""));
   const [typedName, setTypedName] = useState(existing?.coverTeacherId ? "" : (existing?.coverTeacherName ?? ""));

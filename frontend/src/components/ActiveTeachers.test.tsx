@@ -79,7 +79,7 @@ describe("the department's active teachers", () => {
     fireEvent.click(screen.getByText("Add 1"));
 
     await waitFor(() =>
-      expect(add).toHaveBeenCalledWith({ partTime: [{ id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" }] }),
+      expect(add).toHaveBeenCalledWith({ partTime: [{ id: "pt-2", fullName: "Carla Nasr", email: "carla@example.org" }], termCode: "" }),
     );
     expect(await screen.findByText(/1 added/)).toBeTruthy();
   });
@@ -233,7 +233,7 @@ describe("teachers our sections name and the list does not hold", () => {
     expect(screen.getByText("6 sections")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Add them/ }));
 
-    await waitFor(() => expect(add).toHaveBeenCalledWith({ portalTeacherIds: ["A007"] }));
+    await waitFor(() => expect(add).toHaveBeenCalledWith({ portalTeacherIds: ["A007"], termCode: "" }));
   });
 
   it("still names a gap the registrar has nobody close to, rather than hiding it", async () => {
@@ -274,7 +274,7 @@ describe("removing teachers from the active list", () => {
     fireEvent.click(screen.getByText("Remove 1"));
 
     const dialog = await screen.findByRole("dialog");
-    expect(within(dialog).getByText(/6 sections have them chosen/)).toBeTruthy();
+    expect(within(dialog).getByText(/6 sections of this semester have them chosen/)).toBeTruthy();
   });
 
 

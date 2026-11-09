@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
+import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   type PortalTeacher,
@@ -85,12 +86,15 @@ export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const teachers = useQuery({ queryKey: ["portal", "teachers", filterId], queryFn: () => fetchPortalTeachers(filterId) });
-  const active = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
-  const activeIds = new Set((active.data ?? []).map((row) => row.portalTeacherId).filter(Boolean));
+  const active = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
+  // Active is said of a semester: the one in view, which a teacher added here joins.
+  const { semesters, semester, setTermId, term } = usePortalSemester();
+  const activeHere = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term) });
+  const activeIds = new Set((activeHere.data ?? []).map((row) => row.portalTeacherId).filter(Boolean));
   // The planning, for the Cohorts column. The portal knows the courses; only we know the years.
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
 
   /*
@@ -123,7 +127,7 @@ export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
   const cohortsFor = (row: PortalTeacher) => cohortsOf.get(row.teacherId) ?? [];
 
   const add = useMutation({
-    mutationFn: (ids: string[]) => addActiveTeachers({ portalTeacherIds: ids }),
+    mutationFn: (ids: string[]) => addActiveTeachers({ portalTeacherIds: ids, termCode: term }),
     onSuccess: () => {
       setSelected(new Set());
       client.invalidateQueries({ queryKey: ["active-teachers"] });
@@ -223,16 +227,23 @@ export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           renderCell={renderCell}
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
-            <button
-              type="button"
-              disabled={chosen.length === 0 || add.isPending}
-              title={selected.size && !chosen.length ? "Everyone selected is already active" : "Add the selected teachers to Active teachers"}
-              onClick={() => add.mutate(chosen)}
-              className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              <UserPlus size={15} aria-hidden="true" />
-              {chosen.length ? `Add ${chosen.length} to active teachers` : "Add to active teachers"}
-            </button>
+            <>
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              <button
+                type="button"
+                disabled={chosen.length === 0 || add.isPending}
+                title={
+                  selected.size && !chosen.length
+                    ? `Everyone selected is already active in ${semester?.name ?? "this semester"}`
+                    : `Make the selected teachers active in ${semester?.name ?? "this semester"}`
+                }
+                onClick={() => add.mutate(chosen)}
+                className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                <UserPlus size={15} aria-hidden="true" />
+                {chosen.length ? `Add ${chosen.length} to active teachers` : "Add to active teachers"}
+              </button>
+            </>
           }
         />
       )}

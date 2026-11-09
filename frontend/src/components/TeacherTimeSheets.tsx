@@ -114,7 +114,7 @@ export function TimeSheetsCard({
    */
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const [termId, setTermId] = useState("");
-  const actives = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const actives = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const mine = (actives.data ?? []).find((teacher) => teacher.partTimeTeacherId === teacherId) ?? null;
   const cards = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });

@@ -75,8 +75,8 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
-  const courses = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   const [termId, setTermId] = usePageState("teacher-hours:term", "");

@@ -96,7 +96,7 @@ export function PlaceInBlock({
   const shownOf = useSemesterShown();
   // So a section that has chosen a teacher is named by the department's record rather than
   // by whatever the registrar typed on it.
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers(), enabled: open });
   /*
    * Every set this cohort's students are taught in, languages included.
    *

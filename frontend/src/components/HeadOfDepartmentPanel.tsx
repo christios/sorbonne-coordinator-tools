@@ -13,7 +13,7 @@ import { describeAge } from "@/services/rosterStore";
 export function HeadOfDepartmentPanel({ canChange }: { canChange: boolean }) {
   const client = useQueryClient();
   const head = useQuery({ queryKey: ["head-of-department"], queryFn: fetchHeadOfDepartment, retry: false });
-  const actives = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+  const actives = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const save = useMutation({
     mutationFn: setHeadOfDepartment,
     onSuccess: (saved) => client.setQueryData(["head-of-department"], saved),

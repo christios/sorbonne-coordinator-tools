@@ -1,15 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookPlus } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
+import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
-import { usePageState } from "@/components/usePageState";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
-import { yearOfTermCode } from "@/services/semesterYears";
 
 const FILTER_KEY = "scen-portal-filter:courses";
 
@@ -56,15 +54,16 @@ const labelOf = (row: PortalCourse) => `${row.courseCode} ${row.crn}`;
 export function PortalCourses() {
   const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
-  const [term, setTerm] = usePageState("portal-courses:term", "");
+  // The semester the portal's list is shown for, and the one a course taken in is active in.
+  const { semesters, semester, setTermId, term } = usePortalSemester();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
-  const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const active = useQuery({ queryKey: ["active-courses", term], queryFn: () => fetchActiveCourses(term) });
   const activeCodes = useMemo(() => new Set((active.data ?? []).map((row) => row.courseCode.toUpperCase())), [active.data]);
   const isActive = (row: PortalCourse) => activeCodes.has(row.courseCode.toUpperCase());
 
   const add = useMutation({
-    mutationFn: (codes: string[]) => addActiveCourses({ courseCodes: codes }),
+    mutationFn: (codes: string[]) => addActiveCourses({ courseCodes: codes, termCode: term }),
     onSuccess: () => {
       setSelected(new Set());
       // Choosing a course takes its CRNs into the register with it, so both move.
@@ -81,10 +80,6 @@ export function PortalCourses() {
     return undefined;
   };
 
-  const terms = useMemo(() => courses.data?.terms ?? [], [courses.data]);
-  useEffect(() => {
-    if (terms.length && !terms.includes(term)) setTerm(terms[0]);
-  }, [terms, term, setTerm]);
   const rows = useMemo(
     () => (courses.data?.courses ?? []).filter((course) => !term || course.termCode === term),
     [courses.data, term],
@@ -127,18 +122,22 @@ export function PortalCourses() {
           selected={selected}
           onSelectedChange={setSelected}
           renderCell={renderCell}
-          empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
+          empty={
+            !filterId
+              ? "Choose a portal filter, or make one."
+              : `Nothing pulled for ${semester?.name ?? "this semester"} (${term || "no portal term"}) yet — sync the filter for it.`
+          }
           toolbar={
             <>
-              {terms.length > 1 ? (
-                <div className="w-40">
-                  <SelectMenu label="Term" value={term} onChange={setTerm} options={terms.map((code) => ({ value: code, label: code, year: yearOfTermCode(code) }))} />
-                </div>
-              ) : null}
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}
-                title={selected.size && !chosen.length ? "Every selected course is already active" : "Take the selected courses and their CRNs into the register"}
+                title={
+                  selected.size && !chosen.length
+                    ? `Every selected course is already active in ${semester?.name ?? "this semester"}`
+                    : `Make the selected courses active in ${semester?.name ?? "this semester"}, with its CRNs`
+                }
                 onClick={() => add.mutate(chosen)}
                 className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >

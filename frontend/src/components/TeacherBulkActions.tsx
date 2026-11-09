@@ -151,7 +151,7 @@ export function TeacherBulkActions({
         {/* Their teaching, found through the department's list they are linked to, or by name. */}
         <TimetablesButton
           make={async () => {
-            const active = await client.fetchQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers });
+            const active = await client.fetchQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
             return exportTeacherTimetables(
               client,
               chosen.map((id) => ({ id: active.find((row) => row.partTimeTeacherId === id)?.id ?? "", fullName: nameOf(id) })),

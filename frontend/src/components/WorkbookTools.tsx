@@ -91,11 +91,11 @@ export function WorkbookTools({
   const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId, "own-only"], queryFn: () => fetchCatalogue(cohortId, termId, true), enabled: open && Boolean(cohortId && termId) });
   // The UE codes: the workbook keys its columns on the Sorbonne unit, and only the
   // department's course list knows which unit a registrar's course code stands for.
-  const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses, enabled: open });
+  const active = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses(), enabled: open });
   const ueOf = (courseCode: string) =>
     (active.data ?? []).find((course) => course.courseCode.toUpperCase() === courseCode.toUpperCase())?.ue ?? "";
   // Who is teaching: the Active teacher chosen for the section, else the name its row carried.
-  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: fetchActiveTeachers, enabled: open });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers(), enabled: open });
   const teacherOf = (section: { teacher: string; teacherId?: string }) =>
     (section.teacherId ? (teachers.data ?? []).find((teacher) => teacher.id === section.teacherId)?.fullName : "") ||
     section.teacher;

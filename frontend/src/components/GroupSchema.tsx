@@ -135,7 +135,7 @@ export function GroupSchema({
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
   const shortOf = useSemesterShortNames();
-  const active = useQuery({ queryKey: ["active-courses"], queryFn: fetchActiveCourses });
+  const active = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   /*
    * The programmes the registrar has for this browser's students, which is the vocabulary
    * both pickers below must speak: `scope_groups.program` is matched against a student's
