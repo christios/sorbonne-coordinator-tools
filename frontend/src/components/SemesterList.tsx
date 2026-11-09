@@ -12,7 +12,7 @@ import { SemesterTag } from "@/components/SemesterTag";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { useStaffUser } from "@/components/useStaffUser";
 import { fetchSemesterShortNames, fetchTermLinks, setSemesterShortName } from "@/services/portalLists";
-import { createPlan, deletePlan, fetchPlan, fetchPlans, settlePlan, type PlanSettings, type PlanSummary } from "@/services/semesterPlans";
+import { adoptSemester, createPlan, deletePlan, fetchPlan, fetchPlans, settlePlan, type PlanSettings, type PlanSummary } from "@/services/semesterPlans";
 import { SemesterImport } from "@/components/SemesterImport";
 import { SemesterPublish } from "@/components/SemesterPublish";
 import { SemesterUpdate } from "@/components/SemesterUpdate";
@@ -136,13 +136,13 @@ export function SemesterList({
   // In the portal's order — 262710 before 262720 — and a semester with no code last.
   const rows = useMemo<Row[]>(() => {
     const linked = links.data ?? {};
-    const held: Row[] = (hub ? terms.data ?? [] : []).map((term) => ({
-      kind: "hub",
-      id: term.id,
-      name: term.name,
-      code: linked[term.id] ?? "",
-      term,
-    }));
+    const held: Row[] = (hub ? terms.data ?? [] : [])
+      .map((term): Row => ({ kind: "hub", id: term.id, name: term.name, code: linked[term.id] ?? "", term }))
+      /*
+       * A Hub semester with no portal term is of no use here — and is what a moved one leaves
+       * behind on the Hub. Listed only while the Hub's own controls are, or the links unread.
+       */
+      .filter((row) => hubControls || !links.data || row.code !== "");
     const made: Row[] = (plans.data ?? []).map((plan) => ({
       kind: "own",
       id: plan.semesterId,
@@ -154,7 +154,7 @@ export function SemesterList({
       (left, right) =>
         Number(!left.code) - Number(!right.code) || left.code.localeCompare(right.code) || left.name.localeCompare(right.name),
     );
-  }, [hub, terms.data, plans.data, links.data]);
+  }, [hub, hubControls, terms.data, plans.data, links.data]);
   const taken = useMemo(() => Object.fromEntries(rows.filter((row) => row.code).map((row) => [row.code, row.name])), [rows]);
 
   const createMutation = useMutation({
@@ -173,6 +173,22 @@ export function SemesterList({
       setTimetableTermPublished(term.id, published),
     onSuccess: refresh,
   });
+  // A Hub semester made one of Coordinator Tools' own: everything about it moves with it.
+  const [confirmMove, setConfirmMove] = useState(false);
+  const closeHubSettings = () => {
+    setConfirmMove(false);
+    setSettingsOf(null);
+  };
+  const moveMutation = useMutation({
+    mutationFn: (row: Row) => adoptSemester(row.id, row.name),
+    onSuccess: () => {
+      setConfirmMove(false);
+      setSettingsOf(null);
+      // Its sets, students, weeks and pay periods are filed anew: every page reads them again.
+      void queryClient.invalidateQueries();
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (row: Row) => (row.kind === "hub" ? deleteTimetableTerm(row.term.id) : deletePlan(row.plan.termCode)),
     onSuccess: refresh,
@@ -410,10 +426,10 @@ export function SemesterList({
         open={settingsOf?.kind === "hub"}
         title="Semester settings"
         description={`${settingsOf?.name ?? ""}. Saved as each is changed.`}
-        onClose={() => setSettingsOf(null)}
+        onClose={closeHubSettings}
         footer={
           <div className="flex justify-end">
-            <button type="button" onClick={() => setSettingsOf(null)} className={SECONDARY_BUTTON}>
+            <button type="button" onClick={closeHubSettings} className={SECONDARY_BUTTON}>
               Done
             </button>
           </div>
@@ -435,6 +451,49 @@ export function SemesterList({
               <div className="w-56">
                 <PayCycleCell termId={settingsOf.id} termName={settingsOf.name} />
               </div>
+            </div>
+            {/* Why it has fewer settings than a semester made here, and how it gets the same. */}
+            <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] px-4 py-3 text-sm">
+              <p className="font-semibold text-[#344054]">From the Student Hub</p>
+              <p className="mt-1 text-[#667085]">
+                Its name is the Student Hub&apos;s and it has no plan, so it has fewer settings than a semester made
+                here. Moved into Coordinator Tools it gets the same — its name, teaching weeks and holidays — and keeps
+                its sets, students, Week 1, breaks, pay periods and short name. The Student Hub is not changed.
+              </p>
+              {!isAdmin ? (
+                <p className="mt-2 text-xs text-[#98a2b3]">Only an administrator can move a semester.</p>
+              ) : confirmMove ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <span className="text-[#344054]">Move {settingsOf.name} now?</span>
+                  <button
+                    type="button"
+                    disabled={moveMutation.isPending}
+                    onClick={() => moveMutation.mutate(settingsOf)}
+                    className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white hover:bg-[#183f63] disabled:bg-[#9ba8b5]"
+                  >
+                    {moveMutation.isPending ? "Moving…" : "Move it"}
+                  </button>
+                  <button type="button" onClick={() => setConfirmMove(false)} className={SECONDARY_BUTTON}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    moveMutation.reset();
+                    setConfirmMove(true);
+                  }}
+                  className={`mt-3 ${SECONDARY_BUTTON}`}
+                >
+                  Move into Coordinator Tools
+                </button>
+              )}
+              {moveMutation.error ? (
+                <p role="alert" className="mt-2 text-sm text-[#a6292f]">
+                  {(moveMutation.error as Error).message}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}

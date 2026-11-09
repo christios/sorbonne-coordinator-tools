@@ -29,3 +29,31 @@ describe("the semesters of the app", () => {
     expect(terms.map((term) => term.id)).toEqual(["plan:262720"]);
   });
 });
+
+describe("a Student Hub semester with no portal term", () => {
+  it("is left out, as one moved into Coordinator Tools leaves its old self behind", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/timetables/terms")) return new Response(JSON.stringify({ terms: [HUB] }), { status: 200 });
+      if (url.includes("/term-links")) return new Response(JSON.stringify({ links: { "plan:262720": "262720" } }), { status: 200 });
+      return new Response(JSON.stringify({ plans: [PLAN] }), { status: 200 });
+    });
+    const terms = await fetchTimetableTerms();
+    expect(terms.map((term) => term.id)).toEqual(["plan:262720"]);
+  });
+});
+
+describe("the order of the semesters", () => {
+  it("is the portal's, whichever kind each one is", async () => {
+    const LATER = { ...PLAN, termCode: "262730", semesterId: "plan:262730", name: "Summer 2026-27" };
+    const EARLIER = { ...PLAN, termCode: "262710", semesterId: "plan:262710", name: "Semester 1 2026-27" };
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      const url = String(input);
+      if (url.includes("/timetables/terms")) return new Response(JSON.stringify({ terms: [] }), { status: 200 });
+      if (url.includes("/term-links")) return new Response(JSON.stringify({ links: {} }), { status: 200 });
+      return new Response(JSON.stringify({ plans: [LATER, PLAN, EARLIER] }), { status: 200 });
+    });
+    const terms = await fetchTimetableTerms();
+    expect(terms.map((term) => term.plannedFor)).toEqual(["262710", "262720", "262730"]);
+  });
+});

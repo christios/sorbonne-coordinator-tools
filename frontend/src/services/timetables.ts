@@ -1,3 +1,4 @@
+import { fetchTermLinks } from "@/services/portalLists";
 import { fetchPlans } from "@/services/semesterPlans";
 import type { Operation, TimetablePreview } from "@/services/timetableDiff";
 
@@ -67,11 +68,17 @@ export async function fetchHubTerms(): Promise<TimetableTerm[]> {
  * a semester too, under `plan:<term code>`: its cohorts' sets, the planning cards and the
  * calendars find it wherever they pick a semester. A Hub that does not answer leaves the
  * plans; only when neither answers is there nothing to show.
+ *
+ * A Hub semester with no portal term is left out: nothing can be checked, timetabled or
+ * planned for it — which is also what becomes of one once it has been moved into
+ * Coordinator Tools, leaving its old self on the Hub. Unless the links cannot be read, in
+ * which case every Hub semester is kept rather than any being lost.
  */
 export async function fetchTimetableTerms(): Promise<TimetableTerm[]> {
-  const [hub, plans] = await Promise.allSettled([fetchHubTerms(), fetchPlans()]);
+  const [hub, plans, links] = await Promise.allSettled([fetchHubTerms(), fetchPlans(), fetchTermLinks()]);
   if (hub.status === "rejected" && plans.status === "rejected") throw hub.reason;
-  const held = hub.status === "fulfilled" ? hub.value : [];
+  const linked = links.status === "fulfilled" && links.value ? links.value : null;
+  const held = hub.status === "fulfilled" ? hub.value.filter((term) => !linked || Boolean(linked[term.id])) : [];
   const planned = (plans.status === "fulfilled" ? plans.value : []).map(
     (plan): TimetableTerm => ({
       id: plan.semesterId,
@@ -88,7 +95,11 @@ export async function fetchTimetableTerms(): Promise<TimetableTerm[]> {
       plannedFor: plan.termCode,
     }),
   );
-  return [...held, ...planned];
+  // In the portal's order — Semester 1 before Semester 2 — whichever kind each one is.
+  const codeOf = (term: TimetableTerm) => term.plannedFor ?? linked?.[term.id] ?? "";
+  const ordered = (terms: TimetableTerm[]) => [...terms].sort((left, right) => codeOf(left).localeCompare(codeOf(right)));
+  // Without the links a Hub semester's place is not known: they go first, as they always did.
+  return linked ? ordered([...held, ...planned]) : [...held, ...ordered(planned)];
 }
 
 export type StudentListReport = {

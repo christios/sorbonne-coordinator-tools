@@ -178,6 +178,15 @@ export async function createPlan(termCode: string, name: string): Promise<Plan> 
   return answer(await apiFetch(BASE, json("POST", { termCode, name })));
 }
 
+/**
+ * Move a Student Hub semester into Coordinator Tools, with its sets, students, weeks, pay
+ * periods and short name, so it has the settings of a semester made here. The Hub is not
+ * written to. An administrator's.
+ */
+export async function adoptSemester(termId: string, name: string): Promise<Plan> {
+  return answer(await apiFetch(`${BASE}/adopt`, json("POST", { termId, name })));
+}
+
 /** Delete a semester made here and the classes placed in it; refused while a cohort has sets or students in it. */
 export async function deletePlan(termCode: string): Promise<void> {
   return answer(await apiFetch(at(termCode), { method: "DELETE" }));

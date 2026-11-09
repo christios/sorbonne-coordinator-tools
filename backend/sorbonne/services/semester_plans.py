@@ -462,11 +462,74 @@ class PlanStore:
             ).first()
             if taken:
                 raise InvalidPlan(f"There is a plan for {code} already.")
+            # A semester from the Student Hub may go by the code already: one semester per term.
+            if connection.execute(
+                text("SELECT 1 FROM term_links WHERE portal_term_code = :term AND term_id <> :mine"),
+                {"term": code, "mine": semester_of(code)},
+            ).first():
+                raise InvalidPlan(f"Another semester is {code} already.")
             connection.execute(
                 text("""INSERT INTO plan_terms (term_code, name, updated_at, updated_by)
                         VALUES (:term, :name, :at, :by)"""),
                 {"term": code, "name": _short(name, "name") or code, "at": _now(), "by": actor},
             )
+            _as_semester(connection, self._term(connection, code), actor)
+        return self.plan(code)
+
+    # What Coordinator Tools keeps about a semester, under the semester's id.
+    _FILED_BY_SEMESTER = (
+        "cohort_scopes", "cohort_members", "term_links", "term_weeks", "term_pay_cycles", "semester_short_names",
+    )
+
+    def adopt(self, term_id: str, name: str, *, actor: str = "") -> dict[str, Any]:
+        """Make a Student Hub semester one of Coordinator Tools' own, kept under its portal code.
+
+        A Hub semester has fewer settings than one made here: its name is the Hub's, and it has
+        no plan to keep its teaching weeks and holidays in. Adopting it makes it one made here —
+        "plan:262710" — and carries everything kept about it across in one go: its cohorts' sets
+        and students, its portal term, Week 1 and breaks, pay periods and short name. The Student
+        Hub is not written to; its semester is simply no longer the one the app files things by.
+        The number of teaching weeks is left to be said, since nothing has kept it.
+        """
+        old = str(term_id or "").strip()
+        if not old or old.startswith("plan:"):
+            raise InvalidPlan("Only a semester from the Student Hub can be moved into Coordinator Tools.")
+        with self.engine.begin() as connection:
+            code = connection.execute(
+                text("SELECT portal_term_code FROM term_links WHERE term_id = :t AND portal_term_code <> ''"),
+                {"t": old},
+            ).scalar()
+            if not code:
+                raise InvalidPlan("A semester is kept under its portal term, and this one has none.")
+            if connection.execute(text("SELECT 1 FROM plan_terms WHERE term_code = :term"), {"term": code}).first():
+                raise InvalidPlan(f"There is a semester made here for {code} already.")
+            new = semester_of(code)
+            for table in ("cohort_scopes", "cohort_members"):
+                if connection.execute(text(f"SELECT 1 FROM {table} WHERE term_id = :t"), {"t": new}).first():  # noqa: S608 - fixed names
+                    raise InvalidPlan(f"Something is filed under {code} already; nothing was moved.")
+            weeks = connection.execute(
+                text("SELECT week_one, without FROM term_weeks WHERE term_id = :t"), {"t": old}
+            ).mappings().first()
+            connection.execute(
+                text("""INSERT INTO plan_terms (term_code, name, week_one, without, updated_at, updated_by)
+                        VALUES (:term, :name, :week_one, :without, :at, :by)"""),
+                {
+                    "term": code,
+                    "name": _short(name, "name") or code,
+                    "week_one": (weeks or {}).get("week_one") or "",
+                    "without": (weeks or {}).get("without") or "[]",
+                    "at": _now(),
+                    "by": actor,
+                },
+            )
+            for table in self._FILED_BY_SEMESTER:
+                # One row a semester in these: anything left under the new id would block the move.
+                if table not in ("cohort_scopes", "cohort_members"):
+                    connection.execute(text(f"DELETE FROM {table} WHERE term_id = :new"), {"new": new})  # noqa: S608
+                connection.execute(
+                    text(f"UPDATE {table} SET term_id = :new WHERE term_id = :old"),  # noqa: S608 - fixed names
+                    {"new": new, "old": old},
+                )
             _as_semester(connection, self._term(connection, code), actor)
         return self.plan(code)
 

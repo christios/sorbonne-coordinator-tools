@@ -375,7 +375,8 @@ export function SemesterPlan({
 
   if (plans.isLoading || (chosen && plan.isLoading)) return <ScreenLoading label="Reading the plan…" />;
 
-  const planOptions = (plans.data ?? []).map((entry) => ({
+  // In the portal's order, as every semester menu lists them; the latest is still the one opened.
+  const planOptions = [...(plans.data ?? [])].sort((left, right) => left.termCode.localeCompare(right.termCode)).map((entry) => ({
     value: entry.termCode,
     // The name, its year and its short name, as every other semester menu says them.
     ...semesterShown(entry.name || entry.termCode, yearOfTermCode(entry.termCode), shortNames.data?.[`plan:${entry.termCode}`] ?? ""),

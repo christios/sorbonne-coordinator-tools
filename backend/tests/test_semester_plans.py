@@ -9,8 +9,10 @@ from sqlalchemy import text
 
 from sorbonne.api import semester_plans as api
 from sorbonne.main import app
+from sorbonne.services import auth_gate
 from sorbonne.services.engine import engine_for
 from sorbonne.services.semester_plans import PlanStore, teaching_mondays
+from sorbonne.services.staff_auth import StaffUser
 from tests.conftest import TEST_DATABASE_URL
 
 AT = "/api/v1/plans"
@@ -391,3 +393,89 @@ def test_a_semester_made_here_is_deleted_with_its_classes_once_no_cohort_has_any
                 {"t": TERM if table == "plan_series" else SEMESTER},
             ).scalar()
             assert held == 0, table
+
+
+HUB = "plan-test-hub-s1"
+AUTUMN = "262710"
+
+
+@pytest.fixture
+def hub_semester(plans: PlanStore, groups: Groups):
+    """Semester 1 as the Student Hub held it: linked to 262710, its weeks, pay day, short name, a set and a student."""
+    with plans.engine.begin() as connection:
+        for table in ("term_links", "term_weeks", "term_pay_cycles", "semester_short_names"):
+            connection.execute(
+                text(f"DELETE FROM {table} WHERE term_id IN (:hub, :new)"),  # noqa: S608 - fixed names
+                {"hub": HUB, "new": f"plan:{AUTUMN}"},
+            )
+        connection.execute(
+            text("INSERT INTO term_links (term_id, portal_term_code) VALUES (:t, :c)"), {"t": HUB, "c": AUTUMN}
+        )
+        connection.execute(
+            text("""INSERT INTO term_weeks (term_id, week_one, without) VALUES (:t, '2026-08-31', '["2026-10-12"]')"""),
+            {"t": HUB},
+        )
+        connection.execute(
+            text("INSERT INTO term_pay_cycles (term_id, opens_on, updated_at) VALUES (:t, 20, now())"), {"t": HUB}
+        )
+        connection.execute(text("INSERT INTO semester_short_names (term_id, short_name) VALUES (:t, 'S1')"), {"t": HUB})
+    l1 = groups.cohort("L1")
+    groups._insert("cohort_scopes", id=f"{l1}-TD", cohort_id=l1, code="TD", term_id=HUB)
+    with plans.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO students (student_id, status, first_seen_at, last_seen_at, updated_at)
+                    VALUES ('PLANTEST1', 'in_portal', 'now', 'now', 'now') ON CONFLICT (student_id) DO NOTHING""")
+        )
+        connection.execute(
+            text("INSERT INTO cohort_members (cohort_id, term_id, student_id) VALUES (:c, :t, 'PLANTEST1')"),
+            {"c": l1, "t": HUB},
+        )
+    yield HUB
+    with plans.engine.begin() as connection:
+        for table in ("term_links", "term_weeks", "term_pay_cycles", "semester_short_names"):
+            connection.execute(
+                text(f"DELETE FROM {table} WHERE term_id IN (:hub, :new)"),  # noqa: S608 - fixed names
+                {"hub": HUB, "new": f"plan:{AUTUMN}"},
+            )
+        connection.execute(text("DELETE FROM student_cohorts WHERE id LIKE 'plan-test-%'"))
+        connection.execute(text("DELETE FROM students WHERE student_id = 'PLANTEST1'"))
+
+
+def test_a_semester_from_the_student_hub_is_moved_into_coordinator_tools_with_everything_kept_about_it(
+    client, plans, hub_semester
+):
+    moved = client.post(f"{AT}/adopt", json={"termId": hub_semester, "name": "Semester 1 2026-27"})
+    assert moved.status_code == 201, moved.text
+    plan = moved.json()
+    assert (plan["semesterId"], plan["name"]) == ("plan:262710", "Semester 1 2026-27")
+    # Week 1 and its breaks come with it; how many teaching weeks it has is left to be said.
+    assert (plan["weekOne"], plan["without"], plan["weeks"]) == ("2026-08-31", ["2026-10-12"], 0)
+
+    with plans.engine.connect() as connection:
+        for table in PlanStore._FILED_BY_SEMESTER:
+            count = f"SELECT count(*) FROM {table} WHERE term_id = :t"  # noqa: S608 - fixed names
+            left = connection.execute(text(count), {"t": hub_semester}).scalar()
+            here = connection.execute(text(count), {"t": "plan:262710"}).scalar()
+            assert (table, left, here) == (table, 0, 1)
+        link = "SELECT portal_term_code FROM term_links WHERE term_id = 'plan:262710'"
+        assert connection.execute(text(link)).scalar() == AUTUMN
+
+    # Once moved it is made here, and is not moved twice.
+    again = client.post(f"{AT}/adopt", json={"termId": hub_semester, "name": "Semester 1 2026-27"})
+    assert again.status_code == 422
+    assert client.post(f"{AT}/adopt", json={"termId": "plan:262710"}).status_code == 422
+
+
+def test_a_new_semester_is_refused_a_portal_term_a_hub_semester_goes_by(client, hub_semester):
+    refused = client.post(AT, json={"termCode": AUTUMN, "name": "Semester 1 again"})
+    assert refused.status_code == 422
+    assert refused.json()["detail"] == "Another semester is 262710 already."
+
+
+def test_only_an_administrator_moves_a_semester_into_coordinator_tools(client, hub_semester, monkeypatch):
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
+    )
+    assert client.post(f"{AT}/adopt", json={"termId": hub_semester, "name": "S1"}).status_code == 403

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SemesterList } from "@/components/SemesterList";
+import { StaffContext } from "@/components/useStaffUser";
 import * as lists from "@/services/portalLists";
 import * as plans from "@/services/semesterPlans";
 import * as termWeeks from "@/services/termWeeks";
@@ -23,11 +24,15 @@ const TERM: timetables.TimetableTerm = {
   updatedAt: "2026-08-21T18:00:00Z",
 };
 
-function renderList(props: Partial<Parameters<typeof SemesterList>[0]> = {}) {
+const ADMIN = { email: "coordinator@sorbonne.ae", name: "Coordinator", isAdmin: true };
+
+function renderList(props: Partial<Parameters<typeof SemesterList>[0]> = {}, user: typeof ADMIN | null = null) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
-      <SemesterList host="scen.example.dev" {...props} />
+      <StaffContext.Provider value={user}>
+        <SemesterList host="scen.example.dev" {...props} />
+      </StaffContext.Provider>
     </QueryClientProvider>,
   );
 }
@@ -155,13 +160,13 @@ describe("the week of one semester", () => {
 describe("the semesters made here", () => {
   it("lists them beside the Hub's, in the portal's order, with their weeks", async () => {
     vi.spyOn(plans, "fetchPlans").mockResolvedValue([SPRING]);
-    // A Hub semester no portal term was given goes last.
+    // A Hub semester no portal term was given is of no use here, and is not listed.
     vi.spyOn(timetables, "fetchHubTerms").mockResolvedValue([{ ...TERM, id: "term-0", name: "A stray upload" }, TERM]);
     renderList();
 
     const spring = await screen.findByRole("row", { name: /Semester 2 2026-27/ });
     const names = screen.getAllByRole("row").slice(1).map((row) => row.querySelector("td span span")?.textContent);
-    expect(names).toEqual(["Physics & Maths — Semester 1", "Semester 2 2026-27", "A stray upload"]);
+    expect(names).toEqual(["Physics & Maths — Semester 1", "Semester 2 2026-27"]);
     expect(within(spring).getByText("15 teaching weeks from 11 Jan 2027")).toBeTruthy();
     expect(within(spring).getByText("262720")).toBeTruthy();
     expect(within(spring).queryByRole("button", { name: "Publish" })).toBeNull();
@@ -269,5 +274,43 @@ describe("a semester's settings", () => {
     expect(dialog.getByText("Pay periods")).toBeTruthy();
     // Neither is a column of the list any more.
     expect(screen.queryByRole("columnheader", { name: /Short name|Pay periods/ })).toBeNull();
+  });
+});
+
+/*
+ * Semester 1 came from the Student Hub, so it had fewer settings than a semester made here.
+ * Moved into Coordinator Tools, it has the same ones.
+ */
+describe("moving a Hub semester into Coordinator Tools", () => {
+  it("is offered in its settings, asked once more, and done", async () => {
+    const move = vi.spyOn(plans, "adoptSemester").mockResolvedValue({ ...SPRING, termCode: "262710" } as unknown as Plan);
+    renderList({}, ADMIN);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings of Physics & Maths — Semester 1" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Semester settings" }));
+    fireEvent.click(dialog.getByRole("button", { name: "Move into Coordinator Tools" }));
+    expect(move).not.toHaveBeenCalled();
+    fireEvent.click(dialog.getByRole("button", { name: "Move it" }));
+
+    await waitFor(() => expect(move).toHaveBeenCalledWith("term-1", "Physics & Maths — Semester 1"));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Semester settings" })).toBeNull());
+  });
+
+  it("is an administrator's", async () => {
+    renderList();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings of Physics & Maths — Semester 1" }));
+    const dialog = within(await screen.findByRole("dialog", { name: "Semester settings" }));
+    expect(dialog.queryByRole("button", { name: "Move into Coordinator Tools" })).toBeNull();
+    expect(dialog.getByText("Only an administrator can move a semester.")).toBeTruthy();
+  });
+
+  it("leaves out what a moved semester leaves behind: a Hub semester with no portal term", async () => {
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "plan:262710": "262710" });
+    vi.spyOn(plans, "fetchPlans").mockResolvedValue([{ ...SPRING, termCode: "262710", semesterId: "plan:262710", name: "Semester 1 2026-27" }]);
+    renderList();
+
+    await screen.findByRole("row", { name: /Semester 1 2026-27/ });
+    expect(screen.queryByRole("row", { name: /Physics & Maths/ })).toBeNull();
   });
 });

@@ -108,6 +108,29 @@ def read_plan(term_code: str, plans: PlanStore = Depends(get_plans)) -> dict[str
         raise _refused(exc) from exc
 
 
+class AdoptInput(BaseModel):
+    termId: str = Field(min_length=1, max_length=200)
+    name: str = Field(default="", max_length=160)
+
+
+@router.post("/adopt", status_code=status.HTTP_201_CREATED)
+def adopt_semester(body: AdoptInput, request: Request, plans: PlanStore = Depends(get_plans)) -> dict[str, Any]:
+    """A Student Hub semester made one of Coordinator Tools' own, with everything kept about it.
+
+    An administrator's, as Week 1 of a Hub semester was: it changes what every page files the
+    semester's sets and students under.
+    """
+    staff = getattr(request.state, "staff_user", None)
+    if not getattr(staff, "is_admin", False):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="Only an administrator can move a semester into Coordinator Tools."
+        )
+    try:
+        return plans.adopt(body.termId, body.name, actor=_actor(request))
+    except InvalidPlan as exc:
+        raise _refused(exc) from exc
+
+
 @router.delete("/{term_code}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_plan(term_code: str, plans: PlanStore = Depends(get_plans)) -> None:
     """The semester and the classes placed in it; refused while a cohort has sets or students in it."""
