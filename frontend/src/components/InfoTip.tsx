@@ -1,4 +1,23 @@
-import { AlertTriangle, ArrowRight, Info } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  BookMarked,
+  BookOpen,
+  Blocks,
+  CalendarCheck,
+  CalendarDays,
+  CalendarRange,
+  Clock3,
+  Contact,
+  DoorOpen,
+  GaugeCircle,
+  GraduationCap,
+  Info,
+  ListChecks,
+  ListTree,
+  UserCheck,
+  Users,
+} from "lucide-react";
 import { Tooltip } from "radix-ui";
 import type { ReactNode } from "react";
 
@@ -11,7 +30,7 @@ import type { ReactNode } from "react";
  * other time. This keeps it one hover away, beside the thing it explains.
  *
  * With a `title`, the bubble is a small card read top to bottom: a heading, what to do
- * (`TipDo`), what it changes (`TipPoint`s), and one real case (`TipExample`).
+ * (`TipDo`), what it changes (`TipPoint`s), and one real case of use (`TipUsage`).
  */
 export function InfoTip({ children, label = "What this is", title }: { children: ReactNode; label?: string; title?: string }) {
   return (
@@ -32,7 +51,14 @@ export function InfoTip({ children, label = "What this is", title }: { children:
             align="start"
             sideOffset={4}
             collisionPadding={12}
-            className={`z-[130] ${title ? "w-[22rem] max-w-[calc(100vw-1.5rem)] px-3.5 py-3" : "max-w-xs px-3 py-2"} rounded-md border border-[#d9dee7] bg-white text-xs font-normal normal-case leading-5 tracking-normal text-[#475467] shadow-lg`}
+            /*
+             * Never taller than the room on the side it opens to: a long bubble flipped above
+             * a button low on the page and ran off the top of the window. It scrolls inside
+             * itself instead, and the pointer can move onto it to do so.
+             */
+            className={`z-[130] max-h-[var(--radix-tooltip-content-available-height)] overflow-y-auto overscroll-contain ${
+              title ? "w-[26rem] max-w-[calc(100vw-1.5rem)] px-3.5 py-3" : "max-w-xs px-3 py-2"
+            } rounded-md border border-[#d9dee7] bg-white text-xs font-normal normal-case leading-5 tracking-normal text-[#475467] shadow-lg`}
           >
             {title ? (
               <span className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#171717]">
@@ -66,6 +92,7 @@ export function TipHeading({ children }: { children: ReactNode }) {
 const DOTS = {
   plain: "bg-[#98a2b3]",
   good: "bg-[#2e7d55]",
+  info: "bg-[#1f4e79]",
   caution: "bg-[#d99b1c]",
   serious: "bg-[#a6292f]",
 } as const;
@@ -101,12 +128,69 @@ export function TipPill({ children }: { children: ReactNode }) {
   );
 }
 
-/** One real case, from the department's own schema. */
-export function TipExample({ children }: { children: ReactNode }) {
+/** Each page with the icon it has in the sidebar, so a page named in a bubble is the one found there. */
+const PAGES = {
+  Students: Users,
+  Cohorts: ListChecks,
+  Courses: BookOpen,
+  "Active CRNs": BookMarked,
+  Teachers: GraduationCap,
+  "Active teachers": UserCheck,
+  "Part-time Teachers": Contact,
+  Semesters: CalendarDays,
+  "Semester plan": CalendarCheck,
+  "Semester Timetable": CalendarRange,
+  Rooms: DoorOpen,
+  "Groups & CRNs": ListTree,
+  "Group schema": Blocks,
+  Capacity: GaugeCircle,
+  "Teacher hours": Clock3,
+} as const;
+
+/**
+ * A page of the app, named as the sidebar names it and wearing its icon — squared and
+ * white, so it never reads as a value (a round tinted pill) or as a button's words (bold).
+ */
+export function TipPage({ name }: { name: keyof typeof PAGES }) {
+  const Icon = PAGES[name];
   return (
-    <span className="mt-2.5 block rounded-md border border-dashed border-[#cfd8e3] bg-[#fbfcfe] px-2 py-1.5">
-      <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-[#2e7d55]">Example</span>
-      {children}
+    <span className="mx-px inline-flex items-center gap-1 whitespace-nowrap rounded border border-[#d6dde6] bg-white px-1.5 align-baseline text-[11px] font-semibold leading-[18px] text-[#344054] shadow-[0_1px_0_#e4e8ef]">
+      <Icon size={11} className="shrink-0 text-[#1f4e79]" aria-hidden="true" />
+      {name}
+    </span>
+  );
+}
+
+const STEP_TAGS = {
+  when: "bg-[#f2f4f7] text-[#667085]",
+  do: "bg-[#e8edf3] text-[#1f4e79]",
+  then: "bg-[#e7f4ec] text-[#2e7d55]",
+} as const;
+
+function StepTag({ step }: { step: keyof typeof STEP_TAGS }) {
+  return (
+    <span className={`inline-flex w-10 justify-center rounded px-1 text-[10px] font-semibold uppercase leading-4 tracking-wide ${STEP_TAGS[step]}`}>
+      {step}
+    </span>
+  );
+}
+
+/**
+ * One real case of use, from the department's own sets: the situation, what to do in it,
+ * and what follows. A value shows what a field holds; a case shows why anybody would fill it.
+ */
+export function TipUsage({ when, todo, then }: { when: ReactNode; todo: ReactNode; then: ReactNode }) {
+  return (
+    <span className="mt-2.5 block rounded-md border border-dashed border-[#cfd8e3] bg-[#fbfcfe] px-2.5 py-2">
+      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[#2e7d55]">Example of use</span>
+      <span className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-1">
+        <StepTag step="when" />
+        <span>{when}</span>
+        <StepTag step="do" />
+        <span className="text-[#344054]">{todo}</span>
+        <StepTag step="then" />
+        <span>{then}</span>
+      </span>
     </span>
   );
 }

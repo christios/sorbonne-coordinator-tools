@@ -80,7 +80,11 @@ describe("the course cards", () => {
     const courses = await screen.findByRole("navigation", { name: "Courses" });
     // The list is the courses, and the way to bring one in sits under them. The files are
     // the cohort's rather than the list's, so they live up beside the cohort picker.
-    const names = within(courses).getAllByRole("button").map((item) => item.textContent ?? "");
+    // The ⓘ buttons explain the list; they are not entries in it.
+    const names = within(courses)
+      .getAllByRole("button")
+      .filter((item) => !/^(How|What) /.test(item.getAttribute("aria-label") ?? ""))
+      .map((item) => item.textContent ?? "");
     expect(names.slice(0, 2).map((name) => name.slice(0, 7))).toEqual(["MATH001", "MATH011"]);
     expect(names.slice(2)).toEqual([" Add from portal"]);
     expect(screen.getByRole("button", { name: /Workbook and lists/ })).toBeTruthy();

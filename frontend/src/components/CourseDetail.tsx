@@ -2,6 +2,7 @@ import { AlertTriangle, Armchair, ChevronDown, ChevronRight, Clock3, Eye, Pencil
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
+import { InfoTip, TipDo, TipPage, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
@@ -603,6 +604,27 @@ export function CourseDetail({
                   {/* A component named after its set — "CM · CM" — says it twice. */}
                   {set.course.component && set.course.component !== set.scope.code ? ` · ${set.course.component}` : ""}
                 </span>
+                <InfoTip label="How to read a section card" title="Reading a section card">
+                  <TipDo>Press a card to edit its CRN, teacher, hours and what it asks.</TipDo>
+                  <TipPoint tone="serious">
+                    <TipPill>no CRN</TipPill> the portal&apos;s CRN isn&apos;t entered yet.
+                  </TipPoint>
+                  <TipPoint tone="caution">
+                    <b>not confirmed</b>: a teacher is named, but not chosen from <TipPage name="Active teachers" /> yet.
+                  </TipPoint>
+                  <TipPoint>
+                    <b>Hours</b>: the section&apos;s teaching hours in all.
+                  </TipPoint>
+                  <TipPoint>
+                    <b>Seats</b>: placed over seats. The edge says how full: blue room left, green full, red over.
+                  </TipPoint>
+                  <TipPoint>The eye shows who is in the group.</TipPoint>
+                  <TipUsage
+                    when={<><TipPill>TD 1</TipPill> shows 38/30 seats, edged in red.</>}
+                    todo={<>Press the eye to see who is in it. Then press the card and raise its seats, or place some students in another TD.</>}
+                    then={<>The edge turns green or blue, and the timetabler is told the real size.</>}
+                  />
+                </InfoTip>
                 {set.scope.openToAll ? (
                   <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Across cohorts</span>
                 ) : null}
@@ -635,6 +657,22 @@ export function CourseDetail({
                   >
                     <Wand2 size={13} aria-hidden="true" /> Fill {set.scope.code}
                   </button>
+                ) : null}
+                {cohort ? (
+                  <InfoTip label={`What Fill ${set.scope.code} does`} title={`Fill ${set.scope.code}`}>
+                    <TipDo>Press Fill {set.scope.code} to place students in this set&apos;s groups, all at once.</TipDo>
+                    <TipPoint>Choose who: everyone not yet in this set, or only the students you pick.</TipPoint>
+                    <TipPoint>Choose how: balanced, each to the least-full group, or packed, one group full before the next.</TipPoint>
+                    <TipPoint>The plan shows who goes where before anything is saved.</TipPoint>
+                    <TipPoint>
+                      Only a few students? Press <TipPill>N in no group</TipPill> instead, to place them by hand.
+                    </TipPoint>
+                    <TipUsage
+                      when={<>New students arrived, and <TipPill>6 in no group</TipPill> shows beside {set.scope.code}.</>}
+                      todo={<>Fill {set.scope.code}: everyone not yet in this set, balanced. Check the plan, then confirm.</>}
+                      then={<>Each goes to the least-full group; the report names anyone who couldn&apos;t be placed.</>}
+                    />
+                  </InfoTip>
                 ) : null}
               </div>
 
@@ -675,6 +713,15 @@ export function CourseDetail({
               {untaught.length ? (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#98a2b3]">
                   <span>Not taught to</span>
+                  <InfoTip label="What not taught to means" title="Not taught to">
+                    <TipDo>Press a group to teach it this course again.</TipDo>
+                    <TipPoint>These sub-rows are marked as not taking the course: no class, and no CRN expected.</TipPoint>
+                    <TipUsage
+                      when={<>The physicists&apos; sub-row was marked not taught, and now takes the course after all.</>}
+                      todo={<>Press it here, say it is taught, and give it its CRN.</>}
+                      then={<>It gets a section card like the others.</>}
+                    />
+                  </InfoTip>
                   {untaught.map((row) => (
                     <button
                       key={rowKey(row)}
@@ -692,6 +739,15 @@ export function CourseDetail({
               {spare.length ? (
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#98a2b3]">
                   <span>Add a section in</span>
+                  <InfoTip label="What add a section in means" title="Add a section">
+                    <TipDo>Press a group to give it a section of this course.</TipDo>
+                    <TipPoint>Groups of this set that have no section of the course yet.</TipPoint>
+                    <TipUsage
+                      when={<>A <TipPill>TD 4</TipPill> was added on <TipPage name="Group schema" />.</>}
+                      todo={<>Press <TipPill>4</TipPill> here, then enter its CRN and teacher.</>}
+                      then={<>TD 4 gets its own card, with its seats and hours.</>}
+                    />
+                  </InfoTip>
                   {spare.map((row) => (
                     <button
                       key={rowKey(row)}

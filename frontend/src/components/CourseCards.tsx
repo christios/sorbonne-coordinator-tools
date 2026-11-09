@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 
 import { CohortMenu } from "@/components/CohortMenu";
 import { AddFromPortal } from "@/components/AddFromPortal";
+import { InfoTip, TipDo, TipHeading, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { CourseDetail } from "@/components/CourseDetail";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
@@ -371,7 +372,7 @@ export function CourseCards({
       {header ? createPortal(controls, header) : <div className="mb-3">{controls}</div>}
 
       {/* Which cohort, named above its picker as on the Cohorts page, over the list it narrows. */}
-      <div className="mb-3">
+      <div className="mb-3 flex items-end gap-2">
         <LabelledPicker label="Cohort">
           <CohortMenu
             align="start"
@@ -382,6 +383,22 @@ export function CourseCards({
             placeholder="No cohort yet"
           />
         </LabelledPicker>
+        <span className="pb-2.5">
+          <InfoTip label="How this page works" title="How this page works">
+            <TipDo>Give every group of every set its section: a CRN, a teacher and its hours.</TipDo>
+            <TipHeading>Steps</TipHeading>
+            <TipPoint step={1}>Pick a course on the left, red and amber dots first.</TipPoint>
+            <TipPoint step={2}>Press a section card to fill in its CRN, teacher and hours.</TipPoint>
+            <TipPoint step={3}>Say once what the course asks for each set, rather than on every section.</TipPoint>
+            <TipPoint step={4}>Fill each set with students, or place the ones in no group.</TipPoint>
+            <TipPoint step={5}>Send the timetabler the workbook, from <b>Workbook and lists</b>.</TipPoint>
+            <TipUsage
+              when={<>The registrar has opened FYS&apos;s <TipPill>MATH-009</TipPill> sections, and they have no CRN here yet.</>}
+              todo={<>Open MATH-009, press <TipPill>TD 1</TipPill>, enter the portal&apos;s CRN and choose the teacher. Then the next one.</>}
+              then={<>The course&apos;s dot turns green once every section has a CRN and a teacher.</>}
+            />
+          </InfoTip>
+        </span>
       </div>
 
       {filled ? (
@@ -452,6 +469,23 @@ export function CourseCards({
           */
         <div className="mt-3 grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[16rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
           <nav aria-label="Courses" className="relative rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
+            <p className="flex items-center gap-1 px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+              Courses
+              <InfoTip label="How the course list works" title="The course list">
+                <TipDo>Pick a course to see its sections on the right.</TipDo>
+                <TipHeading>The dot beside each course</TipHeading>
+                <TipPoint tone="good">Every section has a CRN and a teacher.</TipPoint>
+                <TipPoint tone="caution">A section has its CRN, but nobody teaching it yet.</TipPoint>
+                <TipPoint tone="serious">A section has no CRN yet.</TipPoint>
+                <TipHeading>The number</TipHeading>
+                <TipPoint>How many sections the course has, in every set.</TipPoint>
+                <TipUsage
+                  when={<><TipPill>MATH-009</TipPill> shows a red dot.</>}
+                  todo={<>Open it and press the card marked <TipPill>no CRN</TipPill>; enter the CRN the portal gives.</>}
+                  then={<>The dot turns amber until a teacher is chosen, then green.</>}
+                />
+              </InfoTip>
+            </p>
             {byCohort.map((card) => (
               <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
             ))}
@@ -460,7 +494,19 @@ export function CourseCards({
             ) : null}
             {acrossCohorts.length ? (
               <>
-                <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">Across cohorts</p>
+                <p className="flex items-center gap-1 px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+                  Across cohorts
+                  <InfoTip label="What courses across cohorts are" title="Across cohorts">
+                    <TipDo>Find here the courses of sets open to every cohort, like the languages.</TipDo>
+                    <TipPoint>Their sections are shared: one CRN serves the students of every cohort.</TipPoint>
+                    <TipPoint>They are the same whichever cohort is chosen above.</TipPoint>
+                    <TipUsage
+                      when={<>The French <TipPill>A0-F1</TipPill> class needs its CRN.</>}
+                      todo={<>Open <TipPill>SCEN-101</TipPill> here, from any cohort, and press A0-F1.</>}
+                      then={<>Every cohort&apos;s students in A0-F1 share that one CRN.</>}
+                    />
+                  </InfoTip>
+                </p>
                 {acrossCohorts.map((card) => (
                   <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
                 ))}
@@ -471,14 +517,25 @@ export function CourseCards({
               * in this list, so the way to bring one in belongs at the end of it. The files
               * do not — they are the cohort's, and they sit with the cohort picker.
               */}
-            <div className="mt-2 space-y-1 border-t border-[#eef1f5] px-1 pt-2">
+            <div className="mt-2 flex items-center gap-1 border-t border-[#eef1f5] px-1 pt-2">
               <button
                 type="button"
                 onClick={() => setAdding(true)}
-                className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
               >
                 <Plus size={15} aria-hidden="true" /> Add from portal
               </button>
+              <InfoTip label="What add from portal does" title="Add from portal">
+                <TipDo>Bring in a course the portal has and this list doesn&apos;t.</TipDo>
+                <TipPoint>Choose the cohort, the semester, and the course as the portal names it.</TipPoint>
+                <TipPoint>Its CRNs come in with the portal&apos;s teacher already on them.</TipPoint>
+                <TipPoint>Give each CRN its set and its group.</TipPoint>
+                <TipUsage
+                  when={<>The registrar created the <TipPill>SCEN-102</TipPill> Readiness CRNs, and FYS&apos;s list doesn&apos;t show the course yet.</>}
+                  todo={<>Add from portal: FYS, Semester 1, SCEN-102. Give each CRN its <TipPill>RDNS</TipPill> group.</>}
+                  then={<>SCEN-102 joins the list with its CRNs and teachers filled in.</>}
+                />
+              </InfoTip>
             </div>
           </nav>
 

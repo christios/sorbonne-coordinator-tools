@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { InfoTip, TipDo, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { isSilent, preferences, spread } from "@/services/courseRequest";
@@ -164,7 +165,21 @@ export function CourseRequestLine({
   return (
     <div className="mb-2.5 rounded-md border border-[#e4e8ef] bg-[#fbfcfe] px-3 py-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8a94a4]">The course asks</span>
+        <span className="inline-flex items-center gap-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wide text-[#8a94a4]">The course asks</span>
+          <InfoTip label="What the course asks means" title="What the course asks">
+            <TipDo>
+              Say once what every {scopeCode} section of this course needs: its hours, its weeks, its room.
+            </TipDo>
+            <TipPoint>Nothing is copied into the sections: one with its own answer keeps it.</TipPoint>
+            <TipPoint>Where a section says nothing, the timetabler&apos;s workbook uses the course&apos;s answer.</TipPoint>
+            <TipUsage
+              when={<>Six TD groups of <TipPill>MATH-001</TipPill> Pre Calculus all want 36 hours, over the same weeks, in the same sort of room.</>}
+              todo={<>Press <b>Say what TD asks for</b> and enter it once.</>}
+              then={<>Every TD section without its own hours goes to the timetabler with 36.</>}
+            />
+          </InfoTip>
+        </span>
         {silent ? (
           <span className="text-xs text-[#98a2b3]">nothing yet — every section speaks for itself</span>
         ) : (
