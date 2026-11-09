@@ -217,3 +217,90 @@ def load_tables(
                 )
             )
     return loaded
+
+
+# ------------------------------------------------------------------ restore
+
+# What a restore may put back, parents before children. A cohort and everything that hangs
+# off it: its members, its sets with their courses and groups, the groups' sub-rows and
+# CRNs, who sits in them, and the exemptions and rules filed under it. Nothing else — a
+# restore is for what deleting a cohort takes with it, not a second way to edit production.
+RESTORABLE = (
+    "student_cohorts",
+    "cohort_scopes",
+    "scope_courses",
+    "scope_groups",
+    "group_majors",
+    "group_crns",
+    "cohort_members",
+    "group_assignments",
+    "course_exemptions",
+    "discrepancy_rules",
+)
+
+
+class RestoreRefused(Exception):
+    """Something asked of a restore that it does not do. Nothing was changed."""
+
+
+def restore_rows(
+    engine: Engine,
+    tables: dict[str, dict[str, Any]],
+    *,
+    remove_if_empty: list[str] | None = None,
+) -> dict[str, Any]:
+    """Put back rows a backup holds and this database has lost. One transaction: all or none.
+
+    Made after FYS was deleted from Semester 2 on 9 Nov 2026 and took its Semester 1 sets,
+    every student's French group and 820 placements with it: the backup of that morning had
+    them all, and there was no way to put them back but by hand.
+
+    Additive only. A row whose key is already here is left exactly as it is, so a restore
+    run twice changes nothing the second time, and nothing written since the backup is
+    overwritten. The foreign keys stay on: rows go in parents first, and a row whose parent
+    is missing fails the whole restore rather than landing orphaned.
+
+    `remove_if_empty` names cohorts to take away first — one made in place of the lost one,
+    which would otherwise stand beside it under the same name. Only a cohort with no member,
+    no set and no placement; anything else is refused.
+    """
+    unknown = sorted(set(tables) - set(RESTORABLE))
+    if unknown:
+        raise RestoreRefused(f"A restore only puts back cohorts and what they hold, not {', '.join(unknown)}.")
+    held = _reflect(engine)
+    restored: dict[str, int] = {}
+    removed: list[str] = []
+    with engine.begin() as connection:
+        for cohort_id in remove_if_empty or []:
+            busy = connection.execute(
+                text("""SELECT (SELECT count(*) FROM cohort_members WHERE cohort_id = :id)
+                             + (SELECT count(*) FROM cohort_scopes WHERE cohort_id = :id)
+                             + (SELECT count(*) FROM group_assignments WHERE cohort_id = :id)"""),
+                {"id": cohort_id},
+            ).scalar()
+            if busy:
+                raise RestoreRefused(
+                    f"Cohort {cohort_id} holds students or sets, so it is not removed. Nothing was changed."
+                )
+            connection.execute(text("DELETE FROM discrepancy_rules WHERE cohort_id = :id"), {"id": cohort_id})
+            if connection.execute(text("DELETE FROM student_cohorts WHERE id = :id"), {"id": cohort_id}).rowcount:
+                removed.append(cohort_id)
+        for name in RESTORABLE:
+            payload = tables.get(name)
+            if not payload or not payload.get("rows"):
+                restored[name] = 0
+                continue
+            table = held.tables[name]
+            columns = [column for column in payload["columns"] if column in table.columns]
+            keys = [f"c{index}" for index in range(len(columns))]
+            statement = text(
+                f'INSERT INTO "{name}" ({", ".join(chr(34) + column + chr(34) for column in columns)}) '  # noqa: S608
+                f"VALUES ({', '.join(':' + key for key in keys)}) ON CONFLICT DO NOTHING"
+            )
+            place = {column: index for index, column in enumerate(payload["columns"])}
+            count = 0
+            for row in payload["rows"]:
+                values = {key: row[place[column]] for key, column in zip(keys, columns, strict=True)}
+                count += connection.execute(statement, values).rowcount
+            restored[name] = count
+    return {"restored": restored, "removed": removed}
