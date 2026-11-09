@@ -75,7 +75,14 @@ const labelOf = (row: PortalTeacher) => row.fullName || row.teacherId;
  * Mirrors the portal's staff list, pulled by filter. Select the teachers the department
  * deals with and add them to Active teachers, which is the department's own list.
  */
-export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
+export function PortalTeachers({
+  onOpenTeacher,
+  header,
+}: {
+  onOpenTeacher?: (teacher: TeacherRef) => void;
+  /** The slot on the page's title line, top right, where the semester goes. */
+  header?: HTMLElement | null;
+}) {
   const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => {
     try {
@@ -228,7 +235,7 @@ export function PortalTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}

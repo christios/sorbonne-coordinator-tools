@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
+import { createPortal } from "react-dom";
 
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
@@ -36,18 +37,25 @@ export function usePortalSemester() {
   };
 }
 
-/** The menu itself, saying each semester as every semester menu does: tag, year, name. */
+/**
+ * The menu itself, saying each semester as every semester menu does: tag, year, name.
+ *
+ * On the page's title line, top right, as on Cohorts, when the page is given that slot;
+ * where it is rendered otherwise.
+ */
 export function PortalSemesterMenu({
   semesters,
   semester,
   onChange,
+  header,
 }: {
   semesters: TimetableTerm[];
   semester: TimetableTerm | null;
   onChange: (termId: string) => void;
+  header?: HTMLElement | null;
 }) {
   const shownOf = useSemesterShown();
-  return (
+  const menu = (
     <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
       <SelectMenu
         label="Semester"
@@ -58,4 +66,5 @@ export function PortalSemesterMenu({
       />
     </div>
   );
+  return header ? createPortal(menu, header) : menu;
 }

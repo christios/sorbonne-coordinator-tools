@@ -312,7 +312,14 @@ function WarningsCell({
  * with a few dozen. They are chosen from the Teachers page, or brought from the
  * Part-time Teacher Database here — and a person on both sides is one row.
  */
-export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
+export function ActiveTeachers({
+  onOpenTeacher,
+  header,
+}: {
+  onOpenTeacher?: (teacher: TeacherRef) => void;
+  /** The slot on the page's title line, top right, where the semester goes. */
+  header?: HTMLElement | null;
+}) {
   const client = useQueryClient();
   // The semester the list is for: who is active in it, and the sections of it they teach.
   const { semesters, semester, setTermId, term } = usePortalSemester();
@@ -575,7 +582,7 @@ export function ActiveTeachers({ onOpenTeacher }: { onOpenTeacher?: (teacher: Te
           empty={`Nobody active in ${semester?.name ?? "this semester"} yet. Bring teachers over from another semester, choose them on the Teachers page, or add them from the part-time database.`}
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
               <button
                 type="button"
                 disabled={!term}

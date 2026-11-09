@@ -440,17 +440,18 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "teacher-hours" ? (
             <TeacherHours onOpenTeacher={setTeacherRecord} />
           ) : null}
-          {page === "courses" ? <PortalCourses /> : null}
+          {page === "courses" ? <PortalCourses header={pageHeader} /> : null}
           {page === "active-courses" ? (
             <ActiveCourses
+              header={pageHeader}
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");
               }}
             />
           ) : null}
-          {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} /> : null}
-          {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} /> : null}
+          {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
+          {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (

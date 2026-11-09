@@ -51,7 +51,7 @@ const labelOf = (row: PortalCourse) => `${row.courseCode} ${row.crn}`;
  * into a group, a CRN the Student Hub teaches, a CRN a student is registered in. It is
  * the portal's own answer, pulled by filter, and says when it was last asked.
  */
-export function PortalCourses() {
+export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) {
   const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
   // The semester the portal's list is shown for, and the one a course taken in is active in.
@@ -129,7 +129,7 @@ export function PortalCourses() {
           }
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}

@@ -121,7 +121,14 @@ const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
  * entry for its parent — so a link that leads nowhere shows as one, and the banner says
  * where the registrar's list has moved away from the register since anyone last looked.
  */
-export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: string[]) => void } = {}) {
+export function ActiveCourses({
+  onShowStudents,
+  header,
+}: {
+  onShowStudents?: (ids: string[]) => void;
+  /** The slot on the page's title line, top right, where the semester goes. */
+  header?: HTMLElement | null;
+} = {}) {
   const client = useQueryClient();
   // The semester the register is shown for: its CRNs, and the courses active in it.
   const { semesters, semester, setTermId, term } = usePortalSemester();
@@ -290,7 +297,7 @@ export function ActiveCourses({ onShowStudents }: { onShowStudents?: (ids: strin
             empty={`Nothing registered for ${semester?.name ?? "this semester"} yet. Choose its courses on the Courses page and their CRNs come with them.`}
             toolbar={
               <>
-                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
                 <button
                   type="button"
                   onClick={() => {
