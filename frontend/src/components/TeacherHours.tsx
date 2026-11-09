@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Download, EyeOff, ListTree, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 import { HourWindowPicker } from "@/components/HourWindowPicker";
@@ -71,7 +72,14 @@ import { useSemesterShown } from "@/services/semesterYears";
  * worth finding, because a section with hours and no teacher is a class with nobody in
  * front of it.
  */
-export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: TeacherRef) => void }) {
+export function TeacherHours({
+  onOpenTeacher,
+  header,
+}: {
+  onOpenTeacher?: (teacher: TeacherRef) => void;
+  /** The slot on the page's title line, top right, where the semester goes. */
+  header?: HTMLElement | null;
+}) {
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
@@ -291,21 +299,24 @@ export function TeacherHours({ onOpenTeacher }: { onOpenTeacher?: (teacher: Teac
     );
   }
 
+  // On the page's title line, top right, as on every page with a semester; here where there is no slot.
+  const semesterMenu = (
+    <SelectMenu
+      label="Semester"
+      value={chosenTerm}
+      onChange={setTermId}
+      options={termIds.map((id) => ({ value: id, ...shownOf({ id, name: termName(id) }) }))}
+    />
+  );
+
   return (
     <section>
+      {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
       {/*
-        * Both controls on one line. They are one question — which semester, and which
-        * stretch of it — and stacking them put a page of tiles between the two halves.
+        * The stretch of the semester counted, beside the file it is exported as.
         */}
       <div className="mb-4 flex flex-wrap items-end gap-4">
-        <LabelledPicker label="Semester">
-          <SelectMenu
-            label="Semester"
-            value={chosenTerm}
-            onChange={setTermId}
-            options={termIds.map((id) => ({ value: id, ...shownOf({ id, name: termName(id) }) }))}
-          />
-        </LabelledPicker>
+        {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
         <div className="min-w-0">
           <p className="mb-1 flex items-center text-xs font-semibold uppercase tracking-wide text-[#667085]">
             Counting

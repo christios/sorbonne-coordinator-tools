@@ -438,7 +438,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           ) : null}
           {page === "capacity" ? <CapacityPage /> : null}
           {page === "teacher-hours" ? (
-            <TeacherHours onOpenTeacher={setTeacherRecord} />
+            <TeacherHours onOpenTeacher={setTeacherRecord} header={pageHeader} />
           ) : null}
           {page === "courses" ? <PortalCourses header={pageHeader} /> : null}
           {page === "active-courses" ? (
