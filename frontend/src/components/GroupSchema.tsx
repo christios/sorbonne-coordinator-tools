@@ -30,6 +30,7 @@ import {
   deleteGroup,
   deleteScope,
   fetchCatalogue,
+  fetchCourseCards,
   moveScope,
   parentsOf,
   removeMajor,
@@ -189,6 +190,33 @@ export function GroupSchema({
   };
 
   const scopes = useMemo(() => catalogue.data?.scopes ?? [], [catalogue.data]);
+
+  /*
+   * What the sub-row and First for pickers offer when this browser holds no students: the
+   * majors the schema already uses, in any cohort and any semester.
+   *
+   * It used to be a free field, where "MATH - Mathematic" made a sub-row nobody is ever
+   * placed on, and nothing said so — the warning for that is measured against the students
+   * this browser holds, and it held none. Those warnings still are: this list is only what
+   * the pickers offer, never evidence of who is on what.
+   */
+  const pulled = programmes.length > 0;
+  const everySchema = useQuery({
+    queryKey: ["course-cards"],
+    queryFn: fetchCourseCards,
+    enabled: majors.isSuccess && !pulled,
+  });
+  const vocabulary = useMemo(() => {
+    if (pulled) return programmes;
+    const used = new Set<string>();
+    for (const scope of [...(everySchema.data ?? []).flatMap((held) => held.scopes), ...scopes]) {
+      for (const group of scope.groups) {
+        for (const major of group.majors ?? []) if (major.program.trim()) used.add(major.program.trim());
+        if (group.firstFor?.trim()) used.add(group.firstFor.trim());
+      }
+    }
+    return [...used].sort((left, right) => left.localeCompare(right));
+  }, [pulled, programmes, everySchema.data, scopes]);
   const readings = useMemo(() => readSets(scopes, cohortId, programmes), [scopes, cohortId, programmes]);
   const cohort = cohorts.find((row) => row.id === cohortId) ?? null;
   const totals = totalsOf(readings);
@@ -415,7 +443,8 @@ export function GroupSchema({
                 reading={chosen}
                 scopes={scopes}
                 activeCourses={(active.data ?? []).map((course) => ({ code: course.courseCode, title: course.title }))}
-                programmes={programmes}
+                programmes={vocabulary}
+                pulled={pulled}
                 onChanged={refresh}
                 onRemoved={() => {
                   setChosenId("");
@@ -511,14 +540,20 @@ function SetEditor({
   scopes,
   activeCourses,
   programmes,
+  pulled,
   onChanged,
   onRemoved,
 }: {
   reading: SetReading;
   scopes: CatalogueScope[];
   activeCourses: { code: string; title: string }[];
-  /** The programmes the portal has for this cohort's students, for the two pickers below. */
+  /**
+   * The majors the two pickers below offer: the synced students', or — with none synced in
+   * this browser — those the schema already uses.
+   */
   programmes: string[];
+  /** Whether those are the synced students' majors, the whole list, or only the schema's. */
+  pulled: boolean;
   onChanged: () => void;
   onRemoved: () => void;
 }) {
@@ -781,6 +816,13 @@ function SetEditor({
           </InfoTip>
         </p>
 
+        {!pulled && scope.groups.length ? (
+          <p className="mt-1 text-xs text-[#8a6116]">
+            No students are synced in this browser, so sub-rows offer only the majors the schema already uses. Sync the
+            students with Portal sync to choose from every major.
+          </p>
+        ) : null}
+
         {scope.groups.length ? (
           <div className="mt-2 overflow-x-auto rounded-lg border border-[#e4e8ef]">
             <table className="w-full min-w-max text-left text-sm">
@@ -910,6 +952,7 @@ function SetEditor({
                     group={group}
                     nested={scope.kind === "nested"}
                     programmes={programmes}
+                    pulled={pulled}
                     parentGroups={parentGroups}
                     siblings={siblings}
                     onChanged={onChanged}
@@ -1007,6 +1050,7 @@ function GroupRow({
   group,
   nested,
   programmes,
+  pulled,
   parentGroups,
   siblings,
   onChanged,
@@ -1015,6 +1059,7 @@ function GroupRow({
   group: CatalogueGroup;
   nested: boolean;
   programmes: string[];
+  pulled: boolean;
   parentGroups: CatalogueGroup[];
   /** Every other group of the same semester, any set, that this one could run in parallel with. */
   siblings: { id: string; label: string }[];
@@ -1086,7 +1131,7 @@ function GroupRow({
         * student on their own, and a course may be one sub-row's and not another's.
         */}
       <td className="w-28 py-1.5 pr-3">
-        <MajorsEditor group={group} programmes={programmes} onChanged={onChanged} />
+        <MajorsEditor group={group} programmes={programmes} pulled={pulled} onChanged={onChanged} />
       </td>
       {nested ? (
         <td className="py-1.5 pr-3">
@@ -1150,20 +1195,39 @@ function GroupRow({
  * The sub-rows of one group, edited in place: a programme from the cohort's vocabulary and
  * its seats per line, a line taken away, a line added. Removing one leaves its students in
  * the group on no sub-row, and the row's count says so until somebody moves them.
+ *
+ * Always chosen from a list. With students synced it is their majors, and nothing else can
+ * be added. Without, it is the majors the schema already uses, and "Another major…" opens a
+ * box for one it has never seen, typed as the registrar spells it.
  */
-function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup; programmes: string[]; onChanged: () => void }) {
+function MajorsEditor({
+  group,
+  programmes,
+  pulled,
+  onChanged,
+}: {
+  group: CatalogueGroup;
+  programmes: string[];
+  /** True when `programmes` are the synced students' majors: then the list is the whole of it. */
+  pulled: boolean;
+  onChanged: () => void;
+}) {
   const majors = group.majors ?? [];
   const [adding, setAdding] = useState("");
+  const [typing, setTyping] = useState(false);
   const add = useMutation({
     mutationFn: (program: string) => addMajor(group.id, { program, seats: 0 }),
     onSuccess: () => {
       setAdding("");
+      setTyping(false);
       onChanged();
     },
   });
   const remove = useMutation({ mutationFn: (major: CatalogueMajor) => removeMajor(major.id), onSuccess: onChanged });
   const offered = programmes.filter((program) => !majors.some((major) => major.program === program));
   const error = add.error ?? remove.error;
+  // A value no programme can have, for the option that opens the box.
+  const ANOTHER = "\u0000another";
   return (
     <div className="w-28 space-y-1">
       {majors.map((major) => (
@@ -1189,13 +1253,43 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
           </button>
         </div>
       ))}
-      {offered.length ? (
+      {typing || (!pulled && offered.length === 0) ? (
+        // A major the schema has never used, typed as the registrar spells it —
+        // "MATH - Mathematics" — and Enter adds it. Escape goes back to the list.
+        <input
+          aria-label={`Add a sub-row to ${group.label}`}
+          value={adding}
+          autoFocus={typing}
+          onChange={(event) => setAdding(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              setAdding("");
+              setTyping(false);
+              return;
+            }
+            if (event.key !== "Enter" || !adding.trim()) return;
+            event.preventDefault();
+            add.mutate(adding.trim());
+          }}
+          onBlur={() => {
+            if (!adding.trim()) setTyping(false);
+          }}
+          placeholder="MATH - Mathematics"
+          title="A major as the portal spells it, then Enter"
+          className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
+        />
+      ) : offered.length ? (
         <select
           aria-label={`Add a sub-row to ${group.label}`}
           value={adding}
           onChange={(event) => {
-            setAdding(event.target.value);
-            if (event.target.value) add.mutate(event.target.value);
+            const value = event.target.value;
+            if (value === ANOTHER) {
+              setTyping(true);
+              return;
+            }
+            setAdding(value);
+            if (value) add.mutate(value);
           }}
           className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
         >
@@ -1205,23 +1299,8 @@ function MajorsEditor({ group, programmes, onChanged }: { group: CatalogueGroup;
               {program}
             </option>
           ))}
+          {pulled ? null : <option value={ANOTHER}>Another major…</option>}
         </select>
-      ) : programmes.length === 0 ? (
-        // No portal pull in this browser to take the vocabulary from: typed, as the
-        // registrar spells it — "MATH - Mathematics" — and Enter adds it.
-        <input
-          aria-label={`Add a sub-row to ${group.label}`}
-          value={adding}
-          onChange={(event) => setAdding(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter" || !adding.trim()) return;
-            event.preventDefault();
-            add.mutate(adding.trim());
-          }}
-          placeholder={majors.length ? "+ major" : "+ a major"}
-          title="A major as the portal spells it, then Enter"
-          className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
-        />
       ) : null}
       {error ? <p className="text-xs text-[#a6292f]">{(error as Error).message}</p> : null}
     </div>

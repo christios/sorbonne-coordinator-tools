@@ -204,3 +204,74 @@ describe("adding a set", () => {
   });
 });
 
+
+describe("choosing a sub-row's major", () => {
+  /** Another cohort's set, whose group already splits by major. */
+  const elsewhere = [
+    {
+      cohort: { id: "cohort-2", name: "L2", term: "2026-27" },
+      scopes: [
+        {
+          id: "s-other", code: "CM", name: "", note: "", termId: "term-1", kind: "shared", parentScopeId: "",
+          openToAll: false, cohortId: "cohort-2", courses: [],
+          groups: [
+            {
+              id: "g-other", label: "1", capacity: 0, note: "", program: "", parentGroupId: "", assigned: 0, crns: {},
+              firstFor: "CHEM - Chemistry",
+              majors: [{ id: "m-other", program: "MATH - Mathematics", seats: 0, assigned: 0 }],
+            },
+          ],
+        },
+      ],
+    },
+  ] as unknown as database.CohortCatalogue[];
+
+  it("offers the majors the schema already uses when no students are synced, and says why", async () => {
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(catalogue(["PHYS - Physics"]));
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(elsewhere);
+
+    shown();
+
+    const picker = (await screen.findByRole("combobox", { name: "Add a sub-row to 1" })) as HTMLSelectElement;
+    await waitFor(() =>
+      expect([...picker.options].map((option) => option.textContent)).toEqual([
+        "+ major",
+        "CHEM - Chemistry",
+        "MATH - Mathematics",
+        "Another major…",
+      ]),
+    );
+    expect(screen.getByText(/No students are synced in this browser/)).toBeTruthy();
+  });
+
+  it("types a major the schema has never used, after Another major…", async () => {
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(catalogue(["PHYS - Physics"]));
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(elsewhere);
+    const added = vi.spyOn(database, "addMajor").mockResolvedValue({} as never);
+
+    shown();
+
+    const picker = await screen.findByRole("combobox", { name: "Add a sub-row to 1" });
+    await waitFor(() => expect(within(picker).getByRole("option", { name: "Another major…" })).toBeTruthy());
+    fireEvent.change(picker, { target: { value: "\u0000another" } });
+    const box = await screen.findByRole("textbox", { name: "Add a sub-row to 1" });
+    fireEvent.change(box, { target: { value: "BIO - Biology" } });
+    fireEvent.keyDown(box, { key: "Enter" });
+
+    await waitFor(() => expect(added).toHaveBeenCalledWith("g1", { program: "BIO - Biology", seats: 0 }));
+  });
+
+  it("offers only the synced students' majors when there are some, with nothing to type", async () => {
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(catalogue([]));
+    const everywhere = vi.spyOn(database, "fetchCourseCards").mockResolvedValue(elsewhere);
+
+    shown();
+
+    const picker = (await screen.findByRole("combobox", { name: "Add a sub-row to 1" })) as HTMLSelectElement;
+    expect([...picker.options].map((option) => option.textContent)).toEqual(["Everybody", "MATH - Mathematics", "PHYS - Physics"]);
+    expect(screen.queryByText(/No students are synced in this browser/)).toBeNull();
+    expect(everywhere).not.toHaveBeenCalled();
+  });
+});
