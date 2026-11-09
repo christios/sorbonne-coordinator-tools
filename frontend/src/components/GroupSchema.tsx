@@ -46,16 +46,15 @@ const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 const field = "mt-1 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm";
 const caption = "block text-xs font-semibold uppercase tracking-wide text-[#667085]";
 /*
- * The four columns that hold a control — In parallel with, Sub-rows, Goes with, First for —
- * share whatever room the others leave (those are sized to what they hold), and each control
- * fills its column. A control capped short of its column left a band of nothing beside it on
- * a wide screen; on a laptop they shrink to these minimums and the table still fits.
+ * In parallel with and Goes with share whatever room the other columns leave — those are
+ * sized to what they hold, Sub-rows and First for included — and each menu fills its column.
+ * A menu capped short of its column left a band of nothing beside it on a wide screen; on a
+ * laptop they shrink to this minimum and the table still fits.
  *
- * Not sized by what they hold, so every row is the same and the table never grows past the
- * page for them: the two group menus fold what does not fit into "+N".
+ * Not sized by its own pills, so every row's menu is the same width and the table never
+ * grows past the page for them: what does not fit folds into "+N".
  */
 const PILL_MENU = "w-full min-w-[7rem] [contain:inline-size]";
-const WIDE_MENU = "w-full min-w-[10rem] [contain:inline-size]";
 
 /**
  * What "placing" is, with the buttons that do it.
@@ -900,7 +899,7 @@ function SetEditor({
                       </InfoTip>
                     </span>
                   </th>
-                  <th className="py-2 pr-2 font-semibold">
+                  <th className="w-px whitespace-nowrap py-2 pr-2 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Sub-rows</span>
                       <InfoTip label="What sub-rows are" title="Sub-rows">
@@ -943,7 +942,7 @@ function SetEditor({
                     </th>
                   ) : null}
                   {programmes.length > 1 ? (
-                    <th className="py-2 pr-2 font-semibold">
+                    <th className="w-px whitespace-nowrap py-2 pr-2 font-semibold">
                       <span className="inline-flex items-center gap-1 normal-case">
                         <span className="uppercase">First for</span>
                         <InfoTip label="What First for does" title="First for">
@@ -1206,7 +1205,7 @@ function GroupRow({
         */}
       {programmes.length > 1 ? (
         <td className="py-1.5 pr-2">
-          <div className={WIDE_MENU}>
+          <div className="w-40">
             <SelectMenu
               label={`The major ${group.label} takes first`}
               value={group.firstFor ?? ""}
@@ -1276,7 +1275,7 @@ function MajorsEditor({
   // A value no programme can have, for the option that opens the box.
   const ANOTHER = "\u0000another";
   return (
-    <div className={`${WIDE_MENU} space-y-1`}>
+    <div className="w-36 space-y-1">
       {majors.map((major) => (
         // Narrow on purpose: the name and its seats, and the remove button over the seats
         // only while the pointer (or the keyboard) is on the line.
