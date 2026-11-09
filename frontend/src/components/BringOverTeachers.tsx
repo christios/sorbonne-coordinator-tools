@@ -64,8 +64,8 @@ export function BringOverTeachers({
   return (
     <Modal
       open={open}
-      title={`Bring teachers into ${semesterName}`}
-      description="Teachers active in another semester. Those you tick are active here too, with their portal and part-time records as they are."
+      title="Active teachers settings"
+      description={semesterName}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -88,6 +88,11 @@ export function BringOverTeachers({
         </div>
       }
     >
+      <h3 className="text-sm font-semibold text-[#171717]">Bring over from another semester</h3>
+      <p className="mb-3 mt-0.5 text-xs text-[#667085]">
+        Teachers active in another semester. Those you tick are active in {semesterName} too, with their portal and
+        part-time records as they are.
+      </p>
       <div className="mb-3 flex items-center gap-3">
         <input
           aria-label="Search teachers"

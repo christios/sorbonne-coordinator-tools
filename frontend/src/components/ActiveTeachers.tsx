@@ -1,5 +1,5 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, CalendarArrowUp, EyeOff, Link2, RotateCcw, Trash2, UserPlus, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, EyeOff, Link2, RotateCcw, Settings, Trash2, UserPlus, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 
@@ -579,18 +579,22 @@ export function ActiveTeachers({
           onSelectedChange={setSelected}
           renderCell={cell}
           onRowClick={onOpenTeacher}
-          empty={`Nobody active in ${semester?.name ?? "this semester"} yet. Bring teachers over from another semester, choose them on the Teachers page, or add them from the part-time database.`}
+          empty={`Nobody active in ${semester?.name ?? "this semester"} yet. Bring teachers over from another semester in Settings, beside the semester, choose them on the Teachers page, or add them from the part-time database.`}
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
-              <button
-                type="button"
-                disabled={!term}
-                onClick={() => setBringing(true)}
-                className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-50"
-              >
-                <CalendarArrowUp size={15} aria-hidden="true" /> Bring over from another semester
-              </button>
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header}>
+                {/* The semester's own settings: who is brought over into it from another. */}
+                <button
+                  type="button"
+                  aria-label={`Active teachers settings for ${semester?.name ?? "this semester"}`}
+                  title="Settings: bring teachers over from another semester"
+                  disabled={!term}
+                  onClick={() => setBringing(true)}
+                  className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+                >
+                  <Settings size={16} aria-hidden="true" />
+                </button>
+              </PortalSemesterMenu>
               <button
                 type="button"
                 onClick={() => setPicking(true)}

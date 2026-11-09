@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { SelectMenu } from "@/components/SelectMenu";
@@ -48,22 +48,28 @@ export function PortalSemesterMenu({
   semester,
   onChange,
   header,
+  children,
 }: {
   semesters: TimetableTerm[];
   semester: TimetableTerm | null;
   onChange: (termId: string) => void;
   header?: HTMLElement | null;
+  /** Beside the menu, to its right: the semester's own settings, where a page has some. */
+  children?: ReactNode;
 }) {
   const shownOf = useSemesterShown();
   const menu = (
-    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
-      <SelectMenu
-        label="Semester"
-        value={semester?.id ?? ""}
-        onChange={onChange}
-        placeholder="No semester yet"
-        options={semesters.map((term) => ({ value: term.id, ...shownOf(term) }))}
-      />
+    <div className="flex items-center gap-2">
+      <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
+        <SelectMenu
+          label="Semester"
+          value={semester?.id ?? ""}
+          onChange={onChange}
+          placeholder="No semester yet"
+          options={semesters.map((term) => ({ value: term.id, ...shownOf(term) }))}
+        />
+      </div>
+      {children}
     </div>
   );
   return header ? createPortal(menu, header) : menu;
