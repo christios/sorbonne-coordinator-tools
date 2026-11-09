@@ -1,6 +1,6 @@
 import { Popover } from "radix-ui";
 import { ChevronDown } from "lucide-react";
-import { useEffect, useRef, useState, type ComponentType } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 
 import { SemesterTag } from "@/components/SemesterTag";
 import { YearPill } from "@/components/YearPill";
@@ -157,6 +157,31 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   // "2 values selected" makes a coordinator open it to find out. Past a few, the rest
   // become "+N" so the control stays a control.
   const SHOWN = 3;
+  /*
+   * On one line, always: as many pills as the control has room for, the rest in "+N". In a
+   * narrow column the third pill and its "+1" used to wrap onto a second line and stretch
+   * the row; now the control drops a pill instead, measured where it is drawn.
+   */
+  const pillsRef = useRef<HTMLSpanElement>(null);
+  const [fit, setFit] = useState(SHOWN);
+  const [room, setRoom] = useState(0);
+  const chosenKey = selectedValues.join("\n");
+  useEffect(() => setFit(SHOWN), [chosenKey]);
+  useEffect(() => {
+    const held = pillsRef.current;
+    if (!held || typeof ResizeObserver === "undefined") return;
+    const watch = new ResizeObserver(() => {
+      setFit(SHOWN);
+      setRoom(held.clientWidth);
+    });
+    watch.observe(held);
+    return () => watch.disconnect();
+  }, [multiple, selected.length]);
+  useLayoutEffect(() => {
+    const held = pillsRef.current;
+    if (held && fit > 1 && held.scrollWidth > held.clientWidth + 1) setFit(fit - 1);
+  }, [fit, room, chosenKey]);
+  const showing = Math.min(fit, SHOWN);
   const selectedLabel = multiple ? placeholder : (selected[0]?.label ?? placeholder);
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
@@ -244,20 +269,21 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
              * one "+N" pill and the full list sits in the tooltip.
              */
             <span
-              className="flex min-w-0 flex-wrap items-center gap-1"
+              ref={pillsRef}
+              className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
               title={`${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"}: ${selected.map((option) => option.label).join(", ")}`}
             >
-              {selected.slice(0, SHOWN).map((option) => (
+              {selected.slice(0, showing).map((option) => (
                 <span
                   key={option.value}
-                  className="inline-flex max-w-[10rem] items-center truncate rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]"
+                  className="inline-flex max-w-[10rem] shrink-0 items-center truncate rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]"
                 >
                   {option.label}
                 </span>
               ))}
-              {selected.length > SHOWN ? (
-                <span className="inline-flex items-center rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#667085]">
-                  +{selected.length - SHOWN}
+              {selected.length > showing ? (
+                <span className="inline-flex shrink-0 items-center rounded-full bg-[#eef1f5] px-2 py-0.5 text-xs font-semibold tabular-nums text-[#667085]">
+                  +{selected.length - showing}
                 </span>
               ) : null}
             </span>
