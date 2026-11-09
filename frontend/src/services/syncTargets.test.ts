@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { listTarget } from "@/services/syncTargets";
+import { listTarget, studentTarget } from "@/services/syncTargets";
 
 const COURSES = {
   id: "f1",
@@ -35,5 +35,25 @@ describe("a portal list, for the semester chosen", () => {
       expect(target.termCode).toBeUndefined();
       expect(target.name).toBe("SCEN Courses");
     }
+  });
+});
+
+describe("a student list, for the semester chosen", () => {
+  const VIEW = { id: "v1", name: "SCEN students", filter: {}, lastSyncedAt: "2026-11-09T04:20:00Z" };
+
+  it("asks for the chosen semester's enrolment, not the extension's own term", () => {
+    expect(studentTarget(VIEW, SPRING)).toEqual({
+      kind: "students",
+      id: "v1",
+      name: "SCEN students · Semester 2 2026-27",
+      filter: {},
+      lastSyncedAt: "2026-11-09T04:20:00Z",
+      termCode: "262720",
+    });
+  });
+
+  it("names no term when no semester with a portal term is chosen", () => {
+    expect(studentTarget(VIEW, null).termCode).toBeUndefined();
+    expect(studentTarget(VIEW, { code: "", name: "A plan with no term" }).termCode).toBeUndefined();
   });
 });

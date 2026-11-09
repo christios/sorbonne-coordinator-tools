@@ -81,13 +81,7 @@ export function useSyncTargets(): SyncTargets {
     syncedTerms?: Record<string, string>;
   };
   const targets: SyncTarget[] = [
-    ...((views.data ?? []) as Held[]).map((view) => ({
-      kind: "students" as const,
-      id: view.id,
-      name: view.name,
-      filter: view.filter,
-      lastSyncedAt: view.lastSyncedAt || undefined,
-    })),
+    ...((views.data ?? []) as Held[]).map((view) => studentTarget(view, chosen)),
     ...LISTS.flatMap((kind, index) =>
       ((lists[index]?.data ?? []) as Held[]).map((filter) => listTarget(kind, filter, chosen)),
     ),
@@ -162,6 +156,27 @@ export function listTarget(
     lastSyncedAt: filter.syncedTerms?.[chosen.code] || undefined,
     termCode: chosen.code,
   };
+}
+
+/**
+ * A student list, pulled for the chosen semester's portal term — that semester's enrolment.
+ *
+ * It used to be left to the extension, whose own term is built in (262710), so in Semester 2
+ * and every year after, Portal sync went on pulling the autumn's students. A browser keeps
+ * one copy of each student list, so it is the enrolment of the semester last synced.
+ */
+export function studentTarget(
+  view: { id: string; name: string; filter: Record<string, string[]>; lastSyncedAt?: string },
+  chosen: { code: string; name: string } | null,
+): SyncTarget {
+  const target: SyncTarget = {
+    kind: "students",
+    id: view.id,
+    name: view.name,
+    filter: view.filter,
+    lastSyncedAt: view.lastSyncedAt || undefined,
+  };
+  return chosen?.code ? { ...target, name: `${view.name} · ${chosen.name}`, termCode: chosen.code } : target;
 }
 
 /** What the pages read from the server, so every one of them is right again. */

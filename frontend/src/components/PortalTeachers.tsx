@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
-import { PortalFilterBar } from "@/components/PortalFilterBar";
+import { PortalFilterBar, PortalSyncLine } from "@/components/PortalFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -179,9 +179,13 @@ export function PortalTeachers({
       {/* The portal filter and the semester on one row on the page's title line, as on Courses. */}
       {header
         ? createPortal(
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              <PortalFilterBar kind="teachers" filterId={filterId} onChoose={choose} inline />
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <PortalFilterBar kind="teachers" filterId={filterId} onChoose={choose} inline />
+                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              </div>
+              {/* The staff list has no semester: the line says so, rather than naming the one beside it. */}
+              <PortalSyncLine kind="teachers" filterId={filterId} semester={null} />
             </div>,
             header,
           )

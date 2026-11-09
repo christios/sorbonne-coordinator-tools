@@ -87,9 +87,11 @@ beforeEach(() => {
   vi.spyOn(database, "syncView").mockResolvedValue({ seen: 2, added: 2, missing: 0, syncedAt: "now" });
   vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) => (kind === "courses" ? [COURSES] : []));
   vi.spyOn(lists, "syncCourses").mockResolvedValue({ seen: 1, added: 1, missing: 0, syncedAt: "now" });
-  vi.spyOn(rosters, "pullFilter").mockImplementation(async (_filter, meta) =>
-    meta?.kind === "courses" ? COURSE_ROWS : STUDENTS,
-  );
+  // As extension 1.11 does: the answer is about the term it was asked about, when it was asked one.
+  vi.spyOn(rosters, "pullFilter").mockImplementation(async (_filter, meta) => {
+    const answer = meta?.kind === "courses" ? COURSE_ROWS : STUDENTS;
+    return meta?.termCode ? { ...answer, term: { code: meta.termCode, label: meta.termCode } } : answer;
+  });
 });
 
 afterEach(async () => {

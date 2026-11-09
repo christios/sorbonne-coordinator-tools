@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { PortalFilterBar } from "@/components/PortalFilterBar";
+import { PortalFilterBar, PortalSyncLine } from "@/components/PortalFilterBar";
 import * as lists from "@/services/portalLists";
 import * as rosters from "@/services/scenRosters";
 
@@ -71,5 +71,49 @@ describe("choosing a portal filter", () => {
     fireEvent.click(await screen.findByLabelText("What SCEN asks the portal"));
 
     expect(await screen.findByText(/Fixed when the portal filter was made/)).toBeTruthy();
+  });
+});
+
+describe("which semester Portal sync pulls the list for", () => {
+  const COURSES: lists.PortalFilter = {
+    ...FILTER,
+    kind: "courses",
+    name: "SCEN Courses",
+    lastSyncedAt: "2026-11-09T04:20:00Z",
+    syncedTerms: { "262710": "2026-11-09T04:20:00Z" },
+  };
+
+  function line(kind: lists.ListKind, semester: { code: string; name: string } | null) {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <QueryClientProvider client={queryClient}>
+        <PortalSyncLine kind={kind} filterId="f1" semester={semester} />
+      </QueryClientProvider>,
+    );
+  }
+
+  it("names the semester chosen beside the filter, and says it was never pulled for it", async () => {
+    vi.spyOn(lists, "fetchPortalFilters").mockResolvedValue([COURSES]);
+    line("courses", { code: "262720", name: "Semester 2" });
+
+    const said = await screen.findByText(/Portal sync pulls/);
+    expect(said.textContent).toContain("SCEN Courses for Semester 2 (262720)");
+    expect(said.textContent).toContain("never pulled for this semester");
+  });
+
+  it("dates the pull of the semester shown, not the filter's last pull of any", async () => {
+    vi.spyOn(lists, "fetchPortalFilters").mockResolvedValue([COURSES]);
+    line("courses", { code: "262710", name: "Semester 1" });
+
+    const said = await screen.findByText(/Portal sync pulls/);
+    expect(said.textContent).toContain("for Semester 1 (262710)");
+    expect(said.textContent).toMatch(/last pulled /);
+  });
+
+  it("says the staff list is the same every semester", async () => {
+    vi.spyOn(lists, "fetchPortalFilters").mockResolvedValue([{ ...COURSES, kind: "teachers", name: "Active staff" }]);
+    line("teachers", null);
+
+    expect((await screen.findByText(/Portal sync pulls/)).textContent).toContain("Active staff, the same list every semester");
   });
 });

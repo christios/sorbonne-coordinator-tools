@@ -28,6 +28,11 @@ export type PortalFilter = {
   /** Who ran that sync, by address, and by the name Settings gives them. */
   lastSyncedBy?: string;
   lastSyncedByName?: string;
+  /**
+   * When the list was last pulled for each portal term, for a list kept term by term
+   * (courses, registrations): `{"262710": "2026-11-09T04:20…"}`. Teachers have none.
+   */
+  syncedTerms?: Record<string, string>;
   createdAt: string;
   updatedBy: string;
 };

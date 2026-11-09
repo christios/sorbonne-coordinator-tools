@@ -52,9 +52,9 @@ export type SyncTarget = {
   /** When anybody last synced it, if ever: shown beside it when choosing what to pull. */
   lastSyncedAt?: string;
   /**
-   * The portal term a courses or registrations list is pulled for: each semester's own,
-   * so one filter is a list per semester. Absent where the list has no term (teachers) or
-   * keeps to the extension's (students).
+   * The portal term a list is pulled for — the semester chosen in the header: courses and
+   * registrations kept term by term, and the students that semester enrols. Absent where
+   * the list has no term (teachers), or no semester with a portal term is chosen.
    */
   termCode?: string;
 };

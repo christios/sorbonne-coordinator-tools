@@ -17,6 +17,45 @@ import {
 } from "@/services/portalLists";
 import { fetchGridSchema } from "@/services/scenRosters";
 
+/** The semester a list is pulled for: the one chosen beside the filter, and its portal term. */
+export type SyncSemester = { code: string; name: string } | null;
+
+/** "9 Nov, 08:20": when a list was last pulled, short enough for a line under the filter. */
+function when(at: string): string {
+  return new Date(at).toLocaleString(undefined, { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+/**
+ * Which semester Portal sync will pull this list for, and when it last did.
+ *
+ * A portal filter says what to ask (a department, a level) and never which semester: the
+ * semester is the one chosen beside it, so one filter serves every semester and keeps a
+ * last-synced time for each. Nothing on the page used to say so; this line does, under the
+ * filter, in the words the sync's checklist uses.
+ */
+export function PortalSyncLine({ kind, filterId, semester }: { kind: ListKind; filterId: string; semester: SyncSemester }) {
+  const filters = useQuery({ queryKey: ["portal-filters", kind], queryFn: () => fetchPortalFilters(kind) });
+  const chosen = (filters.data ?? []).find((candidate) => candidate.id === filterId);
+  if (!chosen) return null;
+  if (kind === "teachers") {
+    return (
+      <p className="text-right text-xs text-[#98a2b3]">
+        Portal sync pulls <span className="font-semibold text-[#667085]">{chosen.name}</span>, the same list every semester ·{" "}
+        {chosen.lastSyncedAt ? `last pulled ${when(chosen.lastSyncedAt)}` : "never pulled"}
+      </p>
+    );
+  }
+  if (!semester?.code) return null;
+  const last = chosen.syncedTerms?.[semester.code];
+  return (
+    <p className="text-right text-xs text-[#98a2b3]">
+      Portal sync pulls <span className="font-semibold text-[#667085]">{chosen.name}</span> for{" "}
+      <span className="font-semibold text-[#667085]">{semester.name}</span> ({semester.code}) ·{" "}
+      {last ? `last pulled ${when(last)}` : <span className="text-[#8a6116]">never pulled for this semester</span>}
+    </p>
+  );
+}
+
 const NOUNS: Record<ListKind, { one: string; many: string }> = {
   courses: { one: "course", many: "courses" },
   teachers: { one: "teacher", many: "teachers" },
@@ -39,10 +78,13 @@ export function PortalFilterBar({
   filterId,
   onChoose,
   inline = false,
+  semester = null,
 }: {
   kind: ListKind;
   filterId: string;
   onChoose: (filterId: string) => void;
+  /** The semester chosen beside the filter, which is the one a sync pulls the list for. */
+  semester?: SyncSemester;
   /**
    * On one row, for the page's title line beside the semester: no label above the menu and
    * no line under it — what the filter asks and when it was last synced are its tooltip.
@@ -101,7 +143,13 @@ export function PortalFilterBar({
 
   const said = chosen
     ? `${describeFilter(chosen.filter, fields)}${chosen.gone ? ` · ${chosen.gone} no longer returned` : ""}${
-        chosen.lastSyncedAt ? ` · last synced ${new Date(chosen.lastSyncedAt).toLocaleString()}` : " · never synced"
+        kind !== "teachers" && semester?.code
+          ? chosen.syncedTerms?.[semester.code]
+            ? ` · ${semester.name} last synced ${new Date(chosen.syncedTerms[semester.code]).toLocaleString()}`
+            : ` · ${semester.name} never synced`
+          : chosen.lastSyncedAt
+            ? ` · last synced ${new Date(chosen.lastSyncedAt).toLocaleString()}`
+            : " · never synced"
       }`
     : "";
 
@@ -178,6 +226,17 @@ export function PortalFilterBar({
       >
         {chosen ? (
           <dl className="space-y-2 text-sm">
+            {/* Not part of the question: the semester is chosen beside the filter, every time. */}
+            <div className="flex flex-wrap gap-x-3">
+              <dt className="font-semibold text-[#344054]">Semester</dt>
+              <dd className="text-[#667085]">
+                {kind === "teachers"
+                  ? "None — the portal's staff list is the same every semester."
+                  : semester?.code
+                    ? `The one chosen beside this filter: now ${semester.name} (${semester.code}).`
+                    : "The one chosen beside this filter."}
+              </dd>
+            </div>
             {filterLines(chosen.filter, fields).length === 0 ? (
               <p className="text-[#667085]">No filters — everything the portal returns for the term.</p>
             ) : (

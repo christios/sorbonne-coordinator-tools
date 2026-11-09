@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { ListGrid, StatePill } from "@/components/ListGrid";
-import { PortalFilterBar } from "@/components/PortalFilterBar";
+import { PortalFilterBar, PortalSyncLine } from "@/components/PortalFilterBar";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
@@ -57,6 +57,8 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
   // The semester the portal's list is shown for, and the one a course taken in is active in.
   const { semesters, semester, setTermId, term } = usePortalSemester();
+  // What Portal sync pulls this list for: the semester on screen, by its portal term.
+  const syncing = semester && term ? { code: term, name: semester.name } : null;
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
   const active = useQuery({ queryKey: ["active-courses", term], queryFn: () => fetchActiveCourses(term) });
@@ -103,15 +105,18 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
         */}
       {header
         ? createPortal(
-            <div className="flex flex-wrap items-center justify-end gap-3">
-              <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} inline />
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex flex-wrap items-center justify-end gap-3">
+                <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} inline semester={syncing} />
+                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+              </div>
+              <PortalSyncLine kind="courses" filterId={filterId} semester={syncing} />
             </div>,
             header,
           )
         : (
           <div className="mb-4 flex flex-wrap items-start justify-end gap-4">
-            <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} />
+            <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} semester={syncing} />
           </div>
         )}
 
