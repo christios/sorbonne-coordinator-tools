@@ -623,6 +623,7 @@ export function CourseDetail({
                     when={<><TipPill>TD 1</TipPill> shows 38/30 seats, edged in red.</>}
                     todo={<>Press the eye to see who is in it. Then press the card and raise its seats, or place some students in another TD.</>}
                     then={<>The edge turns green or blue, and the timetabler is told the real size.</>}
+                    other={<><TipPill>CM A</TipPill> at 56/98 has a blue edge: room left. A green edge is exactly full, with nothing to do.</>}
                   />
                 </InfoTip>
                 {set.scope.openToAll ? (
@@ -671,6 +672,7 @@ export function CourseDetail({
                       when={<>New students arrived, and <TipPill>6 in no group</TipPill> shows beside {set.scope.code}.</>}
                       todo={<>Fill {set.scope.code}: everyone not yet in this set, balanced. Check the plan, then confirm.</>}
                       then={<>Each goes to the least-full group; the report names anyone who couldn&apos;t be placed.</>}
+                      other={<>Seven A0 language groups and fewer students than seats: choose <b>Packed</b>, so <TipPill>A0-F1</TipPill> fills before <TipPill>A0-F2</TipPill> and the last groups stay empty, ready to close.</>}
                     />
                   </InfoTip>
                 ) : null}

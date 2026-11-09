@@ -47,7 +47,9 @@ export function InfoTip({ children, label = "What this is", title }: { children:
         </Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
-            side="bottom"
+            // A card opens beside its ⓘ, where it has the window's whole height to slide in;
+            // above or below a header low on the page it had half of it, and scrolled.
+            side={title ? "right" : "bottom"}
             align="start"
             sideOffset={4}
             collisionPadding={12}
@@ -178,8 +180,24 @@ function StepTag({ step }: { step: keyof typeof STEP_TAGS }) {
 /**
  * One real case of use, from the department's own sets: the situation, what to do in it,
  * and what follows. A value shows what a field holds; a case shows why anybody would fill it.
+ *
+ * `other` is a second case in one line, for a setting with two ways of being used or one
+ * easily mistaken for another: "Other case" for the second way, "Not this case" for when
+ * a different setting is the one wanted.
  */
-export function TipUsage({ when, todo, then }: { when: ReactNode; todo: ReactNode; then: ReactNode }) {
+export function TipUsage({
+  when,
+  todo,
+  then,
+  other,
+  otherLabel = "Other case",
+}: {
+  when: ReactNode;
+  todo: ReactNode;
+  then: ReactNode;
+  other?: ReactNode;
+  otherLabel?: "Other case" | "Not this case";
+}) {
   return (
     <span className="mt-2.5 block rounded-md border border-dashed border-[#cfd8e3] bg-[#fbfcfe] px-2.5 py-2">
       <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-wide text-[#2e7d55]">Example of use</span>
@@ -191,6 +209,14 @@ export function TipUsage({ when, todo, then }: { when: ReactNode; todo: ReactNod
         <StepTag step="then" />
         <span>{then}</span>
       </span>
+      {other ? (
+        <span className="mt-2 flex items-baseline gap-2 border-t border-dashed border-[#d9dee7] pt-2">
+          <span className="inline-flex shrink-0 rounded bg-[#fdf9ee] px-1 text-[10px] font-semibold uppercase leading-4 tracking-wide text-[#8a6116]">
+            {otherLabel}
+          </span>
+          <span>{other}</span>
+        </span>
+      ) : null}
     </span>
   );
 }

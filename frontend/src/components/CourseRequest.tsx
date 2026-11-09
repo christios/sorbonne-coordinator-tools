@@ -177,6 +177,7 @@ export function CourseRequestLine({
               when={<>Six TD groups of <TipPill>MATH-001</TipPill> Pre Calculus all want 36 hours, over the same weeks, in the same sort of room.</>}
               todo={<>Press <b>Say what TD asks for</b> and enter it once.</>}
               then={<>Every TD section without its own hours goes to the timetabler with 36.</>}
+              other={<>Only <TipPill>TD 3</TipPill> needs a bigger room: say it on TD 3&apos;s own card. TD 3 keeps its answer; the other TDs still follow the course.</>}
             />
           </InfoTip>
         </span>

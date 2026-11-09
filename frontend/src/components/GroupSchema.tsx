@@ -661,6 +661,7 @@ function SetEditor({
                   when={<>L1&apos;s Mechanics lab splits each TD in two, and students must stay with their own TD.</>}
                   todo={<>Link <TipPill>MTP</TipPill> to <TipPill>TD</TipPill>, then make <TipPill>1A</TipPill> <TipPill>1B</TipPill> go with TD 1, <TipPill>2A</TipPill> <TipPill>2B</TipPill> with TD 2, and so on.</>}
                   then={<>A TD 1 student is offered only 1A or 1B.</>}
+                  other={<>Not one-to-one: <TipPill>PHIL-TD 2</TipPill> goes with both TD 2 and TD 3, so mathematicians from either can be placed in it.</>}
                 />
               </InfoTip>
             </span>
@@ -825,16 +826,17 @@ function SetEditor({
                         <TipHeading>Once split</TipHeading>
                         <TipPoint>Placing puts each student on their major&apos;s sub-row, up to its seats.</TipPoint>
                         <TipPoint>On <TipPage name="Groups & CRNs" /> each sub-row can have its own section, or be marked not taught.</TipPoint>
-                        <TipPoint>Registration checks expect a student only in their sub-row&apos;s CRNs.</TipPoint>
-                        <TipPoint><TipPage name="Capacity" />, the timetabler&apos;s workbook and <TipPage name="Teacher hours" /> count each sub-row apart.</TipPoint>
+                        <TipPoint>
+                          Registration checks, <TipPage name="Capacity" />, the workbook and <TipPage name="Teacher hours" /> treat each
+                          sub-row apart.
+                        </TipPoint>
                         <TipUsage
-                          when={<><TipPill>CM 1</TipPill> holds 100 mathematicians and 20 physicists, and some courses give each major its own section.</>}
+                          when={<><TipPill>CM 1</TipPill> holds 100 mathematicians and 20 physicists, each major with its own sections.</>}
                           todo={<>Add <TipPill>Mathematics</TipPill> and <TipPill>Physics</TipPill> as sub-rows of CM 1.</>}
                           then={<>Each student lands on their major&apos;s sub-row, and <TipPage name="Groups & CRNs" /> can give each sub-row its own CRN.</>}
+                          otherLabel="Not this case"
+                          other={<><TipPill>TD 3</TipPill> is taught together, and you only want physicists placed there first: don&apos;t split it, set its <b>First for</b> to Physics.</>}
                         />
-                        <span className="mt-2 block text-[#667085]">
-                          Only want a major to go first, without splitting? Use <b>First for</b> instead.
-                        </span>
                       </InfoTip>
                     </span>
                   </th>
@@ -870,6 +872,8 @@ function SetEditor({
                             when={<>TD 3 was opened for the physicists, but others may join if it has room.</>}
                             todo={<>Set TD 3&apos;s First for to <TipPill>PHYS - Physics</TipPill></>}
                             then={<>Physicists are placed there first; other majors only once TD 1 and TD 2 are full.</>}
+                            otherLabel="Not this case"
+                            other={<>TD 3&apos;s physicists need their own section of a course: First for won&apos;t do that, add a <TipPill>Physics</TipPill> sub-row instead.</>}
                           />
                         </InfoTip>
                       </span>
