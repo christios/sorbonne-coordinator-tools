@@ -256,7 +256,7 @@ export function ActiveCourses({
   return (
     <section>
       {crns.isLoading ? (
-        <ScreenLoading label="Reading the register…" />
+        <ScreenLoading label="Reading Active CRNs…" />
       ) : crns.error ? (
         <p role="alert" className="text-sm text-[#a6292f]">{(crns.error as Error).message}</p>
       ) : (
@@ -288,7 +288,7 @@ export function ActiveCourses({
             presetKey="scen-copy-presets:active-crns:v1"
             shown={SHOWN}
             initialSort={{ key: "courseCode", ascending: true }}
-            searchLabel="Search the register"
+            searchLabel="Search Active CRNs"
             noun="CRNs"
             selected={selected}
             onSelectedChange={setSelected}
@@ -369,7 +369,7 @@ export function ActiveCourses({
 
       <ConfirmDialog
         open={confirmRemove}
-        title={`Remove ${selected.size} CRN(s) from the register?`}
+        title={`Remove ${selected.size} CRN(s) from Active CRNs?`}
         description="They stay in the portal's list, and their course stays on the department's. A course card still teaching under one will be flagged as unregistered."
         confirmLabel="Remove"
         busy={remove.isPending}

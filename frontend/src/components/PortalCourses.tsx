@@ -159,7 +159,7 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
                 className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:opacity-50"
               >
                 <BookPlus size={15} aria-hidden="true" />
-                {chosen.length ? `Take ${chosen.length} into the register` : "Take into the register"}
+                {chosen.length ? `Add ${chosen.length} to Active CRNs` : "Add to Active CRNs"}
               </button>
               {add.error ? <span role="alert" className="text-sm text-[#a6292f]">{(add.error as Error).message}</span> : null}
             </>

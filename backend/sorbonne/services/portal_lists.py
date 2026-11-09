@@ -348,8 +348,12 @@ class PortalListStore:
                 .all()
             )
             held = self._held_counts(connection, kind)
+            by_term = self._held_by_term(connection, kind)
             synced = _terms_synced(connection)
-        return [self._filter(row, held.get(row["id"], (0, 0)), synced.get(row["id"], {})) for row in rows]
+        return [
+            self._filter(row, held.get(row["id"], (0, 0)), synced.get(row["id"], {}), by_term.get(row["id"], {}))
+            for row in rows
+        ]
 
     def get_filter(self, filter_id: str) -> dict[str, Any]:
         with self.engine.connect() as connection:
@@ -361,8 +365,9 @@ class PortalListStore:
             if row is None:
                 raise FilterNotFound(filter_id)
             held = self._held_counts(connection, row["kind"])
+            by_term = self._held_by_term(connection, row["kind"])
             synced = _terms_synced(connection)
-        return self._filter(row, held.get(filter_id, (0, 0)), synced.get(filter_id, {}))
+        return self._filter(row, held.get(filter_id, (0, 0)), synced.get(filter_id, {}), by_term.get(filter_id, {}))
 
     def create_filter(self, *, kind: str, name: str, criteria: dict[str, Any], actor: str = "") -> dict[str, Any]:
         _kind(kind)
@@ -392,7 +397,13 @@ class PortalListStore:
         if deleted == 0:
             raise FilterNotFound(filter_id)
 
-    def _filter(self, row: Any, held: tuple[int, int], synced: dict[str, str] | None = None) -> dict[str, Any]:
+    def _filter(
+        self,
+        row: Any,
+        held: tuple[int, int],
+        synced: dict[str, str] | None = None,
+        by_term: dict[str, tuple[int, int]] | None = None,
+    ) -> dict[str, Any]:
         return {
             "id": row["id"],
             "kind": row["kind"],
@@ -404,6 +415,9 @@ class PortalListStore:
             "lastSyncedBy": row["last_synced_by"],
             # When each portal term was last pulled: {"262710": "...", "262720": "..."}.
             "syncedTerms": synced or {},
+            # What it holds in each portal term, and has stopped returning there — `held` and
+            # `gone` above are every term's added up, which no page should show as one list's.
+            "heldTerms": {term: {"held": counts[0], "gone": counts[1]} for term, counts in (by_term or {}).items()},
             "createdAt": row["created_at"],
             "updatedBy": row["updated_by"],
         }
@@ -421,6 +435,21 @@ class PortalListStore:
                      FROM {table} GROUP BY filter_id""")  # noqa: S608 - table from a fixed map
         ).all()
         return {row[0]: (int(row[1]), int(row[2])) for row in rows}
+
+    def _held_by_term(self, connection: Connection, kind: str) -> dict[str, dict[str, tuple[int, int]]]:
+        """`filter id -> {portal term -> (held, gone)}`, for the lists kept term by term."""
+        table = {"courses": "portal_course_members", "registrations": "portal_registration_members"}.get(kind)
+        if table is None:
+            return {}
+        counts: dict[str, dict[str, tuple[int, int]]] = {}
+        for filter_id, term, held, gone in connection.execute(
+            text(f"""SELECT filter_id, term_code,
+                            count(*) FILTER (WHERE status = 'in_portal'),
+                            count(*) FILTER (WHERE status <> 'in_portal')
+                     FROM {table} WHERE term_code <> '' GROUP BY filter_id, term_code""")  # noqa: S608 - fixed map
+        ):
+            counts.setdefault(filter_id, {})[term] = (int(held), int(gone))
+        return counts
 
     # ------------------------------------------------------------------ courses
 

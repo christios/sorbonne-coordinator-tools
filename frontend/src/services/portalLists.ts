@@ -33,6 +33,11 @@ export type PortalFilter = {
    * (courses, registrations): `{"262710": "2026-11-09T04:20…"}`. Teachers have none.
    */
   syncedTerms?: Record<string, string>;
+  /**
+   * What it holds in each portal term, and has stopped returning there. `held` and `gone`
+   * are every term's added up: 162 of Semester 1 and 159 of Semester 2 read as one list of 321.
+   */
+  heldTerms?: Record<string, { held: number; gone: number }>;
   createdAt: string;
   updatedBy: string;
 };

@@ -117,3 +117,30 @@ describe("which semester Portal sync pulls the list for", () => {
     expect((await screen.findByText(/Portal sync pulls/)).textContent).toContain("Active staff, the same list every semester");
   });
 });
+
+describe("how many a filter holds", () => {
+  const BOTH: lists.PortalFilter = {
+    ...FILTER,
+    kind: "courses",
+    name: "SCEN Courses",
+    held: 321,
+    gone: 24,
+    heldTerms: { "262710": { held: 162, gone: 24 }, "262720": { held: 159, gone: 0 } },
+  };
+
+  it("counts the semester chosen beside it, not every semester added up", async () => {
+    vi.spyOn(lists, "fetchPortalFilters").mockResolvedValue([BOTH]);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <PortalFilterBar kind="courses" filterId="f1" onChoose={() => {}} semester={{ code: "262720", name: "Semester 2" }} />
+      </QueryClientProvider>,
+    );
+
+    const picker = await screen.findByRole("combobox", { name: "Portal filter" });
+    await vi.waitFor(() => expect(picker.textContent).toContain("159"));
+    expect(picker.textContent).not.toContain("321");
+    // Semester 2 has lost nothing yet; Semester 1's 24 are not its business.
+    expect(screen.queryByText(/no longer returned/)).toBeNull();
+  });
+});

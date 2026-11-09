@@ -114,6 +114,15 @@ export function PortalFilterBar({
   }, [vanished, onChoose]);
   const isAdmin = Boolean(user?.isAdmin);
   const noun = NOUNS[kind];
+  /*
+   * What a filter holds for the semester chosen beside it, for a list kept term by term:
+   * the badge used to add every semester together, 162 of Semester 1 and 159 of Semester 2
+   * shown as 321 over a list of 159. Teachers have no semester, and keep the whole count.
+   */
+  const countsOf = (candidate: PortalFilter) =>
+    kind !== "teachers" && semester?.code
+      ? (candidate.heldTerms?.[semester.code] ?? { held: 0, gone: 0 })
+      : { held: candidate.held, gone: candidate.gone };
 
   const refresh = () => {
     client.invalidateQueries({ queryKey: ["portal-filters", kind] });
@@ -142,7 +151,7 @@ export function PortalFilterBar({
   const button = "rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]";
 
   const said = chosen
-    ? `${describeFilter(chosen.filter, fields)}${chosen.gone ? ` · ${chosen.gone} no longer returned` : ""}${
+    ? `${describeFilter(chosen.filter, fields)}${countsOf(chosen).gone ? ` · ${countsOf(chosen).gone} no longer returned` : ""}${
         kind !== "teachers" && semester?.code
           ? chosen.syncedTerms?.[semester.code]
             ? ` · ${semester.name} last synced ${new Date(chosen.syncedTerms[semester.code]).toLocaleString()}`
@@ -169,8 +178,8 @@ export function PortalFilterBar({
             options={available.map((candidate) => ({
               value: candidate.id,
               label: candidate.name,
-              badge: String(candidate.held),
-              badgeTone: candidate.held ? ("accent" as const) : ("muted" as const),
+              badge: String(countsOf(candidate).held),
+              badgeTone: countsOf(candidate).held ? ("accent" as const) : ("muted" as const),
             }))}
             onChange={onChoose}
           />

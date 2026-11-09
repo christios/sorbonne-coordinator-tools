@@ -3228,3 +3228,8 @@ def test_pulling_one_semester_says_nothing_about_another_semesters_courses(clien
     listed = client.get(f"{BASE}/courses", params={"filter": made["id"]}).json()["courses"]
     statuses = {row["crn"]: row["status"] for row in listed}
     assert statuses == {"22151": "in_portal", "22152": "not_in_portal", "32151": "in_portal"}
+
+    # What the filter holds, said per semester: one semester's list is not both added up.
+    [held] = client.get(f"{BASE}/filters", params={"kind": "courses"}).json()["filters"]
+    assert held["heldTerms"] == {TERM: {"held": 1, "gone": 1}, SPRING: {"held": 1, "gone": 0}}
+    assert (held["held"], held["gone"]) == (2, 1)
