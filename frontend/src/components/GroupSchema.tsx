@@ -7,7 +7,7 @@ import { CohortMenu } from "@/components/CohortMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { InfoTip } from "@/components/InfoTip";
+import { InfoTip, TipDo, TipExample, TipHeading, TipPill, TipPoint, TipWarn } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
@@ -318,6 +318,23 @@ export function GroupSchema({
             {totals.courses} course{totals.courses === 1 ? "" : "s"} · {totals.placed} placed
           </span>
         ) : null}
+        <span className="pb-2">
+          <InfoTip label="How this page works" title="How this page works">
+            <TipDo>Describe how the cohort is split into classes. Then give each class its CRNs on Groups &amp; CRNs.</TipDo>
+            <TipHeading>Steps</TipHeading>
+            <TipPoint step={1}>
+              Add a <b>set</b> for each kind of class, on the left: <TipPill>CM</TipPill> <TipPill>TD</TipPill> <TipPill>TP</TipPill>
+            </TipPoint>
+            <TipPoint step={2}>Add the <b>courses</b> the set teaches.</TipPoint>
+            <TipPoint step={3}>Add its <b>groups</b>, and fill in each group&apos;s row.</TipPoint>
+            <TipPoint step={4}><b>Link</b> a set when its groups depend on another set&apos;s.</TipPoint>
+            <TipExample>
+              L1, Semester 1: one <TipPill>CM</TipPill>, <TipPill>TD</TipPill> 1 to 3, and the <TipPill>MTP</TipPill> Mechanics TP halves 1A to
+              3B, each linked to its TD.
+            </TipExample>
+            <span className="mt-2 block text-[#667085]">Everything saves as you go.</span>
+          </InfoTip>
+        </span>
         {onOpenGroups ? (
           <button type="button" onClick={onOpenGroups} className="ml-auto inline-flex items-center gap-1.5 pb-2 text-sm font-semibold text-[#1f4e79] hover:underline">
             Fill it in on Groups &amp; CRNs <ArrowRight size={14} aria-hidden="true" />
@@ -337,6 +354,21 @@ export function GroupSchema({
 
           <div className="grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[19rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
             <nav aria-label="Group sets" className="relative rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
+              <p className="flex items-center gap-1 px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+                Sets
+                <InfoTip label="How the sets list works" title="The sets list">
+                  <TipDo>Pick a set to edit it on the right.</TipDo>
+                  <TipHeading>The dot beside each set</TipHeading>
+                  <TipPoint tone="good">Nothing missing.</TipPoint>
+                  <TipPoint tone="caution">Something to finish: no course, no group, or a sub-row no student is on.</TipPoint>
+                  <TipPoint tone="serious">Nobody can be placed: it is linked to nothing, or has groups that go with nothing.</TipPoint>
+                  <TipHeading>Order and new sets</TipHeading>
+                  <TipPoint>Hover a set and use its arrows to move it. Groups &amp; CRNs shows the sets in this order.</TipPoint>
+                  <TipPoint>
+                    To add one, type a short code at the bottom and press <TipPill>+ Set</TipPill>
+                  </TipPoint>
+                </InfoTip>
+              </p>
               {readings.filter((reading) => !reading.shared).map((reading) => (
                 <SetLine
                   key={reading.scope.id}
@@ -348,7 +380,19 @@ export function GroupSchema({
               ))}
               {readings.some((reading) => reading.shared) ? (
                 <>
-                  <p className="px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">Across cohorts</p>
+                  <p className="flex items-center gap-1 px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+                    Across cohorts
+                    <InfoTip label="What sets across cohorts are" title="Across cohorts">
+                      <TipDo>To put a set here, tick <b>Open to every cohort</b> on it.</TipDo>
+                      <TipPoint>Students of any cohort can be placed in it.</TipPoint>
+                      <TipPoint>Each is still counted under their own cohort.</TipPoint>
+                      <TipPoint>Its place in the order isn&apos;t changed from here.</TipPoint>
+                      <TipExample>
+                        <TipPill>LANG</TipPill> Languages: one set the whole department shares, groups <TipPill>A0-F1</TipPill> to{" "}
+                        <TipPill>B2-G1</TipPill>
+                      </TipExample>
+                    </InfoTip>
+                  </p>
                   {readings.filter((reading) => reading.shared).map((reading) => (
                     <SetLine key={reading.scope.id} reading={reading} chosen={reading.scope.id === chosen?.scope.id} onChoose={() => setChosenId(reading.scope.id)} />
                   ))}
@@ -517,6 +561,7 @@ function SetEditor({
 
   const parents = scopes.filter((candidate) => candidate.id !== scope.id && candidate.kind !== "nested");
   const parentGroups = scopes.find((candidate) => candidate.id === parentScopeId)?.groups ?? [];
+  const parentCode = scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "linked";
   // Every group of the same semester, any set, that one of these could run in parallel with.
   const siblings = scopes
     .filter((candidate) => (candidate.termId ?? "") === (scope.termId ?? ""))
@@ -558,8 +603,19 @@ function SetEditor({
         </div>
 
         <div className="mt-3 flex flex-wrap items-end gap-x-4 gap-y-2">
-          <label className="block w-28">
-            <span className={caption}>Code</span>
+          <div className="block w-28">
+            <span className={`${caption} flex items-center gap-1`}>
+              Code
+              <InfoTip label="What the set's code is for" title="The set's code">
+                <TipDo>Keep it short: the kind of class, or the course and the kind.</TipDo>
+                <TipPoint>Other pages call the set by its code.</TipPoint>
+                <TipPoint>Add a <b>name</b> beside it when the code alone isn&apos;t clear.</TipPoint>
+                <TipExample>
+                  <TipPill>TD</TipPill> <TipPill>TP</TipPill> <TipPill>PHIL-TD</TipPill> <TipPill>OPT-TP</TipPill>, and <TipPill>MTP</TipPill> named
+                  &ldquo;Mechanics TP&rdquo;.
+                </TipExample>
+              </InfoTip>
+            </span>
             <input
               aria-label="Set code"
               value={code}
@@ -567,7 +623,7 @@ function SetEditor({
               onBlur={() => code.trim() && code !== scope.code && save.mutate({ code: code.trim() })}
               className={field}
             />
-          </label>
+          </div>
           <label className="block min-w-40 flex-1">
             <span className={caption}>Name</span>
             <input
@@ -587,9 +643,16 @@ function SetEditor({
           <div className="w-44">
             <span className={`${caption} flex items-center gap-1`}>
               Linked to
-              <InfoTip label="What linking a set does">
-                Link it when its groups depend on another set&apos;s — the Mechanics TP halves on the TD. Each group then
-                says which groups of that set it goes with, and placing a student offers only those.
+              <InfoTip label="What linking a set does" title="Linking a set">
+                <TipDo>Link it when its groups only work alongside another set&apos;s groups.</TipDo>
+                <TipPoint>Each group then says, under <b>Goes with</b>, which groups of that set it goes with.</TipPoint>
+                <TipPoint>Placing a student offers only the groups that go with theirs.</TipPoint>
+                <TipPoint>Only a set that isn&apos;t linked itself can be picked.</TipPoint>
+                <TipPoint>Leave it <b>Not linked</b> when any group will do.</TipPoint>
+                <TipExample>
+                  <TipPill>MTP</TipPill> Mechanics TP is linked to <TipPill>TD</TipPill>: its halves <TipPill>1A</TipPill> <TipPill>1B</TipPill> go
+                  with TD 1, <TipPill>3A</TipPill> <TipPill>3B</TipPill> with TD 3.
+                </TipExample>
               </InfoTip>
             </span>
             <div className="mt-1">
@@ -619,9 +682,15 @@ function SetEditor({
               }}
             />
             <span className="font-semibold">Open to every cohort</span>
-            <InfoTip label="What open to every cohort means">
-              For a class the whole department shares, like the languages: any student may be in it, whatever year they
-              are in, and each is still counted under their own cohort.
+            <InfoTip label="What open to every cohort means" title="Open to every cohort">
+              <TipDo>Tick it for a class the whole department shares.</TipDo>
+              <TipPoint>Students of any cohort can be placed in it.</TipPoint>
+              <TipPoint>Each is still counted under their own cohort.</TipPoint>
+              <TipPoint>It moves under <b>Across cohorts</b> in the sets list.</TipPoint>
+              <TipExample>
+                <TipPill>LANG</TipPill> Languages: every cohort&apos;s students share its groups, <TipPill>A0-F1</TipPill> to{" "}
+                <TipPill>B2-G1</TipPill>
+              </TipExample>
             </InfoTip>
           </label>
         </div>
@@ -638,9 +707,15 @@ function SetEditor({
       <div className="border-b border-[#eef1f5] px-5 py-4">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
           <Layers size={15} className="text-[#98a2b3]" aria-hidden="true" /> Courses
-          <InfoTip label="What the set's courses mean">
-            Every group of the set gets a section of each — unless the course and the group name different programmes, in
-            which case the course is not taught to that group and no CRN is expected.
+          <InfoTip label="What the set's courses mean" title="The set's courses">
+            <TipDo>Add every course this set&apos;s groups are taught.</TipDo>
+            <TipPoint>Groups &amp; CRNs then expects a CRN for each group, in each course.</TipPoint>
+            <TipPoint>Except where the course and the group are for different majors: no CRN is expected there.</TipPoint>
+            <TipPoint>Only active courses are offered. Missing one? Add it on <b>Active CRNs</b> first.</TipPoint>
+            <TipExample>
+              L1&apos;s <TipPill>TD</TipPill> carries <TipPill>MATH-100</TipPill> <TipPill>CPSC-100</TipPill> <TipPill>PHYS-105</TipPill>{" "}
+              <TipPill>PHYS-125</TipPill>: 3 groups, so 12 CRNs to find.
+            </TipExample>
           </InfoTip>
         </p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -680,10 +755,16 @@ function SetEditor({
       <div className="px-5 py-4">
         <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
           <Users size={15} className="text-[#98a2b3]" aria-hidden="true" /> Groups
-          <InfoTip label="What the set's groups are">
-            The classes inside this set. A student sits in one of them
-            {scope.kind === "nested" ? `, one that goes with their ${scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "linked"} group` : ""}. A
-            group's seats are its sub-rows' added up; a sub-row holds one programme's students.
+          <InfoTip label="What the set's groups are" title="The set's groups">
+            <TipDo>Add one group per class of this set, then fill in its row.</TipDo>
+            <TipPoint>
+              A student sits in one group of each set{scope.kind === "nested" ? `: here, one that goes with their ${parentCode} group` : ""}.
+            </TipPoint>
+            <TipPoint>Seats are set on Groups &amp; CRNs; the row shows them.</TipPoint>
+            <TipExample>
+              L1&apos;s <TipPill>TD</TipPill> has groups <TipPill>1</TipPill> <TipPill>2</TipPill> <TipPill>3</TipPill>; its{" "}
+              <TipPill>CM</TipPill> has one, <TipPill>1</TipPill>
+            </TipExample>
           </InfoTip>
         </p>
 
@@ -696,42 +777,102 @@ function SetEditor({
                   <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Seats</span>
-                      <InfoTip label="Where seats are set">
-                        Set on Groups &amp; CRNs, from any of the group&apos;s cards. The schema says what the groups
-                        are; the cards say how big each one is, and that is what the timetabler is told to expect.
+                      <InfoTip label="Where seats are set" title="Seats">
+                        <TipDo>Change them on Groups &amp; CRNs, from any of the group&apos;s cards.</TipDo>
+                        <TipPoint>It&apos;s what the timetabler is told to expect.</TipPoint>
+                        <TipPoint>With sub-rows, it&apos;s their seats added up.</TipPoint>
+                        <TipExample>
+                          L1&apos;s <TipPill>CM 1</TipPill>: 100 Mathematics + 20 Physics = 120 seats.
+                        </TipExample>
                       </InfoTip>
                     </span>
                   </th>
-                  <th className="py-2 pr-3 font-semibold">In parallel with</th>
+                  <th className="py-2 pr-3 font-semibold">
+                    <span className="inline-flex items-center gap-1 normal-case">
+                      <span className="uppercase">In parallel with</span>
+                      <InfoTip label="What in parallel with does" title="In parallel with">
+                        <TipDo>Pick the groups that must be timetabled at the same hour as this one.</TipDo>
+                        <TipPoint>Any group of this semester, from any set.</TipPoint>
+                        <TipPoint>The timetabler gets it as a constraint on the row.</TipPoint>
+                        <TipPoint>Leave it empty when the group can go at any time.</TipPoint>
+                        <TipExample>
+                          <TipPill>OPT-TD 1</TipPill> for the physicists in parallel with <TipPill>PHIL-TD 2</TipPill> for the
+                          mathematicians: all of TD 3 is busy at the same hour, each major in its own class.
+                        </TipExample>
+                      </InfoTip>
+                    </span>
+                  </th>
                   <th className="w-28 py-2 pr-3 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Sub-rows</span>
-                      <InfoTip label="What sub-rows are">
-                        <span className="block">Adding a major splits the group by major:</span>
-                        <span className="mt-1 block">• Placing puts each student on their major&apos;s sub-row, up to its seats.</span>
-                        <span className="block">• On Groups &amp; CRNs each sub-row can have its own section of a course, or be marked not taught it.</span>
-                        <span className="block">• Registration checks expect a student only in their sub-row&apos;s CRNs.</span>
-                        <span className="block">• Capacity, the timetabler&apos;s workbook and Teacher hours count each sub-row apart.</span>
-                        <span className="mt-1 block">First for changes none of this — only which major placing puts here first.</span>
+                      <InfoTip label="What sub-rows are" title="Sub-rows">
+                        <TipDo>Add a major to split this group by major. Leave it empty when everybody is taught together.</TipDo>
+                        <TipHeading>Once split</TipHeading>
+                        <TipPoint>Placing puts each student on their major&apos;s sub-row, up to its seats.</TipPoint>
+                        <TipPoint>On Groups &amp; CRNs each sub-row can have its own section, or be marked not taught.</TipPoint>
+                        <TipPoint>Registration checks expect a student only in their sub-row&apos;s CRNs.</TipPoint>
+                        <TipPoint>Capacity, the timetabler&apos;s workbook and Teacher hours count each sub-row apart.</TipPoint>
+                        <TipExample>
+                          L1&apos;s <TipPill>CM 1</TipPill> splits into <TipPill>Mathematics 100</TipPill> and <TipPill>Physics 20</TipPill>
+                        </TipExample>
+                        <span className="mt-2 block text-[#667085]">
+                          Only want a major to go first, without splitting? Use <b>First for</b> instead.
+                        </span>
                       </InfoTip>
                     </span>
                   </th>
-                  {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Goes with</th> : null}
-                  {programmes.length > 1 ? (
-                    <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
+                  {scope.kind === "nested" ? (
+                    <th className="py-2 pr-3 font-semibold">
                       <span className="inline-flex items-center gap-1 normal-case">
-                        <span className="uppercase">First for</span>
-                        <InfoTip label="What First for does">
-                          The major this group is filled with first. When students are placed, that major goes here
-                          before anywhere else; the other majors only come here once the groups kept for nobody in
-                          particular are full. A preference, not a wall — a student of another major can still be
-                          placed here by hand. Unlike sub-rows, it does not split the group: everybody in it is taught
-                          the same and shares its seats.
+                        <span className="uppercase">Goes with</span>
+                        <InfoTip label="What goes with does" title="Goes with">
+                          <TipDo>Pick the {parentCode} groups whose students can be in this group.</TipDo>
+                          <TipPoint>Placing a student offers only the groups that go with theirs.</TipPoint>
+                          <TipPoint>Pick several when it isn&apos;t one-to-one.</TipPoint>
+                          <TipWarn>Left empty, nobody can be placed in the group.</TipWarn>
+                          <TipExample>
+                            <TipPill>MTP 1A</TipPill> and <TipPill>1B</TipPill> go with <TipPill>TD 1</TipPill>; <TipPill>PHIL-TD 2</TipPill> goes
+                            with <TipPill>TD 2</TipPill> and <TipPill>TD 3</TipPill>
+                          </TipExample>
                         </InfoTip>
                       </span>
                     </th>
                   ) : null}
-                  <th className="w-px whitespace-nowrap py-2 pr-3 text-right font-semibold">Placed</th>
+                  {programmes.length > 1 ? (
+                    <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
+                      <span className="inline-flex items-center gap-1 normal-case">
+                        <span className="uppercase">First for</span>
+                        <InfoTip label="What First for does" title="First for">
+                          <TipDo>Pick the major this group is filled with first.</TipDo>
+                          <TipPoint>Placing puts that major here before anywhere else.</TipPoint>
+                          <TipPoint>Other majors come here once the groups for nobody in particular are full.</TipPoint>
+                          <TipPoint>A preference, not a wall: anyone can still be placed here by hand.</TipPoint>
+                          <TipPoint>Unlike sub-rows, the group isn&apos;t split: everybody shares its seats.</TipPoint>
+                          <TipExample>
+                            L1&apos;s <TipPill>TD 3</TipPill> is first for <TipPill>Physics</TipPill>: physicists go there before anywhere
+                            else.
+                          </TipExample>
+                        </InfoTip>
+                      </span>
+                    </th>
+                  ) : null}
+                  <th className="w-px whitespace-nowrap py-2 pr-3 text-right font-semibold">
+                    <span className="inline-flex items-center gap-1 normal-case">
+                      <span className="uppercase">Placed</span>
+                      <InfoTip label="What placed counts" title="Placed">
+                        <TipDo>
+                          Place students on Groups &amp; CRNs with <b>Place them</b>, or from a selection of students with{" "}
+                          <b>Place in groups…</b>
+                        </TipDo>
+                        <TipPoint>The students in this group now.</TipPoint>
+                        <TipPoint>
+                          A student&apos;s own record places them in every set at once: <b>Place in every set…</b>
+                        </TipPoint>
+                        <TipWarn>Removing a group sends its students back to be placed again.</TipWarn>
+                        <TipExample>More placed than seats, say 38 in a TD of 30: give it more seats, or add a group.</TipExample>
+                      </InfoTip>
+                    </span>
+                  </th>
                   <th className="w-px py-2 pr-4" />
                 </tr>
               </thead>
@@ -780,6 +921,16 @@ function SetEditor({
             <Plus size={14} aria-hidden="true" />
             {makeGroups.isPending ? "Adding…" : labelsFrom(newGroups).length > 1 ? `Add ${labelsFrom(newGroups).length} groups` : "Add group"}
           </button>
+          <InfoTip label="How to add groups" title="Adding groups">
+            <TipDo>Type a label and press <b>Add group</b>, or type a range to add several at once.</TipDo>
+            <TipPoint>
+              <TipPill>1-6</TipPill> adds groups 1 to 6; <TipPill>TD 1-3</TipPill> adds TD 1, TD 2 and TD 3.
+            </TipPoint>
+            <TipPoint>Anything else is one group, named as typed.</TipPoint>
+            <TipExample>
+              The languages&apos; <TipPill>A1-G1</TipPill> is one group: level A1, group 1.
+            </TipExample>
+          </InfoTip>
           {labelsFrom(newGroups).length > 1 ? (
             <span className="text-xs text-[#98a2b3]">{labelsFrom(newGroups).join(", ")}</span>
           ) : null}
