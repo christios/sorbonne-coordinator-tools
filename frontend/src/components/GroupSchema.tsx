@@ -44,6 +44,12 @@ import { useSemesterShown } from "@/services/semesterYears";
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 const field = "mt-1 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm";
 const caption = "block text-xs font-semibold uppercase tracking-wide text-[#667085]";
+/*
+ * "In parallel with" and "Goes with": as wide as their column, which takes the room the
+ * other columns leave (those are sized to what they hold). Not sized by their own pills, so
+ * every row's menu is the same width and the table never grows past the page for them.
+ */
+const PILL_MENU = "w-full min-w-[9rem] max-w-[22rem] [contain:inline-size]";
 
 function SetLine({
   reading,
@@ -686,8 +692,8 @@ function SetEditor({
             <table className="w-full min-w-max text-left text-sm">
               <thead className="bg-[#fbfcfe] text-[11px] uppercase tracking-wide text-[#8a94a4]">
                 <tr>
-                  <th className="py-2 pl-4 pr-3 font-semibold">Group</th>
-                  <th className="py-2 pr-3 font-semibold">
+                  <th className="w-px whitespace-nowrap py-2 pl-4 pr-3 font-semibold">Group</th>
+                  <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Seats</span>
                       <InfoTip label="Where seats are set">
@@ -712,7 +718,7 @@ function SetEditor({
                   </th>
                   {scope.kind === "nested" ? <th className="py-2 pr-3 font-semibold">Goes with</th> : null}
                   {programmes.length > 1 ? (
-                    <th className="py-2 pr-3 font-semibold">
+                    <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
                       <span className="inline-flex items-center gap-1 normal-case">
                         <span className="uppercase">First for</span>
                         <InfoTip label="What First for does">
@@ -725,8 +731,8 @@ function SetEditor({
                       </span>
                     </th>
                   ) : null}
-                  <th className="py-2 pr-3 text-right font-semibold">Placed</th>
-                  <th className="py-2 pr-4" />
+                  <th className="w-px whitespace-nowrap py-2 pr-3 text-right font-semibold">Placed</th>
+                  <th className="w-px py-2 pr-4" />
                 </tr>
               </thead>
               <tbody>
@@ -878,7 +884,7 @@ function GroupRow({
         * timetable request as a constraint on the row.
         */}
       <td className="py-1.5 pr-3">
-        <div className="w-36">
+        <div className={PILL_MENU}>
           <SelectMenu
             label={`Groups ${group.label} runs in parallel with`}
             multiple
@@ -902,7 +908,7 @@ function GroupRow({
       {nested ? (
         <td className="py-1.5 pr-3">
           {/* Several where the pairing is not one-to-one: Philosophy 2 goes with TD 2 and TD 3. */}
-          <div className="w-36">
+          <div className={PILL_MENU}>
             <SelectMenu
               label={`The groups ${group.label} goes with`}
               multiple

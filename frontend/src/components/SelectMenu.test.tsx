@@ -233,12 +233,27 @@ describe("a multi-select says what is chosen", () => {
     expect(screen.getByRole("option", { name: /L1 Maths/ })).toBeTruthy();
   });
 
-  it("folds the tail into one +N pill once there are more than a few", () => {
+  it("shows every chosen value while there is room for it", () => {
     render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1\nL2\nL3\nM1"} onChange={() => {}} options={options} />);
 
     const trigger = screen.getByRole("combobox", { name: "Year" });
     const pills = [...trigger.querySelectorAll("span.rounded-full")].map((pill) => pill.textContent);
-    expect(pills).toEqual(["FY", "L1", "L2", "+2"]);
+    expect(pills).toEqual(["FY", "L1", "L2", "L3", "M1"]);
+  });
+
+  it("folds into +N only the pills that do not fit", () => {
+    // jsdom draws nothing, so say the control has room for about two pills.
+    const scroll = vi.spyOn(HTMLElement.prototype, "scrollWidth", "get").mockImplementation(function (this: HTMLElement) {
+      return this.querySelectorAll("span.rounded-full").length * 40;
+    });
+    const client = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(120);
+    render(<SelectMenu label="Year" multiple itemNoun="value" value={"FY\nL1\nL2\nL3\nM1"} onChange={() => {}} options={options} />);
+
+    const trigger = screen.getByRole("combobox", { name: "Year" });
+    const pills = [...trigger.querySelectorAll("span.rounded-full")].map((pill) => pill.textContent);
+    expect(pills).toEqual(["FY", "L1", "+3"]);
+    scroll.mockRestore();
+    client.mockRestore();
     // The whole list is still there for anyone who hovers.
     expect(trigger.querySelector("[title]")?.getAttribute("title")).toContain("FY, L1, L2, L3, M1");
   });

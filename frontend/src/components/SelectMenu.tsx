@@ -84,6 +84,9 @@ function Flags({ flags, columns = false }: { flags: OptionFlag[]; columns?: bool
   );
 }
 
+/** Every chosen pill, until the control is measured too narrow for them. */
+const ALL_PILLS = Number.MAX_SAFE_INTEGER;
+
 /**
  * `fit` in the closed control, where the badge shares one line with the choice: it gives
  * way first, so a phone shows "24272 — the course's own row" and a cut title rather than
@@ -154,34 +157,46 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
   const selectedValues = multiple ? value.split("\n").filter(Boolean) : [value];
   const selected = options.filter((option) => selectedValues.includes(option.value));
   // The values themselves, not a count: "FY, L1" says what the filter is doing, and
-  // "2 values selected" makes a coordinator open it to find out. Past a few, the rest
-  // become "+N" so the control stays a control.
-  const SHOWN = 3;
+  // "2 values selected" makes a coordinator open it to find out.
   /*
-   * On one line, always: as many pills as the control has room for, the rest in "+N". In a
-   * narrow column the third pill and its "+1" used to wrap onto a second line and stretch
-   * the row; now the control drops a pill instead, measured where it is drawn.
+   * On one line, always: every pill the control has room for, the rest in "+N". Nothing is
+   * folded while there is space for it — only a pill that would not fit, measured where the
+   * control is drawn, so a wide column shows "3 4 5 6" and a narrow one "3 4 +2".
    */
   const pillsRef = useRef<HTMLSpanElement>(null);
-  const [fit, setFit] = useState(SHOWN);
+  const [fit, setFit] = useState(ALL_PILLS);
   const [room, setRoom] = useState(0);
   const chosenKey = selectedValues.join("\n");
-  useEffect(() => setFit(SHOWN), [chosenKey]);
+  const showing = Math.min(fit, selected.length);
+  // A different choice: start again from all of them, before it is drawn.
+  const [fitFor, setFitFor] = useState(chosenKey);
+  if (fitFor !== chosenKey) {
+    setFitFor(chosenKey);
+    setFit(ALL_PILLS);
+  }
+  // How wide the control was when it last had to fold a pill away.
+  const foldedAt = useRef(0);
   useEffect(() => {
     const held = pillsRef.current;
     if (!held || typeof ResizeObserver === "undefined") return;
     const watch = new ResizeObserver(() => {
-      setFit(SHOWN);
-      setRoom(held.clientWidth);
+      const now = held.clientWidth;
+      // Wider than when a pill was folded: try them all again. Narrower: the check below folds
+      // another. Only on growth, so a control as wide as its pills does not unfold, fold,
+      // unfold forever — and against the fold, so a table settling after the fold still counts.
+      if (now > foldedAt.current + 1) setFit(ALL_PILLS);
+      setRoom(now);
     });
     watch.observe(held);
     return () => watch.disconnect();
   }, [multiple, selected.length]);
   useLayoutEffect(() => {
     const held = pillsRef.current;
-    if (held && fit > 1 && held.scrollWidth > held.clientWidth + 1) setFit(fit - 1);
-  }, [fit, room, chosenKey]);
-  const showing = Math.min(fit, SHOWN);
+    if (held && showing > 1 && held.scrollWidth > held.clientWidth + 1) {
+      foldedAt.current = held.clientWidth;
+      setFit(showing - 1);
+    }
+  }, [showing, room, chosenKey]);
   const selectedLabel = multiple ? placeholder : (selected[0]?.label ?? placeholder);
   const normalizedQuery = normalizeSearch(query);
   const visibleOptions = searchable
@@ -265,12 +280,13 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
           {multiple && selected.length && showSelection ? (
             /*
              * Each chosen value as a pill, so the control shows what it is doing at a
-             * glance rather than as a sentence to read. Past a few, the rest fold into
+             * glance rather than as a sentence to read. Those that do not fit fold into
              * one "+N" pill and the full list sits in the tooltip.
              */
             <span
               ref={pillsRef}
-              className="flex min-w-0 flex-nowrap items-center gap-1 overflow-hidden"
+              // As wide as the control, not as its pills: a wider control is then seen and unfolds them.
+              className="flex min-w-0 flex-1 flex-nowrap items-center gap-1 overflow-hidden"
               title={`${selected.length} ${itemNoun}${selected.length === 1 ? "" : "s"}: ${selected.map((option) => option.label).join(", ")}`}
             >
               {selected.slice(0, showing).map((option) => (
