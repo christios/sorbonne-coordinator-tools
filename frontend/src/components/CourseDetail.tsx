@@ -2,7 +2,7 @@ import { AlertTriangle, Armchair, ChevronDown, ChevronRight, Clock3, Eye, Pencil
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
-import { InfoTip, TipDo, TipPage, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
+import { InfoTip, TipButton, TipDo, TipPage, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
@@ -607,18 +607,21 @@ export function CourseDetail({
                 <InfoTip label="How to read a section card" title="Reading a section card">
                   <TipDo>Press a card to edit its CRN, teacher, hours and what it asks.</TipDo>
                   <TipPoint tone="serious">
-                    <TipPill>no CRN</TipPill> the portal&apos;s CRN isn&apos;t entered yet.
+                    <TipButton look="danger">no CRN</TipButton> the portal&apos;s CRN isn&apos;t entered yet.
                   </TipPoint>
                   <TipPoint tone="caution">
                     <b>not confirmed</b>: a teacher is named, but not chosen from <TipPage name="Active teachers" /> yet.
                   </TipPoint>
                   <TipPoint>
-                    <b>Hours</b>: the section&apos;s teaching hours in all.
+                    <TipButton icon={Clock3}>50 hours</TipButton> the section&apos;s teaching hours in all.
                   </TipPoint>
                   <TipPoint>
-                    <b>Seats</b>: placed over seats. The edge says how full: blue room left, green full, red over.
+                    <TipButton icon={Armchair}>56/98 seats</TipButton> students placed over seats. The edge says how full: blue room
+                    left, green full, red over.
                   </TipPoint>
-                  <TipPoint>The eye shows who is in the group.</TipPoint>
+                  <TipPoint>
+                    <TipButton icon={Eye}>who</TipButton> the eye, top right of a card, lists who is in the group.
+                  </TipPoint>
                   <TipUsage
                     when={<><TipPill>TD 1</TipPill> shows 38/30 seats, edged in red.</>}
                     todo={<>Press the eye to see who is in it. Then press the card and raise its seats, or place some students in another TD.</>}
@@ -661,15 +664,22 @@ export function CourseDetail({
                 ) : null}
                 {cohort ? (
                   <InfoTip label={`What Fill ${set.scope.code} does`} title={`Fill ${set.scope.code}`}>
-                    <TipDo>Press Fill {set.scope.code} to place students in this set&apos;s groups, all at once.</TipDo>
+                    <TipDo>
+                      Press <TipButton icon={Wand2}>Fill {set.scope.code}</TipButton> to place students in this set&apos;s groups, all at
+                      once.
+                    </TipDo>
                     <TipPoint>Choose who: everyone not yet in this set, or only the students you pick.</TipPoint>
                     <TipPoint>Choose how: balanced, each to the least-full group, or packed, one group full before the next.</TipPoint>
                     <TipPoint>The plan shows who goes where before anything is saved.</TipPoint>
                     <TipPoint>
-                      Only a few students? Press <TipPill>N in no group</TipPill> instead, to place them by hand.
+                      Only a few students? Press{" "}
+                      <TipButton look="warn" icon={AlertTriangle}>
+                        N in no group
+                      </TipButton>{" "}
+                      instead, to place them by hand.
                     </TipPoint>
                     <TipUsage
-                      when={<>New students arrived, and <TipPill>6 in no group</TipPill> shows beside {set.scope.code}.</>}
+                      when={<>New students arrived, and <TipButton look="warn" icon={AlertTriangle}>6 in no group</TipButton> shows beside {set.scope.code}.</>}
                       todo={<>Fill {set.scope.code}: everyone not yet in this set, balanced. Check the plan, then confirm.</>}
                       then={<>Each goes to the least-full group; the report names anyone who couldn&apos;t be placed.</>}
                       other={<>Seven A0 language groups and fewer students than seats: choose <b>Packed</b>, so <TipPill>A0-F1</TipPill> fills before <TipPill>A0-F2</TipPill> and the last groups stay empty, ready to close.</>}

@@ -146,9 +146,14 @@ type Props = {
    * "start" for a menu whose rows are read from the left, like the cohort picker's.
    */
   align?: "start" | "center" | "end";
+  /**
+   * "small" for a control inside a table cell or a narrow column — a sub-row's major — where
+   * the full-height field would make every row twice as tall as its neighbours.
+   */
+  size?: "default" | "small";
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center" }: Props) {
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center", size = "default" }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -270,7 +275,11 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         aria-expanded={isOpen}
         aria-haspopup="listbox"
         disabled={disabled}
-        className={`flex ${(multiple && selected.length) || wrap ? "min-h-10" : "h-10"} w-full items-center rounded-md border px-3 py-2 ${trailing ? "pr-20" : "pr-10"} text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
+        className={`flex ${
+          size === "small"
+            ? `${(multiple && selected.length) || wrap ? "min-h-7" : "h-7"} px-2 py-0.5 text-xs ${trailing ? "pr-16" : "pr-6"}`
+            : `${(multiple && selected.length) || wrap ? "min-h-10" : "h-10"} px-3 py-2 ${trailing ? "pr-20" : "pr-10"}`
+        } w-full items-center rounded-md border text-left transition-colors focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-not-allowed disabled:bg-[#f7f8fa] disabled:text-[#98a2b3] ${
           variant === "tinted"
             ? "border-[#cfe0ee] bg-[#eef4fa] font-semibold text-[#1f4e79] hover:border-[#9fbfdc] hover:bg-[#e4eef7] focus:border-[#1f4e79]"
             : "border-[#b7bec8] bg-white font-normal text-[#344054] hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79]"
@@ -321,7 +330,7 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
         </span>
       </button>
       </Popover.Trigger>
-      <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute ${trailing ? "right-10" : "right-3"} top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
+      <ChevronDown aria-hidden="true" size={size === "small" ? 13 : 17} className={`pointer-events-none absolute ${trailing ? "right-10" : size === "small" ? "right-1.5" : "right-3"} top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />
       {trailing}
       <Popover.Portal>
       {isOpen ? (

@@ -1,11 +1,11 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
-import { FileSpreadsheet, Plus, Search } from "lucide-react";
+import { AlertTriangle, FileSpreadsheet, Plus, Search, Wand2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CohortMenu } from "@/components/CohortMenu";
 import { AddFromPortal } from "@/components/AddFromPortal";
-import { InfoTip, TipDo, TipHeading, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
+import { InfoTip, TipButton, TipDo, TipHeading, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { CourseDetail } from "@/components/CourseDetail";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
@@ -389,9 +389,20 @@ export function CourseCards({
             <TipHeading>Steps</TipHeading>
             <TipPoint step={1}>Pick a course on the left, red and amber dots first.</TipPoint>
             <TipPoint step={2}>Press a section card to fill in its CRN, teacher and hours.</TipPoint>
-            <TipPoint step={3}>Say once what the course asks for each set, rather than on every section.</TipPoint>
-            <TipPoint step={4}>Fill each set with students, or place the ones in no group.</TipPoint>
-            <TipPoint step={5}>Send the timetabler the workbook, from <b>Workbook and lists</b>.</TipPoint>
+            <TipPoint step={3}>
+              Say once what the course asks for each set, with <TipButton look="link">Say what TD asks for</TipButton>, rather than
+              on every section.
+            </TipPoint>
+            <TipPoint step={4}>
+              Put the students in groups: <TipButton icon={Wand2}>Fill TD</TipButton> for a whole set, or{" "}
+              <TipButton look="warn" icon={AlertTriangle}>
+                6 in no group
+              </TipButton>{" "}
+              for the few left over.
+            </TipPoint>
+            <TipPoint step={5}>
+              Send the timetabler the workbook: <TipButton icon={FileSpreadsheet}>Workbook and lists</TipButton>, top right.
+            </TipPoint>
             <TipUsage
               when={<>The registrar has opened FYS&apos;s <TipPill>MATH-009</TipPill> sections, and they have no CRN here yet.</>}
               todo={<>Open MATH-009, press <TipPill>TD 1</TipPill>, enter the portal&apos;s CRN and choose the teacher. Then the next one.</>}
@@ -481,7 +492,7 @@ export function CourseCards({
                 <TipPoint>How many sections the course has, in every set.</TipPoint>
                 <TipUsage
                   when={<><TipPill>MATH-009</TipPill> shows a red dot.</>}
-                  todo={<>Open it and press the card marked <TipPill>no CRN</TipPill>; enter the CRN the portal gives.</>}
+                  todo={<>Open it and press the card marked <TipButton look="danger">no CRN</TipButton>; enter the CRN the portal gives.</>}
                   then={<>The dot turns amber until a teacher is chosen, then green.</>}
                 />
               </InfoTip>
@@ -532,7 +543,7 @@ export function CourseCards({
                 <TipPoint>Give each CRN its set and its group.</TipPoint>
                 <TipUsage
                   when={<>The registrar created the <TipPill>SCEN-102</TipPill> Readiness CRNs, and FYS&apos;s list doesn&apos;t show the course yet.</>}
-                  todo={<>Add from portal: FYS, Semester 1, SCEN-102. Give each CRN its <TipPill>RDNS</TipPill> group.</>}
+                  todo={<>Press <TipButton look="link" icon={Plus}>Add from portal</TipButton>: FYS, Semester 1, SCEN-102. Give each CRN its <TipPill>RDNS</TipPill> group.</>}
                   then={<>SCEN-102 joins the list with its CRNs and teachers filled in.</>}
                 />
               </InfoTip>

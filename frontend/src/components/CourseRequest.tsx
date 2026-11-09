@@ -1,7 +1,7 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 
-import { InfoTip, TipDo, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
+import { InfoTip, TipButton, TipDo, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { isSilent, preferences, spread } from "@/services/courseRequest";
@@ -175,7 +175,7 @@ export function CourseRequestLine({
             <TipPoint>Where a section says nothing, the timetabler&apos;s workbook uses the course&apos;s answer.</TipPoint>
             <TipUsage
               when={<>Six TD groups of <TipPill>MATH-001</TipPill> Pre Calculus all want 36 hours, over the same weeks, in the same sort of room.</>}
-              todo={<>Press <b>Say what TD asks for</b> and enter it once.</>}
+              todo={<>Press <TipButton look="link">Say what TD asks for</TipButton> and enter it once.</>}
               then={<>Every TD section without its own hours goes to the timetabler with 36.</>}
               other={<>Only <TipPill>TD 3</TipPill> needs a bigger room: say it on TD 3&apos;s own card. TD 3 keeps its answer; the other TDs still follow the course.</>}
             />

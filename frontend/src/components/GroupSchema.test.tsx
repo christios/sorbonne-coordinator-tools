@@ -233,16 +233,15 @@ describe("choosing a sub-row's major", () => {
 
     shown();
 
-    const picker = (await screen.findByRole("combobox", { name: "Add a sub-row to 1" })) as HTMLSelectElement;
+    expect(await screen.findByText(/No students are synced in this browser/)).toBeTruthy();
+    fireEvent.click(await screen.findByRole("combobox", { name: "Add a sub-row to 1" }));
     await waitFor(() =>
-      expect([...picker.options].map((option) => option.textContent)).toEqual([
-        "+ major",
+      expect(screen.getAllByRole("option").map((option) => option.textContent?.trim())).toEqual([
         "CHEM - Chemistry",
         "MATH - Mathematics",
         "Another major…",
       ]),
     );
-    expect(screen.getByText(/No students are synced in this browser/)).toBeTruthy();
   });
 
   it("types a major the schema has never used, after Another major…", async () => {
@@ -253,9 +252,9 @@ describe("choosing a sub-row's major", () => {
 
     shown();
 
-    const picker = await screen.findByRole("combobox", { name: "Add a sub-row to 1" });
-    await waitFor(() => expect(within(picker).getByRole("option", { name: "Another major…" })).toBeTruthy());
-    fireEvent.change(picker, { target: { value: "\u0000another" } });
+    await screen.findByText(/No students are synced in this browser/);
+    fireEvent.click(await screen.findByRole("combobox", { name: "Add a sub-row to 1" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Another major…" }));
     const box = await screen.findByRole("textbox", { name: "Add a sub-row to 1" });
     fireEvent.change(box, { target: { value: "BIO - Biology" } });
     fireEvent.keyDown(box, { key: "Enter" });
@@ -269,8 +268,8 @@ describe("choosing a sub-row's major", () => {
 
     shown();
 
-    const picker = (await screen.findByRole("combobox", { name: "Add a sub-row to 1" })) as HTMLSelectElement;
-    expect([...picker.options].map((option) => option.textContent)).toEqual(["Everybody", "MATH - Mathematics", "PHYS - Physics"]);
+    fireEvent.click(await screen.findByRole("combobox", { name: "Add a sub-row to 1" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent?.trim())).toEqual(["MATH - Mathematics", "PHYS - Physics"]);
     expect(screen.queryByText(/No students are synced in this browser/)).toBeNull();
     expect(everywhere).not.toHaveBeenCalled();
   });

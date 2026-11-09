@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Layers, Plus, Trash2, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, LayoutGrid, Layers, Plus, Trash2, Users, Wand2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -7,7 +7,7 @@ import { CohortMenu } from "@/components/CohortMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { InfoTip, TipDo, TipHeading, TipPage, TipPill, TipPoint, TipUsage, TipWarn } from "@/components/InfoTip";
+import { InfoTip, TipButton, TipDo, TipHeading, TipPage, TipPill, TipPoint, TipUsage, TipWarn } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
@@ -46,11 +46,39 @@ const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 const field = "mt-1 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm";
 const caption = "block text-xs font-semibold uppercase tracking-wide text-[#667085]";
 /*
- * "In parallel with" and "Goes with": as wide as their column, which takes the room the
- * other columns leave (those are sized to what they hold). Not sized by their own pills, so
- * every row's menu is the same width and the table never grows past the page for them.
+ * The four columns that hold a control — In parallel with, Sub-rows, Goes with, First for —
+ * share whatever room the others leave (those are sized to what they hold), and each control
+ * fills its column. A control capped short of its column left a band of nothing beside it on
+ * a wide screen; on a laptop they shrink to these minimums and the table still fits.
+ *
+ * Not sized by what they hold, so every row is the same and the table never grows past the
+ * page for them: the two group menus fold what does not fit into "+N".
  */
-const PILL_MENU = "w-full min-w-[9rem] max-w-[22rem] [contain:inline-size]";
+const PILL_MENU = "w-full min-w-[7rem] [contain:inline-size]";
+const WIDE_MENU = "w-full min-w-[10rem] [contain:inline-size]";
+
+/**
+ * What "placing" is, with the buttons that do it.
+ *
+ * Sub-rows, First for, Goes with and a link between sets do nothing on this page: they are
+ * felt when a student is placed, which happens on other pages. Every bubble that speaks of
+ * placing says where, with the buttons as they look there.
+ */
+function HowPlacing({ setCode }: { setCode: string }) {
+  return (
+    <>
+      <TipHeading>Placing: putting students into groups</TipHeading>
+      <TipPoint>
+        <TipButton icon={Wand2}>Fill {setCode}</TipButton> on <TipPage name="Groups & CRNs" /> places everyone not yet in
+        this set, at once.
+      </TipPoint>
+      <TipPoint>
+        <TipButton icon={LayoutGrid}>Place in groups…</TipButton> on <TipPage name="Cohorts" /> or <TipPage name="Students" />{" "}
+        places the students you tick.
+      </TipPoint>
+    </>
+  );
+}
 
 function SetLine({
   reading,
@@ -356,6 +384,10 @@ export function GroupSchema({
             <TipPoint step={2}>Add the <b>courses</b> the set teaches.</TipPoint>
             <TipPoint step={3}>Add its <b>groups</b>, and fill in each group&apos;s row.</TipPoint>
             <TipPoint step={4}><b>Link</b> a set when its groups depend on another set&apos;s.</TipPoint>
+            <TipPoint step={5}>
+              Then press <TipButton look="link" icon={ArrowRight}>Fill it in on Groups &amp; CRNs</TipButton>, top right, for the
+              CRNs.
+            </TipPoint>
             <TipUsage
               when={<>Setting up L1: lectures for everyone, three tutorial groups, and a Mechanics lab in half-groups.</>}
               todo={<>Add <TipPill>CM</TipPill> with group 1, <TipPill>TD</TipPill> with groups 1-3, and <TipPill>MTP</TipPill> linked to TD with 1A to 3B. Give each its courses.</>}
@@ -381,7 +413,7 @@ export function GroupSchema({
         <div className="flex flex-col lg:min-h-0 lg:flex-1">
           <WarningBanner title="Needs attention" kinds={warnings} />
 
-          <div className="grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[19rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
+          <div className="grid items-stretch gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[17rem_1fr] lg:overflow-hidden lg:[grid-template-rows:minmax(0,1fr)]">
             <nav aria-label="Group sets" className="relative rounded-lg border border-[#d9dee7] bg-white p-1.5 lg:min-h-0 lg:overflow-y-auto lg:overscroll-none">
               <p className="flex items-center gap-1 px-2.5 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
                 Sets
@@ -392,9 +424,15 @@ export function GroupSchema({
                   <TipPoint tone="caution">Something to finish: no course, no group, or a sub-row no student is on.</TipPoint>
                   <TipPoint tone="serious">Nobody can be placed: it is linked to nothing, or has groups that go with nothing.</TipPoint>
                   <TipHeading>Order and new sets</TipHeading>
-                  <TipPoint>Hover a set and use its arrows to move it. <TipPage name="Groups & CRNs" /> shows the sets in this order.</TipPoint>
                   <TipPoint>
-                    To add one, type a short code at the bottom and press <TipPill>+ Set</TipPill>
+                    Hover a set and use its <TipButton icon={ChevronUp}>up</TipButton> <TipButton icon={ChevronDown}>down</TipButton>{" "}
+                    arrows to move it. <TipPage name="Groups & CRNs" /> shows the sets in this order.
+                  </TipPoint>
+                  <TipPoint>
+                    To add one, type a short code at the bottom and press{" "}
+                    <TipButton look="solid" icon={Plus}>
+                      Set
+                    </TipButton>
                   </TipPoint>
                   <TipUsage
                     when={<><TipPill>TD</TipPill> shows an amber dot.</>}
@@ -692,6 +730,7 @@ function SetEditor({
                 <TipPoint>Placing a student offers only the groups that go with theirs.</TipPoint>
                 <TipPoint>Only a set that isn&apos;t linked itself can be picked.</TipPoint>
                 <TipPoint>Leave it <b>Not linked</b> when any group will do.</TipPoint>
+                <HowPlacing setCode={scope.code} />
                 <TipUsage
                   when={<>L1&apos;s Mechanics lab splits each TD in two, and students must stay with their own TD.</>}
                   todo={<>Link <TipPill>MTP</TipPill> to <TipPill>TD</TipPill>, then make <TipPill>1A</TipPill> <TipPill>1B</TipPill> go with TD 1, <TipPill>2A</TipPill> <TipPill>2B</TipPill> with TD 2, and so on.</>}
@@ -810,7 +849,7 @@ function SetEditor({
             <TipPoint>Seats are set on <TipPage name="Groups & CRNs" />; the row shows them.</TipPoint>
             <TipUsage
               when={<>L1 needs three tutorial groups this semester.</>}
-              todo={<>Type <TipPill>1-3</TipPill> under the table and press <b>Add 3 groups</b>.</>}
+              todo={<>Type <TipPill>1-3</TipPill> under the table and press <TipButton icon={Plus}>Add 3 groups</TipButton></>}
               then={<>Groups 1, 2 and 3 appear, each with its own row to fill in.</>}
             />
           </InfoTip>
@@ -825,11 +864,12 @@ function SetEditor({
 
         {scope.groups.length ? (
           <div className="mt-2 overflow-x-auto rounded-lg border border-[#e4e8ef]">
-            <table className="w-full min-w-max text-left text-sm">
+            {/* No min-w-max: a header may wrap ("In parallel / with") before the table scrolls sideways. */}
+            <table className="w-full text-left text-sm">
               <thead className="bg-[#fbfcfe] text-[11px] uppercase tracking-wide text-[#8a94a4]">
                 <tr>
-                  <th className="w-px whitespace-nowrap py-2 pl-4 pr-3 font-semibold">Group</th>
-                  <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
+                  <th className="w-px whitespace-nowrap py-2 pl-4 pr-2 font-semibold">Group</th>
+                  <th className="w-px whitespace-nowrap py-2 pr-2 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Seats</span>
                       <InfoTip label="Where seats are set" title="Seats">
@@ -844,7 +884,7 @@ function SetEditor({
                       </InfoTip>
                     </span>
                   </th>
-                  <th className="py-2 pr-3 font-semibold">
+                  <th className="py-2 pr-2 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">In parallel with</span>
                       <InfoTip label="What in parallel with does" title="In parallel with">
@@ -860,7 +900,7 @@ function SetEditor({
                       </InfoTip>
                     </span>
                   </th>
-                  <th className="w-28 py-2 pr-3 font-semibold">
+                  <th className="py-2 pr-2 font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Sub-rows</span>
                       <InfoTip label="What sub-rows are" title="Sub-rows">
@@ -879,11 +919,12 @@ function SetEditor({
                           otherLabel="Not this case"
                           other={<><TipPill>TD 3</TipPill> is taught together, and you only want physicists placed there first: don&apos;t split it, set its <b>First for</b> to Physics.</>}
                         />
+                        <HowPlacing setCode={scope.code} />
                       </InfoTip>
                     </span>
                   </th>
                   {scope.kind === "nested" ? (
-                    <th className="py-2 pr-3 font-semibold">
+                    <th className="py-2 pr-2 font-semibold">
                       <span className="inline-flex items-center gap-1 normal-case">
                         <span className="uppercase">Goes with</span>
                         <InfoTip label="What goes with does" title="Goes with">
@@ -891,6 +932,7 @@ function SetEditor({
                           <TipPoint>Placing a student offers only the groups that go with theirs.</TipPoint>
                           <TipPoint>Pick several when it isn&apos;t one-to-one.</TipPoint>
                           <TipWarn>Left empty, nobody can be placed in the group.</TipWarn>
+                          <HowPlacing setCode={scope.code} />
                           <TipUsage
                             when={<>Philosophy TD 2 takes the mathematicians of both TD 2 and TD 3.</>}
                             todo={<>In <TipPill>PHIL-TD</TipPill>&apos;s group 2 row, pick TD groups <TipPill>2</TipPill> and <TipPill>3</TipPill> under Goes with.</>}
@@ -901,7 +943,7 @@ function SetEditor({
                     </th>
                   ) : null}
                   {programmes.length > 1 ? (
-                    <th className="w-px whitespace-nowrap py-2 pr-3 font-semibold">
+                    <th className="py-2 pr-2 font-semibold">
                       <span className="inline-flex items-center gap-1 normal-case">
                         <span className="uppercase">First for</span>
                         <InfoTip label="What First for does" title="First for">
@@ -910,6 +952,7 @@ function SetEditor({
                           <TipPoint>Other majors come here once the groups for nobody in particular are full.</TipPoint>
                           <TipPoint>A preference, not a wall: anyone can still be placed here by hand.</TipPoint>
                           <TipPoint>Unlike sub-rows, the group isn&apos;t split: everybody shares its seats.</TipPoint>
+                          <HowPlacing setCode={scope.code} />
                           <TipUsage
                             when={<>TD 3 was opened for the physicists, but others may join if it has room.</>}
                             todo={<>Set TD 3&apos;s First for to <TipPill>PHYS - Physics</TipPill></>}
@@ -921,17 +964,18 @@ function SetEditor({
                       </span>
                     </th>
                   ) : null}
-                  <th className="w-px whitespace-nowrap py-2 pr-3 text-right font-semibold">
+                  <th className="w-px whitespace-nowrap py-2 pr-2 text-right font-semibold">
                     <span className="inline-flex items-center gap-1 normal-case">
                       <span className="uppercase">Placed</span>
                       <InfoTip label="What placed counts" title="Placed">
                         <TipDo>
-                          Place students on <TipPage name="Groups & CRNs" /> with <b>Place them</b>, or from a selection of students with{" "}
-                          <b>Place in groups…</b>
+                          Place students with <TipButton icon={Wand2}>Fill {scope.code}</TipButton> on <TipPage name="Groups & CRNs" />,
+                          or <TipButton icon={LayoutGrid}>Place in groups…</TipButton> on <TipPage name="Cohorts" /> for the ones you tick.
                         </TipDo>
                         <TipPoint>The students in this group now.</TipPoint>
                         <TipPoint>
-                          A student&apos;s own record places them in every set at once: <b>Place in every set…</b>
+                          A student&apos;s own record places them in every set at once:{" "}
+                          <TipButton icon={Wand2}>Place in every set…</TipButton>
                         </TipPoint>
                         <TipWarn>Removing a group sends its students back to be placed again.</TipWarn>
                         <TipUsage
@@ -942,7 +986,7 @@ function SetEditor({
                       </InfoTip>
                     </span>
                   </th>
-                  <th className="w-px py-2 pr-4" />
+                  <th className="w-px py-2 pr-2" />
                 </tr>
               </thead>
               <tbody>
@@ -992,7 +1036,9 @@ function SetEditor({
             {makeGroups.isPending ? "Adding…" : labelsFrom(newGroups).length > 1 ? `Add ${labelsFrom(newGroups).length} groups` : "Add group"}
           </button>
           <InfoTip label="How to add groups" title="Adding groups">
-            <TipDo>Type a label and press <b>Add group</b>, or type a range to add several at once.</TipDo>
+            <TipDo>
+              Type a label and press <TipButton icon={Plus}>Add group</TipButton>, or type a range to add several at once.
+            </TipDo>
             <TipPoint>
               <TipPill>1-6</TipPill> adds groups 1 to 6; <TipPill>TD 1-3</TipPill> adds TD 1, TD 2 and TD 3.
             </TipPoint>
@@ -1002,7 +1048,7 @@ function SetEditor({
             <TipPoint>Anything else is one group, named as typed: <TipPill>A1-G1</TipPill> alone is one group.</TipPoint>
             <TipUsage
               when={<>The languages need seven A0 groups, A0-F1 to A0-F7.</>}
-              todo={<>Type <TipPill>A0-F1-7</TipPill> and press <b>Add 7 groups</b>.</>}
+              todo={<>Type <TipPill>A0-F1-7</TipPill> and press <TipButton icon={Plus}>Add 7 groups</TipButton></>}
               then={<>A0-F1, A0-F2 … A0-F7 appear at once.</>}
             />
           </InfoTip>
@@ -1085,7 +1131,7 @@ function GroupRow({
 
   return (
     <tr className="border-t border-[#f2f4f7]">
-      <td className="py-1.5 pl-4 pr-3">
+      <td className="py-1.5 pl-4 pr-2">
         <input
           aria-label={`Label of ${group.label}`}
           value={label}
@@ -1096,11 +1142,11 @@ function GroupRow({
           className="rounded-md border border-transparent px-2 py-1 text-sm font-medium hover:border-[#cbd5e1] focus:border-[#cbd5e1]"
         />
       </td>
-      <td className="py-1.5 pr-3">
+      <td className="py-1.5 pr-2">
         {/* Read here, set on Groups & CRNs. With sub-rows it is what they add up to. */}
         <span
           aria-label={`Seats in ${group.label}`}
-          className="inline-block w-14 px-2 py-1 text-sm tabular-nums text-[#667085]"
+          className="inline-block w-12 px-2 py-1 text-sm tabular-nums text-[#667085]"
           title={majors.length ? "What the sub-rows add up to" : undefined}
         >
           {group.capacity || "—"}
@@ -1111,7 +1157,7 @@ function GroupRow({
         * so both majors are busy at once. Any set of the semester; it travels with the
         * timetable request as a constraint on the row.
         */}
-      <td className="py-1.5 pr-3">
+      <td className="py-1.5 pr-2">
         <div className={PILL_MENU}>
           <SelectMenu
             label={`Groups ${group.label} runs in parallel with`}
@@ -1130,11 +1176,11 @@ function GroupRow({
         * is one thing for everybody. With them, a placement takes one, the fill seats a
         * student on their own, and a course may be one sub-row's and not another's.
         */}
-      <td className="w-28 py-1.5 pr-3">
+      <td className="py-1.5 pr-2">
         <MajorsEditor group={group} programmes={programmes} pulled={pulled} onChanged={onChanged} />
       </td>
       {nested ? (
-        <td className="py-1.5 pr-3">
+        <td className="py-1.5 pr-2">
           {/* Several where the pairing is not one-to-one: Philosophy 2 goes with TD 2 and TD 3. */}
           <div className={PILL_MENU}>
             <SelectMenu
@@ -1159,14 +1205,14 @@ function GroupRow({
         * another major goes here once the groups that are nobody's in particular are full.
         */}
       {programmes.length > 1 ? (
-        <td className="py-1.5 pr-3">
-          <div className="w-60">
+        <td className="py-1.5 pr-2">
+          <div className={WIDE_MENU}>
             <SelectMenu
               label={`The major ${group.label} takes first`}
               value={group.firstFor ?? ""}
               onChange={(value) => save.mutate({ firstFor: value })}
               options={[
-                { value: "", label: "Nobody in particular" },
+                { value: "", label: "No preference" },
                 ...[...new Set([...programmes, ...(group.firstFor ? [group.firstFor] : [])])].map((programme) => ({
                   value: programme,
                   label: programme,
@@ -1176,8 +1222,8 @@ function GroupRow({
           </div>
         </td>
       ) : null}
-      <td className="py-1.5 pr-3 text-right tabular-nums text-[#667085]">{group.assigned || ""}</td>
-      <td className="py-1.5 pr-4 text-right">
+      <td className="py-1.5 pr-2 text-right tabular-nums text-[#667085]">{group.assigned || ""}</td>
+      <td className="py-1.5 pr-2 text-right">
         <button
           type="button"
           aria-label={`Remove ${group.label}`}
@@ -1214,6 +1260,7 @@ function MajorsEditor({
 }) {
   const majors = group.majors ?? [];
   const [adding, setAdding] = useState("");
+  // The box for a major the list does not have, opened from "Another major…".
   const [typing, setTyping] = useState(false);
   const add = useMutation({
     mutationFn: (program: string) => addMajor(group.id, { program, seats: 0 }),
@@ -1229,7 +1276,7 @@ function MajorsEditor({
   // A value no programme can have, for the option that opens the box.
   const ANOTHER = "\u0000another";
   return (
-    <div className="w-28 space-y-1">
+    <div className={`${WIDE_MENU} space-y-1`}>
       {majors.map((major) => (
         // Narrow on purpose: the name and its seats, and the remove button over the seats
         // only while the pointer (or the keyboard) is on the line.
@@ -1279,28 +1326,21 @@ function MajorsEditor({
           className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
         />
       ) : offered.length ? (
-        <select
-          aria-label={`Add a sub-row to ${group.label}`}
-          value={adding}
-          onChange={(event) => {
-            const value = event.target.value;
-            if (value === ANOTHER) {
-              setTyping(true);
-              return;
-            }
-            setAdding(value);
-            if (value) add.mutate(value);
+        <SelectMenu
+          size="small"
+          align="start"
+          label={`Add a sub-row to ${group.label}`}
+          value=""
+          placeholder={majors.length ? "+ major" : "Everybody"}
+          onChange={(value) => {
+            if (value === ANOTHER) setTyping(true);
+            else if (value) add.mutate(value);
           }}
-          className="w-full rounded-md border border-dashed border-[#cbd5e1] bg-transparent px-1.5 py-0.5 text-xs text-[#667085]"
-        >
-          <option value="">{majors.length ? "+ major" : "Everybody"}</option>
-          {offered.map((program) => (
-            <option key={program} value={program}>
-              {program}
-            </option>
-          ))}
-          {pulled ? null : <option value={ANOTHER}>Another major…</option>}
-        </select>
+          options={[
+            ...offered.map((program) => ({ value: program, label: program })),
+            ...(pulled ? [] : [{ value: ANOTHER, label: "Another major…" }]),
+          ]}
+        />
       ) : null}
       {error ? <p className="text-xs text-[#a6292f]">{(error as Error).message}</p> : null}
     </div>

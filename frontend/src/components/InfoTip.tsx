@@ -17,6 +17,7 @@ import {
   ListTree,
   UserCheck,
   Users,
+  type LucideIcon,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import type { ReactNode } from "react";
@@ -159,6 +160,44 @@ export function TipPage({ name }: { name: keyof typeof PAGES }) {
     <span className="mx-px inline-flex items-center gap-1 whitespace-nowrap rounded border border-[#d6dde6] bg-white px-1.5 align-baseline text-[11px] font-semibold leading-[18px] text-[#344054] shadow-[0_1px_0_#e4e8ef]">
       <Icon size={11} className="shrink-0 text-[#1f4e79]" aria-hidden="true" />
       {name}
+    </span>
+  );
+}
+
+const BUTTON_LOOKS = {
+  // The page's ordinary button: white, outlined, navy words — Fill TD, Add group, Workbook and lists.
+  outline: "rounded-md border border-[#b7bec8] bg-white text-[#1f4e79] shadow-[0_1px_0_#e4e8ef]",
+  // The one solid button a form has: + Set.
+  solid: "rounded-md border border-[#1f4e79] bg-[#1f4e79] text-white",
+  // Words that act: Say what TD asks for, Place them.
+  link: "text-[#1f4e79] underline decoration-[#9fbfdc] underline-offset-2",
+  // An amber count that is also a button: 6 in no group.
+  warn: "rounded-full bg-[#fdf9ee] text-[#8a6116]",
+  // A red mark on a card: no CRN.
+  danger: "rounded-full bg-[#fdf3f3] text-[#a6292f]",
+} as const;
+
+/**
+ * A button or a mark as it looks on the page, with its icon, so a bubble can say "press
+ * this" and be found at a glance: [✦ Fill TD] rather than "the fill button".
+ */
+export function TipButton({
+  children,
+  icon: Icon,
+  look = "outline",
+}: {
+  children: ReactNode;
+  icon?: LucideIcon;
+  look?: keyof typeof BUTTON_LOOKS;
+}) {
+  return (
+    <span
+      className={`mx-px inline-flex items-center gap-1 whitespace-nowrap align-baseline text-[11px] font-semibold leading-[18px] ${
+        look === "link" ? "" : "px-1.5"
+      } ${BUTTON_LOOKS[look]}`}
+    >
+      {Icon ? <Icon size={11} className="shrink-0" aria-hidden="true" /> : null}
+      {children}
     </span>
   );
 }
