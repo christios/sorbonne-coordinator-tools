@@ -26,6 +26,12 @@ export type PlanSummary = {
 
 export type Holiday = { date: string; label: string };
 
+/**
+ * A stretch of the semester binding everybody, beside the holidays: Ramadan, 8 Feb to 9 Mar,
+ * no classes 15:00–19:00. Its days are the weekdays it covers, 1 being Monday.
+ */
+export type Period = { label: string; from: string; to: string; days: number[]; blockFrom: string; blockTo: string };
+
 /** Where a class sits on Groups & CRNs: a group of a set of a cohort. */
 export type Place = {
   cohortId: string;
@@ -71,6 +77,11 @@ export type PlanSection = {
   /** "G1", "GA"; empty where the whole programme attends. */
   groupLabel: string;
   teacherName: string;
+  /**
+   * Their Active teachers record, when the section chose one: what their timetable wishes are
+   * filed by. Empty for a name typed on the row and never chosen.
+   */
+  teacherId?: string;
   /** The hours asked for, where the request gives a number. */
   hours: number | null;
   /** The hours as the request wrote them: "60CM". */
@@ -130,6 +141,8 @@ export type Plan = {
   /** The Mondays of the weeks without classes. */
   without: string[];
   holidays: Holiday[];
+  /** Absent from a server older than the periods. */
+  periods?: Period[];
   updatedAt: string;
   updatedBy: string;
   sections: PlanSection[];
@@ -139,7 +152,7 @@ export type Plan = {
   skipped: (PlanClass & { holiday: string })[];
 };
 
-export type PlanSettings = Pick<Plan, "name" | "weekOne" | "weeks" | "without" | "holidays">;
+export type PlanSettings = Pick<Plan, "name" | "weekOne" | "weeks" | "without" | "holidays" | "periods">;
 
 export type Scope = "one" | "following" | "all";
 
