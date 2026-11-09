@@ -45,8 +45,8 @@ OWN = ("weekday", "startsAt", "endsAt", "room", "teacherName")
 # What a class takes from Groups & CRNs each time the plan is opened: the plain fields, and
 # the ones kept as JSON.
 _FOLLOWED = (
-    "crn", "course_code", "title", "component", "group_label", "teacher_name", "hours", "hours_said", "duration",
-    "comments", "position",
+    "crn", "course_code", "title", "component", "group_label", "teacher_name", "teacher_id", "hours", "hours_said",
+    "duration", "comments", "position",
 )
 _JSON = ("programmes", "cells", "places")
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -218,6 +218,8 @@ def _section(row: Any, names: dict[str, str]) -> dict[str, Any]:
         "programmes": json.loads(row["programmes"] or "[]"),
         "groupLabel": row["group_label"],
         "teacherName": row["teacher_name"],
+        # Their Active teachers record, when the class names one: what their wishes are filed by.
+        "teacherId": row["teacher_id"],
         "hours": row["hours"],
         "hoursSaid": row["hours_said"],
         "duration": row["duration"],
@@ -338,7 +340,12 @@ def _class_of(  # noqa: PLR0913 - the set, group, course, sub-row and cell a cla
     """One class: a group (or one sub-row of it) taught a course, by one part of its section."""
     asked = cell if cell is not None else course
     hours_said = str((cell or {}).get("hours") or course["hours"] or "").strip()
-    teacher = _words((cell or {}).get("teacher")) or teachers.get((cell or {}).get("teacher_id") or "", "")
+    named = _words((cell or {}).get("teacher"))
+    chosen = (cell or {}).get("teacher_id") or ""
+    teacher = named or teachers.get(chosen, "")
+    # Who teaches it as a record, not a name: the one chosen on the section, else the course's
+    # when the section names nobody. A name typed but not chosen from Active teachers is no one's.
+    teacher_id = chosen if chosen in teachers else ("" if named else (course["teacher_id"] or ""))
     duration = str((cell or {}).get("duration") or course["duration"] or "").strip()
     major_id = major["id"] if major else ""
     label = f"{scope['code']} {group['label']}".strip()
@@ -349,6 +356,7 @@ def _class_of(  # noqa: PLR0913 - the set, group, course, sub-row and cell a cla
         "component": _words(course["component"]) or scope["code"],
         "group_label": f"{label} {major['program']}" if major else label,
         "teacher_name": teacher or teachers.get(course["teacher_id"] or "", ""),
+        "teacher_id": teacher_id if teacher_id in teachers else "",
         "hours": _number(hours_said),
         "hours_said": hours_said,
         "duration": duration,
@@ -704,11 +712,11 @@ class PlanStore:
             if row is None:
                 connection.execute(
                     text("""INSERT INTO plan_sections (id, term_code, crn, course_code, title, component, programmes,
-                                group_label, teacher_name, hours, hours_said, duration, comments, position, cells,
-                                places, updated_at)
+                                group_label, teacher_name, teacher_id, hours, hours_said, duration, comments, position,
+                                cells, places, updated_at)
                             VALUES (:id, :term, :crn, :course_code, :title, :component, :programmes, :group_label,
-                                :teacher_name, :hours, :hours_said, :duration, :comments, :position, :cells, :places,
-                                :at)"""),
+                                :teacher_name, :teacher_id, :hours, :hours_said, :duration, :comments, :position,
+                                :cells, :places, :at)"""),
                     {**values, "id": str(uuid.uuid4())},
                 )
                 continue
@@ -721,7 +729,8 @@ class PlanStore:
                 connection.execute(
                     text("""UPDATE plan_sections SET crn = :crn, course_code = :course_code, title = :title,
                                 component = :component, programmes = :programmes, group_label = :group_label,
-                                teacher_name = :teacher_name, hours = :hours, hours_said = :hours_said,
+                                teacher_name = :teacher_name, teacher_id = :teacher_id, hours = :hours,
+                                hours_said = :hours_said,
                                 duration = :duration, comments = :comments, position = :position, cells = :cells,
                                 places = :places, gone_at = '', updated_at = :at
                             WHERE id = :id"""),

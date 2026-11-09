@@ -479,3 +479,22 @@ def test_only_an_administrator_moves_a_semester_into_coordinator_tools(client, h
         lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
     )
     assert client.post(f"{AT}/adopt", json={"termId": hub_semester, "name": "S1"}).status_code == 403
+
+
+def test_a_class_names_its_teacher_by_record_when_one_was_chosen(client: TestClient, groups: Groups):
+    """What a teacher's wishes follow: the Active teachers record, not a name that may be spelled twice."""
+    groups.change("DELETE FROM active_teachers WHERE id = 'plan-test-lama'")
+    groups.change(
+        "INSERT INTO active_teachers (id, full_name, added_at) VALUES ('plan-test-lama', 'Lama Tarsissi', 'x')"
+    )
+    assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
+    lectures = groups.set(groups.cohort("L1-T"), "CM")
+    analysis = groups.course(lectures, "math-160", "Analysis", "CM")
+    groups.cell(groups.group(lectures, "1"), analysis, "30001", teacher_id="plan-test-lama")
+    groups.cell(groups.group(lectures, "2"), analysis, "30002", teacher="Somebody Typed")
+
+    sections = {each["crn"]: each for each in client.get(f"{AT}/{TERM}").json()["sections"]}
+    assert (sections["30001"]["teacherName"], sections["30001"]["teacherId"]) == ("Lama Tarsissi", "plan-test-lama")
+    # Typed on the row but never chosen from Active teachers: a name, nobody's record.
+    assert (sections["30002"]["teacherName"], sections["30002"]["teacherId"]) == ("Somebody Typed", "")
+    groups.change("DELETE FROM active_teachers WHERE id = 'plan-test-lama'")
