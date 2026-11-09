@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 
+import { CohortMenu } from "@/components/CohortMenu";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { type ActiveCourse, fetchTermCrns } from "@/services/portalLists";
 import { type PortalCourseChoice, type SeedRow, portalCourses, proposeRows, seedSteps } from "@/services/portalSeed";
 import { type Cohort, addCourse, addGroup, fetchCatalogue, setGroupCrn } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
-import { useSemesterShortNames, useSemesterShown } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 /**
  * A course card from the portal's list.
@@ -36,7 +37,6 @@ export function AddFromPortal({
   const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
   const [termId, setTermId] = useState(terms[0]?.id ?? "");
   const shownOf = useSemesterShown();
-  const shortOf = useSemesterShortNames();
   const [courseCode, setCourseCode] = useState("");
   const [rows, setRows] = useState<SeedRow[]>([]);
   useEffect(() => {
@@ -112,7 +112,7 @@ export function AddFromPortal({
       }
     >
       <div className="grid gap-3 sm:grid-cols-3">
-        <SelectMenu label="Cohort" value={cohortId} onChange={setCohortId} options={cohorts.map((candidate) => ({ value: candidate.id, label: candidate.name, short: shortOf(termId), year: candidate.term }))} />
+        <CohortMenu cohorts={cohorts} semesterId={termId} value={cohortId} onChange={setCohortId} />
         <SelectMenu label="Semester" value={termId} onChange={setTermId} placeholder="Choose a semester" options={terms.map((term) => ({ value: term.id, ...shownOf(term) }))} />
         <SelectMenu
           label="Course"

@@ -3,11 +3,12 @@ import { AlertTriangle, Copy } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { type ReactNode, useMemo, useState } from "react";
 
+import { CohortMenu } from "@/components/CohortMenu";
+import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { useRemembered } from "@/components/useRemembered";
 import {
   capacityByGroup,
@@ -351,7 +352,7 @@ function GroupBar({
  * cohort's students among everybody else's, and their seats are not this cohort's to
  * count.
  */
-export function CapacityPage() {
+export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -370,11 +371,15 @@ export function CapacityPage() {
     if (held) setShowingCrn(held);
   };
 
+  // The semester every page is on: its sets alone, since a room is booked a semester at a time.
+  const { semesters, semester, setTermId } = usePortalSemester();
   const rows = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
     const teacherName = (id: string) => (teachers.data ?? []).find((teacher) => teacher.id === id)?.fullName ?? "";
-    return capacityRows(catalogues.data ?? [], termName, courses.data ?? [], teacherName);
-  }, [catalogues.data, terms.data, courses.data, teachers.data]);
+    return capacityRows(catalogues.data ?? [], termName, courses.data ?? [], teacherName).filter(
+      (row) => !semester || row.termId === semester.id,
+    );
+  }, [catalogues.data, terms.data, courses.data, teachers.data, semester]);
 
   // The cohorts themselves, for the headcount: how many students a cohort holds is the
   // cohort's own fact, and its groups cannot be added up to give it.
@@ -384,8 +389,11 @@ export function CapacityPage() {
     // Named by the cohorts that have groups of their own: a year is not in the list
     // because it happens to hold the row for a set everybody shares.
     for (const row of rows) if (!row.shared) held.set(row.cohortId, row.cohortName);
-    return [...held.entries()].map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name));
-  }, [rows]);
+    // The cohort itself where it is known, for its year and its students in the menu.
+    return [...held.entries()]
+      .map(([id, name]) => (known.data ?? []).find((cohort) => cohort.id === id) ?? { id, name })
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [rows, known.data]);
 
   const chosen = cohorts.find((cohort) => cohort.id === cohortId) ?? cohorts[0] ?? null;
   /*
@@ -489,24 +497,27 @@ export function CapacityPage() {
 
   if (catalogues.isLoading) return <ScreenLoading label="Counting the seats…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
+  // Top right, on the page's title line, as on every page with a semester.
+  const semesterMenu = header ? (
+    <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
+  ) : null;
   if (!chosen) {
     return (
-      <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
-        No groups yet. Groups &amp; CRNs is where they are made.
-      </p>
+      <>
+        {semesterMenu}
+        <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
+          No groups in {semester?.name ?? "this semester"} yet. Groups &amp; CRNs is where they are made.
+        </p>
+      </>
     );
   }
 
   return (
     <section>
+      {semesterMenu}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <LabelledPicker label="Cohort">
-          <SelectMenu
-            label="Cohort"
-            value={chosen.id}
-            onChange={setCohortId}
-            options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name }))}
-          />
+          <CohortMenu cohorts={cohorts} semesterId={semester?.id} value={chosen.id} onChange={setCohortId} />
         </LabelledPicker>
         <button
           type="button"

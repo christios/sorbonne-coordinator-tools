@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Layers, Plus, Trash2
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { CohortMenu } from "@/components/CohortMenu";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -37,7 +38,7 @@ import {
   updateScope,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
-import { useSemesterShortNames, useSemesterShown } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
@@ -138,7 +139,6 @@ export function GroupSchema({
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
-  const shortOf = useSemesterShortNames();
   const active = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   /*
    * The programmes the registrar has for this browser's students, which is the vocabulary
@@ -303,13 +303,7 @@ export function GroupSchema({
         {/* The semester first: a set belongs to one, and the cohort means nothing until it is settled. */}
         {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
         <LabelledPicker label="Cohort">
-          <SelectMenu
-            label="Cohort"
-            value={cohortId}
-            onChange={setCohortId}
-            placeholder="Which cohort…"
-            options={cohorts.map((cohort) => ({ value: cohort.id, label: cohort.name, short: shortOf(termId), year: cohort.term }))}
-          />
+          <CohortMenu cohorts={cohorts} semesterId={termId} value={cohortId} onChange={setCohortId} placeholder="Which cohort…" />
         </LabelledPicker>
         {/* The cohort's totals beside its pickers, rather than a line of their own under them. */}
         {cohortId && termId && !catalogue.isLoading ? (

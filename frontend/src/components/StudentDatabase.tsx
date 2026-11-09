@@ -465,7 +465,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "students" && (cohorts.isLoading || views.isLoading) ? (
             <ScreenLoading label="Loading…" />
           ) : null}
-          {page === "capacity" ? <CapacityPage /> : null}
+          {page === "capacity" ? <CapacityPage header={pageHeader} /> : null}
           {page === "teacher-hours" ? (
             <TeacherHours onOpenTeacher={setTeacherRecord} header={pageHeader} />
           ) : null}

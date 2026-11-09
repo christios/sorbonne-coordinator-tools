@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { useStaffUser } from "@/components/useStaffUser";
+import { CohortMenu } from "@/components/CohortMenu";
 import { CohortActions } from "@/components/CohortActions";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoTip } from "@/components/InfoTip";
@@ -47,7 +48,7 @@ import { describeMismatch, fetchRegistrationCheck, type Mismatch, type Registrat
 import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
 import { useSemesterInView } from "@/services/semesterInView";
-import { useSemesterShortNames, useSemesterShown } from "@/services/semesterYears";
+import { useSemesterShown } from "@/services/semesterYears";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import {
@@ -508,7 +509,6 @@ export function CohortsPage({
    */
   const { setTermId, semesters, semester, semesterCohorts, semesterCohortsOf, links } = useSemesterInView(cohorts);
   const shownOf = useSemesterShown();
-  const shortOf = useSemesterShortNames();
 
   // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
   // and its first otherwise, so a deleted cohort does not leave the page empty for ever.
@@ -796,8 +796,6 @@ export function CohortsPage({
     </div>
   );
   const emptySemester = Boolean(semester) && semesterCohorts.length === 0;
-  // A cohort's students in the semester on screen — L1 holds its Semester 1 and its Semester 2 apart.
-  const countIn = (held: Cohort) => (semester ? (held.memberCounts?.[semester.id] ?? 0) : held.memberCount);
 
   return (
     <section>
@@ -848,44 +846,35 @@ export function CohortsPage({
             * table were still its: it reads "Every cohort" until a cohort is chosen, and
             * choosing one is what brings the table back to a single cohort.
             */}
-          <SelectMenu
-            label="Cohort"
+          <CohortMenu
             align="start"
+            cohorts={semesterCohorts}
+            semesterId={semester?.id}
             value={everywhere ? "" : semesterCohorts.length ? cohortId : ""}
             placeholder={everywhere ? "Every cohort" : semesterCohorts.length ? undefined : "No cohort yet"}
             onChange={chooseCohort}
-            options={[
-              ...semesterCohorts.map((candidate) => {
-                const held = byCohort.get(candidate.id) ?? [];
-                return {
-                  value: candidate.id,
-                  label: candidate.name,
-                  // The semester's tag and the cohort's year in front of its name: "S1 2026-27 L1".
-                  short: shortOf(semester?.id),
-                  year: candidate.term,
-                  // Its students in this semester.
-                  badge: String(countIn(candidate)),
-                  badgeTone: countIn(candidate) ? ("accent" as const) : ("muted" as const),
-                  /*
-                   * Counted by record rather than added up. "9 flagged" said that
-                   * something is wrong nine times and nothing about what — and nine
-                   * records drifting from admissions, nine registrations to key in and
-                   * nine hours a student cannot attend are three different afternoons.
-                   * Which cohort to open is often a choice of which of them to do.
-                   *
-                   * The counts are of STUDENTS, per record, so they do not add up: one
-                   * person flagged by two records is counted under both.
-                   */
-                  flags: records.map((record) => ({
-                    key: record.id,
-                    count: flaggedIn(held, record.id),
-                    title: record.counted,
-                    icon: WARNING_ICONS[record.id],
-                    className: WARNING_TONES[record.id],
-                  })),
-                };
-              }),
-            ]}
+            more={(candidate) => {
+              const held = byCohort.get(candidate.id) ?? [];
+              return {
+                /*
+                 * Counted by record rather than added up. "9 flagged" said that
+                 * something is wrong nine times and nothing about what — and nine
+                 * records drifting from admissions, nine registrations to key in and
+                 * nine hours a student cannot attend are three different afternoons.
+                 * Which cohort to open is often a choice of which of them to do.
+                 *
+                 * The counts are of STUDENTS, per record, so they do not add up: one
+                 * person flagged by two records is counted under both.
+                 */
+                flags: records.map((record) => ({
+                  key: record.id,
+                  count: flaggedIn(held, record.id),
+                  title: record.counted,
+                  icon: WARNING_ICONS[record.id],
+                  className: WARNING_TONES[record.id],
+                })),
+              };
+            }}
           />
         </LabelledPicker>
         {/* The cohort's own settings — name, year, and what it expects — beside the cohort they act on. */}

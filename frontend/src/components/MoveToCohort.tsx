@@ -2,7 +2,7 @@ import { FolderInput, Plus, UserMinus } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Modal } from "@/components/Modal";
-import { SelectMenu } from "@/components/SelectMenu";
+import { CohortMenu } from "@/components/CohortMenu";
 import type { Cohort } from "@/services/studentDatabase";
 
 /**
@@ -23,7 +23,6 @@ export function MoveToCohort({
   cohorts,
   termId,
   semesterName = "",
-  semesterShort = "",
   onMove,
   describe,
   onNewCohort,
@@ -33,10 +32,9 @@ export function MoveToCohort({
   open: boolean;
   count: number;
   cohorts: Cohort[];
-  /** The semester the move is made in, by id, name and short name — a student is in one cohort per semester. */
+  /** The semester the move is made in, by id and name — a student is in one cohort per semester. */
   termId?: string;
   semesterName?: string;
-  semesterShort?: string;
   onMove: (cohortId: string) => void;
   /**
    * What this particular move would throw away, or "" when it throws nothing away.
@@ -85,8 +83,10 @@ export function MoveToCohort({
     >
       <span className="block text-xs font-semibold uppercase tracking-wide text-[#667085]">Cohort</span>
       <div className="mt-1.5">
-        <SelectMenu
+        <CohortMenu
           label="Move to cohort"
+          cohorts={cohorts}
+          semesterId={termId}
           value={cohortId}
           placeholder="Which cohort…"
           searchable={cohorts.length > 12}
@@ -99,18 +99,6 @@ export function MoveToCohort({
            * removal worded as a destination. It is a button of its own on the selection
            * bar now, beside the one for taking them out of a semester's groups.
            */
-          options={cohorts.map((cohort) => ({
-            value: cohort.id,
-            label: cohort.name,
-            // The semester the move lands in, and the cohort's year, in front of its name.
-            short: semesterShort,
-            year: cohort.term,
-            // How many it holds in this semester, where the move lands.
-            badge: String(termId === undefined ? cohort.memberCount : (cohort.memberCounts?.[termId] ?? 0)),
-            badgeTone: (termId === undefined ? cohort.memberCount : (cohort.memberCounts?.[termId] ?? 0))
-              ? ("accent" as const)
-              : ("muted" as const),
-          }))}
           onChange={setCohortId}
         />
       </div>

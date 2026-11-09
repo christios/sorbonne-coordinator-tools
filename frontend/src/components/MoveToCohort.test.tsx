@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -17,6 +18,7 @@ async function choose(option: string | RegExp) {
 
 function show(describe_: (cohortId: string | null) => string) {
   render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <MoveToCohort
       open
       count={1}
@@ -26,7 +28,8 @@ function show(describe_: (cohortId: string | null) => string) {
       onMove={vi.fn()}
       onNewCohort={vi.fn()}
       onClose={vi.fn()}
-    />,
+    />
+    </QueryClientProvider>,
   );
 }
 

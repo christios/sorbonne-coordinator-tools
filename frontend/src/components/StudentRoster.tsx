@@ -24,7 +24,6 @@ import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
 import { costOfMove, describeCost } from "@/services/cohortMove";
 import { useSemesterInView } from "@/services/semesterInView";
-import { useSemesterShortNames } from "@/services/semesterYears";
 import { copyTable } from "@/services/copyCells";
 import { presetBlock, rowsForCopy } from "@/services/copyPresets";
 import { afterPlacement } from "@/services/afterPlacement";
@@ -200,7 +199,6 @@ export function StudentRoster({
    * the semester remembered with Groups & CRNs and the Cohorts page.
    */
   const inView = useSemesterInView(cohorts);
-  const shortOf = useSemesterShortNames();
   const termId = scope ? scope.termId : inView.semester?.id;
   // Where a move lands: that semester, or — in an app with no semester at all — none.
   const moveTerm = termId ?? "";
@@ -749,7 +747,6 @@ export function StudentRoster({
         cohorts={cohorts}
         termId={moveTerm}
         semesterName={termNames[moveTerm] ?? ""}
-        semesterShort={shortOf(moveTerm)}
         describe={(cohortId) => describeCost(moveCost(cohortId))}
         busy={move.isPending}
         onMove={(cohortId) => {

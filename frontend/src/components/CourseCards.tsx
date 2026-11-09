@@ -3,6 +3,7 @@ import { FileSpreadsheet, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { CohortMenu } from "@/components/CohortMenu";
 import { AddFromPortal } from "@/components/AddFromPortal";
 import { CourseDetail } from "@/components/CourseDetail";
 import { LabelledPicker } from "@/components/LabelledPicker";
@@ -23,7 +24,7 @@ import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
-import { useSemesterShortNames, useSemesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterShown, useSemesterYears } from "@/services/semesterYears";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -85,7 +86,6 @@ export function CourseCards({
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const yearOf = useSemesterYears();
   const shownOf = useSemesterShown();
-  const shortOf = useSemesterShortNames();
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
@@ -373,24 +373,13 @@ export function CourseCards({
       {/* Which cohort, named above its picker as on the Cohorts page, over the list it narrows. */}
       <div className="mb-3">
         <LabelledPicker label="Cohort">
-          <SelectMenu
-            label="Cohort"
+          <CohortMenu
             align="start"
+            cohorts={semesterCohorts}
+            semesterId={semester?.id}
             value={chosen?.id ?? ""}
             onChange={setCohortId}
             placeholder="No cohort yet"
-            options={semesterCohorts.map((cohort) => {
-              const held = cards.filter((card) => card.cohortId === cohort.id && inSemester(card)).length;
-              return {
-                value: cohort.id,
-                label: cohort.name,
-                // The semester's tag and the cohort's year in front of its name.
-                short: shortOf(semester?.id),
-                year: cohort.term,
-                badge: String(held),
-                badgeTone: held ? ("accent" as const) : ("muted" as const),
-              };
-            })}
           />
         </LabelledPicker>
       </div>
