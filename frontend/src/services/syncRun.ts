@@ -23,6 +23,7 @@
 
 import type { SweepMemo, SweepSoFar } from "@/services/facilitySync";
 import { syncTarget, type SyncKind, type SyncTarget } from "@/services/portalSync";
+import { targetKey } from "@/services/syncTargetKey";
 import { PortalError, portalPace } from "@/services/scenRosters";
 
 const KEY = "scen-sync-run:v1";
@@ -163,7 +164,7 @@ export function isAbandoned(run: SyncRun | null, now = Date.now()): boolean {
 
 export function stepsFor(targets: SyncTarget[]): SyncStep[] {
   return targets.map((target) => ({
-    key: `${target.kind}:${target.id}`,
+    key: targetKey(target),
     kind: target.kind,
     id: target.id,
     name: target.name,
@@ -435,7 +436,7 @@ async function drive(runId: string, targets: SyncTarget[], onStep?: (step: SyncS
         await pause(Math.min(early, BEAT_MS));
         continue;
       }
-      const target = targets.find((candidate) => `${candidate.kind}:${candidate.id}` === next.key);
+      const target = targets.find((candidate) => targetKey(candidate) === next.key);
       if (!target) {
         // The view or portal filter was deleted between the run starting and getting here.
         // Written down first and told afterwards: what the run says must never depend on

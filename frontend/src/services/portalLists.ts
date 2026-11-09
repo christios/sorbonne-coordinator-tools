@@ -194,8 +194,9 @@ export function deletePortalFilter(filterId: string): Promise<void> {
   return request<void>(`/filters/${filterId}`, { method: "DELETE" });
 }
 
-export function syncCourses(filterId: string, rows: CourseRow[], signal?: AbortSignal): Promise<SyncReport> {
-  return send<SyncReport>(`/filters/${filterId}/sync/courses`, "POST", { rows }, signal);
+/** A courses pull, for the term it asked about when it named one: only that term's courses can be found gone. */
+export function syncCourses(filterId: string, rows: CourseRow[], signal?: AbortSignal, termCode = ""): Promise<SyncReport> {
+  return send<SyncReport>(`/filters/${filterId}/sync/courses`, "POST", { rows, termCode }, signal);
 }
 
 export function syncTeachers(filterId: string, rows: TeacherRow[], signal?: AbortSignal): Promise<SyncReport> {

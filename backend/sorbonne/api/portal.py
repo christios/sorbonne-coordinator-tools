@@ -120,6 +120,8 @@ class RegistrationRow(BaseModel):
 
 class CoursesSyncInput(BaseModel):
     rows: list[CourseRow] = Field(default_factory=list, max_length=MAX_ROWS)
+    #: The term the portal was asked about; only its courses can be found gone.
+    termCode: str = Field(default="", max_length=10)
 
 
 class TeachersSyncInput(BaseModel):
@@ -291,7 +293,9 @@ def sync_courses(
     filter_id: str, body: CoursesSyncInput, request: Request, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.sync_courses(filter_id, [row.model_dump() for row in body.rows], actor=_actor(request))
+        return store.sync_courses(
+            filter_id, [row.model_dump() for row in body.rows], term_code=body.termCode, actor=_actor(request)
+        )
     except FilterNotFound as exc:
         raise _missing("filter") from exc
     except UnknownKind as exc:

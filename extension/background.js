@@ -234,7 +234,15 @@ async function fetchFilter(filter, meta = {}) {
   const refusal = checkFilter(filter, fields, { trustValues: source === 'portal' });
   if (refusal) return { ok: false, error: 'filter_refused', detail: refusal, message: refusal };
 
-  const equality = Object.assign(grid.term ? { TERM_CODE: cfg.term.code } : {}, filter);
+  /*
+   * The term asked about: the page's, when it names one — it asks about each semester on
+   * its own, Semester 1's 262710 and Semester 2's 262720 — and otherwise this extension's
+   * own, as before. Six digits or nothing, so a page cannot slip anything else into the
+   * portal's question.
+   */
+  const asked = /^\d{6}$/.test(String(meta.termCode || '')) ? String(meta.termCode) : '';
+  const termCode = asked || cfg.term.code;
+  const equality = Object.assign(grid.term ? { TERM_CODE: termCode } : {}, filter);
   const sort = meta.sort || grid.sort;
 
   /*
@@ -278,7 +286,8 @@ async function fetchFilter(filter, meta = {}) {
     presetId: meta.presetId || '',
     name: meta.name || 'Filtered search',
     filter,
-    term: cfg.term,
+    // The term this answer is about, so the page can tell an extension too old to ask.
+    term: asked ? { code: asked, label: asked } : cfg.term,
     columns,
     count: rows.length,
     expect: meta.expect || null,

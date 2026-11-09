@@ -13,6 +13,7 @@ import { useQueries, type QueryClient } from "@tanstack/react-query";
 import { fetchLastSweeps, fetchPortalFilters, fetchTermLinks, type ListKind } from "@/services/portalLists";
 import type { SyncTarget } from "@/services/portalSync";
 import { fetchViews } from "@/services/studentDatabase";
+import { fetchPlans } from "@/services/semesterPlans";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 const LISTS: ListKind[] = ["courses", "teachers", "registrations"];
@@ -51,18 +52,27 @@ export function useSyncTargets(): SyncTargets {
    * step whose absence costs the others nothing, and a Student Hub that is down must not
    * stop a coordinator syncing their students.
    */
-  const [links, terms, sweeps] = useQueries({
+  const [links, terms, sweeps, plans] = useQueries({
     queries: [
       { queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false },
       { queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false },
       // Only how old each sweep is, for the pop-up that chooses what to pull. Not waited for.
       { queryKey: ["facility-sweeps"], queryFn: fetchLastSweeps, retry: false },
+      // When each semester made here teaches, so one long over is not pulled for ever.
+      { queryKey: ["plans"], queryFn: fetchPlans, retry: false },
     ],
   });
+  const ongoing = semestersToPull(links.data ?? {}, terms.data ?? [], plans.data ?? []);
 
   // The students first: the cohorts, the rules and the registration check are all read
   // against them, so a run that did the others first would check yesterday's population.
-  type Held = { id: string; name: string; filter: Record<string, string[]>; lastSyncedAt?: string };
+  type Held = {
+    id: string;
+    name: string;
+    filter: Record<string, string[]>;
+    lastSyncedAt?: string;
+    syncedTerms?: Record<string, string>;
+  };
   const targets: SyncTarget[] = [
     ...((views.data ?? []) as Held[]).map((view) => ({
       kind: "students" as const,
@@ -72,13 +82,24 @@ export function useSyncTargets(): SyncTargets {
       lastSyncedAt: view.lastSyncedAt || undefined,
     })),
     ...LISTS.flatMap((kind, index) =>
-      ((lists[index]?.data ?? []) as Held[]).map((filter) => ({
-        kind,
-        id: filter.id,
-        name: filter.name,
-        filter: filter.filter,
-        lastSyncedAt: filter.lastSyncedAt || undefined,
-      })),
+      ((lists[index]?.data ?? []) as Held[]).flatMap((filter): SyncTarget[] => {
+        /*
+         * Courses and registrations are a term's, so one filter is a list per semester: the
+         * portal is asked about Semester 1's 262710 and Semester 2's 262720 each on its own.
+         * Teachers have no term; and with no semester to ask about, the extension's own.
+         */
+        if (kind === "teachers" || ongoing.length === 0) {
+          return [{ kind, id: filter.id, name: filter.name, filter: filter.filter, lastSyncedAt: filter.lastSyncedAt || undefined }];
+        }
+        return ongoing.map((semester) => ({
+          kind,
+          id: filter.id,
+          name: `${filter.name} · ${semester.name}`,
+          filter: filter.filter,
+          lastSyncedAt: filter.syncedTerms?.[semester.code] || undefined,
+          termCode: semester.code,
+        }));
+      }),
     ),
   ];
 
@@ -133,6 +154,34 @@ export function useSyncTargets(): SyncTargets {
 }
 
 /** What the pages read from the server, so every one of them is right again. */
+/** About two months: a semester whose teaching ended longer ago than this is not pulled any more. */
+const AFTER_THE_END_DAYS = 60;
+
+/**
+ * The semesters a sync asks the portal about: each with a portal term, in the portal's order,
+ * but not one made here whose teaching weeks ended about two months ago. A semester whose
+ * weeks are not said — or one from the Student Hub, which never said them — is asked about.
+ */
+export function semestersToPull(
+  links: Record<string, string>,
+  terms: { id: string; name: string }[],
+  plans: { semesterId: string; weekOne: string; weeks: number }[],
+  today: Date = new Date(),
+): { code: string; name: string }[] {
+  const byCode = new Map<string, { code: string; name: string }>();
+  for (const [termId, code] of Object.entries(links)) {
+    if (!code || byCode.has(code)) continue;
+    const plan = plans.find((candidate) => candidate.semesterId === termId);
+    if (plan?.weekOne && plan.weeks) {
+      const [year, month, day] = plan.weekOne.split("-").map(Number);
+      const over = new Date(year, month - 1, day + plan.weeks * 7 + AFTER_THE_END_DAYS);
+      if (over < today) continue;
+    }
+    byCode.set(code, { code, name: terms.find((term) => term.id === termId)?.name ?? code });
+  }
+  return [...byCode.values()].sort((left, right) => left.code.localeCompare(right.code));
+}
+
 export function freshen(client: QueryClient): void {
   for (const key of [
     "views",

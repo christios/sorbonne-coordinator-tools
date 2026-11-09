@@ -146,3 +146,42 @@ describe("waiting on our own server", () => {
     await expect(sync.syncTarget(target, undefined, 5_000)).resolves.toMatchObject({ report: { seen: 0 } });
   });
 });
+
+/*
+ * Courses and registrations are pulled semester by semester: the extension is told the
+ * portal term, and an answer about another term — an extension too old to be told — is
+ * refused before anything is written, since Semester 1's courses filed as Semester 2's pull
+ * would find every Semester 2 course gone.
+ */
+describe("a list pulled for one semester", () => {
+  const SPRING = { kind: "courses" as const, id: "f1", name: "SCEN Courses · Semester 2", filter: {}, termCode: "262720" };
+
+  it("asks the portal about that semester's term, and files the answer under it", async () => {
+    const pull = vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "courses", term: { code: "262720", label: "262720" }, presetId: "", name: "SCEN Courses",
+      count: 1, expect: null, warning: null, fetchedAt: Date.now(),
+      rows: [{ COURSE_CRN: "32151", COURSE_CODE: "MATH-114", TERM_CODE: "262720" }],
+    } as never);
+    const filed = vi.spyOn(lists, "syncCourses").mockResolvedValue({ seen: 1, added: 1, missing: 0, syncedAt: "now" });
+
+    await syncTarget(SPRING);
+
+    expect(pull).toHaveBeenCalledWith({}, expect.objectContaining({ kind: "courses", termCode: "262720" }), undefined);
+    expect(filed).toHaveBeenCalledWith("f1", expect.any(Array), expect.anything(), "262720");
+  });
+
+  it("refuses an answer about another term, and writes nothing", async () => {
+    vi.spyOn(rosters, "pullFilter").mockResolvedValue({
+      kind: "courses", term: { code: "262710", label: "First Semester 2026-2027" }, presetId: "", name: "SCEN Courses",
+      count: 1, expect: null, warning: null, fetchedAt: Date.now(),
+      rows: [{ COURSE_CRN: "22151", COURSE_CODE: "MATH-001", TERM_CODE: "262710" }],
+    } as never);
+    const filed = vi.spyOn(lists, "syncCourses");
+
+    const error = await syncTarget(SPRING).catch((thrown) => thrown);
+
+    expect(error).toBeInstanceOf(sync.ExtensionTooOld);
+    expect(String(error.message)).toMatch(/Update it to 1.11/);
+    expect(filed).not.toHaveBeenCalled();
+  });
+});

@@ -364,7 +364,8 @@ export async function pullRoster(
  */
 export async function pullFilter(
   filter: Record<string, string[]>,
-  meta: { name?: string; expect?: number | null; kind?: PullKind } = {},
+  /** `termCode`: the portal term to ask about, from extension 1.11; otherwise the extension's own. */
+  meta: { name?: string; expect?: number | null; kind?: PullKind; termCode?: string } = {},
   onProgress?: (progress: PullProgress) => void,
 ): Promise<PortalRoster> {
   const { kind = "students", ...rest } = meta;

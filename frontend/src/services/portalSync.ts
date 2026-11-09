@@ -51,7 +51,26 @@ export type SyncTarget = {
   filter: Record<string, string[]>;
   /** When anybody last synced it, if ever: shown beside it when choosing what to pull. */
   lastSyncedAt?: string;
+  /**
+   * The portal term a courses or registrations list is pulled for: each semester's own,
+   * so one filter is a list per semester. Absent where the list has no term (teachers) or
+   * keeps to the extension's (students).
+   */
+  termCode?: string;
 };
+
+/** The extension answered about another term than the one asked: it is older than 1.11. */
+export class ExtensionTooOld extends Error {
+  readonly code = "extension_too_old";
+
+  constructor(asked: string, answered: string) {
+    super(
+      `Asked the portal about ${asked} and the SCEN Rosters extension answered about ${answered || "its own term"}: ` +
+        "it is older than this page. Update it to 1.11 in chrome://extensions and reload. Nothing was changed.",
+    );
+    this.name = "ExtensionTooOld";
+  }
+}
 
 export type SyncOutcome = {
   report: SyncReport;
@@ -172,7 +191,15 @@ export async function syncTarget(
     };
   }
 
-  const roster = await pullFilter(target.filter, { name: target.name, kind: target.kind }, onProgress);
+  const roster = await pullFilter(target.filter, { name: target.name, kind: target.kind, termCode: target.termCode }, onProgress);
+  /*
+   * Asked about a semester, answered about another, is refused before anything is written:
+   * an extension too old to be told the term pulls its own, and filing Semester 1's courses
+   * as Semester 2's pull would find every Semester 2 course gone.
+   */
+  if (target.termCode && roster.term?.code !== target.termCode) {
+    throw new ExtensionTooOld(target.termCode, roster.term?.code ?? "");
+  }
   const warning = describePullWarning(roster.warning, roster.count, roster.expect);
 
   if (target.kind === "students") {
@@ -199,13 +226,13 @@ export async function syncTarget(
   checkKind(roster, target.kind);
   if (target.kind === "courses") {
     const rows = roster.rows.map(courseRowOf).filter((row) => row.crn);
-    return { report: await accepted((signal) => syncCourses(target.id, rows, signal)), roster, warning };
+    return { report: await accepted((signal) => syncCourses(target.id, rows, signal, target.termCode)), roster, warning };
   }
   if (target.kind === "teachers") {
     const rows = roster.rows.map(teacherRowOf).filter((row) => row.teacherId);
     return { report: await accepted((signal) => syncTeachers(target.id, rows, signal)), roster, warning };
   }
-  const termCode = termCodeOf(roster.term, roster.rows);
+  const termCode = target.termCode || termCodeOf(roster.term, roster.rows);
   if (!termCode) throw new Error("The portal did not say which term these registrations are for.");
   const rows = roster.rows.map(registrationRowOf).filter((row) => row.studentId && row.crn);
   /*

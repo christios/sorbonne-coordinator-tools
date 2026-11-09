@@ -3200,3 +3200,31 @@ def test_a_teacher_carries_on_into_a_semester_and_leaves_it_alone(client: TestCl
     assert [row["fullName"] for row in teachers_in(SPRING)] == ["Ahlem Trabelsi"]
     still = {row["fullName"]: row for row in teachers_in(TERM)}
     assert still["Bilal Maaz"]["terms"] == [TERM]
+
+
+def test_pulling_one_semester_says_nothing_about_another_semesters_courses(client: TestClient):
+    made = make_filter(client, "courses")
+    at = f"{BASE}/filters/{made['id']}/sync/courses"
+    client.post(at, json={"rows": [course("22151", "MATH-001"), course("22152", "MATH-002")], "termCode": TERM})
+
+    # Semester 2's pull: its own course, and a stray row of Semester 1 that is not its business.
+    rows = [{**course("32151", "MATH-114"), "termCode": SPRING}, course("22999", "MATH-999")]
+    spring = client.post(at, json={"rows": rows, "termCode": SPRING}).json()
+    assert (spring["seen"], spring["missing"]) == (1, 0)
+
+    listed = client.get(f"{BASE}/courses", params={"filter": made["id"]}).json()["courses"]
+    assert sorted((row["termCode"], row["crn"], row["status"]) for row in listed) == [
+        (TERM, "22151", "in_portal"),
+        (TERM, "22152", "in_portal"),
+        (SPRING, "32151", "in_portal"),
+    ]
+    # Each term's pull is dated on its own.
+    [held] = client.get(f"{BASE}/filters", params={"kind": "courses"}).json()["filters"]
+    assert sorted(held["syncedTerms"]) == [TERM, SPRING]
+
+    # Semester 1 pulled again without one of its courses: that one, and only that one, is gone.
+    again = client.post(at, json={"rows": [course("22151", "MATH-001")], "termCode": TERM}).json()
+    assert again["missing"] == 1
+    listed = client.get(f"{BASE}/courses", params={"filter": made["id"]}).json()["courses"]
+    statuses = {row["crn"]: row["status"] for row in listed}
+    assert statuses == {"22151": "in_portal", "22152": "not_in_portal", "32151": "in_portal"}

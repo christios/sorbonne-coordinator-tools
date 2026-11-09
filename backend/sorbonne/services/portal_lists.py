@@ -348,7 +348,8 @@ class PortalListStore:
                 .all()
             )
             held = self._held_counts(connection, kind)
-        return [self._filter(row, held.get(row["id"], (0, 0))) for row in rows]
+            synced = _terms_synced(connection)
+        return [self._filter(row, held.get(row["id"], (0, 0)), synced.get(row["id"], {})) for row in rows]
 
     def get_filter(self, filter_id: str) -> dict[str, Any]:
         with self.engine.connect() as connection:
@@ -360,7 +361,8 @@ class PortalListStore:
             if row is None:
                 raise FilterNotFound(filter_id)
             held = self._held_counts(connection, row["kind"])
-        return self._filter(row, held.get(filter_id, (0, 0)))
+            synced = _terms_synced(connection)
+        return self._filter(row, held.get(filter_id, (0, 0)), synced.get(filter_id, {}))
 
     def create_filter(self, *, kind: str, name: str, criteria: dict[str, Any], actor: str = "") -> dict[str, Any]:
         _kind(kind)
@@ -390,7 +392,7 @@ class PortalListStore:
         if deleted == 0:
             raise FilterNotFound(filter_id)
 
-    def _filter(self, row: Any, held: tuple[int, int]) -> dict[str, Any]:
+    def _filter(self, row: Any, held: tuple[int, int], synced: dict[str, str] | None = None) -> dict[str, Any]:
         return {
             "id": row["id"],
             "kind": row["kind"],
@@ -400,6 +402,8 @@ class PortalListStore:
             "gone": held[1],
             "lastSyncedAt": row["last_synced_at"],
             "lastSyncedBy": row["last_synced_by"],
+            # When each portal term was last pulled: {"262710": "...", "262720": "..."}.
+            "syncedTerms": synced or {},
             "createdAt": row["created_at"],
             "updatedBy": row["updated_by"],
         }
@@ -420,17 +424,27 @@ class PortalListStore:
 
     # ------------------------------------------------------------------ courses
 
-    def sync_courses(self, filter_id: str, rows: list[dict[str, Any]], *, actor: str = "") -> dict[str, Any]:
-        """What this filter's question returned about courses today."""
+    def sync_courses(
+        self, filter_id: str, rows: list[dict[str, Any]], *, term_code: str = "", actor: str = ""
+    ) -> dict[str, Any]:
+        """What this filter's question returned about courses today.
+
+        For one term when `term_code` is said — the portal is asked about each semester on
+        its own — and then only that term's courses can be found gone: pulling Semester 2
+        says nothing about Semester 1's. A row of another term in such a pull is left out.
+        Without a term, the terms the rows are in are the ones judged.
+        """
         held_filter = self.get_filter(filter_id)
         if held_filter["kind"] != "courses":
             raise UnknownKind(held_filter["kind"])
         now = _now()
+        term = _text(term_code)
         found: dict[tuple[str, str], dict[str, Any]] = {}
         for row in rows:
             key = (_text(row.get("termCode")), _text(row.get("crn")))
-            if all(key):
+            if all(key) and (not term or key[0] == term):
                 found[key] = row
+        judged = {term} if term else {key[0] for key in found}
         with self.engine.begin() as connection:
             held = {
                 (row[0], row[1])
@@ -438,6 +452,8 @@ class PortalListStore:
                     text("SELECT term_code, crn FROM portal_course_members WHERE filter_id = :f"),
                     {"f": filter_id},
                 )
+                # An empty pull with no term said judges everything, as it always has.
+                if not judged or row[0] in judged
             }
             if found:
                 connection.execute(
@@ -485,6 +501,7 @@ class PortalListStore:
                 text("UPDATE portal_filters SET last_synced_at = :now, last_synced_by = :by WHERE id = :f"),
                 {"now": now, "by": actor, "f": filter_id},
             )
+            _synced_terms(connection, filter_id, judged, now, actor)
             # In the same transaction, so a register renamed from a sync that failed halfway
             # cannot happen: the names move with the list they were read from, or not at all.
             _follow_the_portal(connection)
@@ -771,6 +788,7 @@ class PortalListStore:
                 text("UPDATE portal_filters SET last_synced_at = :now, last_synced_by = :by WHERE id = :f"),
                 {"now": now, "by": actor, "f": filter_id},
             )
+            _synced_terms(connection, filter_id, {term}, now, actor)
             connection.execute(
                 text("""INSERT INTO portal_registration_pulls
                             (filter_id, term_code, complete, returned, expected, pulled_at)
@@ -3045,6 +3063,28 @@ def _follow_the_portal(connection: Connection) -> int:
             )
             renamed += 1
     return renamed
+
+
+def _synced_terms(connection: Connection, filter_id: str, terms: set[str], now: str, actor: str) -> None:
+    """Say that a filter's list was pulled for these terms, now."""
+    for term in sorted(each for each in terms if each):
+        connection.execute(
+            text("""INSERT INTO portal_filter_terms (filter_id, term_code, last_synced_at, last_synced_by)
+                    VALUES (:f, :t, :now, :by)
+                    ON CONFLICT (filter_id, term_code)
+                    DO UPDATE SET last_synced_at = excluded.last_synced_at, last_synced_by = excluded.last_synced_by"""),
+            {"f": filter_id, "t": term, "now": now, "by": actor},
+        )
+
+
+def _terms_synced(connection: Connection) -> dict[str, dict[str, str]]:
+    """`filter id -> {portal term -> when it was last pulled}`."""
+    held: dict[str, dict[str, str]] = {}
+    for filter_id, term, at in connection.execute(
+        text("SELECT filter_id, term_code, last_synced_at FROM portal_filter_terms")
+    ):
+        held.setdefault(filter_id, {})[term] = at
+    return held
 
 
 def _active_crn(row: Any) -> dict[str, Any]:

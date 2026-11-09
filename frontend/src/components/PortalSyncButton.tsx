@@ -16,6 +16,7 @@ import {
   type SyncStep,
 } from "@/services/syncRun";
 import type { SyncTarget } from "@/services/portalSync";
+import { targetKey } from "@/services/syncTargetKey";
 import { describeAge } from "@/services/rosterStore";
 import { fetchCurrentUser } from "@/services/auth";
 import { isExtensionInstalled } from "@/services/scenRosters";
@@ -40,7 +41,7 @@ function since(at: number, now: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
-const keyOf = (target: SyncTarget) => `${target.kind}:${target.id}`;
+const keyOf = (target: SyncTarget) => targetKey(target);
 
 /** How long a sync that went wrong keeps its report in front of the checklist. */
 const REPORT_IS_NEWS_FOR_MS = 12 * 60 * 60 * 1000;

@@ -105,8 +105,10 @@ preset again. That single login is the only recurring manual step — see
 | `CAMPUS_CODE` | `AD` |
 | `STYP_CODE` | `N` New, `C` Continuing, `H` FY Math, `P` FY Physics, `R` Re-Admission |
 
-**Each new term, update `term.code`.** Current: `262710` (First Semester
-2026-2027).
+**The page names the term for courses and registrations** (from 1.11.0): the Portal
+sync asks about each semester's own portal term. `term.code` is what is asked when the
+page names none — student lists — so update it each new term. Current: `262710` (First
+Semester 2026-2027).
 
 An unrecognised code does not error — it returns **zero rows**, confidently.
 That is why every preset carries an `expect` count: the popup warns when the
