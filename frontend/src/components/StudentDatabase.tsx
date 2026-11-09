@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
@@ -28,9 +28,11 @@ import { SidePane } from "@/components/SidePane";
 import { placeOf, rememberPlace } from "@/services/lastPlace";
 import { ViewBar } from "@/components/ViewBar";
 import { usePageState } from "@/components/usePageState";
+import { useRemembered } from "@/components/useRemembered";
 import { detailFromLocation, locationFor, pageFromLocation, type SettingsSection } from "@/routes/toolRoute";
 import { fetchCohorts, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus } from "@/services/timetables";
+import { SCHEMA_TERM } from "@/services/remembered";
 
 // Two families of page in one pane: what this application knows about students, and what
 // the Student Hub shows them. They belong together because they are the same job —
@@ -266,6 +268,33 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
   useEffect(() => {
     if (detail) rememberPlace(page, detail);
   }, [page, detail]);
+
+  /*
+   * The semester every page is on — chosen in the header, or in any page's own menu.
+   *
+   * The week pages and the plan say theirs in the address, so a link still opens the week it
+   * names. With none said they show this one; a semester picked on them becomes every page's;
+   * and a change made in the header while one of them is open moves it along.
+   */
+  const [semesterInView, setSemesterInView] = useRemembered(SCHEMA_TERM);
+  const onWeeks = page === "timetable" || page === "rooms";
+  const planOf = (termId: string) => (termId.startsWith("plan:") ? termId.slice("plan:".length) : "");
+  const followed = useRef(semesterInView);
+  useEffect(() => {
+    if (followed.current === semesterInView) return;
+    followed.current = semesterInView;
+    if (onWeeks && detail && detail !== semesterInView) openDetail(semesterInView);
+    if (page === "plan" && detail && planOf(semesterInView) && detail !== planOf(semesterInView)) {
+      openDetail(planOf(semesterInView));
+    }
+  }, [semesterInView, onWeeks, page, detail, openDetail]);
+  // A week or plan the address names is the semester in view, as if it had been picked.
+  useEffect(() => {
+    if (onWeeks && detail && detail !== followed.current) setSemesterInView(detail);
+    if (page === "plan" && detail && `plan:${detail}` !== followed.current) setSemesterInView(`plan:${detail}`);
+    // Only when the address moves: the header's own changes are the effect above's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, detail]);
   const client = useQueryClient();
   /*
    * Set when the Groups page sends somebody here: the Students table opens on exactly them.
@@ -455,7 +484,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (
-            <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />
+            <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} header={pageHeader} />
           ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
@@ -498,12 +527,16 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             />
           ) : null}
           {(page === "timetable" || page === "rooms") && status.data?.configured ? (
-            <SemesterTimetable layout={page === "rooms" ? "rooms" : "days"} termId={detail} onPickTerm={openDetail} />
+            <SemesterTimetable
+              layout={page === "rooms" ? "rooms" : "days"}
+              termId={detail || semesterInView}
+              onPickTerm={openDetail}
+            />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
           {page === "plan" ? (
             <SemesterPlan
-              termCode={detail}
+              termCode={detail || planOf(semesterInView)}
               onPickTerm={openDetail}
               onOpenGroups={() => openPage("groups")}
               onOpenSemesters={() => openPage("semesters")}

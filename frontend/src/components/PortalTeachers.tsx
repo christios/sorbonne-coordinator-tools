@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
@@ -164,23 +165,31 @@ export function PortalTeachers({
 
   const chosen = [...selected].filter((id) => !activeIds.has(id));
 
+  const choose = (id: string) => {
+    setFilterId(id);
+    try {
+      window.localStorage.setItem(FILTER_KEY, id);
+    } catch {
+      // fine
+    }
+  };
+
   return (
     <section>
-      {/* What the list is for is on the page title's ⓘ; the filter is all this row needs. */}
-      <div className="mb-4 flex flex-wrap items-start justify-end gap-4">
-        <PortalFilterBar
-          kind="teachers"
-          filterId={filterId}
-          onChoose={(id) => {
-            setFilterId(id);
-            try {
-              window.localStorage.setItem(FILTER_KEY, id);
-            } catch {
-              // fine
-            }
-          }}
-        />
-      </div>
+      {/* The portal filter and the semester on one row on the page's title line, as on Courses. */}
+      {header
+        ? createPortal(
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <PortalFilterBar kind="teachers" filterId={filterId} onChoose={choose} inline />
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+            </div>,
+            header,
+          )
+        : (
+          <div className="mb-4 flex flex-wrap items-start justify-end gap-4">
+            <PortalFilterBar kind="teachers" filterId={filterId} onChoose={choose} />
+          </div>
+        )}
       {add.error ? (
         <p role="alert" className="mb-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">
           {(add.error as Error).message}
@@ -235,7 +244,7 @@ export function PortalTeachers({
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
+              {header ? null : <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />}
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}

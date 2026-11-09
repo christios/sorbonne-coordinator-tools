@@ -38,10 +38,16 @@ export function PortalFilterBar({
   kind,
   filterId,
   onChoose,
+  inline = false,
 }: {
   kind: ListKind;
   filterId: string;
   onChoose: (filterId: string) => void;
+  /**
+   * On one row, for the page's title line beside the semester: no label above the menu and
+   * no line under it — what the filter asks and when it was last synced are its tooltip.
+   */
+  inline?: boolean;
 }) {
   const client = useQueryClient();
   const user = useStaffUser();
@@ -93,14 +99,20 @@ export function PortalFilterBar({
 
   const button = "rounded-md border border-[#b7bec8] bg-white p-2 text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]";
 
+  const said = chosen
+    ? `${describeFilter(chosen.filter, fields)}${chosen.gone ? ` · ${chosen.gone} no longer returned` : ""}${
+        chosen.lastSyncedAt ? ` · last synced ${new Date(chosen.lastSyncedAt).toLocaleString()}` : " · never synced"
+      }`
+    : "";
+
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className={inline ? "flex items-center gap-2" : "flex flex-col items-end gap-1"}>
       {/* Aligned to the bottom: the picker carries a label above it, the buttons do not. */}
-      <div className="flex flex-wrap items-end justify-end gap-2">
+      <div className={`flex flex-wrap justify-end gap-2 ${inline ? "items-center" : "items-end"}`}>
         {/* Whose list this is: the same words as the button at the foot of the pane, so
             the filter chosen here is plainly the one that button will ask about. */}
-        <div className="w-64">
-          <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Portal sync</p>
+        <div className={inline ? "w-56" : "w-64"} title={inline && said ? `Portal sync: ${said}` : undefined}>
+          {inline ? null : <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-[#1f4e79]">Portal sync</p>}
           <SelectMenu
             label="Portal filter"
             value={filterId}
@@ -156,13 +168,7 @@ export function PortalFilterBar({
         ) : null}
       </div>
 
-      {chosen ? (
-        <p className="max-w-md text-right text-xs text-[#98a2b3]">
-          {describeFilter(chosen.filter, fields)}
-          {chosen.gone ? ` · ${chosen.gone} no longer returned` : ""}
-          {chosen.lastSyncedAt ? ` · last synced ${new Date(chosen.lastSyncedAt).toLocaleString()}` : " · never synced"}
-        </p>
-      ) : null}
+      {chosen && !inline ? <p className="max-w-md text-right text-xs text-[#98a2b3]">{said}</p> : null}
 
       <Modal
         open={showingFilter && chosen !== null}

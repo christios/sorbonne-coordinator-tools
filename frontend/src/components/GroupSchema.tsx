@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, Layers, Plus, Trash2, Users, X } from "lucide-react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
@@ -120,9 +121,12 @@ function SetLine({
 export function GroupSchema({
   cohorts,
   onOpenGroups,
+  header,
 }: {
   cohorts: Cohort[];
   onOpenGroups?: () => void;
+  /** The slot on the page's title line, top right, where the semester goes. */
+  header?: HTMLElement | null;
 }) {
   const client = useQueryClient();
   // Both remembered by this browser: the cohort with every other cohort picker, the
@@ -281,19 +285,23 @@ export function GroupSchema({
     );
   }
 
+  const semesterMenu = (
+    <SelectMenu
+      label="Semester"
+      value={termId}
+      onChange={setTermId}
+      placeholder="Which semester…"
+      options={(terms.data ?? []).map((term) => ({ value: term.id, ...shownOf(term) }))}
+    />
+  );
+
   return (
     <section className="flex flex-col lg:min-h-0 lg:flex-1">
+      {/* The semester top right, on the page's title line, as on every page with one. */}
+      {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
       <div className="mb-3 flex flex-wrap items-end gap-3">
         {/* The semester first: a set belongs to one, and the cohort means nothing until it is settled. */}
-        <LabelledPicker label="Semester">
-          <SelectMenu
-            label="Semester"
-            value={termId}
-            onChange={setTermId}
-            placeholder="Which semester…"
-            options={(terms.data ?? []).map((term) => ({ value: term.id, ...shownOf(term) }))}
-          />
-        </LabelledPicker>
+        {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
         <LabelledPicker label="Cohort">
           <SelectMenu
             label="Cohort"

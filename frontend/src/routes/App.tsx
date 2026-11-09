@@ -9,6 +9,7 @@ import { RosterTable } from "@/components/RosterTable";
 import { StaffMenu } from "@/components/StaffMenu";
 import { StaffSettings } from "@/components/StaffSettings";
 import { CopyProdButton } from "@/components/CopyProdButton";
+import { HeaderSemester } from "@/components/HeaderSemester";
 import { PortalSyncButton } from "@/components/PortalSyncButton";
 import { StaleSyncWarning } from "@/components/StaleSyncWarning";
 import { SyllabusBuilder } from "@/components/SyllabusBuilder";
@@ -204,6 +205,8 @@ export function App() {
               * a run it started is still going, so its report can be read wherever the
               * coordinator has gone since.
               */}
+            {/* The semester every page is on, and the one Portal sync asks about: chosen once, here. */}
+            {activeTool === "database" ? <HeaderSemester /> : null}
             {activeTool === "database" || syncing ? <PortalSyncButton /> : null}
             {/*
               * And said out loud, once, when the pages have gone old enough that they

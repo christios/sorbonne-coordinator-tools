@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BookPlus } from "lucide-react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar } from "@/components/PortalFilterBar";
@@ -89,19 +90,30 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
     ...new Set(rows.filter((row) => selected.has(idOf(row)) && !isActive(row)).map((row) => row.courseCode.toUpperCase())),
   ];
 
+  const choose = (id: string) => {
+    setFilterId(id);
+    remember(FILTER_KEY, id);
+  };
+
   return (
     <section>
-      {/* What the list is for is on the page title's ⓘ; the filter is all this row needs. */}
-      <div className="mb-4 flex flex-wrap items-start justify-end gap-4">
-        <PortalFilterBar
-          kind="courses"
-          filterId={filterId}
-          onChoose={(id) => {
-            setFilterId(id);
-            remember(FILTER_KEY, id);
-          }}
-        />
-      </div>
+      {/*
+        * The portal filter and the semester, on one row on the page's title line: which list,
+        * and which semester of it. Below the title where there is no such line.
+        */}
+      {header
+        ? createPortal(
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} inline />
+              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
+            </div>,
+            header,
+          )
+        : (
+          <div className="mb-4 flex flex-wrap items-start justify-end gap-4">
+            <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} />
+          </div>
+        )}
 
       {courses.isLoading ? (
         <ScreenLoading label="Loading courses…" />
@@ -129,7 +141,7 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
           }
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
+              {header ? null : <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />}
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}

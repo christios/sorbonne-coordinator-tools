@@ -1,38 +1,39 @@
 import { describe, expect, it } from "vitest";
 
-import { semestersToPull } from "@/services/syncTargets";
+import { listTarget } from "@/services/syncTargets";
 
-const LINKS = { "plan:262610": "262610", "plan:262710": "262710", "plan:262720": "262720", "hub-x": "262730" };
-const TERMS = [
-  { id: "plan:262610", name: "Semester 1 2025-26" },
-  { id: "plan:262710", name: "Semester 1 2026-27" },
-  { id: "plan:262720", name: "Semester 2 2026-27" },
-  { id: "hub-x", name: "Summer 2026-27" },
-];
-const PLANS = [
-  { semesterId: "plan:262610", weekOne: "2025-09-01", weeks: 15 },
-  { semesterId: "plan:262710", weekOne: "2026-08-31", weeks: 15 },
-  { semesterId: "plan:262720", weekOne: "", weeks: 0 },
-];
+const COURSES = {
+  id: "f1",
+  name: "SCEN Courses",
+  filter: {},
+  lastSyncedAt: "2026-11-09T04:20:00Z",
+  syncedTerms: { "262710": "2026-11-09T04:20:00Z" },
+};
+const SPRING = { code: "262720", name: "Semester 2 2026-27" };
 
-describe("the semesters a sync asks the portal about", () => {
-  it("are those with a portal term, in its order, but not one whose teaching ended two months ago", () => {
-    const pulled = semestersToPull(LINKS, TERMS, PLANS, new Date(2026, 10, 9));
-
-    // Last year's ended in December 2025; this year's first runs to December; the second's
-    // weeks are not said yet, and the Hub's never were.
-    expect(pulled).toEqual([
-      { code: "262710", name: "Semester 1 2026-27" },
-      { code: "262720", name: "Semester 2 2026-27" },
-      { code: "262730", name: "Summer 2026-27" },
-    ]);
+/*
+ * The Portal sync is about the semester chosen in the header: its courses and registrations
+ * are what the portal is asked for, each list named after it and dated by its own last pull.
+ */
+describe("a portal list, for the semester chosen", () => {
+  it("asks about the chosen semester's term, and is as old as that term's last pull", () => {
+    expect(listTarget("courses", COURSES, SPRING)).toEqual({
+      kind: "courses",
+      id: "f1",
+      name: "SCEN Courses · Semester 2 2026-27",
+      filter: {},
+      lastSyncedAt: undefined,
+      termCode: "262720",
+    });
+    expect(listTarget("registrations", COURSES, { code: "262710", name: "Semester 1 2026-27" }).lastSyncedAt).toBe(
+      "2026-11-09T04:20:00Z",
+    );
   });
 
-  it("lets a semester go about two months after its last teaching week", () => {
-    const codes = (today: Date) => semestersToPull(LINKS, TERMS, PLANS, today).map((semester) => semester.code);
-
-    // 31 August + 15 weeks is 14 December; sixty days on is 12 February.
-    expect(codes(new Date(2027, 1, 10))).toContain("262710");
-    expect(codes(new Date(2027, 1, 14))).not.toContain("262710");
+  it("leaves teachers, who have no term, and a sync with no semester to the extension's own", () => {
+    for (const target of [listTarget("teachers", COURSES, SPRING), listTarget("courses", COURSES, null)]) {
+      expect(target.termCode).toBeUndefined();
+      expect(target.name).toBe("SCEN Courses");
+    }
   });
 });

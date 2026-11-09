@@ -164,9 +164,11 @@ describe("the semesters made here", () => {
     vi.spyOn(timetables, "fetchHubTerms").mockResolvedValue([{ ...TERM, id: "term-0", name: "A stray upload" }, TERM]);
     renderList();
 
-    const spring = await screen.findByRole("row", { name: /Semester 2 2026-27/ });
-    const names = screen.getAllByRole("row").slice(1).map((row) => row.querySelector("td span span")?.textContent);
-    expect(names).toEqual(["Physics & Maths — Semester 1", "Semester 2 2026-27"]);
+    const spring = await screen.findByRole("row", { name: /Semester 2/ });
+    const names = screen.getAllByRole("row").slice(1).map((row) => row.querySelector("[data-semester-name]")?.textContent);
+    // The year is the pill in front, as in the menus; the name is said without it.
+    expect(names).toEqual(["Physics & Maths — Semester 1", "Semester 2"]);
+    expect(within(spring).getByText("2026-27")).toBeTruthy();
     expect(within(spring).getByText("15 teaching weeks from 11 Jan 2027")).toBeTruthy();
     expect(within(spring).getByText("262720")).toBeTruthy();
     expect(within(spring).queryByRole("button", { name: "Publish" })).toBeNull();
@@ -220,7 +222,7 @@ describe("the semesters made here", () => {
     const onOpenPlan = vi.fn();
     renderList({ onOpenPlan });
 
-    const spring = await screen.findByRole("row", { name: /Semester 2 2026-27/ });
+    const spring = await screen.findByRole("row", { name: /Semester 2/ });
     fireEvent.click(within(spring).getByRole("button", { name: "Plan" }));
     expect(onOpenPlan).toHaveBeenCalledWith("262720");
 
@@ -310,7 +312,7 @@ describe("moving a Hub semester into Coordinator Tools", () => {
     vi.spyOn(plans, "fetchPlans").mockResolvedValue([{ ...SPRING, termCode: "262710", semesterId: "plan:262710", name: "Semester 1 2026-27" }]);
     renderList();
 
-    await screen.findByRole("row", { name: /Semester 1 2026-27/ });
+    await screen.findByRole("row", { name: /Semester 1/ });
     expect(screen.queryByRole("row", { name: /Physics & Maths/ })).toBeNull();
   });
 });

@@ -14,6 +14,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
+import { SCHEMA_TERM } from "@/services/remembered";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
 import { academicYearOfTerm, crnDistribution, hoursRowsFor, type CrnLine, type HoursSource } from "@/services/teacherHoursRows";
 import { downloadTeacherHours, periodsCovering } from "@/services/hoursExport";
@@ -26,6 +27,7 @@ import {
 } from "@/services/teachers";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { usePageState } from "@/components/usePageState";
+import { useRemembered } from "@/components/useRemembered";
 import { buildCards } from "@/services/courseCards";
 import {
   fetchActiveCourses,
@@ -87,7 +89,8 @@ export function TeacherHours({
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
-  const [termId, setTermId] = usePageState("teacher-hours:term", "");
+  // The semester every page is on, chosen in the header or in any page's own menu.
+  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
 
   const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
   const parentOf = useMemo(
@@ -98,7 +101,12 @@ export function TeacherHours({
     () => buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf),
     [catalogues.data, terms.data, courses.data, parentOf], // eslint-disable-line react-hooks/exhaustive-deps
   );
-  const termIds = useMemo(() => [...new Set(cards.map((card) => card.termId).filter(Boolean))], [cards]);
+  // Every semester, in the portal's order, so the one chosen is shown even before it has sections.
+  const termIds = useMemo(() => {
+    const known = (terms.data ?? []).map((term) => term.id);
+    const planned = [...new Set(cards.map((card) => card.termId).filter(Boolean))];
+    return [...known, ...planned.filter((id) => !known.includes(id))];
+  }, [cards, terms.data]);
   const chosenTerm = termIds.includes(termId) ? termId : (termIds[0] ?? "");
 
   const sheets = useMemo(

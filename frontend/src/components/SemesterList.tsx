@@ -9,6 +9,7 @@ import { NewSemesterDialog, PlanSettingsDialog } from "@/components/PlanDialogs"
 import { PayCycleCell } from "@/components/PayCycleCell";
 import { SemesterShortName } from "@/components/SemesterShortName";
 import { SemesterTag } from "@/components/SemesterTag";
+import { YearPill } from "@/components/YearPill";
 import { TermWeeksPanel } from "@/components/TermWeeksPanel";
 import { useStaffUser } from "@/components/useStaffUser";
 import { fetchSemesterShortNames, fetchTermLinks, setSemesterShortName } from "@/services/portalLists";
@@ -23,6 +24,7 @@ import {
   renameTimetableTerm,
   setTimetableTermPublished,
 } from "@/services/timetables";
+import { useSemesterShown } from "@/services/semesterYears";
 import { fetchTermWeeks } from "@/services/termWeeks";
 import { formatDayAndMonth, parseIsoDate } from "@/services/weekSchedule";
 
@@ -113,6 +115,7 @@ export function SemesterList({
   const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans, retry: false });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const shortNames = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false });
+  const shownOf = useSemesterShown();
   // Where a Hub semester's Week 1 is, said under its name as a semester made here says its weeks.
   const weeks = useQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks, retry: false });
   const [creating, setCreating] = useState(false);
@@ -292,8 +295,12 @@ export function SemesterList({
                     <tr key={row.id} className="border-t border-[#e4e8ef] align-top">
                       <td className="py-4 pl-6 pr-3">
                         <span className="inline-flex items-center gap-1.5">
+                          {/* As every semester menu says it: its tag, its year, its name. */}
                           <SemesterTag short={shortNames.data?.[row.id] ?? ""} />
-                          <span className="whitespace-nowrap font-semibold text-[#171717]">{row.name}</span>
+                          {shownOf(row).year ? <YearPill year={shownOf(row).year ?? ""} /> : null}
+                          <span data-semester-name className="whitespace-nowrap font-semibold text-[#171717]">
+                            {shownOf(row).label}
+                          </span>
                           {row.kind === "own" || hubControls ? (
                           <button
                             type="button"
