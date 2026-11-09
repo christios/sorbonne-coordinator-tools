@@ -498,3 +498,20 @@ def test_a_class_names_its_teacher_by_record_when_one_was_chosen(client: TestCli
     # Typed on the row but never chosen from Active teachers: a name, nobody's record.
     assert (sections["30002"]["teacherName"], sections["30002"]["teacherId"]) == ("Somebody Typed", "")
     groups.change("DELETE FROM active_teachers WHERE id = 'plan-test-lama'")
+
+
+def test_a_period_binding_everybody_is_kept_beside_the_holidays(client: TestClient):
+    assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
+    ramadan = {"label": "Ramadan", "from": "2027-02-08", "to": "2027-03-09", "blockFrom": "15:00", "blockTo": "19:00"}
+    settled = client.put(f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "periods": [ramadan]})
+    assert settled.status_code == 200, settled.text
+    assert settled.json()["periods"] == [{**ramadan, "days": [1, 2, 3, 4, 5, 6, 7]}]
+    # A page that does not edit periods leaves them be.
+    again = client.put(f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "weeks": 14}).json()
+    assert [period["label"] for period in again["periods"]] == ["Ramadan"]
+    # Hours with no classes are a stretch of the day, earliest first.
+    backwards = client.put(
+        f"{AT}/{TERM}/settings",
+        json={"name": "Semester 2 2026-27", "periods": [{**ramadan, "blockFrom": "19:00", "blockTo": "15:00"}]},
+    )
+    assert backwards.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT

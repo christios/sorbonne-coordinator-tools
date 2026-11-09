@@ -433,6 +433,36 @@ def classes_of(term: dict[str, Any], series: list[dict[str, Any]], sections: dic
     return classes, skipped
 
 
+MOST_PERIODS = 20
+
+
+def _period(entry: dict[str, Any]) -> dict[str, Any]:
+    """A stretch of the semester binding everybody: Ramadan, 18 Feb to 19 Mar, no classes 15:00-19:00.
+
+    The weekdays it covers default to every day; the hours are those with no classes on them.
+    """
+    label = _short(entry.get("label"), "period's name")
+    if not label:
+        raise InvalidPlan("A period has a name, such as Ramadan.")
+    start, end = _iso_day(entry.get("from"), "A period's first day"), _iso_day(entry.get("to"), "A period's last day")
+    if end < start:
+        raise InvalidPlan(f"{label} ends on or after the day it starts.")
+    days = sorted({int(day) for day in entry.get("days") or [1, 2, 3, 4, 5, 6, 7]})
+    if any(day < MONDAY or day > SUNDAY for day in days):
+        raise InvalidPlan("A period's days are 1 (Monday) to 7 (Sunday).")
+    block_from, block_to = str(entry.get("blockFrom") or "").strip(), str(entry.get("blockTo") or "").strip()
+    if not _TIME.match(block_from) or not _TIME.match(block_to) or block_from >= block_to:
+        raise InvalidPlan(f"{label}: say the hours with no classes, from 15:00 to 19:00.")
+    return {
+        "label": label,
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "days": days,
+        "blockFrom": block_from,
+        "blockTo": block_to,
+    }
+
+
 class PlanStore:
     def __init__(self, engine: Engine) -> None:
         self.engine = engine
@@ -555,6 +585,8 @@ class PlanStore:
             "weeks": row["weeks"],
             "without": json.loads(row["without"] or "[]"),
             "holidays": json.loads(row["holidays"] or "[]"),
+            # Stretches binding everybody, beside the holidays: Ramadan, when classes end early.
+            "periods": json.loads(row["periods"] or "[]"),
             "updatedAt": row["updated_at"],
             "updatedBy": row["updated_by"],
         }
@@ -602,8 +634,13 @@ class PlanStore:
         for entry in fields.get("holidays") or []:
             day = _iso_day(entry.get("date"), "A holiday").isoformat()
             holidays[day] = _short(entry.get("label"), "holiday's name")
+        given_periods = fields.get("periods")
+        periods = None if given_periods is None else [_period(entry) for entry in given_periods[:MOST_PERIODS]]
         with self.engine.begin() as connection:
-            self._term(connection, term_code)
+            term = self._term(connection, term_code)
+            if periods is None:
+                # Settings saved by a page that says nothing of periods keep the ones there are.
+                periods = term["periods"]
             longest = connection.execute(
                 text("SELECT weeks FROM plan_series WHERE term_code = :term"), {"term": term_code}
             ).scalars()
@@ -615,7 +652,8 @@ class PlanStore:
                 )
             connection.execute(
                 text("""UPDATE plan_terms SET name = :name, week_one = :week_one, weeks = :weeks,
-                            without = :without, holidays = :holidays, updated_at = :at, updated_by = :by
+                            without = :without, holidays = :holidays, periods = :periods, updated_at = :at,
+                            updated_by = :by
                         WHERE term_code = :term"""),
                 {
                     "term": term_code,
@@ -624,6 +662,7 @@ class PlanStore:
                     "weeks": weeks,
                     "without": json.dumps(without),
                     "holidays": json.dumps([{"date": day, "label": label} for day, label in sorted(holidays.items())]),
+                    "periods": json.dumps(periods),
                     "at": _now(),
                     "by": actor,
                 },

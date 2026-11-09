@@ -50,12 +50,26 @@ class Holiday(BaseModel):
     label: str = Field(default="", max_length=160)
 
 
+class Period(BaseModel):
+    """Ramadan, 18 Feb to 19 Mar: no classes 15:00-19:00, for everybody."""
+
+    model_config = {"populate_by_name": True}
+    label: str = Field(max_length=160)
+    start: str = Field(alias="from", max_length=10)
+    end: str = Field(alias="to", max_length=10)
+    days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5, 6, 7], max_length=7)
+    blockFrom: str = Field(max_length=5)
+    blockTo: str = Field(max_length=5)
+
+
 class SettingsInput(BaseModel):
     name: str = Field(default="", max_length=160)
     weekOne: str = Field(default="", max_length=10)
     weeks: int = Field(default=0, ge=0, le=30)
     without: list[str] = Field(default_factory=list, max_length=30)
     holidays: list[Holiday] = Field(default_factory=list, max_length=60)
+    # Absent from a page that does not edit them: the periods there are stay.
+    periods: list[Period] | None = Field(default=None, max_length=20)
 
 
 class SeriesInput(BaseModel):
@@ -145,7 +159,7 @@ def settle_plan(
     term_code: str, body: SettingsInput, request: Request, plans: PlanStore = Depends(get_plans)
 ) -> dict[str, Any]:
     try:
-        return plans.settle(term_code, body.model_dump(), actor=_actor(request))
+        return plans.settle(term_code, body.model_dump(by_alias=True), actor=_actor(request))
     except (InvalidPlan, PlanNotFound) as exc:
         raise _refused(exc) from exc
 

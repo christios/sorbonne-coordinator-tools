@@ -15,6 +15,11 @@ teacher's wishes can follow their classes:
 
     plan_sections.teacher_id
 
+And a semester has periods that bind everybody, beside its holidays — Ramadan, when classes
+end early — each its dates, the weekdays it covers and the hours with no classes:
+
+    plan_terms.periods
+
 Revision ID: 0088
 Revises: 0087
 """
@@ -69,9 +74,11 @@ def upgrade() -> None:
         sa.Column("updated_by", sa.Text(), nullable=False, server_default=""),
     )
     op.add_column("plan_sections", sa.Column("teacher_id", sa.Text(), nullable=False, server_default=""))
+    op.add_column("plan_terms", sa.Column("periods", sa.Text(), nullable=False, server_default="[]"))
 
 
 def downgrade() -> None:
+    op.drop_column("plan_terms", "periods")
     op.drop_column("plan_sections", "teacher_id")
     op.drop_table("teacher_wishes")
     op.drop_table("wish_collections")
