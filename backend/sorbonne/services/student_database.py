@@ -69,6 +69,10 @@ class InvalidCohortMove(ValueError):
     """A move between cohorts that cannot be made, said in words."""
 
 
+class CohortSpansSemesters(ValueError):
+    """A whole cohort asked to go while it still holds more than one semester, said in words."""
+
+
 class ScopeNotFound(Exception):
     pass
 
@@ -354,12 +358,117 @@ class StudentDatabase:
         return self.get_cohort(cohort_id)
 
     def delete_cohort(self, cohort_id: str) -> None:
+        """The whole cohort, every semester of it — refused while it holds more than one.
+
+        On 9 Nov 2026 FYS was deleted from Semester 2 and took its Semester 1 sets, every
+        student's French group (the languages set was FYS's) and 820 placements with it: a
+        cohort is a year's, and the one button removed all of it. A cohort that still holds
+        students or sets in two semesters is now removed from them one at a time
+        (`remove_from_semester`), and deleted only once a single semester is left.
+        """
         with self.engine.begin() as connection:
+            held = sorted(
+                term
+                for (term,) in connection.execute(
+                    text("""SELECT term_id FROM cohort_members WHERE cohort_id = :id
+                            UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id"""),
+                    {"id": cohort_id},
+                )
+            )
+            if len(held) > 1:
+                name = connection.execute(
+                    text("SELECT name FROM student_cohorts WHERE id = :id"), {"id": cohort_id}
+                ).scalar()
+                raise CohortSpansSemesters(
+                    f"{name} still holds students or sets in {len(held)} semesters. Remove it from one "
+                    "semester at a time; it can be deleted once only one is left."
+                )
             # Its own rules go with it; the shared ones are everybody's.
             connection.execute(text("DELETE FROM discrepancy_rules WHERE cohort_id = :id"), {"id": cohort_id})
             deleted = connection.execute(text("DELETE FROM student_cohorts WHERE id = :id"), {"id": cohort_id})
         if deleted.rowcount == 0:
             raise CohortNotFound(cohort_id)
+
+    def semester_reach(self, cohort_id: str, term_id: str) -> dict[str, Any]:
+        """What removing a cohort from one semester would take with it, counted beforehand.
+
+        Its students that semester, its sets that semester with their groups and placements
+        — including the placements of OTHER cohorts' students in a set open to every cohort,
+        which go with the set — and which other semesters it still holds, so the page can
+        say "from Semester 2" and mean only that.
+        """
+        self.get_cohort(cohort_id)
+        term = _text(term_id)
+        with self.engine.connect() as connection:
+            members = connection.execute(
+                text("SELECT count(*) FROM cohort_members WHERE cohort_id = :id AND term_id = :term"),
+                {"id": cohort_id, "term": term},
+            ).scalar()
+            sets = [
+                {
+                    "code": row.code,
+                    "openToAll": bool(row.open_to_all),
+                    "groups": int(row.groups),
+                    "placements": int(row.placements),
+                    "others": int(row.others),
+                }
+                for row in connection.execute(
+                    text("""SELECT s.code, s.open_to_all,
+                                   (SELECT count(*) FROM scope_groups g WHERE g.scope_id = s.id) AS groups,
+                                   (SELECT count(*) FROM group_assignments a WHERE a.scope_id = s.id) AS placements,
+                                   (SELECT count(*) FROM group_assignments a
+                                     WHERE a.scope_id = s.id AND NOT EXISTS (
+                                       SELECT 1 FROM cohort_members m
+                                        WHERE m.cohort_id = s.cohort_id AND m.term_id = s.term_id
+                                          AND m.student_id = a.student_id)) AS others
+                            FROM cohort_scopes s WHERE s.cohort_id = :id AND s.term_id = :term
+                            ORDER BY s.position, s.code"""),
+                    {"id": cohort_id, "term": term},
+                )
+            ]
+            elsewhere = sorted(
+                other
+                for (other,) in connection.execute(
+                    text("""SELECT term_id FROM cohort_members WHERE cohort_id = :id AND term_id <> :term
+                            UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id AND term_id <> :term"""),
+                    {"id": cohort_id, "term": term},
+                )
+            )
+        return {
+            "termId": term,
+            "members": int(members or 0),
+            "sets": sets,
+            "groups": sum(each["groups"] for each in sets),
+            "placements": sum(each["placements"] for each in sets),
+            "othersPlacements": sum(each["others"] for each in sets),
+            "otherSemesters": elsewhere,
+        }
+
+    def remove_from_semester(self, cohort_id: str, term_id: str, *, actor: str = "") -> dict[str, Any]:
+        """A cohort out of one semester, and nothing out of any other.
+
+        Its students leave it for that semester, as a move out would take them (their
+        groups of that semester filed under it go, and each student's history says so);
+        then its sets of that semester go, with their groups, CRNs and placements. Other
+        semesters keep everything. Answers with what was taken, as `semester_reach` counted.
+        """
+        reach = self.semester_reach(cohort_id, term_id)
+        term = reach["termId"]
+        with self.engine.connect() as connection:
+            members = list(
+                connection.execute(
+                    text("SELECT student_id FROM cohort_members WHERE cohort_id = :id AND term_id = :term"),
+                    {"id": cohort_id, "term": term},
+                ).scalars()
+            )
+        if members:
+            self.set_cohort(members, None, term_id=term, actor=actor)
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM cohort_scopes WHERE cohort_id = :id AND term_id = :term"),
+                {"id": cohort_id, "term": term},
+            )
+        return reach
 
     def roll_over(self, cohort_id: str, from_term: str, to_term: str, *, actor: str = "") -> dict[str, Any]:
         """Carry a cohort's students from one semester into another: L1's Semester 1 into its Semester 2.

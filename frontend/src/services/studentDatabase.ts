@@ -358,6 +358,29 @@ export function deleteCohort(cohortId: string): Promise<void> {
   return request<void>(`${BASE}/cohorts/${cohortId}`, { method: "DELETE" });
 }
 
+/** What removing a cohort from one semester would take with it, counted before anybody asks. */
+export type SemesterReach = {
+  termId: string;
+  /** Its students that semester. */
+  members: number;
+  sets: { code: string; openToAll: boolean; groups: number; placements: number; others: number }[];
+  groups: number;
+  placements: number;
+  /** Placements of OTHER cohorts' students in its sets — the languages, open to every cohort. */
+  othersPlacements: number;
+  /** The other semesters it still holds students or sets in, by id. */
+  otherSemesters: string[];
+};
+
+export function fetchSemesterReach(cohortId: string, termId: string): Promise<SemesterReach> {
+  return request<SemesterReach>(`${BASE}/cohorts/${cohortId}/semester-reach?termId=${encodeURIComponent(termId)}`);
+}
+
+/** The cohort out of one semester — its students and its sets there — and out of no other. */
+export function removeCohortFromSemester(cohortId: string, termId: string): Promise<SemesterReach> {
+  return send<SemesterReach>(`${BASE}/cohorts/${cohortId}/remove-from-semester`, "POST", { termId });
+}
+
 /**
  * The sets this cohort's students are taught in.
  *

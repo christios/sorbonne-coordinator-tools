@@ -14,7 +14,17 @@ import { fetchPortalCourses, fetchRegistrationCheck } from "@/services/portalLis
 import { fetchSchema } from "@/services/scenRosters";
 import { SelectMenu } from "@/components/SelectMenu";
 import { RollOverTab } from "@/components/RollOverTab";
-import { type Cohort, type TeamsChannelCheck, deleteCohort, fetchTeamsCheck, updateCohort } from "@/services/studentDatabase";
+import {
+  type Cohort,
+  type SemesterReach,
+  type TeamsChannelCheck,
+  deleteCohort,
+  fetchSemesterReach,
+  fetchTeamsCheck,
+  removeCohortFromSemester,
+  updateCohort,
+} from "@/services/studentDatabase";
+import { fetchTimetableTerms } from "@/services/timetables";
 
 /**
  * One line on what the roster sync's last reading makes of one of the cohort's channels,
@@ -41,12 +51,66 @@ function teamsStatus(check: TeamsChannelCheck | undefined, members: number): str
  * spans, and a year level — chosen from the code tables the extension read from the
  * portal, so "differs from the cohort's" compares like with like.
  */
+/**
+ * What the bin button does, said in full: which semester, how many students, which sets
+ * with how many groups and placements, and whose placements besides the cohort's own.
+ *
+ * On 9 Nov 2026 FYS was deleted from Semester 2 and took its Semester 1 with it, every
+ * student's French group included: the old dialog said "in every semester" in its last
+ * line and nothing about the languages. A cohort that holds another semester is now only
+ * ever removed from the one on screen; deleted whole only once nothing else is left.
+ */
+function removal(cohort: Cohort, semesterName: string, reach: SemesterReach | undefined, nameOf: (id: string) => string) {
+  if (!reach) {
+    return { mode: "counting" as const, title: `Remove ${cohort.name}?`, description: "Counting what it holds…", label: "Remove" };
+  }
+  const sets = reach.sets.map((each) => each.code).join(", ");
+  const shared = reach.sets.filter((each) => each.openToAll && each.others).map((each) => each.code);
+  const holds =
+    reach.members || reach.sets.length
+      ? `${reach.members} student(s) leave ${cohort.name} for ${semesterName}` +
+        (reach.sets.length
+          ? `, and its ${reach.sets.length} set(s) there — ${sets} — go, with ${reach.groups} group(s) and ${reach.placements} placement(s)`
+          : "") +
+        (shared.length
+          ? `. ${reach.othersPlacements} of those placements are OTHER cohorts' students in ${shared.join(", ")}, which is open to every cohort: they lose that group too`
+          : "") +
+        "."
+      : "";
+  if (reach.otherSemesters.length) {
+    const elsewhere = reach.otherSemesters.map(nameOf).join(" and ");
+    if (!holds) {
+      return {
+        mode: "nothing" as const,
+        title: `${cohort.name} has nothing in ${semesterName}`,
+        description: `It holds students or sets in ${elsewhere}. Choose that semester at the top of the page to remove it there.`,
+        label: "Close",
+      };
+    }
+    return {
+      mode: "semester" as const,
+      title: `Remove ${cohort.name} from ${semesterName}?`,
+      description: `Only ${semesterName} changes: ${holds} ${cohort.name} stays exactly as it is in ${elsewhere}. The students themselves stay in the system. This cannot be undone.`,
+      label: `Remove from ${semesterName}`,
+    };
+  }
+  return {
+    mode: "whole" as const,
+    title: `Delete ${cohort.name}?`,
+    description: `${cohort.name} holds nothing in any other semester, so the cohort itself goes.${holds ? ` ${holds}` : ""} The students themselves stay in the system. This cannot be undone.`,
+    label: "Delete cohort",
+  };
+}
+
 export function CohortActions({
   cohort,
+  semester = null,
   onShowMembers,
   onRolledOver,
 }: {
   cohort: Cohort;
+  /** The semester on screen: the bin button acts on it, and on no other. */
+  semester?: { id: string; name: string } | null;
   /** Left out where the members are already on screen, as on the Cohorts page. */
   onShowMembers?: (cohort: Cohort) => void;
   /** After a roll-over, to show the cohort it made: its semester, and the cohort. */
@@ -138,11 +202,34 @@ export function CohortActions({
       void client.invalidateQueries({ queryKey: ["teams-check", cohort.id] });
     },
   });
+  const reach = useQuery({
+    queryKey: ["semester-reach", cohort.id, semester?.id ?? ""],
+    queryFn: () => fetchSemesterReach(cohort.id, semester?.id ?? ""),
+    enabled: deleting && Boolean(semester?.id),
+    staleTime: 0,
+  });
+  const semesterNames = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false, enabled: deleting });
+  const nameOf = (id: string) => semesterNames.data?.find((term) => term.id === id)?.name ?? "another semester";
+  const asked = semester?.id
+    ? removal(cohort, semester.name, reach.data, nameOf)
+    : {
+        mode: "whole" as const,
+        title: `Delete ${cohort.name}?`,
+        description: `${cohort.name}, its ${cohort.memberCount} member(s) and its ${cohort.scopeCount} group set(s) will be removed. The students themselves stay in the system. This cannot be undone.`,
+        label: "Delete cohort",
+      };
   const remove = useMutation({
-    mutationFn: () => deleteCohort(cohort.id),
+    mutationFn: async () => {
+      if (asked.mode === "semester" && semester?.id) await removeCohortFromSemester(cohort.id, semester.id);
+      else if (asked.mode === "whole") await deleteCohort(cohort.id);
+    },
     onSuccess: () => {
       setDeleting(false);
       refresh();
+      // Its students, sets and placements of that semester went with it.
+      for (const key of ["students", "catalogue", "course-cards", "semester-reach", "registration-check"]) {
+        void client.invalidateQueries({ queryKey: [key] });
+      }
     },
   });
 
@@ -190,7 +277,8 @@ export function CohortActions({
         </button>
         <button
           type="button"
-          aria-label={`Delete ${cohort.name}`}
+          aria-label={semester?.id ? `Remove ${cohort.name} from ${semester.name}` : `Delete ${cohort.name}`}
+          title={semester?.id ? `Remove ${cohort.name} from ${semester.name} — no other semester changes` : `Delete ${cohort.name}`}
           onClick={() => setDeleting(true)}
           className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#e5b7b9] bg-white text-[#a6292f] hover:bg-[#fdf3f3]"
         >
@@ -407,10 +495,13 @@ export function CohortActions({
 
       <ConfirmDialog
         open={deleting}
-        title="Delete this cohort?"
-        description={`${cohort.name}, its ${cohort.memberCount} member(s) and its ${cohort.scopeCount} group set(s) will be removed, in every semester. The students themselves stay — they simply belong to no cohort. This cannot be undone.`}
-        confirmLabel="Delete cohort"
-        onConfirm={() => remove.mutate()}
+        title={asked.title}
+        description={remove.error ? `${asked.description} ${(remove.error as Error).message}` : asked.description}
+        confirmLabel={asked.label}
+        // Typed, not clicked, whenever students or sets go: "FYS" cannot be typed by reflex.
+        confirmPhrase={asked.mode === "semester" || (asked.mode === "whole" && (cohort.memberCount || cohort.scopeCount)) ? cohort.name : undefined}
+        busy={asked.mode === "counting" || remove.isPending}
+        onConfirm={() => (asked.mode === "nothing" ? setDeleting(false) : remove.mutate())}
         onClose={() => setDeleting(false)}
       />
     </>

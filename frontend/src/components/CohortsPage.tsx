@@ -882,6 +882,7 @@ export function CohortsPage({
           <CohortActions
             key={cohort.id}
             cohort={cohort}
+            semester={semester ? { id: semester.id, name: semester.name } : null}
             // Rolled over: show the cohort it made, in its semester.
             onRolledOver={(semesterId, rolledId) => {
               setTermId(semesterId);
