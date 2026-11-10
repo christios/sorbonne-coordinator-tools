@@ -253,7 +253,9 @@ export function StudentRoster({
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   // Kept ten minutes, per table — the Students page's view, or the cohort on Cohorts.
   const stateKey = scope ? `cohorts:${everyCohort ? "every" : (scope.cohortId ?? "none")}` : `students:${viewId || "all"}`;
-  const [filters, setFilters] = usePageState<FilterModel[]>(`roster:${stateKey}:filters`, []);
+  // The filters per semester too: "Groups is TD 2" is one semester's group, and kept across a
+  // switch it narrowed Semester 2's table to a group it does not have.
+  const [filters, setFilters] = usePageState<FilterModel[]>(`roster:${stateKey}${termId ? `:${termId}` : ""}:filters`, []);
   const [query, setQuery] = usePageState(`roster:${stateKey}:search`, "");
   const [sort, setSort] = usePageState<Sort>(`roster:${stateKey}:sort`, defaultSort ?? { key: "studentId", ascending: true });
   // Ticks belong to the view, cohort and semester they were made in: see `useTicks`. A

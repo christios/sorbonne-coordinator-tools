@@ -148,7 +148,8 @@ export function TeacherHours({
    */
   const cycles = useQuery({ queryKey: ["pay-cycles"], queryFn: fetchPayCycles });
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
-  const [chosenWindow, setWindow] = usePageState<HourWindow>("teacher-hours:window", WHOLE_SEMESTER);
+  // Kept per semester: Semester 1's October is no pay period of Semester 2's.
+  const [chosenWindow, setWindow] = usePageState<HourWindow>(`teacher-hours:window:${chosenTerm}`, WHOLE_SEMESTER);
   const [commentingOn, setCommentingOn] = useState<{ id: string; label: string } | null>(null);
   // Whose hours are open CRN by CRN, by the row's own id, so a recount keeps the same teacher.
   const [splitting, setSplitting] = useState<string | null>(null);
