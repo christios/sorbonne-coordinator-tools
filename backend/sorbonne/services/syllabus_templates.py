@@ -40,6 +40,9 @@ class SyllabusTemplate:
     # takes them (and the table under each) out of every generated copy, so the
     # Provost's file itself is never edited.
     removed_headings: tuple[str, ...] = ()
+    # Whether a new syllabus may be started on it. A template no longer offered keeps
+    # opening, previewing and exporting the syllabi already written on it.
+    offered: bool = True
 
 
 DEFAULT_TEMPLATE_ID = "scen-en-v1"
@@ -74,6 +77,9 @@ _TEMPLATES = {
         name="Foundation Year syllabus template (Sciences, 2025-26)",
         description="Approved Foundation Year Sciences syllabus form for 2025-26.",
         document_path=_ASSET_DIRECTORY / "fys_syllabus_template_2025_26.docx",
+        # 10 Nov 2026: Foundation Year courses use the bachelor template; there is no
+        # separate Foundation Year syllabus any more (ADR-003). Kept for any written on it.
+        offered=False,
         sections=(
             TemplateSection("courseDetails", "1. Course details"),
             TemplateSection("facultyDetails", "2. Faculty details"),

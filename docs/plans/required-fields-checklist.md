@@ -1,11 +1,12 @@
 # Required fields checklist (proposed, 10 Nov 2026)
 
-What a syllabus must say before it can be submitted for review. "Required" rows are what
+What a syllabus must say before it can be submitted for review. Every course, Foundation Year
+included, uses the SCEN syllabus template since 10 Nov 2026, so there is one list. "Required" rows are what
 `backend/sorbonne/services/syllabus_completeness.py` checks; "optional" rows are never checked.
 Saving and exporting a draft are never blocked. Christian ticks the online copy of this list;
 his choices are applied here and in the rules.
 
-## Bachelor (SCEN)
+## All courses
 
 ### 1. Course identification
 
@@ -40,8 +41,8 @@ his choices are applied here and in the rules.
 ### 4. Learning outcomes
 
 - [x] At least one CLO, each one written (Teacher mode)
-- [x] Each CLO aligned to at least one PLO (Teacher mode): Only the PLOs the curriculum mapping expects of the course are offered.
-- [x] Every PLO the curriculum mapping expects is aligned at least once (Teacher mode): Your rule from this round.
+- [x] Each CLO aligned to at least one PLO (Teacher mode, when the programme has PLOs): Only the PLOs the curriculum mapping expects of the course are offered. The Foundation Year programme has none, so its courses are not asked.
+- [x] Every PLO the curriculum mapping expects is aligned at least once (Teacher mode, when the mapping lists the course): Your rule from this round.
 - [ ] SCEN graduate competencies of each CLO (Teacher mode)
 - [x] The Head of Department has written the course's CLOs (Head of Department mode): The teacher cannot submit until the course has its CLOs in the curriculum mapping.
 
@@ -82,66 +83,3 @@ his choices are applied here and in the rules.
 - [x] How AI use is checked (verification mechanism) (when an activity uses "AI Prohibited")
 - [x] Permitted uses of AI (at least one) (when an activity uses "AI Permitted as a Support Tool")
 - [ ] Additional instructions regarding AI: Aude's options are still to come.
-
-## Foundation Year
-
-### Starting the syllabus
-
-- [x] Course title: Asked for when the syllabus is started.
-
-### 1. Course details
-
-- [ ] Foundation Year in: Starts as "Sciences".
-- [x] Semester
-- [x] Weight of the course in the semester's grade
-- [x] Course contact hours
-- [ ] Prerequisites and co-requisites
-
-### 2. Faculty details
-
-- [x] Name and status (typed, or chosen from People)
-- [x] Email
-- [ ] Institution
-- [ ] Office hours
-- [ ] Office phone
-
-### 3. Course description and delivery
-
-- [x] Delivery mode: Starts as Blended, 100% face-to-face.
-- [ ] Face-to-face and online shares: The Foundation Year form leaves them as they start.
-- [x] Course description
-
-### 4. Course learning outcomes
-
-- [x] Between 4 and 6 CLOs (Teacher mode): The form has rows for 4 to 6.
-- [x] The Head of Department has written the course's CLOs (Head of Department mode)
-
-### 5. Required materials
-
-- [x] Course textbooks and recommended reading
-- [ ] Supplemental resources
-- [ ] Equipment students may require
-- [ ] Books, websites and journal articles
-
-### 6. Teaching methodologies
-
-- [x] Teaching methods and hours
-
-### 8. Teaching schedule: sessions
-
-- [x] At least one session
-- [x] Topic of each session
-- [x] Week of each session
-- [ ] Session details
-- [ ] Pre-class learning activities (name to be decided)
-
-### 8. Teaching schedule: graded activities
-
-- [x] At least one graded activity: Section 7's tables are built from these.
-- [x] Week
-- [ ] Assessment date
-- [x] Row of the assessment form it fills: Continuous, final or laboratory.
-- [ ] Name
-- [x] Description: Printed in the form's Description column.
-- [x] Weight, with all weights adding up to 100%
-- [x] CLO(s) to be measured

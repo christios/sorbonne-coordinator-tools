@@ -6,6 +6,8 @@ Status: **approved by Christian** (10 Nov 2026), including the proposed defaults
 
 The reviewers' latest feedback, as confirmed with Christian on 10 Nov 2026, must be live before teachers write their **Spring 2027** syllabi. It applies to the SCEN bachelor template (`scen-en-v1`) and, wherever that template has the matching part, to the Foundation Year template (`fys-2025-26`). See the applicability table.
 
+> **Superseded on 10 Nov 2026:** Christian decided there is no separate Foundation Year template. Foundation Year courses use the SCEN bachelor template, so every rule below applies to them as written for SCEN; their programme ("Foundation Year in Sciences") has no PLOs, so their CLOs are not aligned to any. The Foundation Year form is no longer offered for new syllabi and only reads the ones already on it. The Foundation Year column of the table describes that legacy form.
+
 The users are teachers, who write syllabi, and the Syllabus Builder administrators. The administrators curate the catalogues and, in HoD mode, own each course's CLOs. The Head of Department is given that role.
 
 **The changes, in short:**

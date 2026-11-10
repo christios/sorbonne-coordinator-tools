@@ -365,6 +365,18 @@ class SyllabusCatalogueStore:
             activity["clos"] = ""
         return resolved
 
+    def programme_has_plos(self, content: dict[str, Any]) -> bool:
+        """Whether the syllabus's programme gives a CLO anything to align to.
+
+        A programme typed in by hand, or the Foundation Year's, has no catalogue PLOs; the
+        editor then offers none, so a CLO cannot be asked to name one.
+        """
+        identification = _record(content.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        return bool(programme_id and self.list("plos", parent_id=programme_id, limit=1))
+
     def expected_plos(self, content: dict[str, Any], *, course_code: str) -> dict[str, str]:
         """The current PLOs the curriculum mapping expects of the course: id to code, in its order.
 

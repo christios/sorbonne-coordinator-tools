@@ -75,6 +75,8 @@ export type SyllabusTemplate = {
   documentPath: string;
   /** `parts` are the stored content keys a screen section edits, in document order. */
   sections: Array<{ id: string; label: string; parts?: string[] }>;
+  /** False for a template new syllabi no longer start on (the Foundation Year form, since November 2026). */
+  offered?: boolean;
 };
 
 export type SyllabusChange = {

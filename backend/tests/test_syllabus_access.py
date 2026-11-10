@@ -98,6 +98,21 @@ def sees(client: TestClient, syllabus_id: str) -> bool:
     return any(item["id"] == syllabus_id for item in client.get("/api/v1/syllabi").json()["items"])
 
 
+def test_foundation_year_courses_start_on_the_bachelor_template(as_user) -> None:
+    """10 Nov 2026: there is no separate Foundation Year syllabus; its form only reads old ones."""
+    author = as_user(AUTHOR)
+
+    offered = {item["id"]: item["offered"] for item in author.get("/api/v1/syllabi/templates").json()["items"]}
+    refused = author.post(
+        "/api/v1/syllabi",
+        json={"courseTitle": "Pre-Calculus", "academicYear": "2026-2027", "templateId": "fys-2025-26"},
+    )
+
+    assert offered == {"scen-en-v1": True, "fys-2025-26": False}
+    assert refused.status_code == 422
+    assert "Foundation Year courses included" in refused.json()["detail"]
+
+
 def test_a_new_syllabus_belongs_to_whoever_wrote_it_and_starts_private(as_user) -> None:
     created = write_syllabus(as_user(AUTHOR))
 

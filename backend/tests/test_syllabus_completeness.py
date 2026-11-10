@@ -158,6 +158,15 @@ def test_every_plo_the_curriculum_mapping_expects_must_be_aligned_in_teacher_mod
     ]
 
 
+def test_a_course_whose_programme_has_no_plos_is_not_asked_to_align_its_clos() -> None:
+    """A Foundation Year course, on the bachelor template since 10 Nov 2026: its programme has no PLOs."""
+    content = complete_scen_content()
+    content["learningOutcomes"]["clos"][0]["ploIds"] = []
+
+    assert messages(missing_for_submission(SCEN, content)) == ["Align CLO 1 to a programme learning outcome."]
+    assert missing_for_submission(SCEN, content, programme_has_plos=False) == []
+
+
 def test_in_head_of_department_mode_a_teacher_is_not_asked_for_outcomes_they_cannot_write() -> None:
     content = complete_scen_content()
     content["learningOutcomes"]["clos"][0]["ploIds"] = []

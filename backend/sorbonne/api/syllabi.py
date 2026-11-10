@@ -130,6 +130,8 @@ def list_syllabus_templates() -> dict[str, list[dict[str, Any]]]:
                 "name": template.name,
                 "description": template.description,
                 "documentPath": f"/syllabi/templates/{template.id}/document",
+                # A template no longer offered still describes the syllabi written on it.
+                "offered": template.offered,
                 "sections": [
                     {"id": section.id, "label": section.label, "parts": list(section.content_parts)}
                     for section in template.sections
@@ -188,8 +190,19 @@ def create_syllabus(
     user: StaffUser = Depends(current_user),
     curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
-    if request.sourceSyllabusId:
-        _readable(store, request.sourceSyllabusId, user, curator=curator)
+    source = _readable(store, request.sourceSyllabusId, user, curator=curator) if request.sourceSyllabusId else None
+    # Since 10 Nov 2026 every new syllabus, Foundation Year courses included, starts on an
+    # offered template: the Foundation Year form is kept only for syllabi already written on it.
+    chosen = request.templateId or (str(source["templateId"]) if source else DEFAULT_TEMPLATE_ID)
+    try:
+        offered = get_template(chosen).offered
+    except TemplateNotFound:
+        offered = True  # the store answers an unknown template below
+    if not offered:
+        raise HTTPException(
+            status_code=422,
+            detail=f"New syllabi use the {get_template(DEFAULT_TEMPLATE_ID).name}, Foundation Year courses included.",
+        )
     try:
         return store.create(
             owner_email=user.email,
@@ -563,4 +576,10 @@ def _missing(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], 
         if mode != "hod"
         else {}
     )
-    return missing_for_submission(syllabus, content, outcome_mode=mode, expected_plos=expected)
+    return missing_for_submission(
+        syllabus,
+        content,
+        outcome_mode=mode,
+        expected_plos=expected,
+        programme_has_plos=catalogue_store.programme_has_plos(content),
+    )

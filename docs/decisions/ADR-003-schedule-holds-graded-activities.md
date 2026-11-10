@@ -53,6 +53,12 @@ The November 2026 feedback round on the Syllabus Builder (spec: `docs/specs/syll
 - The editor shows that list, and the review route refuses an incomplete syllabus.
 - Saving, exporting and withdrawing a review request are never blocked.
 
+**One template for every course** (Christian, 10 Nov 2026).
+- Foundation Year courses use the bachelor (SCEN) template. There is no separate Foundation Year syllabus any more.
+- The Foundation Year form (`fys-2025-26`) is no longer offered for new syllabi (`SyllabusTemplate.offered`), and the API refuses to start one.
+- Syllabi already written on it keep opening, previewing and exporting. Production had none on 9 Nov 2026.
+- A Foundation Year course's programme has no PLOs, so its CLOs are not asked to align to one.
+
 ## Departures from ADR-001 and ADR-002
 
 - **A content conversion.** ADR-002 says "existing syllabus JSON is not rewritten or backfilled". This ADR approves one exception: the schedule conversion above. It runs only after a rehearsal on a copy of production, a dry run, a backup, and Christian's go-ahead immediately before (AGENTS.md, 2026-08-13).
@@ -65,5 +71,6 @@ The November 2026 feedback round on the Syllabus Builder (spec: `docs/specs/syll
 - Every new feature that reads graded activities goes through the accessor, never `assessment.items` or the schedule directly.
 - The parity fixtures (`fixtures/syllabus-export-parity*.json`) cover both shapes, and the preview and the Word document must keep agreeing on both.
 - A v1 syllabus can still exist after the conversion: it may be restored from history or imported. Readers must keep handling it until a later ADR retires v1.
+- The Foundation Year parts of this work (its cards, its CLOs under the switch) now serve only syllabi already on that form.
 - The outcome mode is department-wide. Per-programme or per-course switches are out of scope and would need a new decision.
 - Changing a required-field rule is a change to `syllabus_completeness.py` and its tests. The editor has no list of its own.

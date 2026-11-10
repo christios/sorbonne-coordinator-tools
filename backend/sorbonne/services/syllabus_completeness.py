@@ -73,12 +73,14 @@ def missing_for_submission(
     *,
     outcome_mode: str = "teacher",
     expected_plos: dict[str, str] | None = None,
+    programme_has_plos: bool = True,
 ) -> Missing:
     """Everything a syllabus must still say before it can go for review, in screen order.
 
     `content` is the syllabus as the document prints it (the catalogue's parts resolved).
     `expected_plos` maps each PLO the curriculum mapping expects of the course, by id, to the
-    code the teacher sees; None or empty when the course is not mapped.
+    code the teacher sees; None or empty when the course is not mapped. `programme_has_plos`
+    is False for a programme with no PLOs to align to, such as the Foundation Year's.
     """
     missing: Missing = []
     if syllabus.get("templateId") == FYS_TEMPLATE_ID:
@@ -92,7 +94,7 @@ def missing_for_submission(
     _identification(missing, syllabus, content)
     _contacts(missing, content)
     _description(missing, content)
-    _outcomes(missing, content, outcome_mode, expected_plos or {})
+    _outcomes(missing, content, outcome_mode, expected_plos or {}, programme_has_plos=programme_has_plos)
     converted = schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES
     _sessions(missing, content, flag_earlier_notes=converted)
     _graded(missing, content, "schedule" if converted else "assessment", week_required=converted)
@@ -146,7 +148,14 @@ def _description(missing: Missing, content: dict[str, Any]) -> None:
             _add(missing, "description", "Make the face-to-face and online shares add up to 100%.")
 
 
-def _outcomes(missing: Missing, content: dict[str, Any], outcome_mode: str, expected_plos: dict[str, str]) -> None:
+def _outcomes(
+    missing: Missing,
+    content: dict[str, Any],
+    outcome_mode: str,
+    expected_plos: dict[str, str],
+    *,
+    programme_has_plos: bool,
+) -> None:
     clos = _rows(_record(content.get("learningOutcomes")).get("clos"))
     if outcome_mode == "hod":
         if not clos:
@@ -158,7 +167,8 @@ def _outcomes(missing: Missing, content: dict[str, Any], outcome_mode: str, expe
     for position, clo in enumerate(clos, start=1):
         if not _text(clo.get("clo")):
             _add(missing, "learningOutcomes", f"Write CLO {position}.")
-        elif not _ids(clo.get("ploIds")):
+        elif programme_has_plos and not _ids(clo.get("ploIds")):
+            # A Foundation Year course's programme has no PLOs: nothing to align to.
             _add(missing, "learningOutcomes", f"Align CLO {position} to a programme learning outcome.")
     aligned = {plo for clo in clos for plo in _ids(clo.get("ploIds"))}
     unaligned = [code for plo_id, code in expected_plos.items() if plo_id not in aligned]

@@ -73,9 +73,14 @@ export function SyllabusLibrary({
   // Whoever maintains the syllabus catalogue is who a review request is addressed to.
   const curator = Boolean(user?.isAdmin) || user?.apps?.syllabus === "admin";
 
+  // Only the templates a new syllabus may start on: since November 2026 that is the bachelor
+  // one, Foundation Year courses included. The others still describe the syllabi written on them.
+  const offeredTemplates = useMemo(() => templates.filter((template) => template.offered !== false), [templates]);
+  const offeredTemplate = (id: string) => (offeredTemplates.some((template) => template.id === id) ? id : offeredTemplates[0]?.id ?? "");
+
   useEffect(() => {
-    if (!templateId && templates[0]) setTemplateId(templates[0].id);
-  }, [templateId, templates]);
+    if (!templateId && offeredTemplates[0]) setTemplateId(offeredTemplates[0].id);
+  }, [templateId, offeredTemplates]);
 
   const visibleSyllabi = useMemo(
     () =>
@@ -134,7 +139,7 @@ export function SyllabusLibrary({
 
   function startDuplicate(syllabus: SyllabusSummary) {
     setSourceId(syllabus.id);
-    setTemplateId(syllabus.templateId);
+    setTemplateId(offeredTemplate(syllabus.templateId));
     setTitle(syllabus.courseTitle);
     setCode(syllabus.courseCode);
     setShowForm(true);
@@ -172,8 +177,8 @@ export function SyllabusLibrary({
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course title<input required value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Academic year<input required value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026-2027" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <label className="grid gap-1 text-sm font-medium text-[#344054]">Course code <span className="font-normal text-[#667085]">(optional)</span><input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) { setTemplateId(source.templateId); setTitle(source.courseTitle); setCode(source.courseCode); } }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
-          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span className="flex items-center gap-1.5">Template{sourceId ? <InfoTip label="Which template to choose">Choose a mapped template, such as Foundation Year, to carry comparable content into a new syllabus in the same series.</InfoTip> : null}</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={templates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}</div>
+          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) { setTemplateId(offeredTemplate(source.templateId)); setTitle(source.courseTitle); setCode(source.courseCode); } }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
+          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span className="flex items-center gap-1.5">Template{sourceId ? <InfoTip label="Which template to choose">Every course, Foundation Year included, uses the SCEN syllabus template.</InfoTip> : null}</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={offeredTemplates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}</div>
           <div className="flex gap-3 md:col-span-2"><button disabled={isCreating} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreating ? <Loader2 className="animate-spin" size={16} /> : sourceId ? <Copy size={16} /> : <FilePlus2 size={16} />}{sourceId ? "Duplicate and edit" : "Create blank syllabus"}</button><button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
         </form>
       ) : null}

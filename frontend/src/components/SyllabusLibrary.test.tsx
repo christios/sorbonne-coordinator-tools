@@ -220,4 +220,34 @@ describe("What a syllabus is doing, in the library", () => {
     fireEvent.click(screen.getByRole("button", { name: /For review/ }));
     expect(screen.getByText(/You have asked for these to be read/)).toBeTruthy();
   });
+  it("starts every new syllabus on the bachelor template, Foundation Year courses included", () => {
+    const onCreate = vi.fn();
+    render(
+      <SyllabusLibrary
+        syllabi={[]}
+        folders={[]}
+        templates={[
+          { id: "scen-en-v1", name: "SCEN syllabus template (English)", description: "", documentPath: "/syllabi/templates/scen-en-v1/document", sections: [], offered: true },
+          { id: "fys-2025-26", name: "Foundation Year syllabus template (Sciences, 2025-26)", description: "", documentPath: "/syllabi/templates/fys-2025-26/document", sections: [], offered: false },
+        ]}
+        isLoading={false}
+        isCreating={false}
+        isCreatingFolder={false}
+        deletingId={null}
+        deletingFolderId={null}
+        movingId={null}
+        onOpen={vi.fn()}
+        onCreate={onCreate}
+        onCreateFolder={vi.fn()}
+        onMove={vi.fn()}
+        onDelete={vi.fn()}
+        onDeleteFolder={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "New syllabus" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Syllabus template" }));
+
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["SCEN syllabus template (English)"]);
+  });
 });

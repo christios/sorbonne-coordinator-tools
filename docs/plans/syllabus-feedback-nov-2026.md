@@ -2,6 +2,8 @@
 
 The spec is [docs/specs/syllabus-feedback-nov-2026.md](../specs/syllabus-feedback-nov-2026.md), approved 10 Nov 2026. The work is on branch `feat/syllabus-feedback-nov-2026`, worktree `~/Documents/sorbonne-syllabus-feedback`.
 
+> **10 Nov 2026, Christian:** there is no separate Foundation Year template; Foundation Year courses use the bachelor one. The Foundation Year form is no longer offered for new syllabi and only reads the ones already on it (none in production). Its tasks below (C5, D5) now serve only those, and the required-fields checklist is one list for all courses.
+
 ## Shape of the work
 
 **Six releases**, each one live on its own and each only on Christian's go-ahead:
@@ -228,7 +230,7 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 
 ## Task list
 
-- [x] 0.1 Required-fields checklist for Christian — docs/plans/required-fields-checklist.md, tickable page https://claude.ai/artifact/L5Fxpvnvc5BkYwiacCEp3G (83 rows, 54 proposed required); awaiting his ticks
+- [x] 0.1 Required-fields checklist for Christian — docs/plans/required-fields-checklist.md, tickable page https://claude.ai/artifact/L5Fxpvnvc5BkYwiacCEp3G (49 rows, 33 proposed required, one list for all courses); awaiting his ticks
 - [x] 0.2 Production syllabi copy for rehearsal — `./dev.sh rehearse <backup folder>` (10 Nov: production had 2 syllabi; both converted, re-run found nothing)
 - [x] 0.3 ADR-003 draft — docs/decisions/ADR-003, Proposed until the Release D go-ahead
 - [x] A1 AI catalogue form shows the wording
