@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { API_BASE_URL, apiFetch } from "@/services/http";
 import { previewProjection } from "@/services/syllabusProjection";
-import { OTHER_AI_OPTION, activityAiPolicy, aiOption, templatePermittedUse } from "@/services/aiPolicy";
+import { OTHER_AI_OPTION, activityAiPolicy, aiOption, courseAiFallback, templatePermittedUse } from "@/services/aiPolicy";
 import { gradedActivities } from "@/services/syllabusContent";
 
 type Resolved = { courseTitle: string; courseCode: string; academicYear: string; content: Record<string, unknown>; sections: string[] };
@@ -131,7 +131,7 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
       <Block heading="9.3. AI Policy">
         {/* Ticked as the document ticks them: every option a graded activity applies. */}
         <Rows rows={[
-          ...projection.aiOptions.map(([option]): [string, string] => [`☒ ${option}`, aiOptionDetails(option, assessment, gradedActivities(content))]),
+          ...projection.aiOptions.map(([option]): [string, string] => [`☒ ${option}`, aiOptionDetails(option, assessment, gradedActivities(content), courseAiFallback(content))]),
           ["Additional instructions regarding AI", text(assessment.aiInstructions)],
         ]} />
       </Block>
@@ -229,7 +229,7 @@ function text(value: unknown): string {
 }
 
 /** What the document writes beside a ticked AI option: the details that option asks for. */
-function aiOptionDetails(option: string, assessment: Record<string, unknown>, activities: Array<Record<string, unknown>>): string {
+function aiOptionDetails(option: string, assessment: Record<string, unknown>, activities: Array<Record<string, unknown>>, fallback: string): string {
   if (option === "AI Prohibited") {
     const mechanism = text(assessment.aiVerificationMechanism);
     return mechanism ? `Verification mechanism used by the instructor: ${mechanism}` : "";
@@ -243,7 +243,7 @@ function aiOptionDetails(option: string, assessment: Record<string, unknown>, ac
   }
   if (option === OTHER_AI_OPTION) {
     return activities
-      .filter((activity) => aiOption(activityAiPolicy(activity, assessment).label) === OTHER_AI_OPTION && text(activity.aiOtherText))
+      .filter((activity) => aiOption(activityAiPolicy(activity, fallback).label) === OTHER_AI_OPTION && text(activity.aiOtherText))
       .map((activity) => `${text(activity.name) || text(activity.type) || "Activity"}: ${text(activity.aiOtherText)}`)
       .join("\n");
   }

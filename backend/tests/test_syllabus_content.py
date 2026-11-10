@@ -87,3 +87,41 @@ def test_a_converted_syllabus_no_longer_falls_back_on_the_old_course_wide_ai_pol
 
     assert course_ai_fallback(before) == "AI Prohibited"
     assert course_ai_fallback(after) == ""
+
+
+from sorbonne.services.syllabus_content import document_schedule  # noqa: E402
+
+
+def test_an_older_syllabus_prints_its_schedule_as_it_always_has() -> None:
+    content = {"schedule": [{"id": "s2", "week": "2", "sessionType": "TD"}, {"id": "s1", "week": "1"}]}
+
+    assert [(row["id"], row["session"]) for row in document_schedule(content)] == [("s2", "TD 1"), ("s1", "CM 1")]
+
+
+def test_a_graded_activity_prints_with_the_last_session_of_its_week_or_on_a_row_of_its_own() -> None:
+    content = {
+        "schemaVersion": 2,
+        "schedule": [
+            {"id": "s3", "week": "3", "topic": "Interference"},
+            {"id": "s1", "week": "1", "topic": "Rays", "sessionType": "CM"},
+            {"id": "s1b", "week": "1", "topic": "Ray exercises", "sessionType": "TD", "assessments": "Bring a ruler"},
+            {"id": "q1", "kind": "graded", "week": "1", "name": "Quiz 1", "date": "2026-09-10"},
+            {"id": "q2", "kind": "graded", "week": "1", "name": "Lab report"},
+            {"id": "m1", "kind": "graded", "week": "2", "name": "Midterm", "date": "2026-09-17"},
+            {"id": "x1", "kind": "graded", "name": "Final"},
+        ],
+    }
+
+    rows = document_schedule(content)
+
+    assert [(row.get("id"), row["week"], row["session"]) for row in rows] == [
+        ("s1", "1", "CM 1"),
+        ("s1b", "1", "TD 1"),
+        (None, "2", ""),
+        ("s3", "3", "CM 2"),
+        (None, "", ""),
+    ]
+    assert rows[1]["assessments"] == "Bring a ruler\nQuiz 1\nLab report"
+    assert rows[1]["deadline"] == "10/09/2026"
+    assert (rows[2]["topic"], rows[2]["assessments"], rows[2]["deadline"]) == ("Midterm", "Midterm", "17/09/2026")
+    assert rows[4]["topic"] == "Final"

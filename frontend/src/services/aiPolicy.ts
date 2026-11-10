@@ -65,17 +65,27 @@ export function aiOptions(catalogue: CatalogueEntry[]): AiOption[] {
   });
 }
 
-/** The option an activity applies: its own, or the one course-level policy older syllabi set. */
-export function activityAiPolicy(activity: Activity, assessment: Record<string, unknown>): { label: string; inherited: boolean } {
+/**
+ * The one course-wide AI policy a syllabus written before November 2026 set, which its
+ * activities without an option of their own apply. A converted syllabus has none: converting
+ * gave each activity that policy as its own (course_ai_fallback on the server).
+ */
+export function courseAiFallback(content: Record<string, unknown>): string {
+  if (typeof content.schemaVersion === "number" && content.schemaVersion >= 2) return "";
+  const assessment = content.assessment && typeof content.assessment === "object" ? (content.assessment as Record<string, unknown>) : {};
+  return text(assessment.aiPolicy);
+}
+
+/** The option an activity applies: its own, or the course-wide one an older syllabus set. */
+export function activityAiPolicy(activity: Activity, fallback = ""): { label: string; inherited: boolean } {
   const own = text(activity.aiPolicy) || text(activity.ai);
   if (own) return { label: own, inherited: false };
-  const course = text(assessment.aiPolicy);
-  return { label: course, inherited: Boolean(course) };
+  return { label: fallback, inherited: Boolean(fallback) };
 }
 
 /** What the 9.1 summary prints in the activity's "Applicable AI policy" column. */
-export function aiPolicySummary(activity: Activity, assessment: Record<string, unknown>): string {
-  const { label } = activityAiPolicy(activity, assessment);
+export function aiPolicySummary(activity: Activity, fallback = ""): string {
+  const { label } = activityAiPolicy(activity, fallback);
   if (aiOption(label) === OTHER_AI_OPTION) {
     const written = text(activity.aiOtherText);
     return written ? `Other: ${written}` : label;
@@ -84,8 +94,8 @@ export function aiPolicySummary(activity: Activity, assessment: Record<string, u
 }
 
 /** The template options at least one graded activity applies, in the template's order. */
-export function aiOptionsInUse(activities: Activity[], assessment: Record<string, unknown>): AiOptionLabel[] {
-  const used = new Set(activities.map((activity) => aiOption(activityAiPolicy(activity, assessment).label)));
+export function aiOptionsInUse(activities: Activity[], fallback = ""): AiOptionLabel[] {
+  const used = new Set(activities.map((activity) => aiOption(activityAiPolicy(activity, fallback).label)));
   return AI_OPTIONS.filter((option) => used.has(option));
 }
 

@@ -82,7 +82,7 @@ export function schemaVersion(content: Record<string, unknown>): number {
  */
 export function gradedActivities(content: Record<string, unknown>): AssessmentEntry[] {
   if (schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES) {
-    return objectEntries<AssessmentEntry>(content.schedule, "legacy-session").filter((card) => card.kind === "graded");
+    return sortGraded(objectEntries<AssessmentEntry>(content.schedule, "legacy-session").filter((card) => card.kind === "graded"));
   }
   const assessment = isRecord(content.assessment) ? content.assessment : {};
   return assessmentEntries(assessment.items);
@@ -173,4 +173,63 @@ export function sectionParts(
 ): string[] {
   const section = sections.find((item) => item.id === active);
   return section?.parts?.length ? section.parts : [active];
+}
+
+function weekOrder(row: Record<string, unknown>): number {
+  const week = typeof row.week === "string" ? row.week.trim() : typeof row.week === "number" ? String(row.week) : "";
+  return /^\d+$/.test(week) ? Number(week) : Number.POSITIVE_INFINITY;
+}
+
+/** Graded activities in the order the schedule shows them: by week, then by date, undated last. */
+function sortGraded<T extends Record<string, unknown>>(cards: T[]): T[] {
+  const dateOf = (card: T) => (typeof card.date === "string" ? card.date : "");
+  return [...cards].sort((left, right) =>
+    weekOrder(left) - weekOrder(right) ||
+    Number(!dateOf(left)) - Number(!dateOf(right)) ||
+    dateOf(left).localeCompare(dateOf(right)));
+}
+
+function displayDate(value: unknown): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text.slice(8, 10)}/${text.slice(5, 7)}/${text.slice(0, 4)}` : text;
+}
+
+function lines(...parts: unknown[]): string {
+  return parts.filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim()).join("\n");
+}
+
+export type PrintedScheduleRow = Record<string, unknown> & { session: string; ownRow?: boolean };
+
+/**
+ * The course schedule as the document prints it (document_schedule on the server): each row
+ * with the session label it shows. Once the schedule holds the graded activities, sessions go
+ * in week order and each graded activity joins the last session of its week, or has a row
+ * of its own in a week with no session.
+ */
+export function documentSchedule(content: Record<string, unknown>): PrintedScheduleRow[] {
+  const stored = (Array.isArray(content.schedule) ? content.schedule : []).filter(isRecord);
+  const converted = schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES;
+  let sessions = converted ? stored.filter((row) => row.kind !== "graded") : stored;
+  if (converted) sessions = [...sessions].sort((left, right) => weekOrder(left) - weekOrder(right));
+  const counts = new Map<string, number>();
+  const printed: PrintedScheduleRow[] = sessions.map((row) => {
+    const kind = (typeof row.sessionType === "string" && row.sessionType.trim()) || "CM";
+    const next = (counts.get(kind) ?? 0) + 1;
+    counts.set(kind, next);
+    return { ...row, session: `${kind} ${next}` };
+  });
+  if (!converted) return printed;
+  for (const card of sortGraded(stored.filter((row) => row.kind === "graded"))) {
+    const name = (typeof card.name === "string" && card.name.trim()) || (typeof card.type === "string" && card.type.trim()) || "Graded activity";
+    const when = displayDate(card.date);
+    const week = typeof card.week === "string" ? card.week.trim() : "";
+    const home = [...printed].reverse().find((row) => !row.ownRow && week && String(row.week ?? "").trim() === week);
+    if (!home) {
+      printed.push({ week, session: "", topic: name, ownRow: true, assessments: name, deadline: when });
+      continue;
+    }
+    home.assessments = lines(home.assessments, name);
+    home.deadline = lines(home.deadline, when);
+  }
+  return [...printed].sort((left, right) => weekOrder(left) - weekOrder(right));
 }

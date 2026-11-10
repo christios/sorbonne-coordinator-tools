@@ -119,11 +119,12 @@ export function AssessmentItemsEditor({ value, outcomes, assessmentTypes = [], a
  * is shown open, with the template's wording and the details that option asks for, in the
  * order the template's table lists them (November 2026 review).
  */
-export function AssessmentAiPolicyEditor({ value, onChange, activities, aiPolicies = [], ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void; activities?: AssessmentEntry[]; aiPolicies?: CatalogueEntry[] }) {
+export function AssessmentAiPolicyEditor({ value, onChange, activities, aiFallback, aiPolicies = [], ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void; activities?: AssessmentEntry[]; /** The course-wide policy an older syllabus set; none once converted. */ aiFallback?: string; aiPolicies?: CatalogueEntry[] }) {
   const graded = activities ?? assessmentEntries(value.items);
+  const fallback = aiFallback ?? stringValue(value.aiPolicy);
   const options = aiOptions(aiPolicies);
-  const inUse = aiOptionsInUse(graded, value);
-  const usedBy = (label: string) => graded.filter((activity) => aiOption(activityAiPolicy(activity, value).label) === label);
+  const inUse = aiOptionsInUse(graded, fallback);
+  const usedBy = (label: string) => graded.filter((activity) => aiOption(activityAiPolicy(activity, fallback).label) === label);
   const named = (activity: AssessmentEntry, index: number) => stringValue(activity.name) || stringValue(activity.type) || `Assessment ${graded.indexOf(activity) + 1 || index + 1}`;
   const allowedUses = Array.isArray(value.aiAllowedUses) ? value.aiAllowedUses.filter((item): item is string => typeof item === "string").map(templatePermittedUse) : [];
   const setUse = (use: string) => onChange({ ...value, aiAllowedUses: allowedUses.includes(use) ? allowedUses.filter((item) => item !== use) : [...allowedUses, use] });

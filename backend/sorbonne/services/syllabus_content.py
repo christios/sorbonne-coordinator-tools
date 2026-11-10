@@ -24,10 +24,12 @@ def graded_activities(content: dict[str, Any]) -> list[dict[str, Any]]:
     """The syllabus's graded activities, in the order the syllabus keeps them."""
     if schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES:
         schedule = content.get("schedule")
-        return [
+        cards = [
             card for card in (schedule if isinstance(schedule, list) else [])
             if isinstance(card, dict) and card.get("kind") == "graded"
         ]
+        # In the order the schedule shows them: by week, then by date, undated last.
+        return sorted(cards, key=lambda card: (_week_order(card), not card.get("date"), str(card.get("date") or "")))
     assessment = content.get("assessment")
     items = assessment.get("items") if isinstance(assessment, dict) else None
     return [item for item in (items if isinstance(items, list) else []) if isinstance(item, dict)]
@@ -140,3 +142,72 @@ def convert_to_schedule_cards(content: dict[str, Any]) -> tuple[dict[str, Any], 
     converted["schedule"] = [*schedule, *cards]
     converted["schemaVersion"] = SCHEDULE_HOLDS_GRADED_ACTIVITIES
     return converted, report
+
+
+DEFAULT_SESSION_TYPE = "CM"
+
+
+def _week_order(row: dict[str, Any]) -> float:
+    week = str(row.get("week") or "").strip()
+    return int(week) if week.isdigit() else float("inf")
+
+
+def _display_date(value: Any) -> str:
+    text = value.strip() if isinstance(value, str) else ""
+    if len(text) == len("2026-09-14") and text[4] == "-" and text[7] == "-":
+        return f"{text[8:10]}/{text[5:7]}/{text[0:4]}"
+    return text
+
+
+def _lines(*parts: Any) -> str:
+    return "\n".join(part.strip() for part in parts if isinstance(part, str) and part.strip())
+
+
+def document_schedule(content: dict[str, Any]) -> list[dict[str, Any]]:
+    """The course schedule as the document prints it: one row per line of section 6.
+
+    Each row carries the session label the document shows ("CM 2", counted per kind of
+    session) under `session`. A syllabus written before November 2026 prints as it always
+    has. Once the schedule holds the graded activities, its sessions print in week order and
+    each graded activity goes in the Assessment and Date columns of the last session of its
+    week — or, in a week with no session, on a row of its own. A session's old assessment
+    and deadline notes still print with it until the teacher removes them.
+    """
+    stored = [row for row in (content.get("schedule") or []) if isinstance(row, dict)]
+    converted = schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES
+    sessions = [row for row in stored if row.get("kind") != "graded"] if converted else stored
+    if converted:
+        sessions = sorted(sessions, key=_week_order)
+    counts: dict[str, int] = {}
+    printed: list[dict[str, Any]] = []
+    for row in sessions:
+        kind = str(row.get("sessionType") or "").strip() or DEFAULT_SESSION_TYPE
+        counts[kind] = counts.get(kind, 0) + 1
+        printed.append({**row, "session": f"{kind} {counts[kind]}"})
+    if not converted:
+        return printed
+    graded = sorted(
+        (row for row in stored if row.get("kind") == "graded"),
+        # By week, then by date, an undated one after the dated ones of its week.
+        key=lambda card: (_week_order(card), not card.get("date"), str(card.get("date") or "")),
+    )
+    for card in graded:
+        name = str(card.get("name") or card.get("type") or "Graded activity").strip()
+        when = _display_date(card.get("date"))
+        week = str(card.get("week") or "").strip()
+        home = next(
+            (
+                row
+                for row in reversed(printed)
+                if not row.get("ownRow") and week and str(row.get("week") or "").strip() == week
+            ),
+            None,
+        )
+        if home is None:
+            printed.append(
+                {"week": week, "session": "", "topic": name, "ownRow": True, "assessments": name, "deadline": when}
+            )
+            continue
+        home["assessments"] = _lines(home.get("assessments"), name)
+        home["deadline"] = _lines(home.get("deadline"), when)
+    return sorted(printed, key=_week_order)

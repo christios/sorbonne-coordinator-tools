@@ -22,6 +22,7 @@ from sorbonne.services.syllabus_content import (
     ai_option,
     ai_options_in_use,
     ai_policy_summary,
+    document_schedule,
     graded_activities,
     template_permitted_use,
 )
@@ -43,7 +44,7 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
     _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
     _fill_delivery(document.tables[4], _record(content.get("delivery")))
     _fill_learning_outcomes(document.tables[5], document.tables[6], _record(content.get("learningOutcomes")))
-    _fill_schedule(document.tables[7], _rows(content.get("schedule")))
+    _fill_schedule(document.tables[7], document_schedule(content))
     _fill_bibliography(document.tables[8], _record(content.get("bibliography")))
     _fill_teaching_approach(document, _record(content.get("teachingApproach")))
     _fill_assessment(
@@ -282,14 +283,8 @@ def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
     Week leads, because several sessions share one; the session column carries the
     kind and its own count; and an assessment is its description beside the date it
     is due, which is usually said in words ("Next Friday") rather than as a date.
+    `schedule` is the schedule as printed (document_schedule), so each row knows its label.
     """
-    counts: dict[str, int] = {}
-    numbers: list[str] = []
-    for source in schedule:
-        session_type = _text(source.get("sessionType")) or DEFAULT_SESSION_TYPE
-        counts[session_type] = counts.get(session_type, 0) + 1
-        numbers.append(f"{session_type} {counts[session_type]}")
-
     _ensure_column(table, "", index=SCHEDULE_DEADLINE_COLUMN)
     for column, heading in enumerate(("Week", "Session", "Topic", "Assessment", "Date")):
         _set_cell_text(table.rows[0].cells[column], heading)
@@ -298,7 +293,7 @@ def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
     for index, row in enumerate(table.rows[1:]):
         source = schedule[index] if index < len(schedule) else {}
         _set_cell_text(row.cells[0], _text(source.get("week")))
-        _set_cell_text(row.cells[1], numbers[index] if index < len(numbers) else "")
+        _set_cell_text(row.cells[1], _text(source.get("session")))
         _set_topic_cell(row.cells[2], source)
         _set_cell_text(row.cells[3], _schedule_learning_details(source))
         if len(row.cells) > SCHEDULE_DEADLINE_COLUMN:
@@ -360,9 +355,6 @@ def _write_pieces(paragraph: Any, pieces: list[rich_text.Piece], style: Any) -> 
         run.italic = piece.italic or None
 
 
-DEFAULT_SESSION_TYPE = "CM"
-
-
 def _week(value: Any) -> str:
     text = _text(value)
     return f"Week {text}" if text and not text.lower().startswith("week") else text
@@ -408,7 +400,8 @@ def _fill_assessment(  # noqa: PLR0913 - the document, its three sources, and th
             )
             if number
         ) or _clo_numbers_from_text(_text(source.get("clos")))
-        when = _week(source.get("week")) if by_week else _display_date(source.get("date"))
+        # The date when there is one; otherwise the week it falls in.
+        when = _week(source.get("week")) if by_week else _display_date(source.get("date")) or _week(source.get("week"))
         values = [
             when,
             _text(source.get("name")) or _text(source.get("type")),

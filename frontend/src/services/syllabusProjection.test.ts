@@ -10,10 +10,9 @@ import { previewProjection } from "./syllabusProjection";
  * so a difference between them fails here rather than reaching the Provost.
  */
 describe("Export preview against the generated document", () => {
-  it("says the same thing, cell for cell", () => {
-    const fixture = JSON.parse(
-      readFileSync(resolve(__dirname, "../../../fixtures/syllabus-export-parity.json"), "utf8"),
-    );
+  // The second is a syllabus whose graded activities live in its schedule (November 2026).
+  it.each(["syllabus-export-parity.json", "syllabus-export-parity-v2.json"])("says the same thing as %s, cell for cell", (name) => {
+    const fixture = JSON.parse(readFileSync(resolve(__dirname, `../../../fixtures/${name}`), "utf8"));
     const { expected, ...syllabus } = fixture;
 
     expect(previewProjection(syllabus)).toEqual(expected);

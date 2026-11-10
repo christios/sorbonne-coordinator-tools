@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from docx import Document
 
 from sorbonne.api.syllabi import _export_filename
@@ -449,13 +451,15 @@ def _rendered_preview_sections() -> list[str]:
     return [item.strip().strip('",') for item in block.replace("\n", " ").split(",") if item.strip().strip('",')]
 
 
-def test_the_document_says_what_the_shared_fixture_expects(tmp_path) -> None:
+@pytest.mark.parametrize("name", ["syllabus-export-parity.json", "syllabus-export-parity-v2.json"])
+def test_the_document_says_what_the_shared_fixture_expects(tmp_path, name: str) -> None:
     """The document is one of two renderings held against the same expectation.
 
     The preview is the other (syllabusProjection.test.ts). Comparing both to this
-    fixture is what makes "the preview matches the template" checkable per cell.
+    fixture is what makes "the preview matches the template" checkable per cell. The
+    second fixture is a syllabus whose graded activities live in its schedule.
     """
-    fixture = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / "syllabus-export-parity.json").read_text())
+    fixture = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / name).read_text())
     expected = fixture.pop("expected")
     output = tmp_path / "syllabus.docx"
 
