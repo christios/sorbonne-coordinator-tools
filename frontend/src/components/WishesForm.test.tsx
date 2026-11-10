@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WishesForm } from "@/components/WishesForm";
@@ -240,5 +240,74 @@ describe("time away, marked week by week", () => {
     expect(dated("Monday 18 Jan", "09:00").getAttribute("aria-label")).toContain("not away");
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ away: [] }));
+  });
+});
+
+describe("the guided tour", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("is offered once in a browser, and can be taken again at any time", () => {
+    const { unmount } = render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
+    expect(screen.getByText("New to this form?")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    expect(screen.queryByText("New to this form?")).toBeNull();
+    unmount();
+
+    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
+    expect(screen.queryByText("New to this form?")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
+    expect(screen.getByRole("dialog", { name: "Guided tour: Paint the week" })).toBeTruthy();
+  });
+
+  it("moves on as each thing is tried, and clears what was tried if asked", () => {
+    // A step done shows "Nicely done" for a moment before the next: the clock is moved on here.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const settle = () =>
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+    const step = (title: string) => screen.getByRole("dialog", { name: `Guided tour: ${title}` });
+    try {
+      render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "Take the tour" }));
+      expect(step("Paint the week")).toBeTruthy();
+
+      stroke("Tuesday", "14:00", "15:00");
+      expect(within(step("Paint the week")).getByText("Nicely done")).toBeTruthy();
+      settle();
+      const block = screen.getByRole("dialog", { name: "Can't teach Tue 14:00–16:00" });
+      expect(step("How much it matters").textContent).toContain("Choose Must or Would like");
+      fireEvent.click(within(block).getByRole("radio", { name: "Must" }));
+      fireEvent.click(within(block).getByRole("button", { name: "Done" }));
+      settle();
+
+      expect(step("Away on some dates?")).toBeTruthy();
+      fireEvent.click(screen.getByRole("radio", { name: "Week by week" }));
+      settle();
+      fireEvent.click(within(step("Mark the time away")).getByRole("button", { name: "Skip" }));
+      fireEvent.click(within(step("Limits and needs")).getByRole("button", { name: "Next" }));
+
+      // Something was tried: keep it, or go back to the form as it was.
+      fireEvent.click(within(step("Save or submit")).getByRole("button", { name: "Clear what I tried" }));
+      expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
+      expect(said("Tuesday", "14:00")).toContain("fine");
+      expect(screen.getByRole("radio", { name: "Every week" }).getAttribute("aria-checked")).toBe("true");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("ends on Escape, and only the tour", () => {
+    const onCancel = vi.fn();
+    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} onCancel={onCancel} />);
+    fireEvent.click(screen.getByRole("button", { name: "Take the tour" }));
+    const escaped = vi.fn();
+    document.addEventListener("keydown", escaped);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    document.removeEventListener("keydown", escaped);
+    expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
+    expect(escaped).not.toHaveBeenCalled();
   });
 });

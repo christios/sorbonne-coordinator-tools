@@ -1,6 +1,7 @@
-import { ChevronLeft, ChevronRight, MessageSquare, Trash2, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Compass, MessageSquare, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { FormTour, TourInvite, rememberTourOffered, tourOffered, type TourStep } from "@/components/FormTour";
 import { Tip, TipDo } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
@@ -209,6 +210,9 @@ function snapshot(parts: {
   });
 }
 
+/** The guided tour's steps, in order (their words are in the form, which they act on). */
+const TOUR = ["paint", "matters", "away", "mark", "limits", "save"] as const;
+
 /** A cell of the grid: a day, and where its stretch of the day starts. */
 type Spot = { day: number; time: number; cell: HTMLElement };
 
@@ -292,6 +296,13 @@ export function WishesForm({
   const [toOpen, setToOpen] = useState<Spot | null>(null);
   const gridBox = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
+  // The guided tour: the step it is on, if it is on; offered the first time the form opens in a browser.
+  const [tourAt, setTourAt] = useState<number | null>(null);
+  const [offerTour, setOfferTour] = useState(() => !tourOffered());
+  // Where each step started from — how much was painted, how much away — to tell when its "Try it" is done.
+  const [tourBase, setTourBase] = useState({ painted: 0, away: 0, sawOpen: false });
+  const root = useRef<HTMLDivElement>(null);
+  const tourStepId = tourAt === null ? "" : TOUR[tourAt];
   /*
    * The stroke under way: its colour, the cell it last reached, and that cell on the page. A
    * press on a painted cell waits: let go where it was pressed, it opens that block; dragged
@@ -380,7 +391,21 @@ export function WishesForm({
       reason: initial?.overCapReason ?? "",
     }),
   );
-  const dirty = snapshot({ cells: asList, limits, away, needs, note, levels, comments, reason }) !== opened;
+  const current = snapshot({ cells: asList, limits, away, needs, note, levels, comments, reason });
+  const dirty = current !== opened;
+  /** The form as the tour found it, to go back to if what was tried is not wanted. */
+  const tourFrom = useRef<{
+    said: string;
+    cells: Map<string, WishKind>;
+    limits: WishLimits;
+    awayAt: Set<string>;
+    awayWhy: Record<string, string>;
+    needs: string;
+    note: string;
+    levels: Record<string, WishLevel>;
+    comments: Record<string, string>;
+    reason: string;
+  } | null>(null);
   const told = useRef(onDirtyChange);
   useEffect(() => {
     told.current = onDirtyChange;
@@ -424,6 +449,27 @@ export function WishesForm({
     setToOpen(null);
     opener.current(toOpen);
   }, [toOpen]);
+
+  // A tour step starts from the form as it is, and from the view it is about.
+  const entering = useRef<(id: string) => void>(() => {});
+  entering.current = (id: string) => {
+    setTourBase({ painted: cells.size, away: awayAt.size, sawOpen: Boolean(open) });
+    if (id === "paint" || id === "away") {
+      if (week) showWeek(null);
+      if (brush === "erase") setBrush("cant");
+    }
+    if (id === "mark") {
+      if (!week) showWeek(firstWeek());
+      setAwayBrush("away");
+    }
+  };
+  useEffect(() => {
+    if (tourStepId) entering.current(tourStepId);
+  }, [tourStepId]);
+  // The block opened while the tour is on how much it matters: closing it is what was to try.
+  useEffect(() => {
+    if (open && (tourStepId === "matters" || tourStepId === "mark")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
+  }, [open, tourStepId]);
 
   useEffect(() => {
     const stop = () => {
@@ -648,8 +694,136 @@ export function WishesForm({
     </>
   ) : null;
 
+  // ---------------------------------------------------------------- the guided tour
+  const part = (name: string) => root.current?.querySelector(`[data-tour="${name}"]`) ?? null;
+  const parts = (name: string) => [...(root.current?.querySelectorAll(`[data-tour="${name}"]`) ?? [])];
+  const tried = tourFrom.current !== null && current !== tourFrom.current.said;
+  const startTour = () => {
+    tourFrom.current = { said: current, cells, limits, awayAt, awayWhy, needs, note, levels, comments, reason };
+    rememberTourOffered();
+    setOfferTour(false);
+    setOpen(null);
+    setTourAt(0);
+  };
+  const endTour = () => {
+    tourFrom.current = null;
+    setTourAt(null);
+    showWeek(null);
+  };
+  const clearTried = () => {
+    const from = tourFrom.current;
+    if (from) {
+      setCells(from.cells);
+      setLimits(from.limits);
+      setAwayAt(from.awayAt);
+      setAwayWhy(from.awayWhy);
+      setNeeds(from.needs);
+      setNote(from.note);
+      setLevels(from.levels);
+      setComments(from.comments);
+      setReason(from.reason);
+    }
+    endTour();
+  };
+  const saveWords =
+    voice === "you"
+      ? "Save a draft to come back to it, or Submit when you're done. You can change your answer until the deadline."
+      : "Save a draft to come back to it, or Submit when it's complete. It's kept as entered by you.";
+  const painted = lines.some((line) => line.kind === "cant" || line.kind === "prefer");
+  const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
+    {
+      id: "paint",
+      title: "Paint the week",
+      body: (
+        <>
+          Pick <b>Can&rsquo;t teach</b> (red) or <b>Would rather</b> (green), then paint across the hours. Hours left white are
+          fine.
+        </>
+      ),
+      tryIt: "Drag down a few hours on any day.",
+      done: cells.size > tourBase.painted && !stroking,
+      target: () => [part("toolbar"), gridBox.current],
+    },
+    {
+      id: "matters",
+      title: "How much it matters",
+      body: (
+        <>
+          Each block is a <b>Must</b> or a <b>Would like</b>. There are only {collection.mustQuota} Musts, so keep them for what
+          really counts. A word on why helps.
+        </>
+      ),
+      tryIt: open && openLine ? "Choose Must or Would like, then press Done." : painted ? "Click a painted block." : "Paint a few hours, then click them.",
+      done: tourBase.sawOpen && !open,
+      target: () => (open ? popover.current : gridBox.current),
+    },
+    {
+      id: "away",
+      title: "Away on some dates?",
+      body: <>A conference or a few days&rsquo; leave go on the weeks they fall in, not on the usual week.</>,
+      tryIt: (
+        <>
+          Switch to <b>Week by week</b>.
+        </>
+      ),
+      done: Boolean(week),
+      target: () => part("which-week"),
+    },
+    {
+      id: "mark",
+      title: "Mark the time away",
+      body: <>Find the week with the arrows. Paint the hours away, or click a day&rsquo;s name for all of it, and say why if you like.</>,
+      tryIt: open ? "Say why, if you like, then press Done." : "Click a day's name.",
+      done: awayAt.size > tourBase.away && !stroking && !open,
+      target: () => (open ? popover.current : [part("toolbar"), gridBox.current]),
+    },
+    {
+      id: "limits",
+      title: "Limits and needs",
+      body: <>All optional: the most days on campus, hours in a day, a day off. Each one set is a preference too. Room needs and a note go just below.</>,
+      target: () => part("limits"),
+    },
+    {
+      id: "save",
+      title: "Save or submit",
+      body: tried ? (
+        <>
+          {saveWords}
+          <span className="mt-2 block">You tried a few things on the way: keep them, or clear them and go back to where you were.</span>
+        </>
+      ) : (
+        saveWords
+      ),
+      target: () => parts("save"),
+      actions: tried
+        ? [
+            { label: "Clear what I tried", onClick: clearTried },
+            { label: "Keep it", primary: true, onClick: endTour },
+          ]
+        : undefined,
+    },
+  ];
+
   return (
-    <div className="space-y-4">
+    <div ref={root} className="space-y-4">
+      {offerTour && tourAt === null ? (
+        <TourInvite
+          onStart={startTour}
+          onDismiss={() => {
+            rememberTourOffered();
+            setOfferTour(false);
+          }}
+        />
+      ) : null}
+      {tourAt !== null ? (
+        <FormTour
+          steps={tourSteps}
+          at={tourAt}
+          onStep={setTourAt}
+          // Ended early with things tried: the last step, to keep them or clear them.
+          onClose={() => (tried && tourAt !== tourSteps.length - 1 ? setTourAt(tourSteps.length - 1) : endTour())}
+        />
+      ) : null}
       {notice ? (
         <div
           role={noticeTone === "warning" ? "note" : undefined}
@@ -663,7 +837,17 @@ export function WishesForm({
       <div>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className={heading}>1 · {voice === "you" ? "Your" : "Their"} week</p>
-          <div role="radiogroup" aria-label="Which week" className="inline-flex rounded-md bg-[#f2f4f7] p-0.5 text-xs font-semibold">
+          <div className="flex items-center gap-2">
+          {offerTour ? null : (
+            <button
+              type="button"
+              onClick={startTour}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa]"
+            >
+              <Compass size={13} aria-hidden="true" /> Guided tour
+            </button>
+          )}
+          <div role="radiogroup" aria-label="Which week" data-tour="which-week" className="inline-flex rounded-md bg-[#f2f4f7] p-0.5 text-xs font-semibold">
             {[
               { value: false, label: "Every week" },
               { value: true, label: "Week by week" },
@@ -682,6 +866,7 @@ export function WishesForm({
               </button>
             ))}
           </div>
+          </div>
         </div>
         <p className={hint}>
           {week ? (
@@ -696,7 +881,7 @@ export function WishesForm({
             </>
           )}
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <div data-tour="toolbar" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           {week ? (
             <div className="flex items-center gap-1">
               <button
@@ -1195,7 +1380,7 @@ export function WishesForm({
       </div>
 
       {/* -------------------------------------------------------------- limits */}
-      <div className={section}>
+      <div data-tour="limits" className={section}>
         <p className={heading}>2 · Limits on {yours} week</p>
         <p className={hint}>Only those that matter. Each one set is a preference of its own: a Must or a Would like.</p>
         <div className="mt-2 grid gap-4">
@@ -1211,7 +1396,7 @@ export function WishesForm({
       </div>
 
       {/* -------------------------------------------------------------- needs */}
-      <div className={section}>
+      <div data-tour="needs" className={section}>
         <p className={heading}>3 · Needs</p>
         <label className="mt-2 block">
           <span className="text-xs font-semibold text-[#344054]">Room or equipment needs</span>
@@ -1236,6 +1421,7 @@ export function WishesForm({
         ) : null}
         <button
           type="button"
+          data-tour="save"
           disabled={busy}
           onClick={() => submit(false)}
           className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
@@ -1244,6 +1430,7 @@ export function WishesForm({
         </button>
         <button
           type="button"
+          data-tour="save"
           disabled={busy}
           onClick={() => submit(true)}
           className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
