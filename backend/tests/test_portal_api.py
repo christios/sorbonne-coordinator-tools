@@ -3224,7 +3224,9 @@ def test_leaving_semester_2_last_keeps_semester_1s_sections_and_the_record(
     client.delete(f"{BASE}/active-teachers/{bilal['id']}", params={"term": SPRING})
 
     with database.engine.connect() as connection:
-        named = dict(connection.execute(text("SELECT crn, teacher_id FROM group_crns WHERE crn IN ('24075', '34075')")).all())
+        named = dict(
+            connection.execute(text("SELECT crn, teacher_id FROM group_crns WHERE crn IN ('24075', '34075')")).all()
+        )
     assert named == {"24075": bilal["id"], "34075": ""}
     assert [row["id"] for row in client.get(f"{BASE}/active-teachers").json()["teachers"]] == [bilal["id"]]
 

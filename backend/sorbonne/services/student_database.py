@@ -263,7 +263,8 @@ class StudentDatabase:
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
-                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code ORDER BY t.portal_term_code), '[]')
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code
+                                                          ORDER BY t.portal_term_code), '[]')
                                  FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
                                  WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c ORDER BY c.name""")
@@ -284,7 +285,8 @@ class StudentDatabase:
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
-                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code ORDER BY t.portal_term_code), '[]')
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code
+                                                          ORDER BY t.portal_term_code), '[]')
                                  FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
                                  WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c WHERE c.id = :id"""),
@@ -1166,7 +1168,8 @@ class StudentDatabase:
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
                                 (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
-                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code ORDER BY t.portal_term_code), '[]')
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code
+                                                          ORDER BY t.portal_term_code), '[]')
                                  FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
                                  WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c ORDER BY c.name""")

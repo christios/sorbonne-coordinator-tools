@@ -450,7 +450,9 @@ def test_a_cohort_whose_only_other_semester_is_a_language_group_is_not_deleted_w
         lang = connection.execute(
             text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": fys["id"]}
         ).scalar()
-        connection.execute(text("UPDATE cohort_scopes SET term_id = :spring WHERE id = :id"), {"spring": spring, "id": lang})
+        connection.execute(
+            text("UPDATE cohort_scopes SET term_id = :spring WHERE id = :id"), {"spring": spring, "id": lang}
+        )
 
     assert database.semester_reach(l1["id"], autumn)["otherSemesters"] == [spring]
     with pytest.raises(CohortSpansSemesters):
