@@ -37,6 +37,11 @@ export type SyncTargets = {
    * without a name it read as one they had not run.
    */
   syncedBy: { email: string; name: string } | null;
+  /**
+   * Student lists not pulled for the semester chosen, because their own filter asks the
+   * portal for another term — "All Sorbonne Students - S1" while Semester 2 is chosen.
+   */
+  leftOut: { name: string; terms: string[]; semester: string }[];
 };
 
 export function useSyncTargets(): SyncTargets {
@@ -80,8 +85,9 @@ export function useSyncTargets(): SyncTargets {
     lastSyncedAt?: string;
     syncedTerms?: Record<string, string>;
   };
+  const students = ((views.data ?? []) as Held[]).map((view) => ({ view, target: studentTarget(view, chosen) }));
   const targets: SyncTarget[] = [
-    ...((views.data ?? []) as Held[]).map((view) => studentTarget(view, chosen)),
+    ...students.flatMap(({ target }) => (target ? [target] : [])),
     ...LISTS.flatMap((kind, index) =>
       ((lists[index]?.data ?? []) as Held[]).map((filter) => listTarget(kind, filter, chosen)),
     ),
@@ -132,6 +138,9 @@ export function useSyncTargets(): SyncTargets {
     // others" — there is no age to report when part of the picture has no age at all.
     syncedAt: ages.length && ages.every((at) => !Number.isNaN(at)) ? Math.min(...ages) : null,
     syncedBy: oldest?.lastSyncedBy ? { email: oldest.lastSyncedBy, name: oldest.lastSyncedByName || oldest.lastSyncedBy } : null,
+    leftOut: students
+      .filter(({ target }) => !target)
+      .map(({ view }) => ({ name: view.name, terms: termsAskedBy(view.filter), semester: chosen?.name ?? "" })),
   };
 }
 
@@ -168,7 +177,15 @@ export function listTarget(
 export function studentTarget(
   view: { id: string; name: string; filter: Record<string, string[]>; lastSyncedAt?: string },
   chosen: { code: string; name: string } | null,
-): SyncTarget {
+): SyncTarget | null {
+  /*
+   * A list whose own filter names its term is that term's enrolment, whatever is chosen:
+   * the filter wins over the term asked for. "All Sorbonne Students - S1" pulled while
+   * Semester 2 was chosen brought Semester 1's students back labelled Semester 2. It is
+   * pulled with its own semester and left out of any other's run.
+   */
+  const fixed = termsAskedBy(view.filter);
+  if (fixed.length && chosen?.code && !fixed.includes(chosen.code)) return null;
   const target: SyncTarget = {
     kind: "students",
     id: view.id,
@@ -177,6 +194,11 @@ export function studentTarget(
     lastSyncedAt: view.lastSyncedAt || undefined,
   };
   return chosen?.code ? { ...target, name: `${view.name} · ${chosen.name}`, termCode: chosen.code } : target;
+}
+
+/** The portal terms a saved filter itself asks for, if it names any. */
+export function termsAskedBy(filter: Record<string, string[]>): string[] {
+  return (filter.TERM_CODE ?? []).map((code) => code.trim()).filter(Boolean);
 }
 
 /** What the pages read from the server, so every one of them is right again. */

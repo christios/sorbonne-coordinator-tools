@@ -149,7 +149,7 @@ export function PortalSyncButton() {
   const client = useQueryClient();
   const [run, setRun] = useState<SyncRun | null>(() => getRun());
   const [open, setOpen] = useState(false);
-  const { targets, ready, syncedAt, syncedBy } = useSyncTargets();
+  const { targets, ready, syncedAt, syncedBy, leftOut } = useSyncTargets();
   const pace = useSyncPace();
   /* The checklist: open or not, and what is ticked in it — everything, each time it opens. */
   const [choosing, setChoosing] = useState(false);
@@ -428,6 +428,12 @@ export function PortalSyncButton() {
                 }),
             )}
           </ul>
+          {leftOut.map((list) => (
+            <p key={list.name} className="mt-2 text-[11px] leading-4 text-[#8a6116]">
+              <span className="font-semibold">{list.name}</span> is not pulled while {list.semester || "this semester"} is
+              chosen: its own filter asks the portal for {list.terms.join(", ")} only.
+            </p>
+          ))}
           {targets.some((target) => target.kind === "timetable") ? <PaceField /> : null}
           <div className="mt-3 flex items-center justify-end gap-2">
             <button
