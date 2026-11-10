@@ -65,6 +65,7 @@ import {
   deliveryPercentageError,
   sectionParts,
 } from "@/services/syllabusContent";
+import { alignablePlos, mappingEntryFor, unalignedPloIds } from "@/services/outcomes";
 import {
   CatalogueEntry,
   listCatalogueEntries,
@@ -853,7 +854,7 @@ function SectionForm({
         onOpenHistory={onOpenHistory}
         cataloguePlos={cataloguePlos.data ?? []}
         catalogueProgrammeId={catalogueProgrammeId}
-        requiredPlos={requiredPloIds(curriculumMap.data ?? [], draft.courseCode)}
+        mappingEntry={mappingEntryFor(curriculumMap.data ?? [], draft.courseCode)}
         scenCompetencies={scenCompetencies.data ?? []}
         graduateCompetencies={graduateCompetencies.data ?? []}
       />
@@ -1081,7 +1082,7 @@ function LearningOutcomesEditor({
   onOpenHistory,
   cataloguePlos,
   catalogueProgrammeId,
-  requiredPlos,
+  mappingEntry,
   scenCompetencies,
   graduateCompetencies,
 }: {
@@ -1092,7 +1093,8 @@ function LearningOutcomesEditor({
   onOpenHistory: (field: HistoryField) => void;
   cataloguePlos: CatalogueEntry[];
   catalogueProgrammeId: string;
-  requiredPlos: string[];
+  /** The course's line in the programme's curriculum mapping, if the mapping lists it. */
+  mappingEntry: CatalogueEntry | undefined;
   scenCompetencies: CatalogueEntry[];
   graduateCompetencies: CatalogueEntry[];
 }) {
@@ -1101,7 +1103,10 @@ function LearningOutcomesEditor({
    * syllabus stays "code: outcome" — that string is what the document says and what a
    * previous year's syllabus is compared against, and it is not a display decision.
    */
-  const cataloguePloOptions = cataloguePlos.map((plo) => {
+  // A CLO is aligned only to the PLOs the curriculum mapping expects of this course
+  // (November 2026 review); a course the mapping does not list yet keeps the programme's.
+  const ploChoices = alignablePlos(cataloguePlos, mappingEntry);
+  const cataloguePloOptions = ploChoices.map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
     return {
@@ -1125,17 +1130,15 @@ function LearningOutcomesEditor({
   });
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
   const rows = (section.clos as Row[]) ?? [];
-  // Guidance, never a gate: a professor is told what is still uncovered and decides.
-  const alignedPloIds = new Set(
-    rows.flatMap((row) => String(row.ploIds ?? "").split("\n").filter(Boolean)),
-  );
-  const uncovered = requiredPlos
-    .filter((id) => !alignedPloIds.has(id))
-    .map((id) => {
-      const plo = cataloguePlos.find((entry) => entry.id === id);
-      return plo ? stringify(plo.payload.code) || plo.label : "";
-    })
-    .filter(Boolean);
+  // Every PLO the mapping expects must be aligned to at least one CLO; submission enforces it.
+  const uncovered = mappingEntry
+    ? unalignedPloIds(ploChoices.map((plo) => plo.id), rows)
+        .map((id) => {
+          const plo = cataloguePlos.find((entry) => entry.id === id);
+          return plo ? stringify(plo.payload.code) || plo.label : "";
+        })
+        .filter(Boolean)
+    : [];
   return (
     <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
@@ -1154,13 +1157,23 @@ function LearningOutcomesEditor({
           approved programme learning outcomes come from the programme.
         </p>
       )}
+      {catalogueProgrammeId && !mappingEntry ? (
+        <p
+          role="note"
+          className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]"
+        >
+          This course is not in the programme&apos;s curriculum mapping yet, so every programme
+          learning outcome is offered. The Head of Department maps it in Manage catalogues →
+          Curriculum mapping.
+        </p>
+      ) : null}
       {uncovered.length ? (
         <p
           role="status"
           className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]"
         >
-          The curriculum map expects this course to address {uncovered.join(", ")}. No course
-          outcome aligns to {uncovered.length === 1 ? "it" : "them"} yet.
+          Every PLO the curriculum mapping expects of this course must be aligned to at least
+          one course outcome. Still to align: {uncovered.join(", ")}.
         </p>
       ) : null}
       <div className="mt-5 min-w-0">
@@ -1783,14 +1796,6 @@ function sectionFrom(value: unknown): Record<string, unknown> {
 }
 
 /** The PLOs the curriculum map expects of a course, by its code. */
-function requiredPloIds(mapping: CatalogueEntry[], courseCode: string): string[] {
-  const wanted = courseCode.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  if (!wanted) return [];
-  const entry = mapping.find((item) => item.label.replace(/[^a-z0-9]/gi, "").toUpperCase() === wanted);
-  const ids = entry?.payload.ploIds;
-  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
-}
-
 /** The levels and semesters this programme's curriculum map actually uses. */
 function curriculumSemesters(mapping: CatalogueEntry[]): string[] {
   const seen = new Set<string>();
