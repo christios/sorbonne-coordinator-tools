@@ -35,8 +35,8 @@ describe("inviting a teacher", () => {
     const email = await screen.findByRole("link", { name: "Email the invitation" });
     expect(invite).toHaveBeenCalledWith("262720", "t-joumana", "joumana.rifai@gmail.com");
     const href = decodeURIComponent(email.getAttribute("href") ?? "");
-    expect(href.startsWith("mailto:joumana.rifai@gmail.com?subject=Your timetable wishes for Semester 2 2026-27")).toBe(true);
-    expect(href).toContain(`${window.location.origin}/wishes/abc123`);
+    expect(href.startsWith("mailto:joumana.rifai@gmail.com?subject=Timetable preferences and constraints request: Semester 2 2026-27")).toBe(true);
+    expect(href).toContain(`${window.location.origin}/preferences/abc123`);
     expect(href).toContain("Dear Joumana,");
     expect(href).toContain("Christian");
   });

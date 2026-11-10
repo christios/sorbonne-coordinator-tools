@@ -34,12 +34,14 @@ KINDS = ("cant", "prefer")
 LEVELS = ("must", "would")
 LIMITS = ("maxDays", "maxHoursDay", "maxInRow", "freeDay")
 _LIMIT_RANGES = {"maxDays": (1, 6), "maxHoursDay": (1, 12), "maxInRow": (1, 12), "freeDay": (1, 7)}
-MOST_AWAY = 20
+# Marked week by week, a semester of Tuesday afternoons is fifteen of them.
+MOST_AWAY = 80
 SUNDAY, MIDNIGHT = 7, 24
 MOST_MUSTS, MOST_CANT_HOURS = 10, 60
 COMMENT_LENGTH = 300
 #: A painted cell is a quarter of an hour.
 STEP = 0.25
+HOURS_A_DAY = 24
 
 
 def _clock(hour: float) -> str:
@@ -148,7 +150,7 @@ def _collection_input(given: dict[str, Any]) -> dict[str, Any]:
         raise InvalidWishes("The grid's hours run from a first hour to a later last hour, within the day.")
     quota, cap = int(given.get("mustQuota", 3)), int(given.get("cantCap", 12))
     if not 0 <= quota <= MOST_MUSTS:
-        raise InvalidWishes("Between 0 and 10 wishes can be a Must.")
+        raise InvalidWishes("Between 0 and 10 preferences can be a Must.")
     if not 0 <= cap <= MOST_CANT_HOURS:
         raise InvalidWishes("The can't-teach cap is between 0 and 60 hours a week.")
     return {
@@ -160,6 +162,34 @@ def _collection_input(given: dict[str, Any]) -> dict[str, Any]:
         "mustQuota": quota,
         "cantCap": cap,
     }
+
+
+def _away(entry: dict[str, Any]) -> dict[str, Any]:
+    """A time away: whole days from one date to another, or part of one day, from one quarter
+    hour to another (`start` 14, `end` 18 is 14:00-18:00)."""
+    try:
+        first, last = date.fromisoformat(str(entry.get("from"))), date.fromisoformat(str(entry.get("to")))
+    except ValueError as exc:
+        raise InvalidWishes("Dates away are dates: 2027-03-15 to 2027-03-19.") from exc
+    if last < first:
+        raise InvalidWishes("A time away ends on or after the day it starts.")
+    kept: dict[str, Any] = {
+        "from": first.isoformat(),
+        "to": last.isoformat(),
+        "reason": _words(entry.get("reason"), 160),
+    }
+    start, end = entry.get("start"), entry.get("end")
+    if start is None and end is None:
+        return kept
+    try:
+        start, end = float(start), float(end)  # type: ignore[arg-type]
+    except (TypeError, ValueError) as exc:
+        raise InvalidWishes("Part of a day away has a start and an end: 14 to 18.") from exc
+    if first != last:
+        raise InvalidWishes("Part of a day away is on one day.")
+    if not (0 <= start < end <= HOURS_A_DAY) or (start / STEP) % 1 or (end / STEP) % 1:
+        raise InvalidWishes("Part of a day away starts and ends on a quarter hour, the end after the start.")
+    return {**kept, "start": start, "end": end}
 
 
 def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str, Any]:
@@ -189,15 +219,7 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
             raise InvalidWishes(f"That limit is between {low} and {high}.")
         limits[name] = number
 
-    away = []
-    for entry in (given.get("away") or [])[:MOST_AWAY]:
-        try:
-            start, end = date.fromisoformat(str(entry.get("from"))), date.fromisoformat(str(entry.get("to")))
-        except ValueError as exc:
-            raise InvalidWishes("Dates away are dates: 2027-03-15 to 2027-03-19.") from exc
-        if end < start:
-            raise InvalidWishes("A time away ends on or after the day it starts.")
-        away.append({"from": start.isoformat(), "to": end.isoformat(), "reason": _words(entry.get("reason"), 160)})
+    away = [_away(entry) for entry in (given.get("away") or [])[:MOST_AWAY]]
 
     lines = wish_lines(painted, limits)
     keys = {line["key"] for line in lines}
@@ -211,7 +233,7 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
     musts = sum(1 for level in levels.values() if level == "must")
     if musts > collection["mustQuota"]:
         quota = collection["mustQuota"]
-        raise InvalidWishes(f"At most {quota} wishes can be a Must. Choose which {quota} matter most.")
+        raise InvalidWishes(f"At most {quota} preferences can be a Must. Choose which {quota} matter most.")
     cant_hours = sum(STEP for kind in cells.values() if kind == "cant")
     reason = _words(given.get("overCapReason"), 1000)
     status = "submitted" if given.get("submit") else "draft"
@@ -245,6 +267,18 @@ def _collection(row: Any) -> dict[str, Any]:
         "cantCap": row["cant_cap"],
         "openedAt": row["opened_at"],
         "openedBy": name_for(row["opened_by"]) if row["opened_by"] else "",
+    }
+
+
+def _calendar(plan: Any) -> dict[str, Any] | None:
+    """A semester's teaching weeks as the plan keeps them: Week 1, how many, breaks and holidays."""
+    if not plan or not plan["week_one"]:
+        return None
+    return {
+        "weekOne": plan["week_one"],
+        "weeks": plan["weeks"] or 0,
+        "without": json.loads(plan["without"] or "[]"),
+        "holidays": json.loads(plan["holidays"] or "[]"),
     }
 
 
@@ -449,8 +483,14 @@ class WishStore:
                     text("SELECT teacher_id, until FROM wish_reopenings WHERE term_code = :term"), {"term": term}
                 ).mappings()
             }
+            plan = connection.execute(
+                text("SELECT week_one, weeks, without, holidays FROM plan_terms WHERE term_code = :term"),
+                {"term": term},
+            ).mappings().first()
         return {
             "collection": _collection(row) if row else None,
+            # The semester's teaching weeks, for marking time away week by week; None until it has them.
+            "calendar": _calendar(plan),
             "teachers": [
                 {
                     "teacherId": teacher["id"],

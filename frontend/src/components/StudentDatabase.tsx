@@ -64,7 +64,7 @@ const PAGES = [
   // teacher behind a different front door.
   { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
   // When each teacher can and can't teach, collected once a semester for the Semester plan.
-  { id: "teacher-wishes", name: "Timetable wishes", icon: CalendarHeart, group: "Portal validation", parent: "teachers" },
+  { id: "teacher-preferences", name: "Timetable preferences", icon: CalendarHeart, group: "Portal validation", parent: "teachers" },
   // Where a semester is made and managed; the pages under it pick one.
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The department's own timetable, drawn before the registrar books it: the source a
@@ -173,8 +173,8 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
     title: "Active teachers",
     blurb: "The department's own list: chosen from the portal, or brought from the Part-time Teacher Database.",
   },
-  "teacher-wishes": {
-    title: "Timetable wishes",
+  "teacher-preferences": {
+    title: "Timetable preferences",
     blurb: "When each teacher can and can't teach this semester, and what matters most to them. The Semester plan shades and flags them.",
   },
   semesters: {
@@ -488,7 +488,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           ) : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
-          {page === "teacher-wishes" ? <TeacherWishesPage header={pageHeader} /> : null}
+          {page === "teacher-preferences" ? <TeacherWishesPage header={pageHeader} /> : null}
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (

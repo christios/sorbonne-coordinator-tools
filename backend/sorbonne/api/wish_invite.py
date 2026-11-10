@@ -89,6 +89,7 @@ def _form(invitation: dict[str, Any], wishes: WishStore) -> dict[str, Any]:
         "teacherName": invitation["teacher_name"],
         "email": invitation["email"],
         "collection": semester["collection"],
+        "calendar": semester["calendar"],
         "wishes": mine["wishes"] if mine else None,
         "window": wishes.window(term, teacher),
         "previous": wishes.previous(term, teacher),
@@ -165,7 +166,7 @@ def answer(
     wishes: WishStore = Depends(get_wishes),
 ) -> dict[str, Any]:
     given = body.model_dump()
-    given["away"] = [{"from": entry.start, "to": entry.end, "reason": entry.reason} for entry in body.away]
+    given["away"] = [entry.given() for entry in body.away]
     try:
         wishes.save(found["term_code"], found["teacher_id"], given, actor=found["email"], source=SOURCE)
     except ClosedForAnswers as exc:

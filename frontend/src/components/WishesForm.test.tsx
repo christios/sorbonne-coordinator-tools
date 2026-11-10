@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WishesForm } from "@/components/WishesForm";
-import type { WishCollection } from "@/services/teacherWishes";
+import type { WishCalendar, WishCollection, Wishes } from "@/services/teacherWishes";
 
 const COLLECTION: WishCollection = {
   termCode: "262720",
@@ -40,7 +40,7 @@ describe("a teacher's wishes, filled in", () => {
     for (const clock of ["14:00", "15:00", "16:00", "17:00"]) expect(said("Tuesday", clock)).toContain("can't teach");
     expect(said("Tuesday", "18:00")).toContain("fine");
     const block = screen.getByRole("dialog", { name: "Can't teach Tue 14:00–18:00" });
-    expect(block.textContent).toContain("One wish: the whole block");
+    expect(block.textContent).toContain("One preference: the whole block");
   });
 
   it("opens nothing after clearing", () => {
@@ -70,7 +70,7 @@ describe("a teacher's wishes, filled in", () => {
     fireEvent.pointerOver(cell("Tuesday", "14:00"));
     const bubble = await screen.findByRole("tooltip");
     expect(bubble.textContent).toContain("Click to set Must / Would like, comment or remove");
-    expect(bubble.textContent).toContain("on Tue and Thu: one wish");
+    expect(bubble.textContent).toContain("on Tue and Thu: one preference");
     // Both days of the block are lit, not only the hour under the pointer.
     for (const day of ["Tuesday", "Thursday"]) {
       expect(cell(day, "14:00").querySelector("[data-quarter]")?.className).toContain("brightness");
@@ -165,5 +165,80 @@ describe("a teacher's wishes, filled in", () => {
     expect(onDirtyChange).toHaveBeenLastCalledWith(true);
     fireEvent.click(within(openBlock("Monday", "09:00")).getByRole("button", { name: "Remove the whole block" }));
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+});
+
+describe("time away, marked week by week", () => {
+  // Week by week opens on the first teaching week still to come: from here, Week 1.
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 10));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+  const CALENDAR: WishCalendar = { weekOne: "2027-01-11", weeks: 3, without: [], holidays: [{ date: "2027-01-13", label: "Holiday" }] };
+  /** A cell of a single week, by its day and date: "Tuesday 12 Jan 14:00". */
+  const dated = (day: string, clock: string) => screen.getByRole("button", { name: new RegExp(`^${day} ${clock}: `) });
+
+  it("paints the hours away on the week's own dates, a whole day from its name, and saves them with their hours", () => {
+    const onSave = vi.fn();
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={onSave} />);
+    fireEvent.click(screen.getByRole("radio", { name: "Week by week" }));
+    // The first teaching week still to come; its dates on the days, a holiday not to be painted.
+    expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan: time away" })).toBeTruthy();
+    expect((dated("Wednesday 13 Jan", "10:00") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.pointerDown(dated("Tuesday 12 Jan", "14:00"));
+    fireEvent.pointerOver(dated("Tuesday 12 Jan", "15:00"));
+    fireEvent.pointerUp(window);
+    expect(dated("Tuesday 12 Jan", "15:00").getAttribute("aria-label")).toContain("away");
+    // Let go, the day opens to say why.
+    const tuesday = screen.getByRole("dialog", { name: "Away Tuesday 12 Jan" });
+    expect(tuesday.textContent).toContain("14:00–16:00");
+    fireEvent.change(within(tuesday).getByRole("textbox"), { target: { value: "Doctor" } });
+    fireEvent.click(within(tuesday).getByRole("button", { name: "Done" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: mark away all day" }));
+    const thursday = screen.getByRole("dialog", { name: "Away Thursday 14 Jan" });
+    expect(thursday.textContent).toContain("All day");
+    fireEvent.change(within(thursday).getByRole("textbox"), { target: { value: "Conference" } });
+    fireEvent.click(within(thursday).getByRole("button", { name: "Done" }));
+
+    // The usual week is not touched: back on it, nothing is painted.
+    fireEvent.click(screen.getByRole("radio", { name: "Every week" }));
+    expect(said("Tuesday", "14:00")).toContain("fine");
+    expect(screen.getByLabelText("Time away").textContent).toContain("Tue 12 Jan, 14:00–16:00");
+
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cells: [],
+        away: [
+          { from: "2027-01-12", to: "2027-01-12", reason: "Doctor", start: 14, end: 16 },
+          { from: "2027-01-14", to: "2027-01-14", reason: "Conference" },
+        ],
+      }),
+    );
+  });
+
+  it("opens an answer's time away on its week, and takes it off from the list", () => {
+    const onSave = vi.fn();
+    const onDirtyChange = vi.fn();
+    const answer = {
+      status: "draft", cells: [], limits: {}, away: [{ from: "2027-01-18", to: "2027-01-22", reason: "Leave" }], needs: "", note: "",
+      levels: {}, comments: {}, lines: [], overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
+    } as Wishes;
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer} onSave={onSave} onDirtyChange={onDirtyChange} />);
+    // A week of leave reads as one stretch, and opening it changes nothing.
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    fireEvent.click(screen.getByRole("button", { name: "Mon 18 Jan–Fri 22 Jan" }));
+    expect(screen.getByRole("table", { name: "Week 2 · 18 Jan–22 Jan: time away" })).toBeTruthy();
+    expect(dated("Monday 18 Jan", "09:00").getAttribute("aria-label")).toContain("away");
+
+    fireEvent.click(screen.getByRole("button", { name: "Not away Mon 18 Jan–Fri 22 Jan" }));
+    expect(dated("Monday 18 Jan", "09:00").getAttribute("aria-label")).toContain("not away");
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ away: [] }));
   });
 });

@@ -167,13 +167,13 @@ describe("a class beside its teacher's wishes", () => {
     );
     expect(screen.getByText("1 Must · 1 Would like")).toBeTruthy();
     expect(screen.getByText("· 1 broken at this time")).toBeTruthy();
-    expect(screen.queryByRole("list", { name: "Bilal Maaz's wishes" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Bilal Maaz's preferences" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
-    const items = within(screen.getByRole("list", { name: "Bilal Maaz's wishes" }))
+    const items = within(screen.getByRole("list", { name: "Bilal Maaz's preferences" }))
       .getAllByRole("listitem")
       .map((item) => item.textContent);
     expect(items).toEqual(["MustCan't teach Tue 14:00–18:00 — this time breaks it“School run”", "Would likeMonday free"]);
-    expect(screen.getByText(/Away 1 Feb–5 Feb \(conference\)/)).toBeTruthy();
+    expect(screen.getByText(/Away Mon 1 Feb–Fri 5 Feb \(conference\)/)).toBeTruthy();
     expect(screen.getByText("Needs: A lab")).toBeTruthy();
   });
 
@@ -194,7 +194,7 @@ describe("a class beside its teacher's wishes", () => {
 
   it("says when the teacher hasn't answered", () => {
     open(bilal(null), 2);
-    expect(screen.getByText(/Bilal Maaz hasn.t given their wishes/)).toBeTruthy();
+    expect(screen.getByText(/Bilal Maaz hasn.t given their preferences/)).toBeTruthy();
   });
 });
 

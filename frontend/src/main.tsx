@@ -22,12 +22,12 @@ const indexRoute = createRoute({
   component: GatedApp,
 });
 /*
- * An invited teacher's link: their own timetable wishes, outside the staff's sign-in gate —
+ * An invited teacher's link: their own timetable preferences and constraints, outside the staff's sign-in gate —
  * it has a sign-in of its own, with the Google account the invitation was sent to.
  */
 const invitedWishesRoute = createRoute({
   getParentRoute: () => rootRoute,
-  path: "/wishes/$code",
+  path: "/preferences/$code",
   component: function InvitedWishes() {
     const { code } = invitedWishesRoute.useParams();
     return <InvitedWishesPage code={code} />;

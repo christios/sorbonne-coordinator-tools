@@ -30,16 +30,16 @@ export function invitationEmail({
 }): { subject: string; body: string } {
   const first = teacherName.split(/\s+/)[0] || teacherName;
   return {
-    subject: `Your timetable wishes for ${semesterName}`,
+    subject: `Timetable preferences and constraints request: ${semesterName}`,
     body: [
       `Dear ${first},`,
       "",
-      `Please tell us when you can and can't teach in ${semesterName}, and what matters most to you, so that we can take it into account while we build the timetable.`,
+      `Please fill in the timetable preferences and constraints request for ${semesterName}: when you can and can't teach, any time away, and what matters most to you, so that we can take it into account while we build the timetable.`,
       ...(collection.message.trim() ? ["", collection.message.trim()] : []),
       "",
       `Your link: ${link}`,
       "",
-      `Sign in with your Google account ${email}: the link opens your wishes and nothing else, and only for that account.${
+      `Sign in with your Google account ${email}: the link opens your form and nothing else, and only for that account.${
         collection.deadline ? ` Please answer by ${day(collection.deadline)}; you can change your answer until then.` : ""
       }`,
       "",
@@ -94,7 +94,7 @@ export function InviteDialog({
     <Modal
       open
       title={`Invite ${teacher.name}`}
-      description={`To give their timetable wishes for ${semesterName} themselves.`}
+      description={`To give their timetable preferences and constraints for ${semesterName} themselves.`}
       onClose={onClose}
     >
       {!made ? (
@@ -122,7 +122,7 @@ export function InviteDialog({
               className="w-full rounded-md border border-[#d0d5dd] px-3 py-2 text-sm"
             />
             <span className="text-xs text-[#667085]">
-              They sign in with this account to open their wishes, and only this one opens them.
+              They sign in with this account to open their form, and only this one opens it.
             </span>
           </label>
           {invite.isError ? (

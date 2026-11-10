@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 
 import type { Plan, PlanClass, PlanSection } from "@/services/semesterPlans";
-import { carryOver, checkWishes, lineOfCell, shadingOf, wishLines, type WishCell, type WishTeacher, type Wishes } from "@/services/teacherWishes";
+import {
+  awayEntries,
+  awaySpots,
+  awayWords,
+  carryOver,
+  checkWishes,
+  lineOfCell,
+  shadingOf,
+  teachingWeeks,
+  wishLines,
+  type WishCell,
+  type WishTeacher,
+  type Wishes,
+} from "@/services/teacherWishes";
 
 /** Every quarter of an hour from `from` to `to` on a day, painted can't-teach. */
 const cant = (day: number, from: number, to: number): WishCell[] =>
@@ -150,6 +163,17 @@ describe("a plan read against the teachers' wishes", () => {
     expect(check.breaches[0].wish).toMatch(/^Away .*\(Conference\)$/);
   });
 
+  it("flags only the classes inside part of a day away", () => {
+    const morning = at("cm", 2, "08:00", "10:00");
+    const afternoon = at("td1", 2, "15:00", "17:00");
+    const plan = { sections: SECTIONS, classes: [morning, afternoon] } as unknown as Plan;
+    const check = checkWishes(plan, [
+      answered("bilal", "Bilal Maaz", { away: [{ from: "2027-01-26", to: "2027-01-26", reason: "Doctor", start: 14, end: 16 }] }),
+    ]);
+
+    expect(check.breaches.map((breach) => [breach.wish, breach.classes])).toEqual([["Away Tue 26 Jan, 14:00–16:00 (Doctor)", [afternoon]]]);
+  });
+
   it("names the teachers with classes who have not answered", () => {
     const plan = { sections: SECTIONS, classes: [at("phys", 4, "10:00", "12:00")] } as unknown as Plan;
     expect(checkWishes(plan, [{ teacherId: "samar", name: "Samar Ghantous", email: "", wishes: null }]).unanswered).toEqual([
@@ -202,5 +226,47 @@ describe("a plan read against the teachers' wishes", () => {
         "Ramadan: at most 4h a day per teacher",
       ]),
     );
+  });
+});
+
+describe("time away, as the week shows it and as it is kept", () => {
+  const GRID = { days: [1, 2, 3, 4, 5], firstHour: 8, lastHour: 19 };
+  const roundTrip = (away: Wishes["away"]) => {
+    const { spots, reasons } = awaySpots(away, GRID);
+    return awayEntries(spots, reasons, GRID);
+  };
+
+  it("keeps whole days as one stretch across the weekend, and part of a day as its hours", () => {
+    const away = [
+      { from: "2027-01-14", to: "2027-01-19", reason: "Conference" },
+      { from: "2027-01-21", to: "2027-01-21", reason: "Doctor", start: 9, end: 10.5 },
+      { from: "2027-01-21", to: "2027-01-21", reason: "Doctor", start: 14, end: 15 },
+    ];
+    expect(roundTrip(away)).toEqual(away);
+  });
+
+  it("splits a stretch where the reason changes, and drops the days off the grid", () => {
+    const { spots, reasons } = awaySpots([{ from: "2027-01-15", to: "2027-01-18", reason: "Leave" }], GRID);
+    // Saturday and Sunday are not on the grid: Friday and Monday only.
+    expect([...new Set([...spots].map((spot) => spot.split("|")[0]))].sort()).toEqual(["2027-01-15", "2027-01-18"]);
+    expect(awayEntries(spots, { ...reasons, "2027-01-18": "Travel" }, GRID)).toEqual([
+      { from: "2027-01-15", to: "2027-01-15", reason: "Leave" },
+      { from: "2027-01-18", to: "2027-01-18", reason: "Travel" },
+    ]);
+  });
+
+  it("words it with the day of the week", () => {
+    expect(awayWords({ from: "2027-01-12", to: "2027-01-12", reason: "" })).toBe("Tue 12 Jan");
+    expect(awayWords({ from: "2027-01-12", to: "2027-01-12", reason: "", start: 14.25, end: 16 })).toBe("Tue 12 Jan, 14:15–16:00");
+    expect(awayWords({ from: "2027-01-11", to: "2027-01-15", reason: "" })).toBe("Mon 11 Jan–Fri 15 Jan");
+  });
+
+  it("numbers the teaching weeks, a break taking no number", () => {
+    expect(teachingWeeks({ weekOne: "2027-01-13", weeks: 3, without: ["2027-01-18"], holidays: [] })).toEqual([
+      { number: 1, monday: "2027-01-11" },
+      { number: 2, monday: "2027-01-25" },
+      { number: 3, monday: "2027-02-01" },
+    ]);
+    expect(teachingWeeks(null)).toEqual([]);
   });
 });

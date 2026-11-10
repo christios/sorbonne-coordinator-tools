@@ -72,7 +72,7 @@ describe("an invited teacher's link", () => {
     expect(screen.getByRole("button", { name: /^Tuesday 14:00: can't teach, a Must/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith("the-code", expect.objectContaining({ submit: true, note: "Mornings, please" })));
-    expect(await screen.findByText(/Thank you: your wishes are submitted/)).toBeTruthy();
+    expect(await screen.findByText(/Thank you: your preferences and constraints are submitted/)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Change my answer" })).toBeTruthy();
   });
 

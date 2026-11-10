@@ -44,7 +44,7 @@ beforeEach(() => {
 describe("a teacher's answer, opened from the list", () => {
   it("is read first, and changed only through Edit their answer, with a warning", async () => {
     page();
-    fireEvent.click(await screen.findByRole("button", { name: "Open Valerie Le Guyon's wishes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Valerie Le Guyon's preferences" }));
     expect(screen.getByText(/Submitted by Valerie Le Guyon/)).toBeTruthy();
     expect(screen.getByText("“School run”")).toBeTruthy();
     expect(screen.getByText("At most 3 days on campus")).toBeTruthy();
@@ -57,7 +57,7 @@ describe("a teacher's answer, opened from the list", () => {
 
   it("is answered on the teacher's behalf when they have not, and says so", async () => {
     page();
-    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" }));
     expect(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeTruthy();
     expect(screen.getByText(/on .*behalf/)).toBeTruthy();
   });
@@ -66,14 +66,14 @@ describe("a teacher's answer, opened from the list", () => {
 describe("closing the wishes window", () => {
   it("closes at once when nothing has changed, from a click beside it", async () => {
     page();
-    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" }));
     fireEvent.mouseDown(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" }).parentElement as HTMLElement);
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeNull());
   });
 
   it("asks first when something has, and keeps editing or lets it go", async () => {
     page();
-    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" }));
     fireEvent.click(screen.getByRole("button", { name: /^Monday 09:00: / }));
     fireEvent.mouseDown(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" }).parentElement as HTMLElement);
     expect(screen.getByRole("dialog", { name: "Discard your changes?" })).toBeTruthy();

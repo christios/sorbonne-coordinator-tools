@@ -7,7 +7,7 @@
  */
 
 import { apiFetch, API_BASE_URL } from "@/services/http";
-import type { AnswerWindow, WishCollection, Wishes, WishesInput } from "@/services/teacherWishes";
+import type { AnswerWindow, WishCalendar, WishCollection, Wishes, WishesInput } from "@/services/teacherWishes";
 
 const DOOR = `${API_BASE_URL}/api/v1/invite/wishes`;
 
@@ -27,9 +27,11 @@ export type InviteeForm = {
   teacherName: string;
   email: string;
   collection: WishCollection | null;
+  /** The semester's teaching weeks, to mark time away on. */
+  calendar?: WishCalendar | null;
   wishes: Wishes | null;
   window: AnswerWindow;
-  /** Their latest answer for another semester, to start this one from: without its dates away. */
+  /** Their latest answer for another semester, to start this one from: without its time away. */
   previous: { termCode: string; semesterName: string; wishes: Wishes } | null;
 };
 
@@ -79,7 +81,7 @@ export async function signOutInvitee(code: string): Promise<void> {
 }
 
 export async function fetchInviteeForm(code: string): Promise<InviteeForm> {
-  return answer(await apiFetch(at(code, "/form")), "Your wishes could not be read. Try again in a moment.");
+  return answer(await apiFetch(at(code, "/form")), "Your answer could not be read. Try again in a moment.");
 }
 
 export async function saveInviteeAnswer(code: string, input: WishesInput): Promise<InviteeForm> {

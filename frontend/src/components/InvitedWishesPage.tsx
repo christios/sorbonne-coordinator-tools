@@ -29,7 +29,7 @@ function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean
       <div className={`mx-auto ${wide ? "max-w-5xl" : "max-w-lg"}`}>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#a6292f]">Sorbonne University Abu Dhabi</p>
         <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold text-[#171717]">
-          <CalendarHeart size={20} className="text-[#1f4e79]" aria-hidden="true" /> Timetable wishes
+          <CalendarHeart size={20} className="text-[#1f4e79]" aria-hidden="true" /> Timetable preferences and constraints request
         </h1>
         <div className="mt-5 rounded-xl border border-[#d9dee7] bg-white p-5 shadow-sm sm:p-7">{children}</div>
       </div>
@@ -122,7 +122,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
         {invite.deadline ? <p className="mt-3 text-sm text-[#344054]">Please answer by <b>{day(invite.deadline)}</b>.</p> : null}
         <p className="mt-5 text-sm text-[#475467]">
           Sign in with the Google account this invitation was sent to: <b className="text-[#171717]">{invite.email}</b>. Only
-          you can open your wishes.
+          you can open your answer.
         </p>
         {config.data?.configured && config.data.clientId ? (
           <GoogleButton clientId={config.data.clientId} onCredential={(credential) => signIn.mutate(credential)} />
@@ -158,7 +158,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
           <p role="alert" className="text-sm text-[#a6292f]">{(form.error as Error).message}</p>
         ) : (
           <p className="flex items-center gap-2 text-sm text-[#667085]">
-            <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Reading your wishes…
+            <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Reading your answer…
           </p>
         )}
       </Frame>
@@ -181,7 +181,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
               ? "The deadline has passed: your answer can no longer be changed here. Write to the coordinator if something has changed."
               : answerBy
                 ? `You can change your answer until ${day(answerBy)}.`
-                : "You can change your answer at any time while wishes are collected."}
+                : "You can change your answer at any time while preferences are collected."}
           </p>
         </div>
         <button
@@ -196,7 +196,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
 
       {saved === "submitted" && !editing ? (
         <p role="status" className="mt-4 flex items-start gap-2 rounded-md bg-[#e7f4ec] px-3 py-2 text-sm text-[#2e7d55]">
-          <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> Thank you: your wishes are submitted.
+          <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> Thank you: your preferences and constraints are submitted.
         </p>
       ) : null}
       {saved === "draft" ? (
@@ -207,7 +207,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
 
       <div className="mt-5">
         {!collection ? (
-          <p className="text-sm text-[#667085]">Wishes are not being collected for this semester any more.</p>
+          <p className="text-sm text-[#667085]">Preferences are not being collected for this semester any more.</p>
         ) : open.open && (editing || !data.wishes || data.wishes.status === "draft") ? (
           <>
             {!data.wishes && data.previous && !startFrom ? (
@@ -228,6 +228,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
             <WishesForm
               key={`${data.wishes?.updatedAt ?? ""}|${startFrom ? "previous" : "fresh"}`}
               collection={collection}
+              calendar={data.calendar}
               initial={data.wishes ?? startFrom}
               voice="you"
               busy={save.isPending}

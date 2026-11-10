@@ -1041,7 +1041,7 @@ function Class({
           side="right"
           title={(() => {
             const count = session.wish.said.split("\n").length;
-            return `Breaks ${count === 1 ? "a wish" : `${count} wishes`}`;
+            return `Breaks ${count === 1 ? "a preference" : `${count} preferences`}`;
           })()}
           icon={Flag}
           iconClassName={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}

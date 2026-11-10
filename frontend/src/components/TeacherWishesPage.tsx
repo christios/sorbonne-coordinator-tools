@@ -65,7 +65,7 @@ function CollectionSettings({
   return (
     <Modal
       open={open}
-      title={`Wishes for ${semesterName}`}
+      title={`Preferences for ${semesterName}`}
       description="When teachers answer by, what they're told, and the rules of the form."
       onClose={onClose}
       footer={
@@ -248,17 +248,17 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   };
 
   const tip = (
-    <InfoTip label="How timetable wishes work" title="Timetable wishes">
+    <InfoTip label="How timetable preferences work" title="Timetable preferences">
       <TipDo>Open the collection for a semester, invite the teachers who answer themselves, and fill in for anyone who sent theirs by email.</TipDo>
       <TipPoint step={1}>
         Press <TipButton icon={Settings}>Open the collection</TipButton>: a deadline, a message, the week&rsquo;s hours.
       </TipPoint>
       <TipPoint step={2}>
         Press <TipButton look="link">Invite</TipButton> on a teacher&rsquo;s row: their link goes out in an email from your own
-        mailbox, and they sign in with that Google account to give their own wishes until the deadline.
+        mailbox, and they sign in with that Google account to give their own preferences and constraints until the deadline.
       </TipPoint>
       <TipPoint step={3}>
-        On <TipPage name="Semester plan" />, a class that breaks a wish is flagged, and its teacher&rsquo;s week is shaded while you move it.
+        On <TipPage name="Semester plan" />, a class that breaks a preference is flagged, and its teacher&rsquo;s week is shaded while you move it.
       </TipPoint>
       <TipUsage
         when={<>Bilal Maaz emails to say Tuesday afternoons are impossible.</>}
@@ -275,13 +275,13 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
       {!term ? (
         <p className="text-sm text-[#667085]">Choose a semester with a portal term.</p>
       ) : wishes.isLoading ? (
-        <ScreenLoading label="Reading the wishes…" />
+        <ScreenLoading label="Reading the preferences…" />
       ) : wishes.isError ? (
         <p role="alert" className="text-sm text-[#a6292f]">{(wishes.error as Error).message}</p>
       ) : !collection ? (
         <div className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center">
           <CalendarHeart size={22} className="mx-auto text-[#98a2b3]" aria-hidden="true" />
-          <p className="mt-2 text-sm font-semibold text-[#344054]">No wishes collected for {semesterName} yet</p>
+          <p className="mt-2 text-sm font-semibold text-[#344054]">No preferences collected for {semesterName} yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-[#667085]">
             Open the collection with a deadline, and each teacher can say when they can and can&rsquo;t teach. You can also answer for
             a teacher yourself.
@@ -395,7 +395,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                             dirty.current = false;
                             setAnswering({ row, editing: !row.wishes });
                           }}
-                          aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s wishes`}
+                          aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
                           className="font-semibold text-[#1f4e79] hover:underline"
                         >
                           {row.wishes ? "Open" : "Fill in"}
@@ -467,13 +467,14 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         <Modal
           open
           size="wide"
-          title={answering.row.wishes ? `${answering.row.name}'s wishes` : `Answer for ${answering.row.name}`}
-          description={`${semesterName}${answering.row.wishes ? ` · ${STATUS[answering.row.wishes.status].words.toLowerCase()}` : ""}`}
+          title={answering.row.wishes ? `${answering.row.name}'s preferences` : `Answer for ${answering.row.name}`}
+          description={`Timetable preferences and constraints request · ${semesterName}${answering.row.wishes ? ` · ${STATUS[answering.row.wishes.status].words.toLowerCase()}` : ""}`}
           onClose={() => askToLeave("close")}
         >
           {answering.editing ? (
             <WishesForm
               collection={collection}
+              calendar={wishes.data?.calendar}
               initial={answering.row.wishes}
               busy={save.isPending}
               error={error}
@@ -577,7 +578,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
       <ConfirmDialog
         open={Boolean(discarding)}
         title="Discard your changes?"
-        description={`What you changed in ${answering?.row.name ?? "this teacher"}'s wishes hasn't been saved.`}
+        description={`What you changed in ${answering?.row.name ?? "this teacher"}'s preferences hasn't been saved.`}
         confirmLabel="Discard"
         cancelLabel="Keep editing"
         onConfirm={() => discarding && leave(discarding)}

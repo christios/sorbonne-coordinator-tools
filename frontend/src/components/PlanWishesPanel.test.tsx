@@ -39,7 +39,7 @@ describe("the wishes the plan breaks", () => {
   it("shows a teacher's week when their line is pressed", () => {
     const onFocus = vi.fn();
     render(<PlanWishesPanel check={CHECK} collection={null} week={2} view="teachers" onFocus={onFocus} />);
-    expect(screen.getByText("0 of 1 Musts · 1 of 1 wishes")).toBeTruthy();
+    expect(screen.getByText("0 of 1 Musts · 1 of 1 preferences")).toBeTruthy();
     fireEvent.click(screen.getByText("Jad Tarsissi"));
     expect(onFocus).toHaveBeenCalledWith("t-jad");
   });
@@ -57,7 +57,7 @@ describe("the wishes the plan breaks", () => {
     };
     const check = { ...CHECK, breaches: [...CHECK.breaches, jad] } as WishCheck;
     render(<PlanWishesPanel check={check} collection={null} week={2} view="week" onFocus={() => {}} />);
-    const list = () => within(screen.getByRole("list", { name: "Broken wishes" }));
+    const list = () => within(screen.getByRole("list", { name: "Broken preferences" }));
     expect(list().getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByText("“Voice”")).toBeTruthy();
 
@@ -71,7 +71,7 @@ describe("the wishes the plan breaks", () => {
     // Chosen, it is a pill under the search, let go with its ✕.
     fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Stop filtering: With a comment" }));
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search wishes" }), { target: { value: "phys-118" } });
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search preferences" }), { target: { value: "phys-118" } });
     expect(list().getAllByRole("listitem")).toHaveLength(1);
     expect(list().getByText(/Valerie Le Guyon/)).toBeTruthy();
   });
@@ -80,6 +80,6 @@ describe("the wishes the plan breaks", () => {
     render(<PlanWishesPanel check={CHECK} collection={null} week={2} view="week" onFocus={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: /^Must/, pressed: false }));
     expect(screen.getByRole("button", { name: /^Must/, pressed: true })).toBeTruthy();
-    expect(within(screen.getByRole("list", { name: "Broken wishes" })).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(screen.getByRole("list", { name: "Broken preferences" })).getAllByRole("listitem")).toHaveLength(1);
   });
 });
