@@ -482,8 +482,11 @@ export function StudentRecord({
       </span>
     </span>
   );
+  // The semester the page that opened the record is on, when it says: a student's Semester 1
+  // findings are no answer about Semester 2.
+  const inSemester = (termId: string) => !semester || termId === semester;
   const mismatches: Mismatch[] = (check.data?.mismatches ?? []).filter(
-    (mismatch) => mismatch.studentId === row.studentId,
+    (mismatch) => mismatch.studentId === row.studentId && inSemester(mismatch.termId),
   );
   /*
    * What the rows cannot show. Every registration is a row — under its group, or outside
@@ -503,7 +506,9 @@ export function StudentRecord({
    * below draws them apart from the rest rather than calling them "no group of theirs",
    * which is true and reads as an accusation.
    */
-  const theirElectives = (check.data?.electives ?? []).filter((elective) => elective.studentId === row.studentId);
+  const theirElectives = (check.data?.electives ?? []).filter(
+    (elective) => elective.studentId === row.studentId && inSemester(elective.termId),
+  );
   const electiveOf = new Map<string, { courseCode: string; status: Elective["status"]; termCode: string }>();
   for (const elective of theirElectives) {
     for (const crn of elective.crns) {
@@ -519,7 +524,7 @@ export function StudentRecord({
    * the difference can be said out loud.
    */
   const seenByTheCheck = (check.data?.coverage ?? []).some(
-    (term) => term.judged > 0 && !term.skipped.includes(row.studentId),
+    (term) => inSemester(term.termId) && term.judged > 0 && !term.skipped.includes(row.studentId),
   );
   /*
    * A class on the calendar opens its CRN's record, where the register holds one. An

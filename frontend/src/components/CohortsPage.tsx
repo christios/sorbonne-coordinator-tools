@@ -427,29 +427,6 @@ export function CohortsPage({
     }),
   });
   /*
-   * The courses outside our groups, by student, for the Electives column.
-   *
-   * Every cohort's at once and not the chosen one's, for the same reason the warnings are:
-   * the table can be widened to every cohort, and a row from elsewhere must carry its own.
-   * A course taught in two sections is one entry, because the column names courses.
-   */
-  const electivesBy = useMemo(() => {
-    const out = new Map<string, string[]>();
-    for (const report of reportsBy.values()) {
-      // Guarded: a browser holding new code against a server mid-deploy sees no field.
-      for (const elective of report.electives ?? []) {
-        const held = out.get(elective.studentId) ?? [];
-        if (!held.includes(elective.courseCode)) held.push(elective.courseCode);
-        out.set(elective.studentId, held);
-      }
-    }
-    for (const [studentId, codes] of out) {
-      out.set(studentId, [...codes].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })));
-    }
-    return out;
-  }, [reportsBy]);
-  const electivesFor = useCallback((studentId: string) => electivesBy.get(studentId) ?? [], [electivesBy]);
-  /*
    * The semesters' names, when the Student Hub can be reached.
    *
    * Cosmetic and only cosmetic: a semester with no name falls back to its portal term
@@ -509,6 +486,30 @@ export function CohortsPage({
    * then holds that semester's cohorts, and "every cohort" means every one of them.
    */
   const { setTermId, semesters, semester, semesterCohorts, semesterCohortsOf, links } = useSemesterInView(cohorts);
+  /*
+   * The courses outside our groups, by student, for the Electives column.
+   *
+   * Every cohort's at once and not the chosen one's, for the same reason the warnings are:
+   * the table can be widened to every cohort, and a row from elsewhere must carry its own.
+   * A course taught in two sections is one entry, because the column names courses.
+   */
+  const electivesBy = useMemo(() => {
+    const out = new Map<string, string[]>();
+    for (const report of reportsBy.values()) {
+      // Guarded: a browser holding new code against a server mid-deploy sees no field.
+      // The semester on screen's only: Semester 1's electives are no answer on Semester 2.
+      for (const elective of (report.electives ?? []).filter((held) => !semester || held.termId === semester.id)) {
+        const held = out.get(elective.studentId) ?? [];
+        if (!held.includes(elective.courseCode)) held.push(elective.courseCode);
+        out.set(elective.studentId, held);
+      }
+    }
+    for (const [studentId, codes] of out) {
+      out.set(studentId, [...codes].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })));
+    }
+    return out;
+  }, [reportsBy, semester]);
+  const electivesFor = useCallback((studentId: string) => electivesBy.get(studentId) ?? [], [electivesBy]);
   const shownOf = useSemesterShown();
 
   // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
@@ -1008,6 +1009,7 @@ export function CohortsPage({
           tools={({ selected }) => (
             <RegistrationChangesButton
               selected={selected}
+              semesterId={semester?.id ?? ""}
               // "All cohorts" is the semester's, as on the table: a student rolled over is
               // in an S1 cohort and an S2 one, and the worklist is about one semester.
               cohorts={semesterCohorts}
