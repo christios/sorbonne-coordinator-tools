@@ -112,6 +112,16 @@ function BrushLook({ value }: { value: Brush }) {
   );
 }
 
+/** The Every week | Week by week switch as it looks, inside a sentence. */
+function WeekSwitchLook() {
+  return (
+    <span className="mx-0.5 inline-flex items-center whitespace-nowrap rounded-md bg-[#f2f4f7] p-0.5 align-middle text-[11px] font-semibold">
+      <span className="rounded bg-white px-1.5 py-px text-[#1f4e79] shadow-sm">Every week</span>
+      <span className="px-1.5 py-px text-[#667085]">Week by week</span>
+    </span>
+  );
+}
+
 /** How a part of the form is used, in three short steps side by side: an icon, what to do, a hint. */
 function HowTo({ steps, children }: { steps: { icon: LucideIcon; title: ReactNode; hint: ReactNode }[]; children?: ReactNode }) {
   return (
@@ -981,6 +991,9 @@ export function WishesForm({
       body: (
         <>
           Every time away shows in this list, with its reason. Click one to go back to its week; <b>×</b> takes it off.
+          <span className="mt-1.5 block">
+            You can switch between <WeekSwitchLook /> at any time.
+          </span>
         </>
       ),
       // The light grows from the calendar to take in the list under it.

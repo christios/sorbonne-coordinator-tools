@@ -343,6 +343,7 @@ describe("the guided tour", () => {
     fireEvent.click(within(screen.getByRole("dialog", { name: /^Away / })).getByRole("button", { name: "Done" }));
     // Done: the light takes in the list of time away, the day marked in it.
     expect(step("Your time away").textContent).toContain("Every time away shows in this list");
+    expect(step("Your time away").textContent).toContain("You can switch between Every weekWeek by week at any time.");
     expect(screen.getByLabelText("Time away").textContent).toMatch(/[A-Z][a-z]{2} \d+ [A-Z][a-z]{2}/);
     fireEvent.click(within(step("Your time away")).getByRole("button", { name: "Next" }));
     fireEvent.click(within(step("Limits and needs")).getByRole("button", { name: "Next" }));
