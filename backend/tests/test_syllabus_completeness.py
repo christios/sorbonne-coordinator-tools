@@ -55,8 +55,10 @@ def test_a_new_syllabus_lists_what_it_still_needs_section_by_section_in_screen_o
 
     sections = [item["section"] for item in missing]
     assert sections == sorted(sections, key=[
-        "identification", "contacts", "description", "learningOutcomes", "schedule", "teachingApproach", "assessment",
+        "identification", "contacts", "description", "learningOutcomes", "schedule", "assessment",
     ].index)
+    # Section 8 follows from the course schedule since 10 Nov 2026: nothing to fill in for it.
+    assert "teachingApproach" not in sections
     assert "Give the course code." in messages(missing)
     assert "Choose the programme." in messages(missing)
     assert "Choose the academic coordinator." in messages(missing)

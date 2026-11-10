@@ -168,7 +168,8 @@ def test_leaves_plos_alone_when_the_syllabus_has_no_programme() -> None:
 
 
 def test_labels_each_teaching_approach_by_the_kind_of_session() -> None:
-    """Section 8 must say which session each paragraph describes."""
+    """Section 8 must say which session each paragraph describes. A syllabus whose schedule
+    is still empty keeps the presets it ticked before November 2026."""
     store = make_store()
     lecture = store.create("teaching-presets", label=f"Lecture {uuid4()}", payload={"methods": "Instructor-led."})
     tutorial = store.create("teaching-presets", label=f"Tutorial {uuid4()}", payload={"methods": "Small group."})
@@ -180,6 +181,39 @@ def test_labels_each_teaching_approach_by_the_kind_of_session() -> None:
         f"{lecture['label']}: Instructor-led.\n\n{tutorial['label']}: Small group."
     )
     assert "methods" not in content["teachingApproach"]
+
+
+def test_section_8_follows_from_the_kinds_of_session_in_the_course_schedule() -> None:
+    """Christian, 10 Nov 2026: no teaching-approach section; the schedule says it."""
+    store = make_store()
+    tag = uuid4().hex[:6]
+    lecture = store.create(
+        "teaching-presets", label=f"Lectures / Cours magistraux {tag}", payload={"methods": "Instructor-led."}
+    )
+    store.create("teaching-presets", label=f"Problem-solving / TD {tag}", payload={"methods": "Exercises."})
+    laboratory = store.create("teaching-presets", label=f"Laboratory / TP {tag}", payload={"methods": "Experiments."})
+    project = store.create("teaching-presets", label=f"Project {tag}", payload={"methods": "Team work."})
+    seminar = store.create(
+        "teaching-presets", label=f"Discussion {tag}", payload={"methods": "Debate.", "sessionTypes": ["Seminar"]}
+    )
+    content = {
+        "schemaVersion": 2,
+        # A tick left over from before is ignored once the schedule says something.
+        "teachingApproach": {"teachingPresetIds": [seminar["id"]]},
+        "schedule": [
+            {"id": "s1", "topic": "Rays"},  # no type: a lecture
+            {"id": "s2", "sessionType": "TP", "topic": "Lenses"},
+            {"id": "g1", "kind": "graded", "type": "Project", "week": "5"},
+        ],
+    }
+
+    methods = store.resolve_teaching_approach(content)["teachingApproach"]["methods"]
+
+    assert f"{lecture['label']}: Instructor-led." in methods
+    assert f"{laboratory['label']}: Experiments." in methods
+    assert f"{project['label']}: Team work." in methods
+    assert "Exercises." not in methods
+    assert "Debate." not in methods
 
 
 def test_attaches_the_approved_rubric_for_each_assessment_type_used() -> None:

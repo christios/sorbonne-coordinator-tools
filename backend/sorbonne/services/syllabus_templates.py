@@ -66,8 +66,9 @@ _TEMPLATES = {
             TemplateSection("learningOutcomes", "4. Learning outcomes"),
             TemplateSection("schedule", "5. Course schedule"),
             TemplateSection("bibliography", "6. Bibliography"),
-            TemplateSection("teachingApproach", "7. Teaching approach"),
-            TemplateSection("assessment", "8. Course assessment"),
+            # No teaching-approach section since 10 Nov 2026: the document's section 8 is the
+            # department's text for each kind of session the course schedule uses.
+            TemplateSection("assessment", "7. Course assessment"),
         ),
         # Removed from the syllabus by the November 2026 review.
         removed_headings=("DOCUMENT CONTROL",),

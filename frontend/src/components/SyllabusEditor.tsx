@@ -1,19 +1,15 @@
 import {
-  ArrowDownUp,
   CheckCircle2,
-  ChevronDown,
   Download,
   FileText,
   GitCompareArrows,
   Loader2,
-  Trash2,
   TriangleAlert,
   X,
   } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { createPortal } from "react-dom";
 import {
-  Fragment,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -46,10 +42,9 @@ import {
 import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
-import { AddEntryButton } from "@/components/AddEntryButton";
 import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
 import { listAcademicYears, listCoursesByCode } from "@/services/courses";
-import { PloAlignmentField } from "@/components/PloAlignmentField";
+import { OutcomeAlignmentMatrix, type MatrixPlo } from "@/components/OutcomeAlignmentMatrix";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
@@ -78,6 +73,7 @@ import {
 import { courseAiFallback } from "@/services/aiPolicy";
 import { alignablePlos, catalogueCloRows, mappingEntryFor, unalignedPloIds, type CatalogueCloRow } from "@/services/outcomes";
 import { useOutcomeMode } from "@/services/syllabusOutcomeMode";
+import { presetsForSchedule } from "@/services/teachingApproach";
 import {
   CatalogueEntry,
   listCatalogueEntries,
@@ -330,7 +326,7 @@ export function SyllabusEditor({
                 aria-label={`Download the template: ${template.name}`}
                 className="inline-flex items-center gap-1 font-medium text-[#1f4e79] hover:underline"
               >
-                <FileText size={15} aria-hidden="true" /> Word template
+                <FileText size={15} aria-hidden="true" /> <span className="lg:max-xl:sr-only">Word template</span>
               </a>
             </>
           }
@@ -340,8 +336,7 @@ export function SyllabusEditor({
           sectionCounts={sectionCounts}
           onHeaderCollapseChange={onHeaderCollapseChange}
           compactHeaderActions={compactHeaderActions}
-          actions={null}
-          toolbar={
+          actions={
             <>
               <SaveStatus
                 state={saveState}
@@ -424,6 +419,22 @@ export function SyllabusEditor({
         </ExportPreviewDialog>
       ) : null}
     </FieldInfoProvider>
+  );
+}
+
+/**
+ * Which of the department's texts this schedule brings into section 8 of the document, the
+ * teaching and learning approach. Nothing to tick since 10 Nov 2026: the kinds of session in
+ * the schedule decide it.
+ */
+function TeachingApproachNote({ presets }: { presets: CatalogueEntry[] }) {
+  return (
+    <div role="note" className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
+      <span className="font-medium text-[#344054]">Teaching and learning approach (section 8 of the document):</span>{" "}
+      {presets.length
+        ? <>the department&apos;s text for {presets.map((preset) => preset.label).join(", ")}, from the kinds of session in this schedule.</>
+        : "the department's texts for the kinds of session in this schedule, once it has sessions."}
+    </div>
   );
 }
 
@@ -988,8 +999,6 @@ function SectionForm({
       <LearningOutcomesEditor
         section={section}
         onChange={(next) => editContent(active, next)}
-        syllabusId={draft.id}
-        revision={draft.revision}
         onOpenHistory={onOpenHistory}
         cataloguePlos={cataloguePlos.data ?? []}
         catalogueProgrammeId={catalogueProgrammeId}
@@ -1019,6 +1028,7 @@ function SectionForm({
           assessmentTypes={assessmentTypes.data ?? []}
           aiPolicies={aiPolicies.data ?? []}
         />
+        <TeachingApproachNote presets={presetsForSchedule(teachingPresets.data ?? [], sessions)} />
       </Section>
     );
   }
@@ -1033,14 +1043,6 @@ function SectionForm({
           onOpenHistory={onOpenHistory}
         />
       </Section>
-    );
-  if (active === "teachingApproach")
-    return (
-      <TeachingApproachSection
-        value={section}
-        presets={teachingPresets.data ?? []}
-        onChange={(next) => editContent(active, next)}
-      />
     );
   if (active === "assessment")
     return (
@@ -1082,85 +1084,6 @@ function Section({
 }) {
   return <SyllabusSubsection title={title}>{children}</SyllabusSubsection>;
 }
-
-function TeachingApproachSection({
-  value,
-  presets,
-  onChange,
-}: {
-  value: Record<string, unknown>;
-  presets: CatalogueEntry[];
-  onChange: (value: Record<string, unknown>) => void;
-}) {
-  const selected = Array.isArray(value.teachingPresetIds)
-    ? value.teachingPresetIds.filter((item): item is string => typeof item === "string")
-    : [];
-  const chosen = presets.filter((preset) => selected.includes(preset.id));
-  const toggle = (id: string) => {
-    const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
-    // Keep the catalogue's own order, so the syllabus reads lectures before tutorials.
-    onChange({ ...value, teachingPresetIds: presets.filter((preset) => next.includes(preset.id)).map((preset) => preset.id) });
-  };
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-      <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
-          <span>
-            Teaching and learning approach
-            <span aria-hidden="true" className="ml-1 text-[#a6292f]">*</span>
-          </span>
-          <InfoTip label="How the teaching approach is chosen">
-            Choose the kinds of session this course uses. Each one brings its own methods, engagement and feedback,
-            written by the department.
-          </InfoTip>
-        </h3>
-        {/* Four short choices: across the card, not stacked down a tenth of it. */}
-        <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
-          {presets.length ? (
-            presets.map((preset) => (
-              <label key={preset.id} className="flex items-start gap-2 text-sm text-[#344054]">
-                <input type="checkbox" className="mt-0.5" checked={selected.includes(preset.id)} onChange={() => toggle(preset.id)} />
-                <span>{preset.label}</span>
-              </label>
-            ))
-          ) : (
-            <p className="text-sm text-[#667085]">No approved teaching approaches yet.</p>
-          )}
-        </div>
-      </section>
-      {chosen.length ? (
-        chosen.map((preset) => (
-          <section key={preset.id} className="rounded-lg border border-[#d9dee7] bg-white p-5">
-            <h4 className="text-base font-semibold text-[#171717]">{preset.label}</h4>
-            <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3">
-              {TEACHING_SUBSECTIONS.map(([key, heading]) => (
-                <div key={key} className="rounded-md border border-[#e5e7eb] bg-[#f8fafc] p-3">
-                  <p className="text-sm font-semibold text-[#344054]">{heading}</p>
-                  <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#475467]">
-                    {stringify(preset.payload[key]) || "The department has not written this section yet."}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))
-      ) : (
-        <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-          <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-            Select the kinds of session above to see what the syllabus will say.
-          </p>
-        </section>
-      )}
-    </div>
-  );
-}
-
-/** Section 8's three subsections, in the order the approved template numbers them. */
-const TEACHING_SUBSECTIONS = [
-  ["methods", "8.1 Teaching methods and learning activities"],
-  ["engagement", "8.2 Student engagement"],
-  ["feedback", "8.3 Feedback and academic progress"],
-] as const;
 
 function FysFacultyDirectoryPicker({
   value,
@@ -1228,8 +1151,6 @@ function FysFacultyDirectoryPicker({
 function LearningOutcomesEditor({
   section,
   onChange,
-  syllabusId,
-  revision,
   onOpenHistory,
   cataloguePlos,
   catalogueProgrammeId,
@@ -1240,8 +1161,6 @@ function LearningOutcomesEditor({
 }: {
   section: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
-  syllabusId: string;
-  revision: number;
   onOpenHistory: (field: HistoryField) => void;
   cataloguePlos: CatalogueEntry[];
   catalogueProgrammeId: string;
@@ -1252,7 +1171,7 @@ function LearningOutcomesEditor({
   /** Set in Head-of-Department mode: the course's outcomes from the curriculum mapping, read-only. */
   headOfDepartmentClos?: CatalogueCloRow[];
 }) {
-  if (headOfDepartmentClos) return <HeadOfDepartmentOutcomes clos={headOfDepartmentClos} graduateCompetencies={graduateCompetencies} scenCompetencies={scenCompetencies} />;
+  if (headOfDepartmentClos) return <HeadOfDepartmentOutcomes clos={headOfDepartmentClos} graduateCompetencies={graduateCompetencies} scenCompetencies={scenCompetencies} plos={alignablePlos(cataloguePlos, mappingEntry)} />;
   /*
    * The code is shown as a pill and the outcome read beside it, but the value stored on the
    * syllabus stays "code: outcome" — that string is what the document says and what a
@@ -1261,16 +1180,10 @@ function LearningOutcomesEditor({
   // A CLO is aligned only to the PLOs the curriculum mapping expects of this course
   // (November 2026 review); a course the mapping does not list yet keeps the programme's.
   const ploChoices = alignablePlos(cataloguePlos, mappingEntry);
-  const cataloguePloOptions = ploChoices.map((plo) => {
+  const matrixPlos: MatrixPlo[] = ploChoices.map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
-    return {
-      value: outcome ? `${code}: ${outcome}` : code,
-      label: outcome || code,
-      badge: code,
-      badgePlacement: "leading" as const,
-      catalogueId: plo.id,
-    };
+    return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
   });
   const competencyOptions = scenCompetencies.map((entry) => {
     const code = stringify(entry.payload.code) || entry.label;
@@ -1332,39 +1245,13 @@ function LearningOutcomesEditor({
         </p>
       ) : null}
       <div className="mt-5 min-w-0">
-        <RowsEditor
-          title="Course learning outcomes and alignment"
-          columns={[
-            ["clo", "Course learning outcome"],
-            ["plo", "Aligned PLOs"],
-            ["skills", "SCEN graduate competencies"],
-          ]}
+        <OutcomeAlignmentMatrix
           rows={rows}
+          plos={matrixPlos}
+          competencyOptions={competencyOptions}
+          graduateText={(skills) => suadCompetencyText(skills, scenCompetencies, graduateById)}
           onChange={(clos) => onChange({ ...section, clos })}
-          rowLabel="CLO"
-          // The PLOs only when the programme has any to align to (the Foundation Year's has none).
-          requiredColumns={cataloguePloOptions.length ? ["clo", "plo", "skills"] : ["clo", "skills"]}
-          selectOptions={{ plo: cataloguePloOptions, skills: competencyOptions }}
-          derivedColumns={{
-            skills: {
-              label: "SUAD graduate competencies",
-              derive: (value) => suadCompetencyText(value, scenCompetencies, graduateById),
-            },
-          }}
-          onPloChange={(row, labels, key) => {
-            const options = key === "plo" ? cataloguePloOptions : competencyOptions;
-            const ids = labels
-              .split("\n")
-              .map((label) => options.find((option) => option.value === label)?.catalogueId)
-              .filter(Boolean)
-              .join("\n");
-            return { ...row, [key]: labels, [key === "plo" ? "ploIds" : "skillIds"]: ids };
-          }}
-          addLabel="Add outcome"
-          historyPath="learningOutcomes.clos"
-          syllabusId={syllabusId}
-          revision={revision}
-          onOpenHistory={onOpenHistory}
+          history={{ onOpenHistory }}
         />
       </div>
     </section>
@@ -1424,8 +1311,13 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
  * and every syllabus of the course shows them as they are. The teacher's own outcomes stay
  * stored, and come back if the department hands the outcomes to teachers again.
  */
-function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[] }) {
+function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies, plos }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[]; /** Given, the outcomes show as the read-only alignment matrix. */ plos?: CatalogueEntry[] }) {
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
+  const matrixPlos: MatrixPlo[] = (plos ?? []).map((plo) => {
+    const code = stringify(plo.payload.code) || plo.label;
+    const outcome = stringify(plo.payload.outcome);
+    return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
+  });
   return (
     <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
@@ -1438,7 +1330,11 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
       <p role="note" className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
         Set by the Head of Department in the catalogue. They appear here, in the preview and in the document as written there.
       </p>
-      {clos.length ? (
+      {clos.length && plos ? (
+        <div className="mt-5 min-w-0">
+          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencyOptions={[]} graduateText={(skills) => suadCompetencyText(skills, scenCompetencies, graduateById)} />
+        </div>
+      ) : clos.length ? (
         <ol className="mt-5 grid gap-3">
           {clos.map((clo, index) => (
             <li key={clo.id} className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4 text-sm">
@@ -1601,377 +1497,6 @@ function LockedSection({ title, text }: { title: string; text: string }) {
       </div>
     </SyllabusSubsection>
   );
-}
-function RowsEditor({
-  title,
-  columns,
-  rows,
-  onChange,
-  selectOptions,
-  addLabel = "Add row",
-  historyPath,
-  syllabusId,
-  revision,
-  onOpenHistory,
-  onPloChange,
-  rowLabel,
-  derivedColumns,
-  requiredColumns = [],
-}: {
-  title: string;
-  columns: string[][];
-  rows: Row[];
-  onChange: (rows: Row[]) => void;
-  selectOptions?: Record<string, Array<{ value: string; label: string }>>;
-  addLabel?: string;
-  historyPath: string;
-  syllabusId: string;
-  revision: number;
-  onOpenHistory: (field: HistoryField) => void;
-  onPloChange?: (row: Row, labels: string, key: string) => Row;
-  /** Columns the syllabus cannot go for review without; their labels carry the red asterisk. */
-  requiredColumns?: string[];
-  /** Numbers each entry, so a CLO reads "CLO 1" wherever it is referenced. */
-  rowLabel?: string;
-  /** Read-only columns whose value follows from another the professor chose. */
-  derivedColumns?: Record<string, { label: string; derive: (value: string) => string }>;
-}) {
-  const normalized = Array.isArray(rows) ? rows : [];
-  const [movingRowId, setMovingRowId] = useState<string | null>(null);
-  const [moveQuery, setMoveQuery] = useState("");
-  const [expandedRowIds, setExpandedRowIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (!movingRowId) return;
-    const closeWhenClickingAway = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest("[data-move-menu]")
-      ) {
-        setMovingRowId(null);
-        setMoveQuery("");
-      }
-    };
-    document.addEventListener("pointerdown", closeWhenClickingAway);
-    return () =>
-      document.removeEventListener("pointerdown", closeWhenClickingAway);
-  }, [movingRowId]);
-  const moveRowBefore = (sourceId: string, destinationId?: string) => {
-    const source = normalized.find((row) => row.id === sourceId);
-    if (!source) return;
-    const withoutSource = normalized.filter((row) => row.id !== sourceId);
-    const destinationIndex = destinationId
-      ? withoutSource.findIndex((row) => row.id === destinationId)
-      : withoutSource.length;
-    onChange([
-      ...withoutSource.slice(0, destinationIndex),
-      source,
-      ...withoutSource.slice(destinationIndex),
-    ]);
-    setMovingRowId(null);
-    setMoveQuery("");
-  };
-  const addRow = () => {
-    const id = crypto.randomUUID();
-    onChange([...normalized, { id }]);
-    setExpandedRowIds((current) => [...current, id]);
-    window.requestAnimationFrame(() =>
-      document
-        .getElementById(`row-${id}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-    );
-  };
-  const outcomeRows = columns.some(([key]) => key === "clo");
-  return (
-    <section className="mt-2">
-      <h4 className="mb-3 text-sm font-semibold text-[#344054]">{title}</h4>
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-        {normalized.map((row, index) => {
-          const destinations = normalized.filter(
-            (item) =>
-              item.id !== row.id &&
-              rowIdentity(item, columns)
-                .toLowerCase()
-                .includes(moveQuery.toLowerCase()),
-          );
-          const isExpanded = !outcomeRows || expandedRowIds.includes(row.id);
-          const updateRow = (key: string, value: string) =>
-            onChange(
-              normalized.map((item, itemIndex) =>
-                itemIndex === index
-                  ? (key === "plo" || key === "skills") && onPloChange
-                    ? onPloChange(item, value, key)
-                    : { ...item, [key]: value }
-                  : item,
-              ),
-            );
-          return (
-            <fieldset
-              id={`row-${row.id}`}
-              key={row.id}
-              className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4"
-            >
-              <div className="relative flex items-start justify-between gap-3">
-                {outcomeRows ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedRowIds((current) =>
-                        current.includes(row.id)
-                          ? current.filter((id) => id !== row.id)
-                          : [...current, row.id],
-                      )
-                    }
-                    className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                  >
-                    <ChevronDown
-                      size={17}
-                      className={`mt-0.5 shrink-0 text-[#667085] transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-[#344054]">
-                        CLO {index + 1}
-                      </span>
-                      {/* Open, the outcome is in the box right below: the header names it only. */}
-                      {isExpanded ? null : (
-                        <span className="mt-0.5 block text-sm text-[#475467]">
-                          {outcomeSummary(row.clo, index) || "Untitled outcome"}
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                ) : (
-                  <p className="min-w-0 flex-1 break-words text-sm font-semibold text-[#344054]">
-                    {rowIdentity(row, columns)}
-                  </p>
-                )}
-                <div
-                  data-move-menu
-                  className="flex shrink-0 items-center gap-1"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMovingRowId(row.id);
-                      setMoveQuery("");
-                    }}
-                    className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]"
-                    aria-label={`Move ${rowIdentity(row, columns)}`}
-                    title="Move row"
-                  >
-                    <ArrowDownUp size={17} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange(
-                        normalized.filter(
-                          (_, itemIndex) => itemIndex !== index,
-                        ),
-                      )
-                    }
-                    className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]"
-                    aria-label={`Remove ${rowIdentity(row, columns)}`}
-                    title="Remove row"
-                  >
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-                {movingRowId === row.id ? (
-                  <div
-                    data-move-menu
-                    className="absolute right-0 top-full z-[90] isolate mt-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg"
-                  >
-                    <p className="text-sm font-semibold text-[#344054]">
-                      Place this row before
-                    </p>
-                    <input
-                      type="search"
-                      value={moveQuery}
-                      onChange={(event) => setMoveQuery(event.target.value)}
-                      placeholder="Search destination rows"
-                      className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"
-                      autoFocus
-                    />
-                    <div className="mt-2 max-h-56 overflow-y-auto">
-                      {destinations.map((destination, destinationIndex) => (
-                        <button
-                          type="button"
-                          key={destination.id}
-                          onClick={() => moveRowBefore(row.id, destination.id)}
-                          className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]"
-                        >
-                          <span className="text-[#667085]">
-                            {destinationIndex + 1}.{" "}
-                          </span>
-                          {rowIdentity(destination, columns)}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => moveRowBefore(row.id)}
-                      className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-                    >
-                      Move to end
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              {isExpanded ? (
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  {columns.map(([key, label]) => {
-                    const field = {
-                      path: `${historyPath}[${row.id}].${key}`,
-                      label: `${title} · ${label}`,
-                    };
-                    const value = row[key] ?? "";
-                    const multiline = shouldUseMultiline(key);
-                    const useDatePicker = shouldUseDatePicker(key, value);
-                    const options = selectOptions?.[key];
-                    const availableOptions =
-                      options &&
-                      value &&
-                      !options.some((option) => option.value === value)
-                        ? [{ value, label: value }, ...options]
-                        : options;
-                    const historyControl = (
-                      <FieldHistoryControl
-                        syllabusId={syllabusId}
-                        revision={revision}
-                        field={field}
-                        onOpenSidebar={onOpenHistory}
-                        placement={multiline ? "top" : "center"}
-                      />
-                    );
-                    if (useDatePicker) {
-                      return (
-                        <div
-                          key={key}
-                          className={multiline ? "lg:col-span-2" : ""}
-                        >
-                          <DateField
-                            label={label}
-                            value={dateInputValue(value)}
-                            onChange={(next) => updateRow(key, next)}
-                            trailing={historyControl}
-                          />
-                        </div>
-                      );
-                    }
-                    if ((key === "plo" || key === "skills") && options) {
-                      const derived = derivedColumns?.[key];
-                      return (
-                        <Fragment key={key}>
-                        <PloAlignmentField
-                          label={label}
-                          required={requiredColumns.includes(key)}
-                          pickerLabel={`Add ${label.toLowerCase()} to ${rowLabel ?? "entry"} ${index + 1}`}
-                          emptyText={key === "plo" ? "No PLOs aligned yet." : "No graduate competencies selected yet."}
-                          addText={key === "plo" ? "Add aligned PLO" : "Add graduate competency"}
-                          value={value}
-                          onChange={(next) => updateRow(key, next)}
-                          options={options}
-                          history={
-                            <FieldHistoryControl
-                              syllabusId={syllabusId}
-                              revision={revision}
-                              field={field}
-                              onOpenSidebar={onOpenHistory}
-                              placement="label"
-                            />
-                          }
-                        />
-                        {derived ? (
-                          <div>
-                            <p className="text-sm font-medium text-[#344054]">{derived.label}</p>
-                            <p className="mt-1 whitespace-pre-line rounded-md border border-dashed border-[#d0d5dd] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
-                              {derived.derive(value) || "Follows from the competencies chosen beside this."}
-                            </p>
-                          </div>
-                        ) : null}
-                        </Fragment>
-                      );
-                    }
-                    return availableOptions ? (
-                      <label
-                        key={key}
-                        className={`grid gap-1 text-sm font-medium text-[#344054] ${multiline ? "lg:col-span-2" : ""}`}
-                      >
-                        {label}
-                        <SelectMenu
-                          label={label}
-                          value={value}
-                          onChange={(next) => updateRow(key, next)}
-                          placeholder="Select a programme learning outcome"
-                          options={availableOptions}
-                          trailing={historyControl}
-                        />
-                      </label>
-                    ) : (
-                      <HistoryTextField
-                        key={key}
-                        label={label}
-                        required={requiredColumns.includes(key)}
-                        value={value}
-                        onChange={(next) => updateRow(key, next)}
-                        multiline={multiline}
-                        minRows={3}
-                        // A sentence too long for its box takes another line rather than
-                        // scrolling its end out of sight.
-                        grow={!multiline}
-                        history={{ field, onOpenHistory }}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
-            </fieldset>
-          );
-        })}
-      </div>
-      {normalized.length === 0 ? (
-        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-          No rows added yet.
-        </p>
-      ) : null}
-      <AddEntryButton onClick={addRow} label={addLabel} />
-    </section>
-  );
-}
-
-/**
- * Which of a row's columns are genuinely written at length.
- *
- * Not a course outcome, which is a sentence: it used to flip to a three-row box the moment
- * it passed ninety characters, and a box that size invites a paragraph where the template
- * wants a sentence. It gets a line that grows to fit instead.
- */
-function shouldUseMultiline(key: string) {
-  return ["activities", "preClass", "assessments", "criteria", "meets", "exceeds"].includes(key);
-}
-function rowIdentity(row: Row, columns: string[][]) {
-  const preferredKeys = [
-    "session",
-    "topic",
-    "clo",
-    "type",
-    "assignment",
-    "date",
-  ];
-  return (
-    preferredKeys.map((key) => row[key]).find((item) => item?.trim()) ??
-    columns.map(([key]) => row[key]).find((item) => item?.trim()) ??
-    "Untitled row"
-  );
-}
-function outcomeSummary(value: string | undefined, index: number) {
-  return (value ?? "").replace(
-    new RegExp(`^CLO\\s*${index + 1}\\s*[:.]?\\s*`, "i"),
-    "",
-  );
-}
-function shouldUseDatePicker(key: string, value: string) {
-  return key === "date" && (value === "" || dateInputValue(value) !== "");
 }
 function fieldPath(active: string, label: string) {
   const fieldNames: Record<string, Record<string, string>> = {

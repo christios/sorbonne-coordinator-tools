@@ -1,4 +1,4 @@
-from sorbonne.services.syllabus_content import contact_hours, graded_activities, schema_version
+from sorbonne.services.syllabus_content import contact_hours, graded_activities, preset_triggers, schema_version
 
 
 def test_graded_activities_are_the_assessment_list_on_a_syllabus_written_before_november_2026() -> None:
@@ -191,3 +191,13 @@ def test_a_syllabus_whose_sessions_have_no_length_yet_keeps_its_typed_hours() ->
         "Lectures": "8", "Tutorials": "10", "Workshops": "", "Seminars": "", "Laboratory": "12", "Other": "",
     }
 
+
+
+def test_a_teaching_preset_is_brought_in_by_its_session_types_or_by_its_name() -> None:
+    assert preset_triggers({"label": "Lectures / Cours magistraux", "payload": {}}) == ({"CM"}, set(), False)
+    assert preset_triggers({"label": "Problem-solving / TD", "payload": {}}) == ({"TD"}, set(), False)
+    assert preset_triggers({"label": "Laboratory / TP", "payload": {}}) == ({"TP"}, set(), False)
+    assert preset_triggers({"label": "Project", "payload": {}}) == (set(), set(), True)
+    # Said outright in the catalogue, the name no longer counts.
+    explicit = {"label": "Lectures", "payload": {"sessionTypes": ["Seminar"], "assessmentTypeIds": ["t1"]}}
+    assert preset_triggers(explicit) == ({"Seminar"}, {"t1"}, False)

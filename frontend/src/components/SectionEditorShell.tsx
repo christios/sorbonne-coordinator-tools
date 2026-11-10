@@ -22,12 +22,6 @@ type Props = {
   containerRef?: RefObject<HTMLDivElement | null>;
   onHeaderCollapseChange?: (collapsed: boolean) => void;
   compactHeaderActions?: ReactNode;
-  /**
-   * What acts on the open record — export, share, review — in a bar over the content, beside
-   * the menu rather than in the header, so the header is the same height as every other
-   * screen's and the menu starts where theirs does. It stays in view while the content scrolls.
-   */
-  toolbar?: ReactNode;
   /** How many things each section still lacks, shown beside its name in the menu. */
   sectionCounts?: Partial<Record<string, number>>;
 };
@@ -50,7 +44,6 @@ export function SectionEditorShell({
   onHeaderCollapseChange,
   compactHeaderActions,
   sectionCounts = {},
-  toolbar,
 }: Props) {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const headerCollapsedRef = useRef(false);
@@ -93,7 +86,7 @@ export function SectionEditorShell({
         const active = activeSection === section.id;
         return <button key={section.id} type="button" onClick={() => onSectionChange(section.id)} aria-current={active ? "step" : undefined} aria-label={count ? `${section.label}, ${count} to fill in` : undefined} className={`flex w-full items-start justify-between gap-2 rounded-md px-3 py-2 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] ${active ? "bg-[#e8edf3] font-semibold text-[#1f4e79]" : "text-[#475467] hover:bg-[#f7f8fa]"}`}><span className="min-w-0">{section.label}</span>{count ? <span aria-hidden="true" className="mt-px shrink-0 rounded-full bg-[#fef0c7] px-1.5 text-xs font-semibold tabular-nums leading-5 text-[#8a4b00]">{count}</span> : null}</button>;
       })}</nav>
-      <div ref={workspaceRef} data-testid="editor-workspace" onScroll={handleScroll} className={`min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2 ${headerCollapsed ? "lg:pb-36" : ""}`}>{toolbar ? <div data-testid="editor-toolbar" className="z-30 mb-4 flex flex-wrap items-center gap-2 bg-[#f7f8fa] lg:sticky lg:top-0 lg:justify-end lg:pb-3">{toolbar}</div> : null}{children}</div>
+      <div ref={workspaceRef} data-testid="editor-workspace" onScroll={handleScroll} className={`min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2 ${headerCollapsed ? "lg:pb-36" : ""}`}>{children}</div>
     </div>
   </div>;
 }

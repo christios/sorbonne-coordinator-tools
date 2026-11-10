@@ -21,8 +21,7 @@ def test_description_and_delivery_are_one_section_in_the_order_each_document_pri
         "4. Learning outcomes",
         "5. Course schedule",
         "6. Bibliography",
-        "7. Teaching approach",
-        "8. Course assessment",
+        "7. Course assessment",
     ]
     assert [section.label for section in get_template(FYS_TEMPLATE_ID).sections][-1] == "8. Teaching schedule"
 

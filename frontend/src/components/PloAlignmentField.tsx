@@ -13,8 +13,14 @@ export function PloAlignmentField({
   emptyText = "No PLOs aligned yet.",
   addText = "Add aligned PLO",
   required = false,
+  hideLabel = false,
+  stacked = false,
 }: {
   label: string;
+  /** Where a column heading already names the field: the label is then for screen readers only. */
+  hideLabel?: boolean;
+  /** In a narrow column, the code sits above the wording, which then has the chip's full width. */
+  stacked?: boolean;
   /** Marks the label with the red asterisk: the syllabus cannot go for review without it. */
   required?: boolean;
   pickerLabel: string;
@@ -57,7 +63,7 @@ export function PloAlignmentField({
 
   return (
     <div role="group" aria-label={label} className="relative grid grid-cols-[minmax(0,1fr)] gap-2">
-      <div className="min-h-5 pr-8 text-sm font-medium text-[#344054]">
+      <div className={hideLabel ? "sr-only" : "min-h-5 pr-8 text-sm font-medium text-[#344054]"}>
         {label}
         {required ? <span aria-hidden="true" className="ml-1 text-[#a6292f]">*</span> : null}
       </div>
@@ -67,15 +73,17 @@ export function PloAlignmentField({
           {selected.map((option) => (
             <li
               key={option.value}
-              className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]"
+              className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]"
             >
-              <span className="flex min-w-0 items-baseline gap-2">
+              {/* The whole wording, on as many lines as it needs: an outcome cut off at
+                  "involving f…" cannot be checked against the one it should be. */}
+              <span className={stacked ? "grid min-w-0 gap-1" : "flex min-w-0 items-baseline gap-2"}>
                 {option.badge !== undefined ? (
-                  <span className="shrink-0 rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79]">
+                  <span className={`shrink-0 rounded-full bg-[#e8edf3] px-2 py-0.5 text-xs font-semibold text-[#1f4e79] ${stacked ? "w-fit" : ""}`}>
                     {option.badge}
                   </span>
                 ) : null}
-                <span className="min-w-0 truncate">{option.label}</span>
+                <span className="min-w-0 break-words leading-5">{option.label}</span>
               </span>
               <button
                 type="button"

@@ -108,7 +108,6 @@ def missing_for_submission(
     converted = schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES
     _sessions(missing, content, flag_earlier_notes=converted)
     _graded(missing, content, "schedule" if converted else "assessment", week_required=converted)
-    _teaching_approach(missing, content)
     _assessment(missing, content)
     return missing
 
@@ -309,16 +308,6 @@ def _weights_add_up(missing: Missing, section: str, activities: list[dict[str, A
     if round(total, 6) != TOTAL_PERCENT:
         _add(missing, section, f"Make the graded activities' weights add up to 100% (they add up to {total:g}%).")
 
-
-def _teaching_approach(missing: Missing, content: dict[str, Any]) -> None:
-    approach = _record(content.get("teachingApproach"))
-    for key, label in (
-        ("methods", "teaching methods and learning activities"),
-        ("engagement", "student engagement"),
-        ("feedback", "feedback and academic progress"),
-    ):
-        if not _text(approach.get(key)):
-            _add(missing, "teachingApproach", f"Describe the {label}.")
 
 
 def _assessment(missing: Missing, content: dict[str, Any]) -> None:

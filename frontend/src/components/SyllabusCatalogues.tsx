@@ -11,6 +11,7 @@ import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { FieldRow } from "@/components/FieldRow";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, listCoursesByCode } from "@/services/courses";
+import { presetTriggers } from "@/services/teachingApproach";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import {
   CatalogueCategory,
@@ -190,14 +191,54 @@ function PloForm({ programme, entry, onCancel, onSaved }: { programme: Catalogue
 }
 
 function TeachingPresetsCatalogue() {
-  const [showCreate, setShowCreate] = useState(false); const data = useCatalogue("teaching-presets");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Teaching presets" description="Approaches a SCEN syllabus may preview, then apply to its teaching-approach content." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add preset</button>} />{showCreate ? <TeachingPresetForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="teaching-presets" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{[stringValue(entry.payload.methods), stringValue(entry.payload.engagement), stringValue(entry.payload.feedback)].filter(Boolean).length} prepared section(s)</p>} /></div>;
+  const [showCreate, setShowCreate] = useState(false); const data = useCatalogue("teaching-presets"); const assessmentTypes = useCatalogue("assessment-types");
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Teaching presets" description="The department's text for section 8 of the syllabus, one per kind of session. A syllabus prints the presets its course schedule brings in: nobody ticks them." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add preset</button>} />{showCreate ? <TeachingPresetForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="teaching-presets" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{presetTriggerSummary(entry, assessmentTypes.data ?? [])} · {[stringValue(entry.payload.methods), stringValue(entry.payload.engagement), stringValue(entry.payload.feedback)].filter(Boolean).length} prepared section(s)</p>} /></div>;
 }
 
+/** The kinds of session a teaching preset can be brought in by, as the course schedule names them. */
+const PRESET_SESSION_TYPES = [
+  ["CM", "Lectures (CM)"],
+  ["TD", "Tutorials (TD)"],
+  ["TP", "Laboratory (TP)"],
+  ["Workshop", "Workshops"],
+  ["Seminar", "Seminars"],
+  ["Other", "Other sessions"],
+] as const;
+
+/**
+ * A teaching preset is the department's section-8 text for a kind of session. Since 10 Nov
+ * 2026 nobody ticks it in a syllabus: it is printed wherever the course schedule has what it
+ * names here — sessions of a type, or graded activities of an assessment type. A preset saved
+ * before names nothing and is matched by its own name; the boxes start ticked accordingly.
+ */
 function TeachingPresetForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient(); const payload = entry?.payload ?? {}; const [label, setLabel] = useState(entry?.label ?? ""); const [methods, setMethods] = useState(stringValue(payload.methods)); const [engagement, setEngagement] = useState(stringValue(payload.engagement)); const [feedback, setFeedback] = useState(stringValue(payload.feedback));
-  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: { methods: methods.trim(), engagement: engagement.trim(), feedback: feedback.trim() } }; return entry ? updateCatalogueEntry("teaching-presets", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("teaching-presets", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "teaching-presets"] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="Preset name"><input required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Teaching methods"><AutoResizeTextarea minRows={3} value={methods} onChange={(event) => setMethods(event.target.value)} className={textareaClass} /></Field><Field label="Student engagement"><AutoResizeTextarea minRows={3} value={engagement} onChange={(event) => setEngagement(event.target.value)} className={textareaClass} /></Field><Field label="Feedback"><AutoResizeTextarea minRows={3} value={feedback} onChange={(event) => setFeedback(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save preset" : "Add preset"} /></form>;
+  const triggers = presetTriggers({ label: entry?.label ?? "", payload });
+  const assessmentTypes = useCatalogue("assessment-types");
+  const currentTypes = (assessmentTypes.data ?? []).filter((item) => !item.isRetired);
+  const [sessionTypes, setSessionTypes] = useState<string[]>(triggers.sessionTypes);
+  // Null until someone ticks: a preset matched by name ("Project") shows the project types.
+  const [typeIds, setTypeIds] = useState<string[] | null>(triggers.projectByName ? null : triggers.assessmentTypeIds);
+  const shownTypeIds = typeIds ?? currentTypes.filter((item) => /project/i.test(item.label)).map((item) => item.id);
+  const flip = (list: string[], value: string) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: { methods: methods.trim(), engagement: engagement.trim(), feedback: feedback.trim(), sessionTypes, assessmentTypeIds: shownTypeIds } }; return entry ? updateCatalogueEntry("teaching-presets", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("teaching-presets", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "teaching-presets"] }); onSaved(); } });
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="Preset name"><input required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field>
+    <fieldset className="grid gap-2"><legend className="text-sm font-medium text-[#344054]">Printed in a syllabus whose course schedule has</legend>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">{PRESET_SESSION_TYPES.map(([value, name]) => <label key={value} className="flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" className="h-4 w-4 accent-[#1f4e79]" checked={sessionTypes.includes(value)} onChange={() => setSessionTypes(flip(sessionTypes, value))} />{name}</label>)}</div>
+      {currentTypes.length ? <div className="flex flex-wrap gap-x-6 gap-y-2"><span className="text-sm text-[#667085]">or graded activities of type</span>{currentTypes.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" className="h-4 w-4 accent-[#1f4e79]" checked={shownTypeIds.includes(item.id)} onChange={() => setTypeIds(flip(shownTypeIds, item.id))} />{item.label}</label>)}</div> : null}
+    </fieldset>
+    <Field label="Teaching methods"><AutoResizeTextarea minRows={3} value={methods} onChange={(event) => setMethods(event.target.value)} className={textareaClass} /></Field><Field label="Student engagement"><AutoResizeTextarea minRows={3} value={engagement} onChange={(event) => setEngagement(event.target.value)} className={textareaClass} /></Field><Field label="Feedback"><AutoResizeTextarea minRows={3} value={feedback} onChange={(event) => setFeedback(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save preset" : "Add preset"} /></form>;
+}
+
+/** "Lectures (CM) · graded Project": what brings a preset into a syllabus, for its line in the list. */
+function presetTriggerSummary(entry: CatalogueEntry, assessmentTypes: CatalogueEntry[]): string {
+  const triggers = presetTriggers(entry);
+  const sessions = triggers.sessionTypes.map((value) => PRESET_SESSION_TYPES.find(([type]) => type === value)?.[1] ?? value);
+  const types = triggers.projectByName
+    ? assessmentTypes.filter((item) => /project/i.test(item.label)).map((item) => item.label)
+    : triggers.assessmentTypeIds.map((id) => assessmentTypes.find((item) => item.id === id)?.label ?? "").filter(Boolean);
+  const parts = [...sessions, ...types.map((name) => `graded ${name}`)];
+  return parts.length ? `Printed for ${parts.join(" · ")}` : "Not printed in any syllabus yet: choose what brings it in";
 }
 
 function AssessmentCatalogue() {

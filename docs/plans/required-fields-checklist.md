@@ -74,7 +74,7 @@ and made four more fields required: academic rank, CLO competencies, session det
 
 ### 7. Teaching approach
 
-- [x] At least one teaching and learning approach: Fills the methods, engagement and feedback wording.
+- ~~At least one teaching and learning approach~~ — **section removed 10 Nov 2026** (Christian): the document's section 8 prints the department's text for each kind of session in the course schedule (CM → lectures, TD → problem-solving, TP → laboratory, graded Project → project), so there is nothing to fill in.
 
 ### 8. Course assessment
 

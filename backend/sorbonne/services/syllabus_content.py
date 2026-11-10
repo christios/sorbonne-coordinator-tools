@@ -10,6 +10,7 @@ policy — asks here, so the switch from one place to the other happens once.
 from __future__ import annotations
 
 from copy import deepcopy
+import re
 from typing import Any
 
 SCHEDULE_HOLDS_GRADED_ACTIVITIES = 2
@@ -365,3 +366,58 @@ def contact_hours(content: dict[str, Any]) -> dict[str, str]:
         totals[SESSION_TYPE_ROWS.get(str(row.get("sessionType") or DEFAULT_SESSION_TYPE), "Other")] += hours
     return {row: (f"{total:g}" if total else "") for row, total in totals.items()}
 
+
+
+# Section 8, the teaching and learning approach, follows from the course schedule (Christian,
+# 10 Nov 2026): the department writes a text for each kind of session (Manage catalogues →
+# Teaching presets) and a syllabus prints the texts for the kinds its schedule uses. A preset
+# names what brings it in — session types, or graded activities of an assessment type; one
+# that names nothing is matched by its own name, so the department's four existing texts
+# work as they are: lectures ← CM, problem-solving/TD ← TD, laboratory/TP ← TP, project ←
+# graded activities of a project type. The frontend's teachingApproach.ts says the same.
+_PRESET_SESSION_WORDS = (
+    ("CM", re.compile(r"lecture|cours magistr|\bCM\b", re.IGNORECASE)),
+    ("TD", re.compile(r"tutorial|problem[- ]solving|travaux dirig|\bTD\b", re.IGNORECASE)),
+    ("TP", re.compile(r"laborator|travaux pratiques|\bTP\b", re.IGNORECASE)),
+    ("Workshop", re.compile(r"workshop", re.IGNORECASE)),
+    ("Seminar", re.compile(r"seminar", re.IGNORECASE)),
+)
+_PRESET_PROJECT = re.compile(r"project", re.IGNORECASE)
+
+
+def _strings(value: Any) -> list[str]:
+    return [item for item in value if isinstance(item, str)] if isinstance(value, list) else []
+
+
+def preset_triggers(preset: dict[str, Any]) -> tuple[set[str], set[str], bool]:
+    """What brings a teaching preset into a syllabus: session types, assessment type ids, and
+    whether a graded activity whose type is a project does (only when matched by name)."""
+    payload = preset.get("payload") if isinstance(preset.get("payload"), dict) else {}
+    if "sessionTypes" in payload or "assessmentTypeIds" in payload:
+        return set(_strings(payload.get("sessionTypes"))), set(_strings(payload.get("assessmentTypeIds"))), False
+    label = str(preset.get("label") or "")
+    sessions = {session for session, words in _PRESET_SESSION_WORDS if words.search(label)}
+    return sessions, set(), not sessions and bool(_PRESET_PROJECT.search(label))
+
+
+def schedule_kinds(content: dict[str, Any]) -> tuple[set[str], set[str], set[str]]:
+    """The session types the course schedule uses, and the assessment types (ids and names)
+    of its graded activities. A session nobody gave a type to counts as a lecture."""
+    schedule = content.get("schedule")
+    sessions = {
+        str(row.get("sessionType") or DEFAULT_SESSION_TYPE)
+        for row in (schedule if isinstance(schedule, list) else [])
+        if isinstance(row, dict) and row.get("kind") != "graded"
+    }
+    activities = graded_activities(content) if schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES else []
+    type_ids = {str(item.get("assessmentTypeId")) for item in activities if item.get("assessmentTypeId")}
+    type_names = {str(item.get("type")).strip() for item in activities if str(item.get("type") or "").strip()}
+    return sessions, type_ids, type_names
+
+
+def preset_applies(preset: dict[str, Any], kinds: tuple[set[str], set[str], set[str]]) -> bool:
+    sessions, type_ids, type_names = kinds
+    wanted_sessions, wanted_types, by_project_name = preset_triggers(preset)
+    if sessions & wanted_sessions or type_ids & wanted_types:
+        return True
+    return by_project_name and any(_PRESET_PROJECT.search(name) for name in type_names)

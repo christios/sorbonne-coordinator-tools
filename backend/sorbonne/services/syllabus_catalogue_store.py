@@ -12,7 +12,7 @@ from uuid import uuid4
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import RowMapping
 
-from sorbonne.services.syllabus_content import graded_activities
+from sorbonne.services.syllabus_content import graded_activities, preset_applies, schedule_kinds
 from sorbonne.services.engine import engine_for
 
 
@@ -441,7 +441,12 @@ class SyllabusCatalogueStore:
         return resolved
 
     def resolve_teaching_approach(self, content: dict[str, Any]) -> dict[str, Any]:
-        """Compose section 8 from the approved presets the course selected.
+        """Compose section 8 from the department's texts for the kinds of session the course uses.
+
+        Since 10 Nov 2026 nobody ticks them: a syllabus prints the text of each current preset
+        its course schedule brings in (see `preset_applies`), in the catalogue's order. Only a
+        syllabus whose schedule is still empty keeps the presets it ticked before, so its
+        export does not go blank before its teacher has written the schedule.
 
         Each subsection names the kind of session it describes, so a course taught as
         lectures and tutorials reads as two labelled blocks rather than one run-on
@@ -449,11 +454,13 @@ class SyllabusCatalogueStore:
         """
         resolved = deepcopy(content)
         approach = _record(resolved.get("teachingApproach"))
-        preset_ids = [item for item in approach.get("teachingPresetIds") or [] if isinstance(item, str)]
-        if not preset_ids:
-            return resolved
-        presets = {item["id"]: item for item in self.list("teaching-presets", include_retired=True)}
-        chosen = [presets[item] for item in preset_ids if item in presets]
+        kinds = schedule_kinds(resolved)
+        if any(kinds):
+            chosen = [preset for preset in self.list("teaching-presets") if preset_applies(preset, kinds)]
+        else:
+            preset_ids = [item for item in approach.get("teachingPresetIds") or [] if isinstance(item, str)]
+            presets = {item["id"]: item for item in self.list("teaching-presets", include_retired=True)}
+            chosen = [presets[item] for item in preset_ids if item in presets]
         if not chosen:
             return resolved
         for key in ("methods", "engagement", "feedback"):
