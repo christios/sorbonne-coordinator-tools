@@ -91,6 +91,8 @@ export type ApiToken = {
   expiresAt: string;
   lastUsedAt: string;
   revokedAt: string;
+  /** Reads what its maker can read and changes nothing: anything but a GET is refused. */
+  readOnly: boolean;
 };
 
 export async function fetchApiTokens(): Promise<ApiToken[]> {
@@ -99,7 +101,11 @@ export async function fetchApiTokens(): Promise<ApiToken[]> {
   return ((await response.json()) as { tokens: ApiToken[] }).tokens;
 }
 
-export async function createApiToken(input: { name: string; days: number }): Promise<{ token: string; record: ApiToken }> {
+export async function createApiToken(input: {
+  name: string;
+  days: number;
+  readOnly: boolean;
+}): Promise<{ token: string; record: ApiToken }> {
   const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/tokens`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

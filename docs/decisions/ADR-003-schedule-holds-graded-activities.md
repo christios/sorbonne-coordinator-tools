@@ -32,10 +32,10 @@ The November 2026 feedback round on the Syllabus Builder (spec: `docs/specs/syll
 - New syllabi and copies start at 2.
 
 **AI policy per activity, from the template's five options.**
-- The AI catalogue is fixed at the template's five options (migration 0088). It is reworded, never extended.
+- The AI catalogue is fixed at the template's five options (migration 0090). It is reworded, never extended.
 - An older syllabus's course-wide policy is the fallback for its activities (`course_ai_fallback`), until conversion copies that policy onto each card.
 
-**One department-wide outcome mode** (`syllabus_outcome_mode`, migration 0089), set by a Syllabus builder administrator in Settings:
+**One department-wide outcome mode** (`syllabus_outcome_mode`, migration 0091), set by a Syllabus builder administrator in Settings:
 - **Teacher mode**: teachers write the CLOs. A CLO can only be aligned to the PLOs the matrix expects of the course, and each of those PLOs must be aligned at least once.
 - **Head of Department mode**: the Head of Department writes each course's CLOs, with their PLOs and competencies, in the curriculum mapping. Every syllabus of the course shows them read-only.
   - They are resolved live at display and export time (`resolve_outcomes`), like People links.

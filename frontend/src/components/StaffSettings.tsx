@@ -210,6 +210,10 @@ function AppDepartment() {
  * the way in for a script, and it carries the identity of whoever made it and no more —
  * lose your access here and your tokens lose it with you.
  *
+ * A read-only token is the one to hand a report or another department's tool: it reads
+ * what you can and changes nothing. It is what a new token is unless you say otherwise,
+ * since a program that only reads should not hold the means to change anything.
+ *
  * The token is shown once, on the screen that makes it. Afterwards only its first
  * characters are known, which is enough to tell two apart and not enough to use.
  */
@@ -218,13 +222,14 @@ function ApiTokens() {
   const tokens = useQuery({ queryKey: ["api-tokens"], queryFn: fetchApiTokens });
   const [name, setName] = useState("");
   const [days, setDays] = useState(90);
+  const [readOnly, setReadOnly] = useState(true);
   const [made, setMade] = useState<{ token: string; record: ApiToken } | null>(null);
   const [copied, setCopied] = useState(false);
   const [pendingRevoke, setPendingRevoke] = useState<ApiToken | null>(null);
 
   const refresh = () => queryClient.invalidateQueries({ queryKey: ["api-tokens"] });
   const create = useMutation({
-    mutationFn: () => createApiToken({ name: name.trim(), days }),
+    mutationFn: () => createApiToken({ name: name.trim(), days, readOnly }),
     onSuccess: (result) => {
       setMade(result);
       setCopied(false);
@@ -246,8 +251,8 @@ function ApiTokens() {
   return (
     <section className="mt-6 space-y-5">
       <PageHeading title="Tokens for scripts" about="What a token is">
-        A token lets a program call this application as you, with the same access. Send it as an{" "}
-        <code className="rounded bg-[#f2f4f7] px-1">Authorization: Bearer</code> header.
+        A token lets a program call this application as you: to read what you can read, or with all your access.
+        Send it as an <code className="rounded bg-[#f2f4f7] px-1">Authorization: Bearer</code> header.
       </PageHeading>
 
       <form
@@ -281,6 +286,18 @@ function ApiTokens() {
             <option value={365}>a year</option>
           </select>
         </label>
+        <label className="text-sm font-semibold text-[#344054]">
+          Can
+          <select
+            aria-label="What the token can do"
+            value={readOnly ? "read" : "change"}
+            onChange={(event) => setReadOnly(event.target.value === "read")}
+            className="mt-1.5 block rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal"
+          >
+            <option value="read">Read only</option>
+            <option value="change">Read and change</option>
+          </select>
+        </label>
         <button
           type="submit"
           disabled={!name.trim() || create.isPending}
@@ -298,7 +315,8 @@ function ApiTokens() {
           {/* The warning stays on screen, where the token is: it is the one moment it matters. */}
           <p className="text-sm font-semibold text-[#2f6b3d]">
             Copy {made.record.name} now — this is the only time it is shown. Keep it as you would a password: anyone
-            holding it can do what you can, until it expires or you revoke it.
+            holding it can {made.record.readOnly ? "read what you can read" : "do what you can"}, until it expires or
+            you revoke it.
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
             <code className="min-w-0 flex-1 break-all rounded-md border border-[#bfdcc6] bg-white px-3 py-2 font-mono text-xs text-[#171717]">
@@ -335,6 +353,7 @@ function ApiTokens() {
             <tr>
               <th className="py-2 pr-4 font-semibold">Name</th>
               <th className="py-2 pr-4 font-semibold">Token</th>
+              <th className="py-2 pr-4 font-semibold">Can</th>
               <th className="py-2 pr-4 font-semibold">Whose</th>
               <th className="py-2 pr-4 font-semibold">Made</th>
               <th className="py-2 pr-4 font-semibold">Expires</th>
@@ -347,6 +366,7 @@ function ApiTokens() {
               <tr key={token.id} className={`border-t border-[#e4e8ef] ${live(token) ? "" : "text-[#98a2b3]"}`}>
                 <td className="py-2.5 pr-4 font-semibold text-[#171717]">{token.name}</td>
                 <td className="py-2.5 pr-4 font-mono text-xs">{token.prefix}…</td>
+                <td className="py-2.5 pr-4">{token.readOnly ? "Read only" : "Read and change"}</td>
                 <td className="py-2.5 pr-4">{token.email}</td>
                 <td className="py-2.5 pr-4 tabular-nums">{day(token.createdAt)}</td>
                 <td className="py-2.5 pr-4 tabular-nums">{day(token.expiresAt)}</td>

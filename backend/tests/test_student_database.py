@@ -9,6 +9,7 @@ from sorbonne.services.group_reference_import import parse_group_reference
 from sorbonne.services.workbook_diff import diff_reference
 from sorbonne.services.student_database import (
     CohortNotFound,
+    CohortSpansSemesters,
     DuplicateLabel,
     InvalidCohortMove,
     InvalidRule,
@@ -331,6 +332,80 @@ def test_a_cohort_is_not_rolled_over_into_the_semester_it_is_from(database: Stud
     l1 = database.create_cohort(name="L1")
     with pytest.raises(InvalidCohortMove):
         database.roll_over(l1["id"], "autumn", "autumn")
+
+
+@pytest.fixture
+def two_semesters_of_fys(database: StudentDatabase):
+    """FYS as on 9 Nov 2026: its students in both semesters, its sets in the autumn — one of
+    them the languages, open to every cohort, with an L1 student placed in it — and a set
+    of its own in the spring. Removed afterwards: a set open to every cohort left behind
+    turns up in every other test's catalogue."""
+    fys_student, l1_student = (f"F{uuid4().hex[:8].upper()}" for _ in range(2))
+    _hold(database, fys_student, l1_student)
+    autumn, spring = (f"{season}-{uuid4().hex[:6]}" for season in ("autumn", "spring"))
+    fys = database.create_cohort(name="FYS", term="2026-27")
+    l1 = database.create_cohort(name="L1", term="2026-27")
+    database.set_cohort([fys_student], fys["id"], term_id=autumn)
+    database.set_cohort([fys_student], fys["id"], term_id=spring)
+    database.set_cohort([l1_student], l1["id"], term_id=autumn)
+    td = database.add_scope(fys["id"], code="TD", term_id=autumn)
+    database.assign(student_id=fys_student, scope_id=td, group_id=database.add_group(td, label="1"))
+    lang = database.add_scope(fys["id"], code="LANG", term_id=autumn, open_to_all=True)
+    french = database.add_group(lang, label="A0-F1")
+    database.assign(student_id=fys_student, scope_id=lang, group_id=french)
+    database.assign(student_id=l1_student, scope_id=lang, group_id=french)
+    spring_td = database.add_scope(fys["id"], code="TD", term_id=spring)
+    database.assign(student_id=fys_student, scope_id=spring_td, group_id=database.add_group(spring_td, label="1"))
+    yield fys, l1, fys_student, l1_student, autumn, spring
+    with database.engine.begin() as connection:
+        connection.execute(text("DELETE FROM student_cohorts WHERE id = ANY(:ids)"), {"ids": [fys["id"], l1["id"]]})
+
+
+def test_removing_a_cohort_from_one_semester_leaves_the_other_whole(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    fys, _l1, fys_student, l1_student, autumn, spring = two_semesters_of_fys
+
+    taken = database.remove_from_semester(fys["id"], spring)
+
+    sets = [each["code"] for each in taken["sets"]]
+    assert (taken["members"], sets, taken["otherSemesters"]) == (1, ["TD"], [autumn])
+    assert database.get_cohort(fys["id"])["memberCounts"] == {autumn: 1}
+    # The autumn keeps its sets, and both students keep their French group.
+    with database.engine.connect() as connection:
+        autumn_sets = connection.execute(
+            text("SELECT code FROM cohort_scopes WHERE cohort_id = :id ORDER BY code"), {"id": fys["id"]}
+        ).scalars().all()
+        french = connection.execute(
+            text("""SELECT count(*) FROM group_assignments a JOIN cohort_scopes s ON s.id = a.scope_id
+                    WHERE s.code = 'LANG' AND a.student_id = ANY(:ids)"""),
+            {"ids": [fys_student, l1_student]},
+        ).scalar()
+    assert (autumn_sets, french) == (["LANG", "TD"], 2)
+
+
+def test_what_a_semester_holds_is_counted_before_it_is_removed(database: StudentDatabase, two_semesters_of_fys) -> None:
+    fys, _l1, _fys_student, _l1_student, autumn, spring = two_semesters_of_fys
+
+    reach = database.semester_reach(fys["id"], autumn)
+
+    assert (reach["members"], reach["placements"], reach["othersPlacements"]) == (1, 3, 1)
+    assert sorted((each["code"], each["openToAll"]) for each in reach["sets"]) == [("LANG", True), ("TD", False)]
+    assert reach["otherSemesters"] == [spring]
+
+
+def test_a_cohort_holding_two_semesters_is_not_deleted_whole(database: StudentDatabase, two_semesters_of_fys) -> None:
+    fys, *_rest, autumn, spring = two_semesters_of_fys
+
+    with pytest.raises(CohortSpansSemesters):
+        database.delete_cohort(fys["id"])
+    assert database.get_cohort(fys["id"])["memberCounts"] == {autumn: 1, spring: 1}
+
+    # Once only one semester is left, it can go.
+    database.remove_from_semester(fys["id"], spring)
+    database.delete_cohort(fys["id"])
+    with pytest.raises(CohortNotFound):
+        database.get_cohort(fys["id"])
 
 
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:

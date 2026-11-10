@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { asMemberOf, cohortIn, inSemester, isIn, latestCohort, type Student, type StudentCohort } from "@/services/studentDatabase";
+import { asMemberOf, cohortIn, inSemester, isIn, latestCohort, type Student, type StudentCohort, withGroupsIn } from "@/services/studentDatabase";
 
 // L1 in Semester 1, and L1 again in Semester 2 once rolled over.
 const AUTUMN: StudentCohort = { id: "l1", name: "L1", since: "2026-09-01", termId: "s1" };
@@ -46,5 +46,25 @@ describe("a student's cohort, semester by semester", () => {
 
     expect(asMemberOf([student([AUTUMN, other])], "l1")[0].cohortSince).toBe("2026-09-01");
     expect(asMemberOf([student([other])], "l1")[0].cohortId).toBeNull();
+  });
+});
+
+describe("a student's groups, semester by semester", () => {
+  // Placed in Semester 1 only, as every student was on 9 Nov 2026 when Semester 2 began.
+  const placed = {
+    ...student([AUTUMN, SPRING]),
+    groups: [
+      { termId: "s1", scopeCode: "TD", groupId: "g1", groupLabel: "1" },
+      { termId: "s1", scopeCode: "LANG", groupId: "g2", groupLabel: "A0-F1", openToAll: true },
+    ],
+  } satisfies Student;
+
+  it("shows a semester's list only that semester's groups, so Semester 2 inherits none of Semester 1's", () => {
+    expect(withGroupsIn([placed], "s2")[0].groups).toEqual([]);
+    expect(withGroupsIn([placed], "s1")[0].groups.map((group) => group.scopeCode)).toEqual(["TD", "LANG"]);
+  });
+
+  it("takes nothing away when no semester is named", () => {
+    expect(withGroupsIn([placed])[0].groups).toHaveLength(2);
   });
 });

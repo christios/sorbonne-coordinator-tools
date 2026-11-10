@@ -11,8 +11,8 @@ Only catalogue rows are touched, never syllabi. Keys already present are kept, s
 an administrator has edited survives; a changed row's revision moves on, so an editor
 left open on it is told to reload rather than saving over it.
 
-Revision ID: 0088
-Revises: 0087
+Revision ID: 0090
+Revises: 0089
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0088"
-down_revision = "0087"
+revision = "0090"
+down_revision = "0089"
 branch_labels = None
 depends_on = None
 

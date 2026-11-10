@@ -6,6 +6,8 @@ type ConfirmDialogProps = {
   title: string;
   description: string;
   confirmLabel: string;
+  /** The way back, when "Cancel" would not say it: "Keep editing". */
+  cancelLabel?: string;
   /**
    * A word the coordinator must type before the button works.
    *
@@ -33,7 +35,7 @@ type ConfirmDialogProps = {
 };
 
 /** Shared, accessible confirmation surface for destructive in-app actions. */
-export function ConfirmDialog({ open, title, description, confirmLabel, confirmPhrase, busy, tone = "danger", onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, description, confirmLabel, cancelLabel = "Cancel", confirmPhrase, busy, tone = "danger", onConfirm, onClose }: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
   const [typed, setTyped] = useState("");
@@ -72,7 +74,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, confirmP
           </label>
         ) : null}
         <div className="mt-5 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]">Cancel</button>
+          <button type="button" onClick={onClose} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]">{cancelLabel}</button>
           <button type="button" disabled={!ready || busy} onClick={onConfirm} className={`rounded-md px-3 py-2 text-sm font-semibold text-white ${tone === "primary" ? "bg-[#1f4e79] hover:bg-[#173e61] disabled:bg-[#9ba8b5]" : "bg-[#a6292f] hover:bg-[#8f1f25] disabled:bg-[#d6a5a8]"}`}>{busy ? "Working…" : confirmLabel}</button>
         </div>
       </section>

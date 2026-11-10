@@ -31,6 +31,7 @@ from sorbonne.services.group_reference_import import ReferenceImportError, parse
 from sorbonne.services import coordinator_directory
 from sorbonne.services.student_database import (
     CohortNotFound,
+    CohortSpansSemesters,
     CommentNotFound,
     CourseNotFound,
     InvalidCohortMove,
@@ -334,6 +335,35 @@ def update_cohort(
 def delete_cohort(cohort_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     try:
         database.delete_cohort(cohort_id)
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+    except CohortSpansSemesters as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
+@router.get("/cohorts/{cohort_id}/semester-reach")
+def semester_reach(cohort_id: str, termId: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:  # noqa: N803 - the query's own name
+    """What removing the cohort from that semester would take with it."""
+    try:
+        return database.semester_reach(cohort_id, termId)
+    except CohortNotFound as exc:
+        raise _missing(exc, "cohort") from exc
+
+
+class SemesterInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    term_id: str = Field(alias="termId", min_length=1, max_length=200)
+
+
+@router.post("/cohorts/{cohort_id}/remove-from-semester")
+def remove_from_semester(
+    cohort_id: str, body: SemesterInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """The cohort out of one semester — its students, its sets — and no other."""
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        return database.remove_from_semester(cohort_id, body.term_id, actor=getattr(staff, "email", "") or "")
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
 

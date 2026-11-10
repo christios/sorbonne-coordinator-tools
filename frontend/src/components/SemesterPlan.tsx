@@ -1,9 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, ChevronLeft, ChevronRight, Download, Plus, Search } from "lucide-react";
+import { CalendarCheck, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PlanClassDialog, ScopeDialog, type ClassDraft } from "@/components/PlanDialogs";
+import { FilterMenu, FilterPills } from "@/components/PanelFilter";
+import { PlanWishesPanel, WISH_VIEWS, type WishView } from "@/components/PlanWishesPanel";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TeachingWeek } from "@/components/SectionTimetable";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -12,7 +14,7 @@ import { SortMenu } from "@/components/SortMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { Zoom } from "@/components/TimelineZoom";
 import { usePageState } from "@/components/usePageState";
-import { WeekTimeline, type GridSlot } from "@/components/WeekTimeline";
+import { WeekTimeline, type GhostJudgement, type GridSlot, type Shade } from "@/components/WeekTimeline";
 import { useKeptNumber } from "@/services/keptNumber";
 import { programCode } from "@/services/programmes";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
@@ -58,6 +60,8 @@ import {
   type PlacedSession,
 } from "@/services/weekSchedule";
 import { fetchSemesterShortNames } from "@/services/portalLists";
+import { judgeSlot } from "@/services/planJudge";
+import { checkWishes, fetchWishSemester, periodShades, shadingOf } from "@/services/teacherWishes";
 import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
@@ -111,15 +115,17 @@ const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
   { id: "days", displayName: "Day", type: "multiOption", accessor: (row) => row.days },
 ];
 
-type TrayShow = "all" | "to-place" | "placed" | "no-teacher" | "no-crn";
+type TrayShow = "to-place" | "placed" | "over" | "no-teacher" | "no-crn" | "wishes";
 type TraySort = "groups" | "course" | "left" | "teacher" | "cohort";
 
 const TRAY_SHOW: { value: TrayShow; label: string }[] = [
-  { value: "all", label: "All" },
   { value: "to-place", label: "Still to place" },
   { value: "placed", label: "Fully placed" },
+  // More hours on the calendar than Groups & CRNs asks for.
+  { value: "over", label: "Over hours" },
   { value: "no-teacher", label: "No teacher" },
   { value: "no-crn", label: "No CRN" },
+  { value: "wishes", label: "Breaks a wish" },
 ];
 const TRAY_SORT: { value: TraySort; label: string }[] = [
   // Groups & CRNs' own order: cohort, set, group, course.
@@ -206,7 +212,8 @@ export function SemesterPlan({
   const [week, setWeek] = usePageState<string>("semester-plan:week", "");
   // The list of classes to place: its own search, which of them, and in what order.
   const [traySearch, setTraySearch] = usePageState("semester-plan:tray-search", "");
-  const [trayShow, setTrayShow] = usePageState<TrayShow>("semester-plan:tray-show", "all");
+  // Which of them: any number of filters, narrowing together.
+  const [trayFilters, setTrayFilters] = usePageState<TrayShow[]>("semester-plan:tray-filters", []);
   const [traySort, setTraySort] = usePageState<TraySort>("semester-plan:tray-sort", "groups");
   const [widthZoom, setWidthZoom] = useKeptNumber("semester-plan:width", WIDTH);
   const [heightZoom, setHeightZoom] = useKeptNumber("semester-plan:height", HEIGHT);
@@ -223,6 +230,33 @@ export function SemesterPlan({
   const seriesById = useMemo(() => new Map((data?.series ?? []).map((series) => [series.id, series])), [data?.series]);
   const clashes = useMemo(() => (data ? clashesOf(data) : new Map<PlanClass, Clash[]>()), [data]);
   const placed = useMemo(() => (data ? plannedHours(data) : new Map<string, number>()), [data]);
+
+  /*
+   * Timetable wishes: the teachers' answers for the semester, and what the plan breaks of
+   * them — with the semester's periods binding everybody (Ramadan). A server without them
+   * answers with an error, and the plan simply goes without.
+   */
+  const wishSemester = useQuery({
+    queryKey: ["wishes", chosen],
+    queryFn: () => fetchWishSemester(chosen),
+    enabled: Boolean(chosen),
+    retry: false,
+    refetchInterval: 60_000,
+  });
+  const wishCheck = useMemo(
+    () => (data ? checkWishes(data, wishSemester.data?.teachers ?? []) : null),
+    [data, wishSemester.data],
+  );
+  // Whose wishes are shaded: the class being moved, else the class last opened, else the teacher filtered to.
+  const [held, setHeld] = useState("");
+  const [picked, setPicked] = useState("");
+  // The class to place being dragged from the list, for the box that shows where it would land.
+  const [dragging, setDragging] = useState("");
+  // What the panel beside the week shows: the classes to place, or the teachers' wishes.
+  const [side, setSide] = usePageState<"tray" | "wishes">("semester-plan:side", "tray");
+  const [wishView, setWishView] = usePageState<WishView>("semester-plan:wish-view", "week");
+  // The panel folded away, for the week to have the whole width.
+  const [sideOpen, setSideOpen] = usePageState("semester-plan:side-open", true);
 
   const failed = (exc: Error) => {
     setError(exc.message);
@@ -468,6 +502,11 @@ export function SemesterPlan({
       clashSaid: its
         .map((clash) => `${CLASH_WORDS[clash.kind]} ${sectionLabel(sectionsById.get(clash.with.sectionId))} (${clash.with.startsAt}–${clash.with.endsAt})`)
         .join("; "),
+      wish: (() => {
+        const flag = wishCheck?.flags.get(entry);
+        // A line each on the flag's hover: the Musts and periods first.
+        return flag ? { level: flag.level, said: flag.said.join("\n") } : undefined;
+      })(),
     };
     classOf.set(session, entry);
     return session;
@@ -480,6 +519,74 @@ export function SemesterPlan({
     });
 
   const allWeeks = Array.from({ length: data.weeks }, (_, index) => index + 1);
+  const weekNo = allWeeks.find((n) => toIsoDate(weekStartOf(n, calendar)) === toIsoDate(monday)) ?? null;
+
+  /*
+   * Whose wishes the grid shades: the teacher of the class being moved, from the list or
+   * across the week; else of the class last opened, until something is drawn; else the one
+   * teacher the plan is filtered to.
+   */
+  const wishTeachers = wishSemester.data?.teachers ?? [];
+  const filteredTeacherName = filters.find((filter) => filter.columnId === "staff" && filter.values.length === 1)?.values[0] ?? "";
+  const filteredTeacher = filteredTeacherName
+    ? (data.sections.find((section) => section.teacherName === filteredTeacherName && section.teacherId)?.teacherId ?? "")
+    : "";
+  const focusId = held || picked || filteredTeacher;
+  const focusRow = wishTeachers.find((row) => row.teacherId === focusId) ?? null;
+  const focusName = focusRow?.name ?? data.sections.find((section) => section.teacherId === focusId)?.teacherName ?? "";
+  const focusShades = focusRow?.wishes ? shadingOf(focusRow.wishes) : {};
+  const shading = (date: string): Shade[] => {
+    const weekday = weekdayOf(date);
+    const shades: Shade[] = [];
+    // The semester's periods bind everybody, so they are always there in their weeks: the
+    // hours with no classes, and the hours after the day ends.
+    for (const period of data.periods ?? []) {
+      for (const stretch of periodShades(period, date, weekday)) shades.push({ ...stretch, tone: "period" });
+    }
+    if (focusRow?.wishes) {
+      for (const stretch of focusShades[weekday] ?? []) {
+        shades.push({
+          from: stretch.from,
+          to: stretch.to,
+          tone: stretch.kind,
+          title: `${focusRow.name} ${stretch.kind === "cant" ? "can't teach" : "would rather teach"} ${stretch.from}–${stretch.to}`,
+        });
+      }
+      for (const away of focusRow.wishes.away) {
+        if (date >= away.from && date <= away.to) {
+          shades.push({ from: "00:00", to: "23:59", tone: "cant", title: `${focusRow.name} is away${away.reason ? `: ${away.reason}` : ""}` });
+        }
+      }
+    }
+    return shades;
+  };
+  const answeredIds = new Set(wishTeachers.filter((row) => row.wishes).map((row) => row.teacherId));
+  /**
+   * What would go wrong if a class sat at a slot of the week on screen: the one being moved
+   * (which no longer clashes with itself), or the one dragged in from the list.
+   */
+  const judge = (slot: GridSlot, session: PlacedSession | null): GhostJudgement | null => {
+    const entry = session ? entryOf(session) : undefined;
+    const sectionId = entry?.sectionId ?? (session ? "" : dragging);
+    if (!sectionId || weekNo === null) return null;
+    const { problems, worst } = judgeSlot(data, wishTeachers, {
+      sectionId,
+      weekday: weekdayOf(slot.date),
+      startsAt: slot.start,
+      endsAt: slot.end,
+      room: entry ? entry.room : oneRoom,
+      weeks: [weekNo],
+      replacing: entry ? { seriesId: entry.seriesId, weeks: [entry.week] } : undefined,
+    });
+    const clash = problems.some((problem) => problem.kind === "clash");
+    return {
+      worst,
+      label: clash ? "Clash" : worst === "must" ? "Breaks a Must" : worst ? "Breaks a wish" : "",
+      said: problems.map((problem) => problem.said).join("\n"),
+    };
+  };
+  const flaggedSections = new Set([...(wishCheck?.flags.keys() ?? [])].map((entry) => entry.sectionId));
+  const thisWeekBroken = (wishCheck?.breaches ?? []).filter((breach) => breach.week === weekNo).length;
   /**
    * A new class at a slot. Drawn on the grid, it is as long as it was drawn; dropped from the
    * list or added with +, as long as one session of it is on Groups & CRNs.
@@ -572,17 +679,25 @@ export function SemesterPlan({
       ? stillToPlace(section)
       : show === "placed"
         ? !stillToPlace(section)
-        : show === "no-teacher"
+        : show === "over"
+          ? (section.hours ?? 0) > 0 && hoursLeft(section) < -0.01
+          : show === "no-teacher"
           ? !section.teacherName
           : show === "no-crn"
             ? !section.crn
-            : true;
-  const trayKept = (section: PlanSection) => keeps(trayShow, section);
-  // How many each choice would show, beside it: the page's filters and the search still apply.
+            : flaggedSections.has(section.id);
+  const keepsAll = (shows: TrayShow[], section: PlanSection) => shows.every((show) => keeps(show, section));
+  const trayKept = (section: PlanSection) => keepsAll(trayFilters, section);
+  // How many each would leave with the others chosen: the page's filters and the search still apply.
   const found = placeable.filter(trayFound);
   const trayCounts = Object.fromEntries(
-    TRAY_SHOW.map((option) => [option.value, found.filter((section) => keeps(option.value, section)).length]),
+    TRAY_SHOW.map((option) => [
+      option.value,
+      found.filter((section) => keepsAll([...trayFilters.filter((each) => each !== option.value), option.value], section)).length,
+    ]),
   ) as Record<TrayShow, number>;
+  const toggleTray = (show: TrayShow) =>
+    setTrayFilters((current) => (current.includes(show) ? current.filter((each) => each !== show) : [...current, show]));
   const byCourse = (a: PlanSection, b: PlanSection) =>
     byNumber(a.courseCode, b.courseCode) || byNumber(a.groupLabel, b.groupLabel) || a.position - b.position;
   const trayOrder: Record<TraySort, (a: PlanSection, b: PlanSection) => number> = {
@@ -706,21 +821,11 @@ export function SemesterPlan({
         </p>
       ) : null}
 
-      {/*
-        * The filters, and over the list beside the week its label — on this line, so the list's
-        * box starts level with the week's, labelled like the pickers' labels (Cohort, Semester).
-        * The banners sit above both, so nothing comes between the label and its box.
-        */}
+      {/* The filters, over the week; the banners sit above them. */}
       <div className="mb-3 flex shrink-0 items-end gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
         </div>
-        <h3 className="-mb-2 hidden w-80 shrink-0 text-xs font-semibold uppercase tracking-wide text-[#667085] lg:block">
-          Classes to place
-          <span className="ml-1.5 font-normal normal-case tabular-nums text-[#98a2b3]">
-            {trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : toPlace.length}
-          </span>
-        </h3>
       </div>
 
       <div className="flex min-h-0 flex-1 gap-3">
@@ -736,15 +841,23 @@ export function SemesterPlan({
             squeeze={{ width: widthZoom <= WIDTH.min }}
             atLeast={{ startMinute: 8 * 60, endMinute: 19 * 60 }}
             seatsOf={(room) => roomOf(room)?.seats ?? null}
+            shading={shading}
             editing={{
+              onHold: (session) => {
+                const entry = session ? entryOf(session) : undefined;
+                setHeld(entry ? (sectionsById.get(entry.sectionId)?.teacherId ?? "") : "");
+              },
               onDraw: (slot) => {
                 setError("");
+                setPicked("");
                 // Narrowed to one class to place, a drawn slot is that class.
                 setDialog({ draft: draftFor(placeable.length === 1 ? placeable[0].id : "", slot, true) });
               },
               onOpen: (session) => {
                 const entry = entryOf(session);
-                if (entry) openClass(entry);
+                if (!entry) return;
+                setPicked(sectionsById.get(entry.sectionId)?.teacherId ?? "");
+                openClass(entry);
               },
               onMove: (session, slot) => {
                 const entry = entryOf(session);
@@ -758,20 +871,172 @@ export function SemesterPlan({
                 if (Object.keys(changes).length) changeOne(entry, series, changes);
               },
               dropType: SECTION_DRAG,
+              // At the class's own length, as it will be placed.
+              dropSlot: (slot) => (dragging ? { ...slot, end: endOf(sectionsById.get(dragging), slot.start, slot.end) } : null),
+              judge,
               onDrop: (sectionId, slot) => {
                 setError("");
+                setDragging("");
                 setDialog({ draft: draftFor(sectionId, slot) });
               },
             }}
           />
-          <p className="mt-1.5 shrink-0 text-xs text-[#667085]">
-            Drag along a day to place a class, or drop one from the list. Drag a class to move it, its right-hand end to
-            change its length; click it to open it.
-          </p>
+          {focusId && focusName ? (
+            <p className="mt-1.5 flex shrink-0 flex-wrap items-center gap-x-2 text-xs text-[#667085]">
+              {focusRow?.wishes ? (
+                <>
+                  <span className="font-semibold text-[#344054]">{focusName}&rsquo;s wishes:</span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#a6292f]/40 bg-[#a6292f]/[0.15]" /> can&rsquo;t teach
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#2e7d55]/40 bg-[#2e7d55]/[0.15]" /> would rather
+                  </span>
+                  {focusRow.wishes.status === "draft" ? <span>(a draft)</span> : null}
+                </>
+              ) : (
+                <span>{focusName} hasn&rsquo;t given their wishes for this semester.</span>
+              )}
+              {!held && picked ? (
+                <button type="button" onClick={() => setPicked("")} className="font-semibold text-[#1f4e79] underline">
+                  Hide
+                </button>
+              ) : null}
+            </p>
+          ) : (
+            <p className="mt-1.5 shrink-0 text-xs text-[#667085]">
+              Drag along a day to place a class, or drop one from the list. Drag a class to move it, its right-hand end to
+              change its length; click it to open it.
+            </p>
+          )}
         </div>
 
-        <aside className="hidden min-h-0 w-80 shrink-0 flex-col lg:flex" aria-label="Classes to place">
+        {!sideOpen ? (
+          // Folded away: a rail with the way back, and the two counts to open either tab.
+          <aside className="hidden min-h-0 w-10 shrink-0 flex-col items-center gap-2 rounded-lg border border-[#d9dee7] bg-white py-2 lg:flex" aria-label="Side panel, folded">
+            <button
+              type="button"
+              aria-label="Show the side panel"
+              title="Show the side panel"
+              onClick={() => setSideOpen(true)}
+              className="rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
+            >
+              <ChevronsLeft size={16} aria-hidden="true" />
+            </button>
+            {(
+              [
+                { value: "tray", title: "Classes to place", count: toPlace.length, alarm: false },
+                { value: "wishes", title: "Teacher wishes broken this week", count: thisWeekBroken, alarm: thisWeekBroken > 0 },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                title={tab.title}
+                aria-label={`${tab.title}: ${tab.count}`}
+                onClick={() => {
+                  setSide(tab.value);
+                  setSideOpen(true);
+                }}
+                className={`rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${
+                  tab.alarm ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#f2f4f7] text-[#667085]"
+                }`}
+              >
+                {tab.count}
+              </button>
+            ))}
+          </aside>
+        ) : (
+        <aside className="hidden min-h-0 w-[28rem] shrink-0 flex-col lg:flex" aria-label={side === "wishes" ? "Teacher wishes" : "Classes to place"}>
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
+          {/*
+            * Beside the week: the classes to place, or what the plan does to the teachers' wishes.
+            * Two tabs on one line, the one open underlined, each with its count in a pill; the
+            * wishes' three views beside them; and the fold, for the week to have the whole width.
+            */}
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-[#e4e8ef] pr-1">
+          <div role="tablist" aria-label="Beside the week" className="flex">
+            {(
+              [
+                {
+                  value: "tray",
+                  label: "To place",
+                  title: "Classes to place",
+                  count: trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : String(toPlace.length),
+                  alarm: false,
+                },
+                { value: "wishes", label: "Wishes", title: "Teacher wishes broken this week", count: String(thisWeekBroken), alarm: thisWeekBroken > 0 },
+              ] as const
+            ).map((tab) => {
+              const on = side === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  id={`plan-side-${tab.value}`}
+                  aria-selected={on}
+                  aria-controls="plan-side-panel"
+                  title={tab.title}
+                  onClick={() => setSide(tab.value)}
+                  className={`-mb-px flex items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 py-2 text-sm font-semibold ${
+                    on ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
+                  }`}
+                >
+                  {tab.label}
+                  <span
+                    className={`rounded-full px-1.5 text-[11px] tabular-nums ${
+                      tab.alarm ? "bg-[#fdf3f3] text-[#a6292f]" : on ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {side === "wishes" ? (
+            <div role="group" aria-label="Which wishes" className="ml-auto flex rounded-md bg-[#f2f4f7] p-0.5">
+              {WISH_VIEWS.map((option) => {
+                const on = wishView === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setWishView(option.value)}
+                    className={`whitespace-nowrap rounded px-1 py-0.5 text-[11px] font-semibold ${
+                      on ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Fold the side panel away"
+            title="Fold the side panel away"
+            onClick={() => setSideOpen(false)}
+            className={`${side === "wishes" ? "" : "ml-auto"} shrink-0 rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]`}
+          >
+            <ChevronsRight size={16} aria-hidden="true" />
+          </button>
+          </div>
+          <div id="plan-side-panel" role="tabpanel" aria-labelledby={`plan-side-${side}`} className="flex min-h-0 flex-1 flex-col">
+          {side === "wishes" ? (
+            <PlanWishesPanel
+              check={wishCheck}
+              collection={wishSemester.data?.collection ?? null}
+              week={weekNo}
+              view={wishView}
+              onFocus={(teacherId) => setPicked(teacherId)}
+              failed={wishSemester.isError ? "The teachers' wishes could not be read." : undefined}
+            />
+          ) : (
+          <>
           <div className="grid shrink-0 gap-2 border-b border-[#eef1f5] px-3 py-2.5">
             {/* The search, and the order as an icon beside it rather than a row of its own. */}
             <div className="flex items-center gap-1.5">
@@ -787,31 +1052,16 @@ export function SemesterPlan({
                 />
               </label>
               <SortMenu value={traySort} options={TRAY_SORT} onChange={setTraySort} />
+              <FilterMenu options={TRAY_SHOW.map((option) => ({ ...option, count: trayCounts[option.value] }))} chosen={trayFilters} onToggle={toggleTray} />
             </div>
-            {/* Which of them, as chips that say how many each holds and wrap rather than cut a word. */}
-            <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
-              {TRAY_SHOW.map((option) => {
-                const on = trayShow === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setTrayShow(option.value)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                      on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
-                    }`}
-                  >
-                    {option.label}
-                    <span
-                      className={`rounded-full px-1.5 tabular-nums ${on ? "bg-white/20 text-white" : "bg-[#eef1f5] text-[#667085]"}`}
-                    >
-                      {trayCounts[option.value]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <FilterPills
+              shortcut={{ label: "Still to place", count: trayCounts["to-place"] }}
+              on={trayFilters.includes("to-place")}
+              onShortcut={() => toggleTray("to-place")}
+              pills={trayFilters
+                .filter((show) => show !== "to-place")
+                .map((show) => ({ key: show, label: TRAY_SHOW.find((option) => option.value === show)?.label ?? show, onRemove: () => toggleTray(show) }))}
+            />
           </div>
           <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto">
             {trayShown.map((section) => {
@@ -850,6 +1100,12 @@ export function SemesterPlan({
                   onDragStart={(event) => {
                     event.dataTransfer.setData(SECTION_DRAG, section.id);
                     event.dataTransfer.effectAllowed = "copy";
+                    setHeld(section.teacherId ?? "");
+                    setDragging(section.id);
+                  }}
+                  onDragEnd={() => {
+                    setHeld("");
+                    setDragging("");
                   }}
                   className="cursor-grab px-3 py-2 hover:bg-[#f8fafc] active:cursor-grabbing"
                 >
@@ -862,6 +1118,11 @@ export function SemesterPlan({
                       <p className="truncate text-xs text-[#667085]">
                         {(section.places.length ? facts.slice(1) : facts).filter(Boolean).join(" · ")}
                       </p>
+                      {wishSemester.data?.collection && section.teacherId && !answeredIds.has(section.teacherId) ? (
+                        <span className="mt-0.5 inline-block rounded-full bg-[#f2f4f7] px-1.5 text-[11px] text-[#667085]">
+                          no wishes
+                        </span>
+                      ) : null}
                       <div className="mt-1 flex items-center gap-2">
                         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[#eef1f5]">
                           <div className={`h-full ${over ? "bg-[#d92d20]" : share >= 1 ? "bg-[#2f6b3d]" : "bg-[#1f4e79]"}`} style={{ width: `${share * 100}%` }} />
@@ -909,8 +1170,12 @@ export function SemesterPlan({
               </li>
             ) : null}
           </ul>
+          </>
+          )}
+          </div>
           </div>
         </aside>
+        )}
       </div>
 
       {dialog ? (
@@ -919,12 +1184,14 @@ export function SemesterPlan({
           plan={data}
           rooms={rooms.map((room) => room.code)}
           initial={dialog.draft}
+          wishTeachers={wishSemester.data?.collection ? wishTeachers : undefined}
           editing={
             dialog.entry && dialog.series
               ? {
                   week: dialog.entry.week,
                   meetsOn: dialog.entry.meetsOn,
                   seriesWeeks: dialog.series.weeks.length,
+                  seriesId: dialog.series.id,
                   updatedBy: dialog.series.updatedBy,
                   updatedAt: dialog.series.updatedAt,
                 }

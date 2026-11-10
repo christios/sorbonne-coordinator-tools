@@ -18,6 +18,7 @@ from sorbonne.api.programme_codes import router as programme_codes_router
 from sorbonne.api.exemption_reasons import router as exemption_reasons_router
 from sorbonne.api.rooms import router as rooms_router
 from sorbonne.api.semester_plans import router as semester_plans_router
+from sorbonne.api.teacher_wishes import router as teacher_wishes_router
 from sorbonne.api.term_weeks import router as term_weeks_router
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.portal import router as portal_router
@@ -95,6 +96,7 @@ app.include_router(programme_codes_router, prefix="/api/v1")
 app.include_router(exemption_reasons_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(semester_plans_router, prefix="/api/v1")
+app.include_router(teacher_wishes_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
 app.include_router(department_roles_router, prefix="/api/v1")
 app.include_router(pay_rates_router, prefix="/api/v1")

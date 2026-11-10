@@ -1,10 +1,11 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
+import { TeacherWishesPage } from "@/components/TeacherWishesPage";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
@@ -62,6 +63,8 @@ const PAGES = [
   // application of its own beside this one, which put half of what is known about a
   // teacher behind a different front door.
   { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
+  // When each teacher can and can't teach, collected once a semester for the Semester plan.
+  { id: "teacher-wishes", name: "Timetable wishes", icon: CalendarHeart, group: "Portal validation", parent: "teachers" },
   // Where a semester is made and managed; the pages under it pick one.
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The department's own timetable, drawn before the registrar books it: the source a
@@ -169,6 +172,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   "active-teachers": {
     title: "Active teachers",
     blurb: "The department's own list: chosen from the portal, or brought from the Part-time Teacher Database.",
+  },
+  "teacher-wishes": {
+    title: "Timetable wishes",
+    blurb: "When each teacher can and can't teach this semester, and what matters most to them. The Semester plan shades and flags them.",
   },
   semesters: {
     title: "Semesters",
@@ -481,6 +488,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           ) : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
+          {page === "teacher-wishes" ? <TeacherWishesPage header={pageHeader} /> : null}
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (

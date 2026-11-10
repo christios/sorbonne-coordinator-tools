@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from sorbonne.config import config
 from sorbonne.services.account_access import AccountAccess, granted
@@ -101,10 +101,13 @@ def current_user(request: Request) -> dict[str, Any]:
 
 
 class TokenInput(BaseModel):
-    """What a token is for, and how long it should last."""
+    """What a token is for, how long it should last, and whether it may change anything."""
+
+    model_config = ConfigDict(populate_by_name=True)
 
     name: str = Field(default="", max_length=120)
     days: int = Field(default=DEFAULT_LIFETIME_DAYS, ge=1, le=MAX_LIFETIME_DAYS)
+    read_only: bool = Field(default=False, alias="readOnly")
 
 
 def get_tokens() -> ApiTokenStore:
@@ -145,7 +148,7 @@ def create_token(
 ) -> dict[str, Any]:
     """Mint one. The token is in this answer and nowhere else, ever again."""
     user = _at_the_keyboard(request)
-    minted = tokens.mint(name=body.name, email=user.email, days=body.days)
+    minted = tokens.mint(name=body.name, email=user.email, days=body.days, read_only=body.read_only)
     return {"token": minted.token, "record": minted.record}
 
 
