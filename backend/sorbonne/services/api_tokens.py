@@ -7,6 +7,10 @@ identity and nothing more. Whether they are still admitted, and whether they adm
 the application, is read from the staff list on every request just as it is for the
 cookie — so a token outlives neither the person's access nor their expiry date.
 
+A token may be read-only: it reads what its maker can read and changes nothing, which is
+the one to hand a report or another department's tool. The gate refuses its every request
+but a GET, so no route has to remember to ask.
+
 Only a hash of the token is kept. The token itself exists once, in the answer to the
 request that made it; if it is lost it is revoked and another is made.
 """
@@ -65,6 +69,7 @@ def _row(row: Any) -> dict[str, Any]:
         "expiresAt": row["expires_at"],
         "lastUsedAt": row["last_used_at"],
         "revokedAt": row["revoked_at"],
+        "readOnly": bool(row["read_only"]),
     }
 
 
@@ -72,7 +77,9 @@ class ApiTokenStore:
     def __init__(self, database_url: str) -> None:
         self.engine = engine_for(database_url)
 
-    def mint(self, *, name: str, email: str, days: int = DEFAULT_LIFETIME_DAYS) -> MintedToken:
+    def mint(
+        self, *, name: str, email: str, days: int = DEFAULT_LIFETIME_DAYS, read_only: bool = False
+    ) -> MintedToken:
         """Make a token for one coordinator. Shown once, kept as a hash."""
         cleaned = " ".join(str(name or "").split()) or "Untitled token"
         lifetime = max(1, min(int(days or DEFAULT_LIFETIME_DAYS), MAX_LIFETIME_DAYS))
@@ -85,12 +92,15 @@ class ApiTokenStore:
             "email": email.strip().casefold(),
             "created_at": _now().isoformat(),
             "expires_at": (_now() + timedelta(days=lifetime)).isoformat(),
+            "read_only": bool(read_only),
         }
         with self.engine.begin() as connection:
             connection.execute(
                 text("""INSERT INTO api_tokens
-                            (id, name, token_hash, prefix, email, created_at, expires_at, last_used_at, revoked_at)
-                        VALUES (:id, :name, :token_hash, :prefix, :email, :created_at, :expires_at, '', '')"""),
+                            (id, name, token_hash, prefix, email, created_at, expires_at, last_used_at, revoked_at,
+                             read_only)
+                        VALUES (:id, :name, :token_hash, :prefix, :email, :created_at, :expires_at, '', '',
+                                :read_only)"""),
                 record,
             )
         return MintedToken(token=token, record={**_row({**record, "last_used_at": "", "revoked_at": ""})})
@@ -153,7 +163,7 @@ class ApiTokenStore:
             if access is None:
                 return None
             self._touch(connection, row)
-        return StaffUser(email=email, name=email, is_admin=access.is_admin)
+        return StaffUser(email=email, name=email, is_admin=access.is_admin, read_only=bool(row["read_only"]))
 
     @staticmethod
     def _touch(connection: Any, row: Any) -> None:
