@@ -4,8 +4,8 @@
                        grid shows, how many wishes may be a Must, and how much can't-teach
                        time a teacher may claim before having to say why
     teacher_wishes     one teacher's answer for one semester: the week painted can't / prefer,
-                       limits on their week, dates away, room needs, a note, and which of the
-                       wishes are a Must
+                       limits on their week, dates away, room needs, a note, which of the
+                       wishes are a Must, and a comment on any of them
 
 Both are keyed by the semester's portal term (262720), like the active lists, and a teacher by
 their Active teachers record.
@@ -67,6 +67,7 @@ def upgrade() -> None:
         sa.Column("needs", sa.Text(), nullable=False, server_default=""),
         sa.Column("note", sa.Text(), nullable=False, server_default=""),
         sa.Column("levels", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("comments", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("over_cap_reason", sa.Text(), nullable=False, server_default=""),
         sa.Column("source", sa.Text(), nullable=False, server_default="coordinator"),
         sa.Column("submitted_at", sa.Text(), nullable=False, server_default=""),

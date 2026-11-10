@@ -1,12 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarHeart, Settings } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { WishesForm } from "@/components/WishesForm";
+import { WishesSummary, answeredBy } from "@/components/WishesSummary";
 import {
   COLLECTION_DEFAULTS,
   DAY_SHORT,
@@ -161,8 +163,26 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
     retry: false,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [answering, setAnswering] = useState<WishTeacher | null>(null);
+  /*
+   * The teacher whose wishes are open: their answer to read, or the form. An answer given is
+   * read first, and changed only through "Edit their answer"; nobody's is changed by a slip.
+   */
+  const [answering, setAnswering] = useState<{ row: WishTeacher; editing: boolean } | null>(null);
   const [error, setError] = useState("");
+  // The form differs from what it opened with: closing it then asks first.
+  const dirty = useRef(false);
+  const [discarding, setDiscarding] = useState<"close" | "back" | null>(null);
+  const leave = (to: "close" | "back") => {
+    dirty.current = false;
+    setDiscarding(null);
+    setError("");
+    setAnswering((current) => (to === "back" && current?.row.wishes ? { ...current, editing: false } : null));
+  };
+  const askToLeave = (to: "close" | "back") => {
+    if (discarding) return;
+    if (answering?.editing && dirty.current) setDiscarding(to);
+    else leave(to);
+  };
 
   const refresh = () => client.invalidateQueries({ queryKey: ["wishes", term] });
   const open = useMutation({
@@ -178,6 +198,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
     mutationFn: ({ teacherId, input }: { teacherId: string; input: WishesInput }) => saveWishes(term, teacherId, input),
     onSuccess: async () => {
       await refresh();
+      dirty.current = false;
       setAnswering(null);
       setError("");
     },
@@ -304,7 +325,8 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                           type="button"
                           onClick={() => {
                             setError("");
-                            setAnswering(row);
+                            dirty.current = false;
+                            setAnswering({ row, editing: !row.wishes });
                           }}
                           aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s wishes`}
                           className="text-xs font-semibold text-[#1f4e79] hover:underline"
@@ -343,21 +365,59 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         <Modal
           open
           size="wide"
-          closeOnOutsideClick={false}
-          title={`${answering.name}'s wishes`}
-          description={`${semesterName}${answering.wishes ? ` · ${STATUS[answering.wishes.status].words.toLowerCase()}` : ""}. Saved here as entered by you.`}
-          onClose={() => setAnswering(null)}
+          title={answering.row.wishes ? `${answering.row.name}'s wishes` : `Answer for ${answering.row.name}`}
+          description={`${semesterName}${answering.row.wishes ? ` · ${STATUS[answering.row.wishes.status].words.toLowerCase()}` : ""}`}
+          onClose={() => askToLeave("close")}
         >
-          <WishesForm
-            collection={collection}
-            initial={answering.wishes}
-            busy={save.isPending}
-            error={error}
-            onSave={(input) => save.mutate({ teacherId: answering.teacherId, input })}
-            onCancel={() => setAnswering(null)}
-          />
+          {answering.editing ? (
+            <WishesForm
+              collection={collection}
+              initial={answering.row.wishes}
+              busy={save.isPending}
+              error={error}
+              noticeTone={answering.row.wishes ? "warning" : "info"}
+              notice={
+                answering.row.wishes ? (
+                  <>
+                    You&rsquo;re changing {answering.row.name}&rsquo;s answer. {answeredBy(answering.row.name, answering.row.wishes)}. What you
+                    save replaces it, as entered by you.
+                  </>
+                ) : (
+                  <>
+                    You&rsquo;re answering on <b>{answering.row.name}</b>&rsquo;s behalf, from what they told you. It&rsquo;s kept as
+                    entered by you.
+                  </>
+                )
+              }
+              onDirtyChange={(changed) => {
+                dirty.current = changed;
+              }}
+              onSave={(input) => save.mutate({ teacherId: answering.row.teacherId, input })}
+              onCancel={() => askToLeave("back")}
+            />
+          ) : answering.row.wishes ? (
+            <WishesSummary
+              name={answering.row.name}
+              collection={collection}
+              wishes={answering.row.wishes}
+              onEdit={() => {
+                setError("");
+                dirty.current = false;
+                setAnswering({ ...answering, editing: true });
+              }}
+            />
+          ) : null}
         </Modal>
       ) : null}
+      <ConfirmDialog
+        open={Boolean(discarding)}
+        title="Discard your changes?"
+        description={`What you changed in ${answering?.row.name ?? "this teacher"}'s wishes hasn't been saved.`}
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        onConfirm={() => discarding && leave(discarding)}
+        onClose={() => setDiscarding(null)}
+      />
     </section>
   );
 }

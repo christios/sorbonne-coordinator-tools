@@ -20,7 +20,6 @@ export function Modal({
   children,
   size = "default",
   header,
-  closeOnOutsideClick = true,
 }: {
   open: boolean;
   title: string;
@@ -32,11 +31,6 @@ export function Modal({
   size?: "default" | "wide";
   /** Something to sit under the title — pills, a summary line. */
   header?: ReactNode;
-  /**
-   * False for a long form that is filled in at length: one stray click beside it would
-   * throw away everything entered. Escape and the close button still close it.
-   */
-  closeOnOutsideClick?: boolean;
 }) {
   const titleId = useId();
 
@@ -63,7 +57,7 @@ export function Modal({
       // The whole screen on a phone: a record in a box with a margin round it left a
       // letterbox to read through. A floating panel from `sm` up.
       className="fixed inset-0 z-[90] grid place-items-center bg-[#101828]/35 sm:p-4"
-      onMouseDown={closeOnOutsideClick ? onClose : undefined}
+      onMouseDown={onClose}
     >
       <section
         role="dialog"

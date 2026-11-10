@@ -58,6 +58,7 @@ class AnswerInput(BaseModel):
     needs: str = Field(default="", max_length=1000)
     note: str = Field(default="", max_length=2000)
     levels: dict[str, str] = Field(default_factory=dict)
+    comments: dict[str, str] = Field(default_factory=dict)
     overCapReason: str = Field(default="", max_length=1000)
     submit: bool = False
 

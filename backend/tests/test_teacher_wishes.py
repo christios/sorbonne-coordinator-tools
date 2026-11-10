@@ -147,6 +147,20 @@ def test_a_rank_for_a_wish_no_longer_there_is_dropped(client: TestClient):
     assert saved["levels"] == {"cant:14-16:2": "must"}
 
 
+def test_a_wish_keeps_its_comment_while_the_answer_still_makes_it(client: TestClient):
+    opened(client)
+    saved = client.put(
+        f"{AT}/{TERM}/wish-test-bilal",
+        json={
+            "cells": cant(2, 14, 16),
+            "limits": {"maxDays": 3},
+            "comments": {"cant:14-16:2": "  School   run ", "maxDays": "Lab days", "cant:8-9:1": "gone", "freeDay": ""},
+        },
+    ).json()
+    assert saved["comments"] == {"cant:14-16:2": "School run", "maxDays": "Lab days"}
+    assert [line["comment"] for line in saved["lines"]] == ["School run", "Lab days"]
+
+
 def test_dates_away_end_on_or_after_they_start(client: TestClient):
     opened(client)
     refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"away": [{"from": "2027-03-19", "to": "2027-03-15"}]})

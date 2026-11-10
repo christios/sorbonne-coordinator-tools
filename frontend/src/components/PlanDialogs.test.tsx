@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { PlanClassDialog, PlanSettingsDialog, ScopeDialog, WeekPicker } from "@/components/PlanDialogs";
@@ -153,22 +153,43 @@ describe("a class beside its teacher's wishes", () => {
       />,
     );
 
-  it("lists them Musts first, and marks the ones the time chosen breaks", () => {
+  it("folds them to a line, and opens to the list, Musts first, the ones this time breaks marked", () => {
     open(
       bilal({
         status: "submitted", cells: [], limits: { freeDay: 1 }, away: [{ from: "2027-02-01", to: "2027-02-05", reason: "conference" }],
-        needs: "A lab", note: "", levels: {}, overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
+        needs: "A lab", note: "", levels: {}, comments: {}, overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
         lines: [
-          { key: "freeDay", kind: "freeDay", value: 1, level: "would" },
-          { key: "cant:14-18:2", kind: "cant", days: [2], from: 14, to: 18, level: "must" },
+          { key: "freeDay", kind: "freeDay", value: 1, level: "would", comment: "" },
+          { key: "cant:14-18:2", kind: "cant", days: [2], from: 14, to: 18, level: "must", comment: "School run" },
         ],
       }),
       2,
     );
-    const items = screen.getAllByRole("listitem").map((item) => item.textContent);
-    expect(items).toEqual(["MustCan't teach Tue 14:00–18:00— this time breaks it", "Would likeMonday free"]);
+    expect(screen.getByText("1 Must · 1 Would like")).toBeTruthy();
+    expect(screen.getByText("· 1 broken at this time")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Bilal Maaz's wishes" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    const items = within(screen.getByRole("list", { name: "Bilal Maaz's wishes" }))
+      .getAllByRole("listitem")
+      .map((item) => item.textContent);
+    expect(items).toEqual(["MustCan't teach Tue 14:00–18:00 — this time breaks it“School run”", "Would likeMonday free"]);
     expect(screen.getByText(/Away 1 Feb–5 Feb \(conference\)/)).toBeTruthy();
     expect(screen.getByText("Needs: A lab")).toBeTruthy();
+  });
+
+  it("says first what goes wrong at the time chosen", () => {
+    open(
+      bilal({
+        status: "submitted", cells: [14, 15, 16, 17].map((hour) => ({ day: 2, hour, kind: "cant" as const })), limits: {}, away: [],
+        needs: "", note: "", levels: { "cant:14-18:2": "must" }, comments: { "cant:14-18:2": "School run" }, overCapReason: "",
+        source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
+        lines: [{ key: "cant:14-18:2", kind: "cant", days: [2], from: 14, to: 18, level: "must", comment: "School run" }],
+      }),
+      2,
+    );
+    const strip = screen.getByRole("status");
+    expect(strip.textContent).toContain("1 problem at this time");
+    expect(within(strip).getByText("Must · Bilal Maaz: Can't teach Tue 14:00–18:00 — “School run”")).toBeTruthy();
   });
 
   it("says when the teacher hasn't answered", () => {

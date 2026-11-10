@@ -5,7 +5,8 @@
  * week, dates away, room needs and a note. Its *wishes* are the lines a teacher ranks: each
  * block of can't-teach hours (the same hours on several days are one line), their preferred
  * hours as one line, and each limit. A wish is a Must or a Would like; no more than the
- * semester's quota may be a Must. The server keeps the same rule (`wish_lines`).
+ * semester's quota may be a Must. The server keeps the same rule (`wish_lines`). Any wish
+ * may carry a comment — why it matters — which the plan shows beside it when it is broken.
  *
  * The Semester plan reads the answers to shade a teacher's week and to flag every placed
  * class that breaks a wish — and a teacher's dates away, which are facts rather than wishes.
@@ -39,9 +40,9 @@ export type WishCollection = {
 };
 
 export type WishLine =
-  | { key: string; kind: "cant"; days: number[]; from: number; to: number; level?: WishLevel }
-  | { key: "prefer"; kind: "prefer"; level?: WishLevel }
-  | { key: keyof WishLimits; kind: keyof WishLimits; value: number; level?: WishLevel };
+  | { key: string; kind: "cant"; days: number[]; from: number; to: number; level?: WishLevel; comment?: string }
+  | { key: "prefer"; kind: "prefer"; level?: WishLevel; comment?: string }
+  | { key: keyof WishLimits; kind: keyof WishLimits; value: number; level?: WishLevel; comment?: string };
 
 export type Wishes = {
   status: "draft" | "submitted";
@@ -51,7 +52,9 @@ export type Wishes = {
   needs: string;
   note: string;
   levels: Record<string, WishLevel>;
-  lines: (WishLine & { level: WishLevel })[];
+  /** Why a wish matters, by its key: "School run", "Lab days". */
+  comments: Record<string, string>;
+  lines: (WishLine & { level: WishLevel; comment: string })[];
   overCapReason: string;
   source: string;
   submittedAt: string;
@@ -62,7 +65,7 @@ export type Wishes = {
 export type WishTeacher = { teacherId: string; name: string; email: string; wishes: Wishes | null };
 export type WishSemester = { collection: WishCollection | null; teachers: WishTeacher[] };
 
-export type WishesInput = Pick<Wishes, "cells" | "limits" | "away" | "needs" | "note" | "levels" | "overCapReason"> & {
+export type WishesInput = Pick<Wishes, "cells" | "limits" | "away" | "needs" | "note" | "levels" | "comments" | "overCapReason"> & {
   submit: boolean;
 };
 
@@ -208,6 +211,56 @@ export function periodShading(periods: Period[], dates: { date: string; weekday:
   return shaded;
 }
 
+/**
+ * The wish a painted hour is part of: its can't-teach block, or the preferred hours. Null for
+ * an hour left white.
+ */
+export function lineOfCell(lines: WishLine[], day: number, hour: number, kind: WishKind | undefined): WishLine | null {
+  if (kind === "prefer") return lines.find((line) => line.kind === "prefer") ?? null;
+  if (kind !== "cant") return null;
+  return lines.find((line) => line.kind === "cant" && line.days.includes(day) && line.from <= hour && hour < line.to) ?? null;
+}
+
+/**
+ * Carry a ranking and its comment over to the wishes a repaint makes. Stretching Tuesday
+ * 14:00–18:00 to 19:00, or adding Thursday to it, makes a wish with a new key; it is still
+ * the same wish to the teacher, so it keeps its Must and its comment. Two wishes painted
+ * into one keep the stronger rank; one cut in two gives its Must to the first half only, so
+ * a repaint never takes an answer past its quota.
+ */
+export function carryOver(
+  before: WishLine[],
+  after: WishLine[],
+  levels: Record<string, WishLevel>,
+  comments: Record<string, string>,
+): { levels: Record<string, WishLevel>; comments: Record<string, string> } {
+  const nextLevels: Record<string, WishLevel> = {};
+  const nextComments: Record<string, string> = {};
+  const given = new Set<string>();
+  const sameWish = (old: WishLine, now: WishLine) =>
+    old.kind === now.kind &&
+    (old.kind !== "cant" ||
+      (now.kind === "cant" && old.days.some((day) => now.days.includes(day)) && old.from < now.to && now.from < old.to));
+  for (const now of after) {
+    if (levels[now.key]) nextLevels[now.key] = levels[now.key];
+    if (comments[now.key]) nextComments[now.key] = comments[now.key];
+    // Only a can't-teach block changes its key as it is repainted; the others keep theirs.
+    if (now.kind !== "cant" || before.some((old) => old.key === now.key)) continue;
+    for (const old of before.filter((each) => sameWish(each, now))) {
+      if (!levels[now.key]) {
+        if (levels[old.key] === "must" && !given.has(old.key)) {
+          nextLevels[now.key] = "must";
+          given.add(old.key);
+        } else if (levels[old.key] && nextLevels[now.key] !== "must") {
+          nextLevels[now.key] = "would";
+        }
+      }
+      if (!comments[now.key] && comments[old.key] && !nextComments[now.key]) nextComments[now.key] = comments[old.key];
+    }
+  }
+  return { levels: nextLevels, comments: nextComments };
+}
+
 /** Hours painted can't-teach, against the semester's cap. */
 export const cantHours = (cells: WishCell[]) => cells.filter((cell) => cell.kind === "cant").length;
 
@@ -242,6 +295,8 @@ export type Breach = {
   level: WishLevel;
   /** "Can't teach Tue 14:00–18:00", "Away 15–19 Mar (Conference)". */
   wish: string;
+  /** Why it matters, in the teacher's words, if they said: "School run". */
+  comment: string;
   /** What breaks it: "MATH-114 TD 2, Tue 15:00", or "3 days: Mon, Tue, Wed". */
   how: string;
   week: number;
@@ -316,6 +371,7 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
     const wishes = row.wishes;
     const lines = wishLines(wishes.cells, wishes.limits);
     const levelOf = (key: string): WishLevel => wishes.levels[key] ?? "would";
+    const commentOf = (key: string) => wishes.comments?.[key] ?? "";
     const prefer = new Set(wishes.cells.filter((cell) => cell.kind === "prefer").map((cell) => `${cell.day}:${cell.hour}`));
     const add = (key: string, level: WishLevel, wish: string, how: string, week: number, classes: PlanClass[]) => {
       const same = breaches.find((each) => each.teacherId === teacherId && each.key === key && each.week === week);
@@ -324,7 +380,19 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
         if (!same.how.includes(how)) same.how = `${same.how}; ${how}`;
         return;
       }
-      breaches.push({ about: "teacher", teacherId, teacherName: row.name, key, level, wish, how, week, classes: [...classes] });
+      breaches.push({
+        about: "teacher",
+        teacherId,
+        teacherName: row.name,
+        key,
+        level,
+        wish,
+        // Dates away say theirs in the wish itself: "Away 15–19 Mar (Conference)".
+        comment: key.startsWith("away:") ? "" : commentOf(key),
+        how,
+        week,
+        classes: [...classes],
+      });
     };
 
     const byWeek = new Map<number, PlanClass[]>();
@@ -425,6 +493,7 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
           key,
           level: "must",
           wish: periodWords(period),
+          comment: "",
           how,
           week: entry.week,
           classes: [entry],
@@ -441,7 +510,9 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       const words =
         breach.about === "period"
           ? `Everybody · ${breach.wish}`
-          : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}`;
+          : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}${
+              breach.comment ? ` — “${breach.comment}”` : ""
+            }`;
       // What binds first, first: a Must or a period before a wish.
       if (!flag.said.includes(words)) flag.said[breach.level === "must" ? "unshift" : "push"](words);
       flags.set(entry, flag);

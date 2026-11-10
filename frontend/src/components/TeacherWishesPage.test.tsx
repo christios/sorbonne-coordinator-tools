@@ -1,0 +1,89 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { TeacherWishesPage } from "@/components/TeacherWishesPage";
+import * as wishes from "@/services/teacherWishes";
+
+vi.mock("@/components/PortalSemesterMenu", () => ({
+  usePortalSemester: () => ({ semesters: [], semester: { id: "s2", name: "Semester 2" }, setTermId: () => {}, term: "262720", settled: true }),
+  PortalSemesterMenu: () => null,
+}));
+
+const SEMESTER: wishes.WishSemester = {
+  collection: {
+    termCode: "262720", deadline: "2026-12-10", message: "", days: [1, 2, 3, 4, 5], firstHour: 8, lastHour: 19,
+    mustQuota: 3, cantCap: 12, openedAt: "", openedBy: "",
+  },
+  teachers: [
+    {
+      teacherId: "t-valerie",
+      name: "Valerie Le Guyon",
+      email: "",
+      wishes: {
+        status: "submitted", cells: [14, 15].map((hour) => ({ day: 2, hour, kind: "cant" as const })), limits: { maxDays: 3 }, away: [],
+        needs: "", note: "Mornings are best", levels: { "cant:14-16:2": "must" }, comments: { "cant:14-16:2": "School run" },
+        lines: [], overCapReason: "", source: "teacher", submittedAt: "2026-11-09T10:00:00Z", updatedAt: "2026-11-09T10:00:00Z", updatedBy: "",
+      },
+    },
+    { teacherId: "t-jad", name: "Jad Tarsissi", email: "", wishes: null },
+  ],
+};
+
+const page = () =>
+  render(
+    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <TeacherWishesPage />
+    </QueryClientProvider>,
+  );
+
+beforeEach(() => {
+  vi.spyOn(wishes, "fetchWishSemester").mockResolvedValue(SEMESTER);
+});
+
+describe("a teacher's answer, opened from the list", () => {
+  it("is read first, and changed only through Edit their answer, with a warning", async () => {
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Open Valerie Le Guyon's wishes" }));
+    expect(screen.getByText(/Submitted by Valerie Le Guyon/)).toBeTruthy();
+    expect(screen.getByText("“School run”")).toBeTruthy();
+    expect(screen.getByText("At most 3 days on campus")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit their answer" }));
+    expect(screen.getByRole("note").textContent).toMatch(/You’re changing Valerie Le Guyon’s answer/);
+    expect(screen.getByRole("button", { name: "Submit" })).toBeTruthy();
+  });
+
+  it("is answered on the teacher's behalf when they have not, and says so", async () => {
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
+    expect(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeTruthy();
+    expect(screen.getByText(/on .*behalf/)).toBeTruthy();
+  });
+});
+
+describe("closing the wishes window", () => {
+  it("closes at once when nothing has changed, from a click beside it", async () => {
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" }).parentElement as HTMLElement);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeNull());
+  });
+
+  it("asks first when something has, and keeps editing or lets it go", async () => {
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Monday 9:00: / }));
+    fireEvent.mouseDown(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" }).parentElement as HTMLElement);
+    expect(screen.getByRole("dialog", { name: "Discard your changes?" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
+    expect(screen.queryByRole("dialog", { name: "Discard your changes?" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Monday 9:00: can't teach/ })).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.queryByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeNull();
+  });
+});

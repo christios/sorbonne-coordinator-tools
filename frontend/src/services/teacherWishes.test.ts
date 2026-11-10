@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { Plan, PlanClass, PlanSection } from "@/services/semesterPlans";
-import { checkWishes, shadingOf, wishLines, type WishCell, type WishTeacher, type Wishes } from "@/services/teacherWishes";
+import { carryOver, checkWishes, lineOfCell, shadingOf, wishLines, type WishCell, type WishTeacher, type Wishes } from "@/services/teacherWishes";
 
 const cant = (day: number, from: number, to: number): WishCell[] =>
   Array.from({ length: to - from }, (_, index) => ({ day, hour: from + index, kind: "cant" as const }));
@@ -53,10 +53,41 @@ const answered = (teacherId: string, name: string, wishes: Partial<Wishes>): Wis
   teacherId,
   name,
   email: "",
-  wishes: { status: "submitted", cells: [], limits: {}, away: [], needs: "", note: "", levels: {}, lines: [], overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "", ...wishes },
+  wishes: { status: "submitted", cells: [], limits: {}, away: [], needs: "", note: "", levels: {}, comments: {}, lines: [], overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "", ...wishes },
+});
+
+describe("a painted hour and the wish it is part of", () => {
+  const lines = wishLines([...cant(2, 14, 18), ...cant(4, 14, 18), { day: 1, hour: 9, kind: "prefer" }], {});
+
+  it("finds the block an hour belongs to, on any of its days, or the preferred hours", () => {
+    expect(lineOfCell(lines, 4, 16, "cant")?.key).toBe("cant:14-18:2,4");
+    expect(lineOfCell(lines, 1, 9, "prefer")?.key).toBe("prefer");
+    expect(lineOfCell(lines, 3, 16, undefined)).toBeNull();
+  });
+
+  it("keeps a block's Must and comment when it is painted longer, and gives a split Must to one half only", () => {
+    const before = wishLines(cant(2, 14, 18), {});
+    const longer = wishLines(cant(2, 14, 19), {});
+    expect(carryOver(before, longer, { "cant:14-18:2": "must" }, { "cant:14-18:2": "School run" })).toEqual({
+      levels: { "cant:14-19:2": "must" },
+      comments: { "cant:14-19:2": "School run" },
+    });
+    const split = wishLines([...cant(2, 14, 15), ...cant(2, 16, 18)], {});
+    expect(carryOver(before, split, { "cant:14-18:2": "must" }, {}).levels).toEqual({ "cant:14-15:2": "must", "cant:16-18:2": "would" });
+  });
 });
 
 describe("a plan read against the teachers' wishes", () => {
+  it("says why a broken wish matters, in the teacher's words, on the class's flag", () => {
+    const tuesday = at("td2", 2, "15:00", "17:00");
+    const plan = { sections: SECTIONS, classes: [tuesday], periods: [] } as unknown as Plan;
+    const check = checkWishes(plan, [
+      answered("bilal", "Bilal Maaz", { cells: cant(2, 14, 18), levels: { "cant:14-18:2": "must" }, comments: { "cant:14-18:2": "School run" } }),
+    ]);
+    expect(check.breaches[0].comment).toBe("School run");
+    expect(check.flags.get(tuesday)?.said).toEqual(["Must · Bilal Maaz: Can't teach Tue 14:00–18:00 — “School run”"]);
+  });
+
   it("flags a class in a teacher's can't-teach hours red when it is a Must", () => {
     const tuesday = at("td2", 2, "15:00", "17:00");
     const plan = { sections: SECTIONS, classes: [tuesday], periods: [] } as unknown as Plan;

@@ -1,5 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PlanWishesPanel } from "@/components/PlanWishesPanel";
 import type { Breach, WishCheck } from "@/services/teacherWishes";
@@ -11,6 +11,7 @@ const tuesday = (week: number): Breach => ({
   key: "cant:14-18:2",
   level: "must",
   wish: "Can't teach Tue 14:00–18:00",
+  comment: "",
   how: "PHYS-118 CM 1, Tue 15:00",
   week,
   classes: [],
@@ -26,6 +27,8 @@ const CHECK = {
   unanswered: ["Bilal Maaz"],
 } as unknown as WishCheck;
 
+beforeEach(() => window.localStorage.clear());
+
 describe("the wishes the plan breaks", () => {
   it("says the weeks a wish is broken in as runs, and who has not answered", () => {
     render(<PlanWishesPanel check={CHECK} collection={null} week={2} view="all" onView={() => {}} onFocus={() => {}} />);
@@ -39,5 +42,33 @@ describe("the wishes the plan breaks", () => {
     expect(screen.getByText("0 of 1 Musts · 1 of 1 wishes")).toBeTruthy();
     fireEvent.click(screen.getByText("Jad Tarsissi"));
     expect(onFocus).toHaveBeenCalledWith("t-jad");
+  });
+
+  it("is searched and filtered as the classes to place are, and shows why a wish matters", () => {
+    const jad: Breach = {
+      ...tuesday(2),
+      teacherId: "t-jad",
+      teacherName: "Jad Tarsissi",
+      key: "maxInRow",
+      level: "would",
+      wish: "At most 2 hours in a row",
+      comment: "Voice",
+      how: "3 h in a row on Wed",
+    };
+    const check = { ...CHECK, breaches: [...CHECK.breaches, jad] } as WishCheck;
+    render(<PlanWishesPanel check={check} collection={null} week={2} view="week" onView={() => {}} onFocus={() => {}} />);
+    const list = () => within(screen.getByRole("list", { name: "Broken wishes" }));
+    expect(list().getAllByRole("listitem")).toHaveLength(2);
+    expect(screen.getByText("“Voice”")).toBeTruthy();
+
+    const show = within(screen.getByRole("group", { name: "Show" }));
+    fireEvent.click(show.getByRole("button", { name: /^With a comment/ }));
+    expect(list().getAllByRole("listitem")).toHaveLength(1);
+    expect(list().getByText(/Jad Tarsissi/)).toBeTruthy();
+
+    fireEvent.click(show.getByRole("button", { name: /^All/ }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search wishes" }), { target: { value: "phys-118" } });
+    expect(list().getAllByRole("listitem")).toHaveLength(1);
+    expect(list().getByText(/Valerie Le Guyon/)).toBeTruthy();
   });
 });

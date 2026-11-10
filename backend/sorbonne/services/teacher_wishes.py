@@ -36,6 +36,7 @@ _LIMIT_RANGES = {"maxDays": (1, 6), "maxHoursDay": (1, 12), "maxInRow": (1, 12),
 MOST_AWAY = 20
 SUNDAY, MIDNIGHT = 7, 24
 MOST_MUSTS, MOST_CANT_HOURS = 10, 60
+COMMENT_LENGTH = 300
 
 
 class InvalidWishes(ValueError):
@@ -173,6 +174,12 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
     lines = wish_lines(painted, limits)
     keys = {line["key"] for line in lines}
     levels = {key: level for key, level in (given.get("levels") or {}).items() if key in keys and level in LEVELS}
+    # A comment says why a wish matters: kept only for a wish the answer still makes.
+    comments = {
+        key: said
+        for key, value in (given.get("comments") or {}).items()
+        if key in keys and (said := _words(value, COMMENT_LENGTH))
+    }
     musts = sum(1 for level in levels.values() if level == "must")
     if musts > collection["mustQuota"]:
         quota = collection["mustQuota"]
@@ -192,6 +199,7 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
         "needs": _words(given.get("needs"), 1000),
         "note": str(given.get("note") or "").strip()[:2000],
         "levels": levels,
+        "comments": comments,
         "overCapReason": reason if cant_hours > collection["cantCap"] else "",
         "status": status,
     }
@@ -216,6 +224,7 @@ def _answer(row: Any) -> dict[str, Any]:
     cells = json.loads(row["cells"] or "[]")
     limits = json.loads(row["limits"] or "{}")
     levels = json.loads(row["levels"] or "{}")
+    comments = json.loads(row["comments"] or "{}")
     return {
         "status": row["status"],
         "cells": cells,
@@ -224,7 +233,11 @@ def _answer(row: Any) -> dict[str, Any]:
         "needs": row["needs"],
         "note": row["note"],
         "levels": levels,
-        "lines": [{**line, "level": levels.get(line["key"], "would")} for line in wish_lines(cells, limits)],
+        "comments": comments,
+        "lines": [
+            {**line, "level": levels.get(line["key"], "would"), "comment": comments.get(line["key"], "")}
+            for line in wish_lines(cells, limits)
+        ],
         "overCapReason": row["over_cap_reason"],
         "source": row["source"],
         "submittedAt": row["submitted_at"],
@@ -342,12 +355,13 @@ class WishStore:
             submitted_at = at if values["status"] == "submitted" else (previous or "")
             connection.execute(
                 text("""INSERT INTO teacher_wishes (term_code, teacher_id, status, cells, limits, away, needs, note,
-                            levels, over_cap_reason, source, submitted_at, updated_at, updated_by)
-                        VALUES (:term, :id, :status, :cells, :limits, :away, :needs, :note, :levels, :reason,
-                            :source, :submitted, :at, :by)
+                            levels, comments, over_cap_reason, source, submitted_at, updated_at, updated_by)
+                        VALUES (:term, :id, :status, :cells, :limits, :away, :needs, :note, :levels, :comments,
+                            :reason, :source, :submitted, :at, :by)
                         ON CONFLICT (term_code, teacher_id) DO UPDATE SET status = excluded.status,
                             cells = excluded.cells, limits = excluded.limits, away = excluded.away,
                             needs = excluded.needs, note = excluded.note, levels = excluded.levels,
+                            comments = excluded.comments,
                             over_cap_reason = excluded.over_cap_reason, source = excluded.source,
                             submitted_at = excluded.submitted_at, updated_at = excluded.updated_at,
                             updated_by = excluded.updated_by"""),
@@ -361,6 +375,7 @@ class WishStore:
                     "needs": values["needs"],
                     "note": values["note"],
                     "levels": json.dumps(values["levels"]),
+                    "comments": json.dumps(values["comments"]),
                     "reason": values["overCapReason"],
                     "source": source,
                     "submitted": submitted_at,

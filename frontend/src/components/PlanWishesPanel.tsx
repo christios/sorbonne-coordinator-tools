@@ -1,6 +1,9 @@
-import { Flag } from "lucide-react";
+import { Flag, Search } from "lucide-react";
 
-import type { Breach, WishCheck, WishCollection } from "@/services/teacherWishes";
+import { SelectMenu } from "@/components/SelectMenu";
+import { SortMenu } from "@/components/SortMenu";
+import { usePageState } from "@/components/usePageState";
+import type { Breach, Tally, WishCheck, WishCollection, WishLevel } from "@/services/teacherWishes";
 
 export type WishView = "week" | "all" | "teachers";
 
@@ -10,11 +13,31 @@ const VIEWS: { value: WishView; label: string }[] = [
   { value: "teachers", label: "By teacher" },
 ];
 
-function Level({ breach }: { breach: Pick<Breach, "about" | "level"> }) {
-  if (breach.about === "period") {
+type WishShow = "all" | "must" | "would" | "everybody" | "submitted" | "draft" | "comment";
+type WishSort = "must" | "teacher" | "week" | "classes";
+
+const WISH_SHOW: { value: WishShow; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "must", label: "Must" },
+  { value: "would", label: "Would like" },
+  { value: "everybody", label: "Everybody" },
+  { value: "submitted", label: "Submitted" },
+  { value: "draft", label: "Draft" },
+  { value: "comment", label: "With a comment" },
+];
+const WISH_SORT: { value: WishSort; label: string }[] = [
+  { value: "must", label: "Musts first" },
+  { value: "teacher", label: "Teacher" },
+  { value: "week", label: "Week" },
+  { value: "classes", label: "Classes affected" },
+];
+const EVERY_TEACHER = "";
+
+function Level({ about, level }: { about: Breach["about"]; level: WishLevel | null }) {
+  if (about === "period") {
     return <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Everybody</span>;
   }
-  return breach.level === "must" ? (
+  return level === "must" ? (
     <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Must</span>
   ) : (
     <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Would like</span>
@@ -35,9 +58,31 @@ function weeksSaid(weeks: number[]): string {
 }
 
 /**
+ * One line of the panel, whichever view: a wish broken this week, a wish with every week it is
+ * broken in, or a teacher with how well the plan serves them. Searched, filtered and sorted
+ * the same way in all three.
+ */
+type Item = {
+  key: string;
+  about: Breach["about"];
+  /** For a teacher's line, the worst they have lost; null when nothing is. */
+  level: WishLevel | null;
+  teacherId: string;
+  teacherName: string;
+  status: Tally["status"] | null;
+  comment: boolean;
+  classes: number;
+  weeks: number[];
+  text: string;
+  breach?: Breach;
+  tally?: Tally;
+};
+
+/**
  * The teachers' wishes the plan breaks, beside the week: this week's, every week's, or how
  * well each teacher is served — the least served first, so broken wishes are spread rather
- * than always landing on the same people. A line is pressed to show that teacher's week.
+ * than always landing on the same people. Searched, sorted and filtered as the classes to
+ * place are, in the same layout. A line is pressed to show that teacher's week.
  */
 export function PlanWishesPanel({
   check,
@@ -58,25 +103,195 @@ export function PlanWishesPanel({
   onFocus: (teacherId: string) => void;
   failed?: string;
 }) {
+  const [search, setSearch] = usePageState("semester-plan:wish-search", "");
+  const [show, setShow] = usePageState<WishShow>("semester-plan:wish-show", "all");
+  const [sort, setSort] = usePageState<WishSort>("semester-plan:wish-sort", "must");
+  const [teacher, setTeacher] = usePageState("semester-plan:wish-teacher", EVERY_TEACHER);
+
   const breaches = check?.breaches ?? [];
-  const thisWeek = breaches.filter((breach) => breach.week === week);
-  const order = (left: Breach, right: Breach) =>
-    Number(left.level !== "must") - Number(right.level !== "must") || left.teacherName.localeCompare(right.teacherName);
+  const tallies = check?.tallies ?? [];
+  const statusOf = new Map(tallies.map((tally) => [tally.teacherId, tally.status]));
+  const fromBreach = (breach: Breach, key: string, weeks: number[], classes: number): Item => ({
+    key,
+    about: breach.about,
+    level: breach.level,
+    teacherId: breach.teacherId,
+    teacherName: breach.teacherName,
+    status: statusOf.get(breach.teacherId) ?? null,
+    comment: Boolean(breach.comment),
+    classes,
+    weeks,
+    text: [breach.teacherName, breach.wish, breach.how, breach.comment].join(" ").toLowerCase(),
+    breach,
+  });
+
+  // This week's, one line for each wish broken.
+  const weekItems = breaches
+    .filter((breach) => breach.week === week)
+    .map((breach, index) => fromBreach(breach, `${breach.about}|${breach.teacherId}|${breach.key}|${index}`, [breach.week], breach.classes.length));
 
   // Every week's, one line per wish broken, with the weeks it is broken in.
-  const grouped = new Map<string, { breach: Breach; weeks: number[]; classes: number }>();
+  const grouped = new Map<string, { breach: Breach; weeks: number[]; classes: number; how: string[] }>();
   for (const breach of breaches) {
     const key = `${breach.about}|${breach.teacherId}|${breach.key}`;
-    const held = grouped.get(key) ?? { breach, weeks: [], classes: 0 };
+    const held = grouped.get(key) ?? { breach, weeks: [], classes: 0, how: [] };
     held.weeks.push(breach.week);
     held.classes += breach.classes.length;
+    held.how.push(breach.how);
     grouped.set(key, held);
   }
+  const allItems = [...grouped.entries()].map(([key, held]) => {
+    const item = fromBreach(held.breach, key, held.weeks, held.classes);
+    return { ...item, text: `${item.text} ${held.how.join(" ").toLowerCase()}` };
+  });
+
+  // A teacher each, with the worst they have lost.
+  const teacherItems = tallies.map<Item>((tally) => {
+    const theirs = breaches.filter((breach) => breach.about === "teacher" && breach.teacherId === tally.teacherId);
+    return {
+      key: tally.teacherId,
+      about: "teacher",
+      level: tally.musts > tally.mustsKept ? "must" : tally.woulds > tally.wouldsKept ? "would" : null,
+      teacherId: tally.teacherId,
+      teacherName: tally.teacherName,
+      status: tally.status,
+      comment: theirs.some((breach) => breach.comment),
+      classes: new Set(theirs.flatMap((breach) => breach.classes)).size,
+      weeks: theirs.map((breach) => breach.week),
+      text: [tally.teacherName, ...theirs.map((breach) => `${breach.wish} ${breach.how} ${breach.comment}`)].join(" ").toLowerCase(),
+      tally,
+    };
+  });
+
+  const items = view === "week" ? weekItems : view === "all" ? allItems : teacherItems;
+  const words = search.trim().toLowerCase();
+  const found = items.filter((item) => (!words || item.text.includes(words)) && (!teacher || item.teacherId === teacher));
+  const keeps = (choice: WishShow, item: Item) =>
+    choice === "must"
+      ? item.about === "teacher" && item.level === "must"
+      : choice === "would"
+        ? item.about === "teacher" && item.level === "would"
+        : choice === "everybody"
+          ? item.about === "period"
+          : choice === "submitted"
+            ? item.status === "submitted"
+            : choice === "draft"
+              ? item.status === "draft"
+              : choice === "comment"
+                ? item.comment
+                : true;
+  const counts = Object.fromEntries(WISH_SHOW.map((option) => [option.value, found.filter((item) => keeps(option.value, item)).length])) as Record<
+    WishShow,
+    number
+  >;
+  const musts = (left: Item, right: Item) =>
+    Number(left.level !== "must") - Number(right.level !== "must") || left.teacherName.localeCompare(right.teacherName);
+  const order: Record<WishSort, (left: Item, right: Item) => number> = {
+    // By teacher, the least served first: the panel's own order for that view.
+    must: view === "teachers" ? () => 0 : musts,
+    teacher: (left, right) => left.teacherName.localeCompare(right.teacherName) || musts(left, right),
+    week: (left, right) => Math.min(...left.weeks, 99) - Math.min(...right.weeks, 99) || musts(left, right),
+    classes: (left, right) => right.classes - left.classes || musts(left, right),
+  };
+  const shown = found.filter((item) => keeps(show, item)).sort(order[sort]);
+
+  const teacherOptions = [
+    { value: EVERY_TEACHER, label: "Every teacher" },
+    ...[...new Map([...breaches, ...tallies].filter((each) => each.teacherId).map((each) => [each.teacherId, each.teacherName])).entries()]
+      .sort((left, right) => left[1].localeCompare(right[1]))
+      .map(([value, label]) => ({ value, label })),
+  ];
+
+  const line = (item: Item) => {
+    if (item.tally) {
+      const tally = item.tally;
+      return (
+        <button
+          type="button"
+          onClick={() => onFocus(tally.teacherId)}
+          className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[#f8fafc]"
+        >
+          <Flag
+            size={11}
+            aria-hidden="true"
+            className={item.level === "must" ? "text-[#a6292f]" : item.level === "would" ? "text-[#d99b1c]" : "text-[#cfd8e3]"}
+            fill="currentColor"
+          />
+          <span className="min-w-0 flex-1 truncate font-semibold text-[#344054]">
+            {tally.teacherName}
+            {tally.status === "draft" ? <span className="ml-1 font-normal text-[#98a2b3]">(draft)</span> : null}
+          </span>
+          <span className="shrink-0 tabular-nums text-[#667085]">
+            {tally.musts ? `${tally.mustsKept} of ${tally.musts} Musts` : "no Musts"} ·{" "}
+            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} wishes` : "no wishes"}
+          </span>
+        </button>
+      );
+    }
+    const breach = item.breach as Breach;
+    return (
+      <button
+        type="button"
+        onClick={() => breach.teacherId && onFocus(breach.teacherId)}
+        className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-[#f8fafc]"
+      >
+        <Level about={breach.about} level={breach.level} />
+        <span className="min-w-0 flex-1 text-xs">
+          <span className="block font-semibold text-[#344054]">
+            {breach.about === "period" ? breach.wish : `${breach.teacherName} · ${breach.wish}`}
+          </span>
+          {breach.comment ? <span className="block text-[#667085]">&ldquo;{breach.comment}&rdquo;</span> : null}
+          <span className="block text-[#98a2b3]">
+            {view === "all" ? `${weeksSaid(item.weeks)} · ${item.classes} class${item.classes === 1 ? "" : "es"}` : breach.how}
+          </span>
+        </span>
+      </button>
+    );
+  };
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="grid shrink-0 gap-2 border-b border-[#eef1f5] px-3 py-2.5">
-        <div role="group" aria-label="Which wishes" className="flex flex-wrap gap-1.5">
+        {/* The search, and the order as an icon beside it, as the classes to place have them. */}
+        <div className="flex items-center gap-1.5">
+          <label className="relative block min-w-0 flex-1">
+            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search wishes"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Teacher, course or wish"
+              className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
+            />
+          </label>
+          <SortMenu value={sort} options={WISH_SORT} onChange={setSort} />
+        </div>
+        <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
+          {WISH_SHOW.map((option) => {
+            const on = show === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                aria-pressed={on}
+                onClick={() => setShow(option.value)}
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                  on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                }`}
+              >
+                {option.label}
+                <span className={`rounded-full px-1.5 tabular-nums ${on ? "bg-white/20 text-white" : "bg-[#eef1f5] text-[#667085]"}`}>
+                  {counts[option.value]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {teacherOptions.length > 2 ? (
+          <SelectMenu label="Teacher" value={teacher} onChange={setTeacher} options={teacherOptions} searchable searchPlaceholder="Search teachers" />
+        ) : null}
+        <div role="group" aria-label="Which wishes" className="flex rounded-md bg-[#f2f4f7] p-0.5">
           {VIEWS.map((option) => {
             const on = view === option.value;
             return (
@@ -85,8 +300,8 @@ export function PlanWishesPanel({
                 type="button"
                 aria-pressed={on}
                 onClick={() => onView(option.value)}
-                className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                  on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                className={`flex-1 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold ${
+                  on ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"
                 }`}
               >
                 {option.label}
@@ -107,85 +322,20 @@ export function PlanWishesPanel({
         ) : null}
       </div>
 
-      <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto" aria-label="Broken wishes">
-        {view === "week"
-          ? [...thisWeek].sort(order).map((breach, index) => (
-              <li key={`${breach.key}-${breach.teacherId}-${index}`}>
-                <button
-                  type="button"
-                  onClick={() => breach.teacherId && onFocus(breach.teacherId)}
-                  className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-[#f8fafc]"
-                >
-                  <Level breach={breach} />
-                  <span className="min-w-0 flex-1 text-xs">
-                    <span className="block font-semibold text-[#344054]">
-                      {breach.about === "period" ? breach.wish : `${breach.teacherName} · ${breach.wish}`}
-                    </span>
-                    <span className="block text-[#667085]">{breach.how}</span>
-                  </span>
-                </button>
-              </li>
-            ))
-          : null}
-        {view === "all"
-          ? [...grouped.values()]
-              .sort((left, right) => order(left.breach, right.breach))
-              .map(({ breach, weeks, classes }) => (
-                <li key={`${breach.about}|${breach.teacherId}|${breach.key}`}>
-                  <button
-                    type="button"
-                    onClick={() => breach.teacherId && onFocus(breach.teacherId)}
-                    className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-[#f8fafc]"
-                  >
-                    <Level breach={breach} />
-                    <span className="min-w-0 flex-1 text-xs">
-                      <span className="block font-semibold text-[#344054]">
-                        {breach.about === "period" ? breach.wish : `${breach.teacherName} · ${breach.wish}`}
-                      </span>
-                      <span className="block text-[#667085]">
-                        {weeksSaid(weeks)} · {classes} class{classes === 1 ? "" : "es"}
-                      </span>
-                    </span>
-                  </button>
-                </li>
-              ))
-          : null}
-        {view === "teachers"
-          ? (check?.tallies ?? []).map((tally) => {
-              const lostMust = tally.musts - tally.mustsKept;
-              return (
-                <li key={tally.teacherId}>
-                  <button
-                    type="button"
-                    onClick={() => onFocus(tally.teacherId)}
-                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-[#f8fafc]"
-                  >
-                    <Flag
-                      size={11}
-                      aria-hidden="true"
-                      className={lostMust ? "text-[#a6292f]" : tally.woulds - tally.wouldsKept ? "text-[#d99b1c]" : "text-[#cfd8e3]"}
-                      fill="currentColor"
-                    />
-                    <span className="min-w-0 flex-1 truncate font-semibold text-[#344054]">
-                      {tally.teacherName}
-                      {tally.status === "draft" ? <span className="ml-1 font-normal text-[#98a2b3]">(draft)</span> : null}
-                    </span>
-                    <span className="shrink-0 tabular-nums text-[#667085]">
-                      {tally.musts ? `${tally.mustsKept} of ${tally.musts} Musts` : "no Musts"} ·{" "}
-                      {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} wishes` : "no wishes"}
-                    </span>
-                  </button>
-                </li>
-              );
-            })
-          : null}
-        {(view === "week" && !thisWeek.length) || (view === "all" && !grouped.size) ? (
+      <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto" aria-label={view === "teachers" ? "Teachers" : "Broken wishes"}>
+        {shown.map((item) => (
+          <li key={item.key}>{line(item)}</li>
+        ))}
+        {!shown.length ? (
           <li className="px-3 py-6 text-center text-xs text-[#98a2b3]">
-            {collection || breaches.length ? "Nothing broken." : ""}
+            {items.length
+              ? "No wish here matches."
+              : view === "teachers"
+                ? "No teacher with classes here has answered yet."
+                : collection || breaches.length
+                  ? "Nothing broken."
+                  : ""}
           </li>
-        ) : null}
-        {view === "teachers" && !(check?.tallies ?? []).length ? (
-          <li className="px-3 py-6 text-center text-xs text-[#98a2b3]">No teacher with classes here has answered yet.</li>
         ) : null}
       </ul>
     </div>

@@ -75,7 +75,28 @@ export type GridEditing = {
   onDrop?: (data: string, slot: GridSlot) => void;
   /** A class picked up to move or stretch, from the press to the release: null once let go. */
   onHold?: (session: PlacedSession | null) => void;
+  /**
+   * Where a class dragged in from the page would land, as long as it really is: the slot under
+   * the pointer, given back at the class's own length. Null while nothing of ours is dragged.
+   */
+  dropSlot?: (slot: GridSlot) => GridSlot | null;
+  /**
+   * What would go wrong if a class sat at a slot — the one being moved, or (null) the one
+   * dragged in — so the box that shows where it would land can say so: red for a clash or a
+   * Must broken, amber for a Would like.
+   */
+  judge?: (slot: GridSlot, session: PlacedSession | null) => GhostJudgement | null;
 };
+
+/** What the box under the pointer says about where it is: how bad, and in a word or two. */
+export type GhostJudgement = { worst: "must" | "would" | null; label: string; said: string };
+
+// See-through where it collides: the class it would clash with shows under it.
+const GHOST_TONES = {
+  none: "border-[#1f4e79] bg-[#e8edf3]/80 text-[#1f4e79]",
+  must: "border-[#a6292f] bg-[#fdf3f3]/55 text-[#a6292f]",
+  would: "border-[#d99b1c] bg-[#fdf6e3]/55 text-[#8a6116]",
+} as const;
 
 type Gesture =
   | { kind: "draw"; date: string; from: number; to: number; x: number; y: number; moved: boolean }
@@ -538,6 +559,34 @@ export function WeekTimeline({
     const length = minutesOf(gesture.session.end) - minutesOf(gesture.session.start);
     return gesture.date === date ? { start: gesture.start, end: gesture.start + length } : null;
   };
+  /*
+   * A class dragged in from the list: where it would land, as it will — snapped to the
+   * quarter hour under the pointer, at its own length — the same box as a class moved.
+   */
+  const [dropAt, setDropAt] = useState<{ date: string; start: number } | null>(null);
+  const dropping = dropAt !== null;
+  useEffect(() => {
+    if (!dropping) return;
+    const clear = () => setDropAt(null);
+    window.addEventListener("dragend", clear);
+    window.addEventListener("drop", clear);
+    return () => {
+      window.removeEventListener("dragend", clear);
+      window.removeEventListener("drop", clear);
+    };
+  }, [dropping]);
+  const dropGhost = (date: string): GridSlot | null => {
+    if (!dropAt || dropAt.date !== date || !editing?.dropSlot) return null;
+    return editing.dropSlot({ date, start: clock(dropAt.start), end: clock(Math.min(endMinute, dropAt.start + USUAL)) });
+  };
+  // Judged once per place, not at every pixel the pointer moves.
+  const judged = useRef<{ key: string; result: GhostJudgement | null }>({ key: "", result: null });
+  const judgeAt = (slot: GridSlot, session: PlacedSession | null): GhostJudgement | null => {
+    if (!editing?.judge) return null;
+    const key = `${slot.date}|${slot.start}|${slot.end}|${session ? `${session.crn}|${session.date}|${session.start}` : "dropped"}`;
+    if (judged.current.key !== key) judged.current = { key, result: editing.judge(slot, session) };
+    return judged.current.result;
+  };
   const moving = gesture && gesture.kind !== "draw" && gesture.moved ? gesture.session : null;
   // Said from the press, before it has moved: the plan shades where the class may go as it is picked up.
   const held = gesture && gesture.kind !== "draw" ? gesture.session : null;
@@ -663,13 +712,26 @@ export function WeekTimeline({
               onDragOver={
                 editing?.dropType
                   ? (event) => {
-                      if (event.dataTransfer.types.includes(editing.dropType ?? "")) event.preventDefault();
+                      if (!event.dataTransfer.types.includes(editing.dropType ?? "")) return;
+                      event.preventDefault();
+                      const start = snapped(minuteAt(event.clientX, line.key));
+                      if (!Number.isFinite(start)) return;
+                      if (dropAt?.date !== line.key || dropAt.start !== start) setDropAt({ date: line.key, start });
+                    }
+                  : undefined
+              }
+              onDragLeave={
+                editing?.dropType
+                  ? (event) => {
+                      if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+                      setDropAt((current) => (current?.date === line.key ? null : current));
                     }
                   : undefined
               }
               onDrop={
                 editing?.dropType && editing.onDrop
                   ? (event) => {
+                      setDropAt(null);
                       const data = event.dataTransfer.getData(editing.dropType ?? "");
                       if (!data) return;
                       event.preventDefault();
@@ -730,12 +792,21 @@ export function WeekTimeline({
                 <div key={`r${row}`} className="absolute inset-x-0 border-t border-[#e4e8ef]" style={{ top: (row + 1) * laneOf(index) + GAP + spare / 2 }} />
               ))}
               {(() => {
-                // Where a class being drawn or dragged would land, dashed, under the pointer.
-                const ghost = ghostOn(line.key);
+                /*
+                 * Where a class being drawn, moved or dragged in would land, dashed, under the
+                 * pointer — red where it would clash or break a Must, amber a Would like.
+                 */
+                const dropped = dropGhost(line.key);
+                const ghost = dropped ? { start: minutesOf(dropped.start), end: minutesOf(dropped.end) } : ghostOn(line.key);
                 if (!ghost) return null;
+                const carried = dropped ? null : gesture && gesture.kind !== "draw" ? gesture.session : undefined;
+                const verdict =
+                  carried === undefined ? null : judgeAt({ date: line.key, start: clock(ghost.start), end: clock(ghost.end) }, carried);
+                const tone = GHOST_TONES[verdict?.worst ?? "none"];
                 return (
                   <div
-                    className="pointer-events-none absolute z-10 flex items-center rounded-md border-2 border-dashed border-[#1f4e79] bg-[#e8edf3]/80 px-1.5 text-[11px] font-semibold tabular-nums text-[#1f4e79]"
+                    data-ghost={verdict?.worst ?? "fine"}
+                    className={`pointer-events-none absolute z-10 flex items-center gap-1 overflow-hidden whitespace-nowrap rounded-md border-2 border-dashed px-1.5 text-[11px] font-semibold tabular-nums ${tone}`}
                     style={{
                       left: leftOf(ghost.start),
                       width: Math.max(18, (ghost.end - ghost.start) * perMinute - 3),
@@ -744,6 +815,7 @@ export function WeekTimeline({
                     }}
                   >
                     {clock(ghost.start)}–{clock(ghost.end)}
+                    {verdict?.label ? <span className="truncate font-normal">· {verdict.label}</span> : null}
                   </div>
                 );
               })()}
@@ -860,7 +932,6 @@ function Class({
         covered ? `covered by ${covered.coverTeacherName}` : "",
         session.change?.note ?? "",
         session.clashes ? (session.clashSaid ?? clash) : "",
-        session.wish?.said ?? "",
       ].filter(Boolean),
     ),
   ].join(" · ");
@@ -889,8 +960,9 @@ function Class({
     <Box
       type={opens ? "button" : undefined}
       onClick={opens ? () => onPick?.(session) : undefined}
+      // The class, on its hover; the wishes it breaks are the flag's own.
       title={details}
-      aria-label={opens ? `Open CRN ${session.crn}: ${details}` : details}
+      aria-label={`${opens ? `Open CRN ${session.crn}: ` : ""}${details}${session.wish ? ` · Breaks: ${session.wish.said.split("\n").join("; ")}` : ""}`}
       data-line={line}
       data-box={name}
       onPointerDown={onGrab}
@@ -948,7 +1020,8 @@ function Class({
         // A wish broken, in the corner: apart from the clash outline, so neither reads as the other.
         <span
           data-flag={session.wish.level}
-          className="pointer-events-none absolute right-0.5 top-0.5 flex items-center justify-center rounded-full bg-white p-[3px] shadow-sm ring-1 ring-black/5"
+          title={session.wish.said}
+          className="absolute right-0.5 top-0.5 flex items-center justify-center rounded-full bg-white p-[3px] shadow-sm ring-1 ring-black/5"
         >
           <Flag
             size={11}

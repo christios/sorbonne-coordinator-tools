@@ -13,7 +13,7 @@ import { SortMenu } from "@/components/SortMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { Zoom } from "@/components/TimelineZoom";
 import { usePageState } from "@/components/usePageState";
-import { WeekTimeline, type GridSlot, type Shade } from "@/components/WeekTimeline";
+import { WeekTimeline, type GhostJudgement, type GridSlot, type Shade } from "@/components/WeekTimeline";
 import { useKeptNumber } from "@/services/keptNumber";
 import { programCode } from "@/services/programmes";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
@@ -59,6 +59,7 @@ import {
   type PlacedSession,
 } from "@/services/weekSchedule";
 import { fetchSemesterShortNames } from "@/services/portalLists";
+import { judgeSlot } from "@/services/planJudge";
 import { checkWishes, fetchWishSemester, periodWords, shadingOf } from "@/services/teacherWishes";
 import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
@@ -246,6 +247,8 @@ export function SemesterPlan({
   // Whose wishes are shaded: the class being moved, else the class last opened, else the teacher filtered to.
   const [held, setHeld] = useState("");
   const [picked, setPicked] = useState("");
+  // The class to place being dragged from the list, for the box that shows where it would land.
+  const [dragging, setDragging] = useState("");
   // What the panel beside the week shows: the classes to place, or the teachers' wishes.
   const [side, setSide] = usePageState<"tray" | "wishes">("semester-plan:side", "tray");
   const [wishView, setWishView] = usePageState<WishView>("semester-plan:wish-view", "week");
@@ -496,7 +499,8 @@ export function SemesterPlan({
         .join("; "),
       wish: (() => {
         const flag = wishCheck?.flags.get(entry);
-        return flag ? { level: flag.level, said: flag.said.join("; ") } : undefined;
+        // A line each on the flag's hover: the Musts and periods first.
+        return flag ? { level: flag.level, said: flag.said.join("\n") } : undefined;
       })(),
     };
     classOf.set(session, entry);
@@ -552,6 +556,30 @@ export function SemesterPlan({
     return shades;
   };
   const answeredIds = new Set(wishTeachers.filter((row) => row.wishes).map((row) => row.teacherId));
+  /**
+   * What would go wrong if a class sat at a slot of the week on screen: the one being moved
+   * (which no longer clashes with itself), or the one dragged in from the list.
+   */
+  const judge = (slot: GridSlot, session: PlacedSession | null): GhostJudgement | null => {
+    const entry = session ? entryOf(session) : undefined;
+    const sectionId = entry?.sectionId ?? (session ? "" : dragging);
+    if (!sectionId || weekNo === null) return null;
+    const { problems, worst } = judgeSlot(data, wishTeachers, {
+      sectionId,
+      weekday: weekdayOf(slot.date),
+      startsAt: slot.start,
+      endsAt: slot.end,
+      room: entry ? entry.room : oneRoom,
+      weeks: [weekNo],
+      replacing: entry ? { seriesId: entry.seriesId, weeks: [entry.week] } : undefined,
+    });
+    const clash = problems.some((problem) => problem.kind === "clash");
+    return {
+      worst,
+      label: clash ? "Clash" : worst === "must" ? "Breaks a Must" : worst ? "Breaks a wish" : "",
+      said: problems.map((problem) => problem.said).join("\n"),
+    };
+  };
   const flaggedSections = new Set([...(wishCheck?.flags.keys() ?? [])].map((entry) => entry.sectionId));
   const thisWeekBroken = (wishCheck?.breaches ?? []).filter((breach) => breach.week === weekNo).length;
   /**
@@ -782,43 +810,10 @@ export function SemesterPlan({
         </p>
       ) : null}
 
-      {/*
-        * The filters, and over the list beside the week its label — on this line, so the list's
-        * box starts level with the week's, labelled like the pickers' labels (Cohort, Semester).
-        * The banners sit above both, so nothing comes between the label and its box.
-        */}
+      {/* The filters, over the week; the banners sit above them. */}
       <div className="mb-3 flex shrink-0 items-end gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
           <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
-        </div>
-        {/* Beside the week: the classes to place, or what the plan does to the teachers' wishes. */}
-        <div role="tablist" aria-label="Beside the week" className="-mb-2 hidden w-80 shrink-0 gap-3 lg:flex">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={side === "tray"}
-            onClick={() => setSide("tray")}
-            className={`text-xs font-semibold uppercase tracking-wide ${side === "tray" ? "text-[#1f4e79]" : "text-[#98a2b3] hover:text-[#667085]"}`}
-          >
-            Classes to place
-            <span className="ml-1.5 font-normal normal-case tabular-nums text-[#98a2b3]">
-              {trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : toPlace.length}
-            </span>
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={side === "wishes"}
-            onClick={() => setSide("wishes")}
-            className={`text-xs font-semibold uppercase tracking-wide ${side === "wishes" ? "text-[#1f4e79]" : "text-[#98a2b3] hover:text-[#667085]"}`}
-          >
-            Teacher wishes
-            {thisWeekBroken ? (
-              <span className="ml-1.5 rounded-full bg-[#fdf3f3] px-1.5 font-semibold normal-case tabular-nums text-[#a6292f]">
-                {thisWeekBroken}
-              </span>
-            ) : null}
-          </button>
         </div>
       </div>
 
@@ -865,8 +860,12 @@ export function SemesterPlan({
                 if (Object.keys(changes).length) changeOne(entry, series, changes);
               },
               dropType: SECTION_DRAG,
+              // At the class's own length, as it will be placed.
+              dropSlot: (slot) => (dragging ? { ...slot, end: endOf(sectionsById.get(dragging), slot.start, slot.end) } : null),
+              judge,
               onDrop: (sectionId, slot) => {
                 setError("");
+                setDragging("");
                 setDialog({ draft: draftFor(sectionId, slot) });
               },
             }}
@@ -903,6 +902,51 @@ export function SemesterPlan({
 
         <aside className="hidden min-h-0 w-80 shrink-0 flex-col lg:flex" aria-label={side === "wishes" ? "Teacher wishes" : "Classes to place"}>
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
+          {/*
+            * Beside the week: the classes to place, or what the plan does to the teachers' wishes.
+            * Two tabs on one line, the one open underlined, each with its count in a pill.
+            */}
+          <div role="tablist" aria-label="Beside the week" className="flex shrink-0 border-b border-[#e4e8ef]">
+            {(
+              [
+                {
+                  value: "tray",
+                  label: "To place",
+                  title: "Classes to place",
+                  count: trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : String(toPlace.length),
+                  alarm: false,
+                },
+                { value: "wishes", label: "Wishes", title: "Teacher wishes broken this week", count: String(thisWeekBroken), alarm: thisWeekBroken > 0 },
+              ] as const
+            ).map((tab) => {
+              const on = side === tab.value;
+              return (
+                <button
+                  key={tab.value}
+                  type="button"
+                  role="tab"
+                  id={`plan-side-${tab.value}`}
+                  aria-selected={on}
+                  aria-controls="plan-side-panel"
+                  title={tab.title}
+                  onClick={() => setSide(tab.value)}
+                  className={`-mb-px flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold ${
+                    on ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
+                  }`}
+                >
+                  {tab.label}
+                  <span
+                    className={`rounded-full px-1.5 text-[11px] tabular-nums ${
+                      tab.alarm ? "bg-[#fdf3f3] text-[#a6292f]" : on ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"
+                    }`}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          <div id="plan-side-panel" role="tabpanel" aria-labelledby={`plan-side-${side}`} className="flex min-h-0 flex-1 flex-col">
           {side === "wishes" ? (
             <PlanWishesPanel
               check={wishCheck}
@@ -994,8 +1038,12 @@ export function SemesterPlan({
                     event.dataTransfer.setData(SECTION_DRAG, section.id);
                     event.dataTransfer.effectAllowed = "copy";
                     setHeld(section.teacherId ?? "");
+                    setDragging(section.id);
                   }}
-                  onDragEnd={() => setHeld("")}
+                  onDragEnd={() => {
+                    setHeld("");
+                    setDragging("");
+                  }}
                   className="cursor-grab px-3 py-2 hover:bg-[#f8fafc] active:cursor-grabbing"
                 >
                   <div className="flex items-start gap-2">
@@ -1062,6 +1110,7 @@ export function SemesterPlan({
           </>
           )}
           </div>
+          </div>
         </aside>
       </div>
 
@@ -1078,6 +1127,7 @@ export function SemesterPlan({
                   week: dialog.entry.week,
                   meetsOn: dialog.entry.meetsOn,
                   seriesWeeks: dialog.series.weeks.length,
+                  seriesId: dialog.series.id,
                   updatedBy: dialog.series.updatedBy,
                   updatedAt: dialog.series.updatedAt,
                 }
