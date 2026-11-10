@@ -132,6 +132,6 @@ describe("Course details taken from the other app", () => {
       onOpenHistory={vi.fn()}
     /></QueryClientProvider>);
 
-    expect(screen.getByLabelText("Programme title")).toHaveProperty("value", "Bachelor in Physics");
+    expect(screen.getByLabelText(/^Programme title\*?$/)).toHaveProperty("value", "Bachelor in Physics");
   });
 });

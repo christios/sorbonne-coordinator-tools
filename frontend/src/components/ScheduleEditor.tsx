@@ -357,6 +357,7 @@ export function ScheduleEditor({
                   <FieldRow>
                   <SyllabusField
                     label="Session type"
+                    required
                     fieldKey={`schedule[${row.id}].sessionType`}
                     size="name"
                     hint="Which kind of session this is. The numbering runs separately for each kind, so a course has its own CM 1, TD 1 and TP 1."
@@ -381,6 +382,7 @@ export function ScheduleEditor({
                         <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
                           <HistoryTextField
                             label={field.label}
+                            required
                             value={value}
                             onChange={(next) => updateRow(row.id, field.key, next)}
                             type="number"
@@ -450,6 +452,7 @@ export function ScheduleEditor({
                       <HistoryTextField
                         key={field.key}
                         label={field.label}
+                        required={field.key === "topic"}
                         value={value}
                         onChange={(next) => updateRow(row.id, field.key, next)}
                         size={field.size ?? "full"}
@@ -464,6 +467,7 @@ export function ScheduleEditor({
                   <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
                     <RichTextField
                       label="Session details"
+                      required
                       value={row.details ?? ""}
                       onChange={(next) => updateRow(row.id, "details", next)}
                       hint="Write the session out as you would for a student: headings for its parts, a list where it is a list. The formatting carries into the exported document."

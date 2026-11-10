@@ -105,7 +105,7 @@ describe("Choosing an assessment type", () => {
     const sections = screen.getAllByRole("article").map((section) => section.getAttribute("aria-label"));
     expect(sections).toEqual(["AI Prohibited", "Other (Specify)"]);
     expect(screen.getByText("Applied by Midterm, Quiz")).toBeTruthy();
-    expect(screen.getByLabelText("Verification mechanism")).toBeTruthy();
+    expect(screen.getByLabelText(/^Verification mechanism\*?$/)).toBeTruthy();
     expect(screen.getByText("Translation tools for sources only")).toBeTruthy();
   });
 
@@ -129,7 +129,7 @@ describe("Choosing an assessment type", () => {
     /></QueryClientProvider>);
 
     // Both cards open, as new unfinished activities do.
-    expect(screen.getByLabelText("Describe the AI policy for this activity")).toBeTruthy();
+    expect(screen.getByLabelText(/^Describe the AI policy for this activity\*?$/)).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Assessment 2 AI policy" }).textContent).toContain("From the course: AI Prohibited");
   });
 
@@ -179,7 +179,7 @@ describe("Choosing an assessment type", () => {
     ]);
     // Nothing to add or edit here any more; the methodology and late policy still are.
     expect(screen.queryByRole("button", { name: "Add assessment" })).toBeNull();
-    expect(screen.getByLabelText("Assessment methodologies")).toHaveProperty("value", "Written tests.");
+    expect(screen.getByLabelText(/^Assessment methodologies\*?$/)).toHaveProperty("value", "Written tests.");
     fireEvent.click(screen.getByRole("button", { name: "Edit in the course schedule" }));
     expect(onOpenSchedule).toHaveBeenCalledOnce();
   });

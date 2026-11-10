@@ -12,8 +12,11 @@ export function PloAlignmentField({
   history,
   emptyText = "No PLOs aligned yet.",
   addText = "Add aligned PLO",
+  required = false,
 }: {
   label: string;
+  /** Marks the label with the red asterisk: the syllabus cannot go for review without it. */
+  required?: boolean;
   pickerLabel: string;
   emptyText?: string;
   addText?: string;
@@ -56,6 +59,7 @@ export function PloAlignmentField({
     <div role="group" aria-label={label} className="relative grid grid-cols-[minmax(0,1fr)] gap-2">
       <div className="min-h-5 pr-8 text-sm font-medium text-[#344054]">
         {label}
+        {required ? <span aria-hidden="true" className="ml-1 text-[#a6292f]">*</span> : null}
       </div>
       {history}
       {selected.length ? (

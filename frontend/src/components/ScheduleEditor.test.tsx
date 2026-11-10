@@ -6,6 +6,29 @@ import { ScheduleEditor } from "./ScheduleEditor";
 import { scheduleOrder } from "@/services/syllabusContent";
 
 describe("ScheduleEditor", () => {
+  it("marks with a red asterisk what a session needs before the syllabus can go for review", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><ScheduleEditor
+      rows={[{ id: "session-1", sessionType: "CM", week: "1", topic: "Climate governance", preClass: "", assessments: "" }]}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+    fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
+
+    // Required: type, week, topic and details (Christian's checklist, 10 Nov 2026).
+    const marked = (label: string) => screen.queryAllByText((_, element) => {
+      const text = element?.textContent?.trim() ?? "";
+      return element?.tagName === "SPAN" && text.startsWith(label) && text.endsWith("*") && text.length <= label.length + 3;
+    }).length > 0;
+    for (const label of ["Session type", "Week", "Topic", "Session details"]) expect(marked(label), label).toBe(true);
+    expect(marked("Pre-class learning activities")).toBe(false);
+    // The asterisk is for the eye only: the field's name stays its label.
+    expect(screen.getByRole("textbox", { name: "Topic" })).toBeTruthy();
+    expect(screen.getByLabelText("Pre-class learning activities")).toBeTruthy();
+  });
+
   it("keeps sessions compact until one is opened", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><ScheduleEditor
@@ -23,7 +46,7 @@ describe("ScheduleEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
 
     expect(screen.getByLabelText("Pre-class learning activities")).toBeTruthy();
-    expect(screen.getByLabelText("Week")).toHaveProperty("value", "1");
+    expect(screen.getByLabelText(/^Week\*?$/)).toHaveProperty("value", "1");
     expect(screen.getByText("Session type")).toBeTruthy();
     expect(screen.queryByLabelText("Session")).toBeNull();
   });
@@ -39,7 +62,7 @@ describe("ScheduleEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByRole("button", { name: "Collapse topic: Untitled topic (position 1)" })).toBeTruthy();
-    expect(screen.getByLabelText("Topic")).toBeTruthy();
+    expect(screen.getByLabelText(/^Topic\*?$/)).toBeTruthy();
   });
 
   it("keeps the session title concise and provides a separate details field with an end-of-list add action", () => {
@@ -55,7 +78,7 @@ describe("ScheduleEditor", () => {
     fireEvent.click(screen.getByRole("button", { name: "Expand topic: Climate governance (position 1)" }));
 
     // A topic is one line that wraps rather than scrolling, so it is a growing box.
-    expect(screen.getByLabelText("Topic").tagName).toBe("TEXTAREA");
+    expect(screen.getByLabelText(/^Topic\*?$/).tagName).toBe("TEXTAREA");
     // Session details is written with formatting, in an editor rather than a plain box.
     expect(screen.getByRole("textbox", { name: "Session details" }).getAttribute("contenteditable")).toBe("true");
     expect(screen.getByRole("button", { name: "Add session at end" })).toBeTruthy();

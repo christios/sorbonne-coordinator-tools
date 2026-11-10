@@ -583,9 +583,11 @@ function SectionForm({
     multiline = false,
     size: FieldSize = "full",
     hint?: string,
+    required = false,
   ) => (
     <Field
       label={label}
+      required={required}
       value={stringify(value)}
       onChange={onChange}
       multiline={multiline}
@@ -604,10 +606,12 @@ function SectionForm({
       step?: number;
       invalid?: boolean;
       size?: FieldSize;
+      required?: boolean;
     } = {},
   ) => (
     <Field
       label={label}
+      required={options.required}
       value={stringify(value)}
       onChange={onChange}
       size={options.size ?? "full"}
@@ -875,6 +879,9 @@ function SectionForm({
           section.overview,
           (value) => editContent(active, { overview: value }),
           true,
+          undefined,
+          undefined,
+          true,
         )}
       </Section>
     );
@@ -887,6 +894,7 @@ function SectionForm({
         <FieldRow>
           <SelectField
             label="Delivery mode"
+            required
             value={stringify(section.mode)}
             onChange={(value) =>
               editContent(active, { ...section, mode: value })
@@ -902,14 +910,16 @@ function SectionForm({
             faceToFace,
             (value) =>
               editContent(active, { ...section, faceToFacePercent: value }),
-            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter" },
+            // Required only for blended delivery, where the two must add up to 100%.
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter", required: section.mode === "Blended Learning Delivery" },
           )}
           {numeric(
             "Online (%)",
             online,
             (value) =>
               editContent(active, { ...section, onlinePercent: value }),
-            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter" },
+            // Required only for blended delivery, where the two must add up to 100%.
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter", required: section.mode === "Blended Learning Delivery" },
           )}
         </FieldRow>
         {percentageError ? (
@@ -1042,7 +1052,10 @@ function TeachingApproachSection({
     <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
       <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
         <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
-          Teaching and learning approach
+          <span>
+            Teaching and learning approach
+            <span aria-hidden="true" className="ml-1 text-[#a6292f]">*</span>
+          </span>
           <InfoTip label="How the teaching approach is chosen">
             Choose the kinds of session this course uses. Each one brings its own methods, engagement and feedback,
             written by the department.
@@ -1276,6 +1289,8 @@ function LearningOutcomesEditor({
           rows={rows}
           onChange={(clos) => onChange({ ...section, clos })}
           rowLabel="CLO"
+          // The PLOs only when the programme has any to align to (the Foundation Year's has none).
+          requiredColumns={cataloguePloOptions.length ? ["clo", "plo", "skills"] : ["clo", "skills"]}
           selectOptions={{ plo: cataloguePloOptions, skills: competencyOptions }}
           derivedColumns={{
             skills: {
@@ -1428,10 +1443,12 @@ function Field({
   size = "full",
   hint,
   history,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  required?: boolean;
   multiline?: boolean;
   isDate?: boolean;
   inputType?: "text" | "number";
@@ -1462,6 +1479,7 @@ function Field({
   return (
     <HistoryTextField
       label={label}
+      required={required}
       value={value}
       onChange={onChange}
       multiline={multiline}
@@ -1488,10 +1506,12 @@ function SelectField({
   size = "full",
   hint,
   history,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  required?: boolean;
   options: string[];
   placeholder?: string;
   size?: FieldSize;
@@ -1504,7 +1524,7 @@ function SelectField({
   };
 }) {
   return (
-    <SyllabusField label={label} fieldKey={history.field.path} hint={hint} size={size}>
+    <SyllabusField label={label} required={required} fieldKey={history.field.path} hint={hint} size={size}>
       <SelectMenu
         label={label}
         value={value}
@@ -1543,6 +1563,7 @@ function RowsEditor({
   onPloChange,
   rowLabel,
   derivedColumns,
+  requiredColumns = [],
 }: {
   title: string;
   columns: string[][];
@@ -1555,6 +1576,8 @@ function RowsEditor({
   revision: number;
   onOpenHistory: (field: HistoryField) => void;
   onPloChange?: (row: Row, labels: string, key: string) => Row;
+  /** Columns the syllabus cannot go for review without; their labels carry the red asterisk. */
+  requiredColumns?: string[];
   /** Numbers each entry, so a CLO reads "CLO 1" wherever it is referenced. */
   rowLabel?: string;
   /** Read-only columns whose value follows from another the professor chose. */
@@ -1785,6 +1808,7 @@ function RowsEditor({
                         <Fragment key={key}>
                         <PloAlignmentField
                           label={label}
+                          required={requiredColumns.includes(key)}
                           pickerLabel={`Add ${label.toLowerCase()} to ${rowLabel ?? "entry"} ${index + 1}`}
                           emptyText={key === "plo" ? "No PLOs aligned yet." : "No graduate competencies selected yet."}
                           addText={key === "plo" ? "Add aligned PLO" : "Add graduate competency"}
@@ -1831,6 +1855,7 @@ function RowsEditor({
                       <HistoryTextField
                         key={key}
                         label={label}
+                        required={requiredColumns.includes(key)}
                         value={value}
                         onChange={(next) => updateRow(key, next)}
                         multiline={multiline}

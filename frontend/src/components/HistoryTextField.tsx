@@ -53,10 +53,13 @@ type Props = {
   hint?: string;
   /** Where the value comes from, shown in grey beside the label. */
   source?: string;
+  /** Marks the label with the red asterisk: the syllabus cannot go for review without it. */
+  required?: boolean;
 };
 
 export function HistoryTextField({
   label,
+  required = false,
   value,
   onChange,
   history,
@@ -92,7 +95,7 @@ export function HistoryTextField({
     <label
       className={`grid gap-1 text-sm font-medium text-[#344054] ${fill ? "h-full grid-rows-[auto_minmax(0,1fr)]" : "content-start"} ${fieldSizeClass[size]} ${className}`}
     >
-      <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={history?.field.path} hint={hint} source={source}>
+      <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={history?.field.path} hint={hint} source={source} required={required}>
         {label}
       </FormFieldLabel>
       <div
