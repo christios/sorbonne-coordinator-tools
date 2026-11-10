@@ -368,7 +368,10 @@ export type SemesterReach = {
   placements: number;
   /** Placements of OTHER cohorts' students in its sets — the languages, open to every cohort. */
   othersPlacements: number;
-  /** The other semesters it still holds students or sets in, by id. */
+  /** Its students' placements in ANOTHER cohort's set that semester — the languages — which go when they leave it. */
+  sharedSets: string[];
+  sharedPlacements: number;
+  /** The other semesters it still holds students, sets or placements in, by id. */
   otherSemesters: string[];
 };
 

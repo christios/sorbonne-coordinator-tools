@@ -408,6 +408,36 @@ def test_a_cohort_holding_two_semesters_is_not_deleted_whole(database: StudentDa
         database.get_cohort(fys["id"])
 
 
+def test_removing_l1_from_a_semester_counts_its_students_language_groups(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """L1 has no set of its own in the autumn; its student's French group sits in FYS's LANG,
+    filed under L1. Removing L1 from the autumn takes that group: it is counted beforehand."""
+    _fys, l1, *_rest, autumn, _spring = two_semesters_of_fys
+
+    reach = database.semester_reach(l1["id"], autumn)
+
+    assert (reach["members"], reach["sets"], reach["sharedSets"], reach["sharedPlacements"]) == (1, [], ["LANG"], 1)
+
+
+def test_a_cohort_whose_only_other_semester_is_a_language_group_is_not_deleted_whole(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """Its student moved on in the spring but kept a French group filed under it there:
+    deleting the cohort would take that group, so the spring still counts as held."""
+    fys, l1, _fys_student, l1_student, autumn, spring = two_semesters_of_fys
+    with database.engine.begin() as connection:
+        lang = connection.execute(
+            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": fys["id"]}
+        ).scalar()
+        connection.execute(text("UPDATE cohort_scopes SET term_id = :spring WHERE id = :id"), {"spring": spring, "id": lang})
+
+    assert database.semester_reach(l1["id"], autumn)["otherSemesters"] == [spring]
+    with pytest.raises(CohortSpansSemesters):
+        database.delete_cohort(l1["id"])
+    assert database.cohort_members(l1["id"], autumn) == {l1_student}
+
+
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:
     database.replace_discrepancy_rules([])
 

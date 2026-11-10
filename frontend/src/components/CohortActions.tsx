@@ -67,13 +67,16 @@ function removal(cohort: Cohort, semesterName: string, reach: SemesterReach | un
   const sets = reach.sets.map((each) => each.code).join(", ");
   const shared = reach.sets.filter((each) => each.openToAll && each.others).map((each) => each.code);
   const holds =
-    reach.members || reach.sets.length
+    reach.members || reach.sets.length || reach.sharedPlacements
       ? `${reach.members} student(s) leave ${cohort.name} for ${semesterName}` +
         (reach.sets.length
           ? `, and its ${reach.sets.length} set(s) there — ${sets} — go, with ${reach.groups} group(s) and ${reach.placements} placement(s)`
           : "") +
         (shared.length
           ? `. ${reach.othersPlacements} of those placements are OTHER cohorts' students in ${shared.join(", ")}, which is open to every cohort: they lose that group too`
+          : "") +
+        (reach.sharedPlacements
+          ? `. Its students also lose their ${reach.sharedPlacements} group(s) in ${reach.sharedSets.join(", ")}, the set open to every cohort`
           : "") +
         "."
       : "";

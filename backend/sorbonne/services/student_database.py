@@ -69,6 +69,15 @@ class InvalidCohortMove(ValueError):
     """A move between cohorts that cannot be made, said in words."""
 
 
+# Every semester a cohort still holds anything in, but `:term` ("" for none): its students,
+# its sets, and its placements — a placement filed under it in another cohort's set open to
+# every cohort (the languages) is its own too, and goes when the cohort does.
+_HELD_TERMS = """SELECT term_id FROM cohort_members WHERE cohort_id = :id AND term_id <> :term
+                 UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id AND term_id <> :term
+                 UNION SELECT s.term_id FROM group_assignments a JOIN cohort_scopes s ON s.id = a.scope_id
+                        WHERE a.cohort_id = :id AND s.term_id <> :term"""
+
+
 class CohortSpansSemesters(ValueError):
     """A whole cohort asked to go while it still holds more than one semester, said in words."""
 
@@ -370,9 +379,7 @@ class StudentDatabase:
             held = sorted(
                 term
                 for (term,) in connection.execute(
-                    text("""SELECT term_id FROM cohort_members WHERE cohort_id = :id
-                            UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id"""),
-                    {"id": cohort_id},
+                    text(_HELD_TERMS), {"id": cohort_id, "term": ""}
                 )
             )
             if len(held) > 1:
@@ -426,13 +433,18 @@ class StudentDatabase:
                     {"id": cohort_id, "term": term},
                 )
             ]
+            # Its students' placements in ANOTHER cohort's set that semester — the languages,
+            # open to every cohort and kept on one cohort's row. They are filed under this
+            # cohort, so they go when its students leave it: counted here, said on screen.
+            shared = connection.execute(
+                text("""SELECT s.code, count(*) FROM group_assignments a
+                          JOIN cohort_scopes s ON s.id = a.scope_id
+                         WHERE a.cohort_id = :id AND s.term_id = :term AND s.cohort_id <> :id
+                         GROUP BY s.code ORDER BY s.code"""),
+                {"id": cohort_id, "term": term},
+            ).all()
             elsewhere = sorted(
-                other
-                for (other,) in connection.execute(
-                    text("""SELECT term_id FROM cohort_members WHERE cohort_id = :id AND term_id <> :term
-                            UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id AND term_id <> :term"""),
-                    {"id": cohort_id, "term": term},
-                )
+                other for (other,) in connection.execute(text(_HELD_TERMS), {"id": cohort_id, "term": term})
             )
         return {
             "termId": term,
@@ -441,6 +453,8 @@ class StudentDatabase:
             "groups": sum(each["groups"] for each in sets),
             "placements": sum(each["placements"] for each in sets),
             "othersPlacements": sum(each["others"] for each in sets),
+            "sharedSets": [code for code, _ in shared],
+            "sharedPlacements": sum(int(count) for _, count in shared),
             "otherSemesters": elsewhere,
         }
 
