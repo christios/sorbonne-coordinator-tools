@@ -113,8 +113,41 @@ def test_an_earlier_note_on_a_session_must_be_moved_into_a_graded_activity_or_cl
     content["schedule"][0]["assessments"] = "Quiz 1"
 
     assert messages(missing_for_submission(SCEN, content)) == [
-        'Move the earlier note on "Reflection" into a graded activity, or clear it.'
+        'Move the earlier notes into graded activities, or clear them (1 session): "Reflection".'
     ]
+
+
+def test_sessions_are_listed_once_per_kind_of_gap_naming_the_first_few_by_their_topic() -> None:
+    content = complete_scen_content()
+    long_topic = "Chapter 3: Imaging\n- Recap\n- Combination of two lenses and a great deal more besides"
+    content["schedule"][:1] = [
+        {"id": f"s{number}", "topic": topic, "date": ""}
+        for number, topic in enumerate(["Rays", long_topic, "", "Mirrors", "Prisms"], start=1)
+    ]
+
+    assert messages(missing_for_submission(SCEN, content)) == [
+        "Give 1 session a topic.",
+        'Give 5 sessions a week or a date: "Rays", "Chapter 3: Imaging", "untitled" and 2 more.',
+    ]
+
+    for row in content["schedule"][:5]:
+        row["date"] = "2027-01-11"
+    content["schedule"][2]["topic"] = "Lenses"
+    assert missing_for_submission(SCEN, content) == []
+
+
+def test_an_activity_carried_over_from_an_older_syllabus_may_name_its_outcomes_as_text() -> None:
+    content = complete_scen_content()
+    content["schedule"][1].update({"cloIds": [], "clos": "Trace rays."})
+
+    assert missing_for_submission(SCEN, content) == []
+
+
+def test_an_unnamed_activity_is_called_what_the_schedule_calls_it() -> None:
+    content = complete_scen_content()
+    content["schedule"][2].update({"name": "", "type": "", "assessmentTypeId": ""})
+
+    assert messages(missing_for_submission(SCEN, content)) == ['Choose the assessment type of "Graded activity 2".']
 
 
 def test_every_plo_the_curriculum_mapping_expects_must_be_aligned_in_teacher_mode() -> None:

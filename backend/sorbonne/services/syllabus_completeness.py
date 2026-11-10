@@ -29,6 +29,8 @@ from sorbonne.services.syllabus_templates import FYS_TEMPLATE_ID
 TOTAL_PERCENT = 100
 FYS_FEWEST_CLOS = 4
 FYS_MOST_CLOS = 6
+QUOTED_LENGTH = 50
+QUOTED_NAMES = 3
 HOD_HAS_NOT_WRITTEN = "The Head of Department has not written this course's learning outcomes yet."
 
 Missing = list[dict[str, str]]
@@ -168,19 +170,56 @@ def _outcomes(missing: Missing, content: dict[str, Any], outcome_mode: str, expe
         )
 
 
+def _short(value: str) -> str:
+    """A topic or a name as a message quotes it: its first line, at most a few words long."""
+    line = " ".join(next((part for part in value.splitlines() if part.strip()), "").split())
+    return line if len(line) <= QUOTED_LENGTH else f"{line[: QUOTED_LENGTH - 1].rstrip()}…"
+
+
+def _some(names: list[str]) -> str:
+    quoted = ", ".join(f'"{name}"' for name in names[:QUOTED_NAMES])
+    return f"{quoted} and {len(names) - QUOTED_NAMES} more" if len(names) > QUOTED_NAMES else quoted
+
+
 def _sessions(missing: Missing, content: dict[str, Any], *, flag_earlier_notes: bool) -> None:
+    """Sessions are many and alike: one line per kind of gap, naming the first few."""
     sessions = [row for row in _rows(content.get("schedule")) if row.get("kind") != "graded"]
     if not sessions:
         _add(missing, "schedule", "Add the course's sessions to the schedule.")
-    for position, row in enumerate(sessions, start=1):
-        topic = _text(row.get("topic"))
-        if not topic:
-            _add(missing, "schedule", f"Give session {position} a topic.")
-        if not _text(row.get("week")):
-            _add(missing, "schedule", f'Give the session "{topic or position}" a week.')
-        if flag_earlier_notes and (_text(row.get("assessments")) or _text(row.get("deadline"))):
-            note = f'Move the earlier note on "{topic or position}" into a graded activity, or clear it.'
-            _add(missing, "schedule", note)
+        return
+    untitled = sum(1 for row in sessions if not _text(row.get("topic")))
+    if untitled:
+        _add(missing, "schedule", f"Give {_count(untitled, 'session')} a topic.")
+    unplaced = [
+        _short(_text(row.get("topic"))) or "untitled"
+        for row in sessions
+        if not (_text(row.get("week")) or _text(row.get("date")))
+    ]
+    if unplaced:
+        _add(missing, "schedule", f"Give {_count(len(unplaced), 'session')} a week or a date: {_some(unplaced)}.")
+    if flag_earlier_notes:
+        noted = [
+            _short(_text(row.get("topic"))) or "untitled"
+            for row in sessions
+            if _text(row.get("assessments")) or _text(row.get("deadline"))
+        ]
+        if noted:
+            _add(
+                missing,
+                "schedule",
+                f"Move the earlier notes into graded activities, or clear them ({_count(len(noted), 'session')}): "
+                f"{_some(noted)}.",
+            )
+
+
+def _count(number: int, noun: str) -> str:
+    return f"{number} {noun}{'s' if number != 1 else ''}"
+
+
+def _activity_name(activity: dict[str, Any], position: int) -> str:
+    """As the schedule names the card: its name, else its type, else its number."""
+    name = _text(activity.get("name")) or _text(activity.get("type")) or _text(activity.get("description"))
+    return _short(name) or f"Graded activity {position}"
 
 
 def _graded(missing: Missing, content: dict[str, Any], section: str, *, week_required: bool) -> None:
@@ -190,7 +229,7 @@ def _graded(missing: Missing, content: dict[str, Any], section: str, *, week_req
         return
     fallback = course_ai_fallback(content)
     for position, activity in enumerate(activities, start=1):
-        name = _text(activity.get("name")) or _text(activity.get("type")) or f"graded activity {position}"
+        name = _activity_name(activity, position)
         if week_required and not _text(activity.get("week")):
             _add(missing, section, f'Give "{name}" a week.')
         elif not (_text(activity.get("week")) or _text(activity.get("date"))):
@@ -199,7 +238,8 @@ def _graded(missing: Missing, content: dict[str, Any], section: str, *, week_req
             _add(missing, section, f'Choose the assessment type of "{name}".')
         if _number(activity.get("weight")) is None:
             _add(missing, section, f'Give the weight of "{name}".')
-        if not (_ids(activity.get("cloIds")) or _ids(activity.get("catalogueCloIds"))):
+        # A syllabus written before CLOs were picked by id names them as text, which still prints.
+        if not (_ids(activity.get("cloIds")) or _ids(activity.get("catalogueCloIds")) or _text(activity.get("clos"))):
             _add(missing, section, f'Say which course learning outcomes "{name}" assesses.')
         policy = activity_ai_policy(activity, fallback)
         if not policy:
@@ -291,7 +331,7 @@ def _fys_graded(missing: Missing, content: dict[str, Any]) -> None:
         _add(missing, "schedule", "Add the course's graded activities to the teaching schedule.")
         return
     for position, activity in enumerate(activities, start=1):
-        name = _text(activity.get("name")) or _text(activity.get("description")) or f"graded activity {position}"
+        name = _activity_name(activity, position)
         if not _text(activity.get("week")):
             _add(missing, "schedule", f'Give "{name}" a week.')
         if not _text(activity.get("component")):
