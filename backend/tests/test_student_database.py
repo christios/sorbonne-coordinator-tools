@@ -328,6 +328,26 @@ def test_rolling_over_carries_a_cohorts_students_into_the_next_semester(database
     assert again["added"] == 1
 
 
+def test_saving_a_cohorts_settings_after_a_roll_over_keeps_the_new_term(database: StudentDatabase) -> None:
+    """The settings dialog sent back the terms it had opened with, without 262720: on 9 Nov
+    2026 all four rolled-over cohorts listed 262710 alone. A term it holds students in stays."""
+    student = f"R{uuid4().hex[:8].upper()}"
+    _hold(database, student)
+    autumn, spring = (f"{season}-{uuid4().hex[:6]}" for season in ("autumn", "spring"))
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO term_links (term_id, portal_term_code) VALUES (:t, '262720')"), {"t": spring}
+        )
+    l1 = database.create_cohort(name="L1", term="2026-27", terms=["262710"])
+    database.set_cohort([student], l1["id"], term_id=autumn)
+    database.roll_over(l1["id"], autumn, spring)
+
+    database.update_cohort(l1["id"], name="L1", term="2026-27", notes="", terms=["262710"])
+
+    assert database.get_cohort(l1["id"])["terms"] == ["262710", "262720"]
+    assert next(c for c in database.list_cohorts() if c["id"] == l1["id"])["terms"] == ["262710", "262720"]
+
+
 def test_a_cohort_is_not_rolled_over_into_the_semester_it_is_from(database: StudentDatabase) -> None:
     l1 = database.create_cohort(name="L1")
     with pytest.raises(InvalidCohortMove):
@@ -406,6 +426,58 @@ def test_a_cohort_holding_two_semesters_is_not_deleted_whole(database: StudentDa
     database.delete_cohort(fys["id"])
     with pytest.raises(CohortNotFound):
         database.get_cohort(fys["id"])
+
+
+def test_removing_l1_from_a_semester_counts_its_students_language_groups(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """L1 has no set of its own in the autumn; its student's French group sits in FYS's LANG,
+    filed under L1. Removing L1 from the autumn takes that group: it is counted beforehand."""
+    _fys, l1, *_rest, autumn, _spring = two_semesters_of_fys
+
+    reach = database.semester_reach(l1["id"], autumn)
+
+    assert (reach["members"], reach["sets"], reach["sharedSets"], reach["sharedPlacements"]) == (1, [], ["LANG"], 1)
+
+
+def test_a_cohort_whose_only_other_semester_is_a_language_group_is_not_deleted_whole(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """Its student moved on in the spring but kept a French group filed under it there:
+    deleting the cohort would take that group, so the spring still counts as held."""
+    fys, l1, _fys_student, l1_student, autumn, spring = two_semesters_of_fys
+    with database.engine.begin() as connection:
+        lang = connection.execute(
+            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": fys["id"]}
+        ).scalar()
+        connection.execute(
+            text("UPDATE cohort_scopes SET term_id = :spring WHERE id = :id"), {"spring": spring, "id": lang}
+        )
+
+    assert database.semester_reach(l1["id"], autumn)["otherSemesters"] == [spring]
+    with pytest.raises(CohortSpansSemesters):
+        database.delete_cohort(l1["id"])
+    assert database.cohort_members(l1["id"], autumn) == {l1_student}
+
+
+def test_a_language_set_takes_only_students_held_in_its_own_semester(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """A student who joined in the spring is turned away from the autumn's French, and named."""
+    fys, _l1, fys_student, _l1_student, _autumn, spring = two_semesters_of_fys
+    newcomer = f"N{uuid4().hex[:8].upper()}"
+    _hold(database, newcomer)
+    database.set_cohort([newcomer], fys["id"], term_id=spring)
+    with database.engine.connect() as connection:
+        lang, french = connection.execute(
+            text("""SELECT s.id, g.id FROM cohort_scopes s JOIN scope_groups g ON g.scope_id = s.id
+                    WHERE s.cohort_id = :id AND s.code = 'LANG'"""),
+            {"id": fys["id"]},
+        ).one()
+
+    report = database.assign_many(scope_id=lang, student_ids=[newcomer, fys_student], group_id=french)
+
+    assert report["skipped"] == [newcomer]
 
 
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:

@@ -954,14 +954,15 @@ class PortalListStore:
                 {"t": term_code},
             ).all()
             awaited = connection.execute(
-                text("""SELECT DISTINCT c.crn
+                text(f"""SELECT DISTINCT c.crn
                         FROM portal_courses c
                         WHERE c.term_code = :t AND c.status = 'in_portal' AND c.crn <> ''
                           AND ((c.teacher_name <> ''
                                 AND EXISTS (SELECT 1 FROM active_course_crns a
                                              WHERE a.term_code = c.term_code AND a.crn = c.crn))
                                OR EXISTS (SELECT 1 FROM group_crns g
-                                           WHERE g.crn = c.crn AND NOT g.retired))"""),
+                                           WHERE g.crn = c.crn AND NOT g.retired
+                                             AND {_section_in_term("g", "c.term_code")}))"""),  # noqa: S608
                 {"t": term_code},
             ).scalars().all()
         ours = {crn for crn, mine in rows if mine} | set(awaited)
@@ -1554,9 +1555,11 @@ class PortalListStore:
         is what the page warned about before asking.
 
         From one semester when `term_code` is said: they stop being active in it, and that
-        semester's sections let go of them. Their record — and the time sheets, roles and
-        links that hang on it — stays while another semester still counts them, and goes
-        with the last.
+        semester's sections let go of them — that semester's only, even when it is their
+        last. Their record — and the time sheets, roles and links that hang on it — stays
+        while another semester still counts them or still has a section naming them, and
+        goes with the last. Removing a teacher from Semester 2's list used to clear them
+        from Semester 1's sections too whenever Semester 2 was the last to count them.
         """
         term = _text(term_code)
         with self.engine.begin() as connection:
@@ -1569,18 +1572,24 @@ class PortalListStore:
                     text("DELETE FROM active_teacher_terms WHERE active_id = :id AND term_code = :t"),
                     {"id": active_id, "t": term},
                 )
-                if connection.execute(
+                loosened = connection.execute(
+                    text("""UPDATE group_crns gc SET teacher_id = ''
+                            WHERE gc.teacher_id = :id AND EXISTS (
+                                SELECT 1 FROM scope_courses c
+                                JOIN cohort_scopes s ON s.id = c.scope_id
+                                JOIN term_links l ON l.term_id = s.term_id
+                                WHERE c.id = gc.course_id AND l.portal_term_code = :t)"""),
+                    {"id": active_id, "t": term},
+                ).rowcount
+                still_counted = connection.execute(
                     text("SELECT 1 FROM active_teacher_terms WHERE active_id = :id"), {"id": active_id}
-                ).first():
-                    return connection.execute(
-                        text("""UPDATE group_crns gc SET teacher_id = ''
-                                WHERE gc.teacher_id = :id AND EXISTS (
-                                    SELECT 1 FROM scope_courses c
-                                    JOIN cohort_scopes s ON s.id = c.scope_id
-                                    JOIN term_links l ON l.term_id = s.term_id
-                                    WHERE c.id = gc.course_id AND l.portal_term_code = :t)"""),
-                        {"id": active_id, "t": term},
-                    ).rowcount
+                ).first()
+                still_named = connection.execute(
+                    text("SELECT 1 FROM group_crns WHERE teacher_id = :id"), {"id": active_id}
+                ).first()
+                if not (still_counted or still_named):
+                    connection.execute(text("DELETE FROM active_teachers WHERE id = :id"), {"id": active_id})
+                return loosened
             loosened = connection.execute(
                 text("UPDATE group_crns SET teacher_id = '' WHERE teacher_id = :id"), {"id": active_id}
             ).rowcount
@@ -1605,7 +1614,8 @@ class PortalListStore:
                                     p.credits, p.contact_hours,
                                     pp.title AS parent_title, pp.status AS parent_status,
                                     pp.course_code AS parent_course_code,
-                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by,
+                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn
+                                       AND {_section_in_term("gc", "r.term_code")}) AS used_by,
                                     (SELECT count(*) FROM active_course_crns k
                                       WHERE k.term_code = r.term_code AND k.parent_crn = r.crn) AS child_count
                              FROM active_course_crns r
@@ -1662,8 +1672,13 @@ class PortalListStore:
                 if not code:
                     code = _text(
                         connection.execute(
-                            text("SELECT upper(course_code) FROM portal_courses WHERE crn = :crn LIMIT 1"),
-                            {"crn": crn},
+                            # The CRN's own term: the number names another course in another term.
+                            text(
+                                "SELECT upper(course_code) FROM portal_courses WHERE crn = :crn"
+                                + (" AND term_code = :term" if term_code else "")
+                                + " LIMIT 1"
+                            ),
+                            {"crn": crn, "term": term_code},
                         ).scalar()
                     )
                 wanted.append((term_code, crn, code))
@@ -1869,6 +1884,11 @@ class PortalListStore:
                                              JOIN scope_groups sg ON sg.id = ga.group_id
                                              JOIN cohort_scopes cs ON cs.id = sg.scope_id
                                              WHERE ga.student_id = r.student_id
+                                               -- Not a group of another term: the number is
+                                               -- another section there.
+                                               AND NOT EXISTS (SELECT 1 FROM term_links tl
+                                                               WHERE tl.term_id = cs.term_id
+                                                                 AND tl.portal_term_code <> r.term_code)
                                                AND EXISTS (SELECT 1 FROM group_crns gc
                                                            WHERE gc.group_id = ga.group_id AND gc.crn = r.crn
                                                              AND gc.retired = false)), '') AS held
@@ -1900,18 +1920,21 @@ class PortalListStore:
             for row in rows
         ]
 
-    def live_crns(self) -> list[str]:
-        """Every CRN a live section of our planning holds, whichever cohort or semester.
+    def live_crns(self, term_code: str = "") -> list[str]:
+        """Every CRN a live section of our planning holds in one portal term, whichever cohort.
 
-        Term-blind and cohort-blind, exactly as `used_by` is: a CRN is the portal's own
-        identifier and matching it on anything else would lose the sets open to every
-        cohort, which is the whole class of thing this keeps failing to see.
+        Cohort-blind, so the sets open to every cohort are never lost. Term-bound when a term
+        is said, through each section's set: the registrar reuses CRN numbers from term to
+        term, and Semester 1's numbers are no answer about Semester 2's sections.
         """
+        term = _text(term_code)
+        in_term = f" AND {_section_in_term('g', ':term')}" if term else ""
         with self.engine.connect() as connection:
             return sorted(
                 row[0]
                 for row in connection.execute(
-                    text("SELECT DISTINCT crn FROM group_crns WHERE crn <> '' AND retired = false")
+                    text(f"SELECT DISTINCT g.crn FROM group_crns g WHERE g.crn <> '' AND g.retired = false{in_term}"),  # noqa: S608
+                    {"term": term},
                 )
             )
 
@@ -2002,7 +2025,10 @@ class PortalListStore:
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
+                    # The registrar's row of the section's OWN term, through its set's
+                    # semester: the same number is another course in another term.
                     text("""SELECT gc.crn, c.code AS course_code, g.label AS group_label,
+                                   coalesce(l.portal_term_code, '') AS term_code,
                                    coalesce(t.full_name, '') AS linked,
                                    coalesce(gc.teacher, '') AS written,
                                    coalesce(p.teacher_name, '') AS theirs,
@@ -2010,11 +2036,15 @@ class PortalListStore:
                             FROM group_crns gc
                             JOIN scope_courses c ON c.id = gc.course_id
                             JOIN scope_groups g ON g.id = gc.group_id
+                            JOIN cohort_scopes s ON s.id = c.scope_id
+                            LEFT JOIN term_links l ON l.term_id = s.term_id
                             LEFT JOIN active_teachers t ON t.id = gc.teacher_id
                             LEFT JOIN portal_courses p
                                    ON p.crn = gc.crn AND p.status = 'in_portal'
+                                  AND (l.portal_term_code IS NULL OR p.term_code = l.portal_term_code)
                                   AND (:term = '' OR p.term_code = :term)
                             WHERE gc.crn <> '' AND gc.retired = false
+                              AND (:term = '' OR l.portal_term_code IS NULL OR l.portal_term_code = :term)
                             ORDER BY c.code, gc.crn"""),
                     {"term": term},
                 )
@@ -2022,15 +2052,15 @@ class PortalListStore:
                 .all()
             )
 
-        by_crn: dict[str, list[Any]] = {}
+        by_crn: dict[tuple[str, str], list[Any]] = {}
         for row in rows:
             if not row["in_portal"] or not named(row["theirs"]):
                 continue
-            by_crn.setdefault(row["crn"], []).append(row)
+            by_crn.setdefault((row["term_code"], row["crn"]), []).append(row)
 
         differs: list[dict[str, Any]] = []
         unnamed: list[dict[str, Any]] = []
-        for crn, held in by_crn.items():
+        for (term_of, crn), held in by_crn.items():
             # The row that answers for the section: one that links a teacher first, then
             # one that writes a name down, and only then the bare pointer.
             #
@@ -2044,6 +2074,7 @@ class PortalListStore:
             ours = answers["linked"] or answers["written"]
             entry = {
                 "crn": crn,
+                "termCode": term_of,
                 "courseCode": answers["course_code"],
                 # Every group that attends it, because the fix is on the row that carries
                 # the teacher and a reader needs to know which of them that is.
@@ -2075,7 +2106,8 @@ class PortalListStore:
             gone = (
                 connection.execute(
                     text(f"""SELECT r.id, r.term_code, r.crn, r.course_code,
-                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn) AS used_by,
+                                    (SELECT count(*) FROM group_crns gc WHERE gc.crn = r.crn
+                                       AND {_section_in_term("gc", "r.term_code")}) AS used_by,
                                     (SELECT count(*) FROM active_course_crns k
                                       WHERE k.term_code = r.term_code AND k.parent_crn = r.crn) AS child_count
                              FROM active_course_crns r
@@ -2115,11 +2147,14 @@ class PortalListStore:
             )
             unregistered = (
                 connection.execute(
+                    # Registered in the section's own term: Semester 1's 23304 does not
+                    # register Semester 2's.
                     text(f"""SELECT DISTINCT gc.crn, c.code AS course_code
                             FROM group_crns gc
                             JOIN scope_courses c ON c.id = gc.course_id
                             WHERE gc.crn <> '' AND gc.retired = false
-                              AND NOT EXISTS (SELECT 1 FROM active_course_crns r WHERE r.crn = gc.crn){section_term}
+                              AND NOT EXISTS (SELECT 1 FROM active_course_crns r WHERE r.crn = gc.crn
+                                                AND {_section_in_term("gc", "r.term_code")}){section_term}
                             ORDER BY c.code, gc.crn"""),  # noqa: S608 - fixed clauses
                     params,
                 )
@@ -2323,8 +2358,10 @@ class PortalListStore:
     def remove_active_course(self, active_id: str, term_code: str = "") -> None:
         """Take a course off the department's list, with its CRNs in the register.
 
-        From one semester when `term_code` is said: its CRNs of that term go, and the course
-        stays — with its UE — while another semester still has it, and goes with the last.
+        From one semester when `term_code` is said: its CRNs of that term go, and no other
+        term's. The course stays — with its UE — while another semester still has it or still
+        holds CRNs of it, and goes with the last. Removing a course from Semester 2's list
+        used to delete its CRNs in every term whenever Semester 2 was the last to have it.
         """
         term = _text(term_code)
         with self.engine.begin() as connection:
@@ -2341,7 +2378,9 @@ class PortalListStore:
                     {"code": code, "t": term},
                 )
                 if connection.execute(
-                    text("SELECT 1 FROM active_course_terms WHERE course_code = :code"), {"code": code}
+                    text("""SELECT 1 FROM active_course_terms WHERE course_code = :code
+                            UNION ALL SELECT 1 FROM active_course_crns WHERE course_code = :code"""),
+                    {"code": code},
                 ).first():
                     return
             # Its CRNs go with it: they were in the register because the course was.
@@ -3181,6 +3220,21 @@ _TITLES = {"dr", "pr", "prof", "professor", "mr", "ms", "mrs", "mme", "m"}
 #: treating them as names turns "nobody has been assigned" into "the registrar disagrees",
 #: which is a different problem with a different answer.
 _PLACEHOLDERS = {"tbd", "tba", "na", "n a", "none", "unknown", "vacant", "staff", "?", "-", "--"}
+
+
+def _section_in_term(section: str, term: str) -> str:
+    """SQL saying a section row (`section`, a `group_crns` alias) is in the portal term `term`.
+
+    Through its set's semester, since a section row carries no term of its own. A CRN number
+    is not a section: the registrar reuses numbers from term to term — 23304 is French in
+    Semester 1 and MATH-114 in Semester 2 — so a match on the number alone mixed the two.
+    A section whose semester is linked to no portal term still matches on its number, as
+    everything did before, rather than vanishing.
+    """
+    return f"""EXISTS (SELECT 1 FROM scope_courses sc_t JOIN cohort_scopes cs_t ON cs_t.id = sc_t.scope_id
+                       LEFT JOIN term_links tl_t ON tl_t.term_id = cs_t.term_id
+                       WHERE sc_t.id = {section}.course_id
+                         AND (tl_t.portal_term_code IS NULL OR tl_t.portal_term_code = {term}))"""
 
 
 def named(name: str) -> bool:

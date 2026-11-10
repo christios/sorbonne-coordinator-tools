@@ -54,6 +54,7 @@ describe("StaffMenu", () => {
       "Exemption reasons",
       "Department",
       "This browser",
+      "Claude",
       "Sign out",
     ]);
     fireEvent.click(screen.getByRole("menuitem", { name: /API tokens/ }));
@@ -67,6 +68,8 @@ describe("StaffMenu", () => {
     open(USER, openSettings);
     expect(screen.queryByRole("menuitem", { name: /Users/ })).toBeNull();
     expect(screen.queryByRole("menuitem", { name: /API tokens/ })).toBeNull();
+    // Connecting Claude is their own business, so it is theirs to open.
+    expect(screen.getByRole("menuitem", { name: /Claude/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("menuitem", { name: /Checks/ }));
 
     expect(openSettings).toHaveBeenCalledWith("checks");

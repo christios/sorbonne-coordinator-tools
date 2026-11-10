@@ -556,6 +556,21 @@ export type TeacherDrift = {
   planning: "planned" | "named" | "unplanned";
 };
 
+/**
+ * The register's row for a CRN, read in its term.
+ *
+ * The registrar reuses CRN numbers from term to term — 23304 is French in Semester 1 and
+ * MATH-114 in Semester 2 — so a lookup by number opened LANG's 23304 as MATH-114. With
+ * the term known, only that term's row answers; without it, a number the register holds
+ * in one term only, and nothing at all when it holds it in two.
+ */
+export function registerRow(register: ActiveCrn[], crn: string, termCode = ""): ActiveCrn | null {
+  if (!crn) return null;
+  if (termCode) return register.find((row) => row.crn === crn && row.termCode === termCode) ?? null;
+  const found = register.filter((row) => row.crn === crn);
+  return found.length === 1 ? found[0] : null;
+}
+
 export async function fetchActiveCrns(term = ""): Promise<ActiveCrn[]> {
   return (await request<{ crns: ActiveCrn[] }>(`/active-crns${term ? `?term=${encodeURIComponent(term)}` : ""}`)).crns;
 }

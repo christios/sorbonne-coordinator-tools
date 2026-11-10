@@ -836,7 +836,7 @@ def section_days(
     Tue" quietly select students whose language hour is simply unknown.
     """
     days = facilities.weekdays_for(term_code)
-    ours = store.live_crns()
+    ours = store.live_crns(term_code)
     return {"days": days, "blind": sorted(crn for crn in ours if crn not in days)}
 
 

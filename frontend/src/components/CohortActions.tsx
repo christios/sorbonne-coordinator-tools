@@ -67,13 +67,16 @@ function removal(cohort: Cohort, semesterName: string, reach: SemesterReach | un
   const sets = reach.sets.map((each) => each.code).join(", ");
   const shared = reach.sets.filter((each) => each.openToAll && each.others).map((each) => each.code);
   const holds =
-    reach.members || reach.sets.length
+    reach.members || reach.sets.length || reach.sharedPlacements
       ? `${reach.members} student(s) leave ${cohort.name} for ${semesterName}` +
         (reach.sets.length
           ? `, and its ${reach.sets.length} set(s) there — ${sets} — go, with ${reach.groups} group(s) and ${reach.placements} placement(s)`
           : "") +
         (shared.length
           ? `. ${reach.othersPlacements} of those placements are OTHER cohorts' students in ${shared.join(", ")}, which is open to every cohort: they lose that group too`
+          : "") +
+        (reach.sharedPlacements
+          ? `. Its students also lose their ${reach.sharedPlacements} group(s) in ${reach.sharedSets.join(", ")}, the set open to every cohort`
           : "") +
         "."
       : "";
@@ -123,6 +126,8 @@ export function CohortActions({
   const [term, setTerm] = useState(cohort.term);
   const [majors, setMajors] = useState<string[]>(cohort.majors);
   const [terms, setTerms] = useState<string[]>(cohort.terms);
+  // What the field opened with, so Save keeps a term that joined since — a roll-over's.
+  const [openedTerms, setOpenedTerms] = useState<string[]>(cohort.terms);
   const [yearLevel, setYearLevel] = useState(cohort.yearLevel);
   const [workbookTab, setWorkbookTab] = useState(cohort.workbookTab);
   const [firstSemester, setFirstSemester] = useState(String(cohort.firstSemester || ""));
@@ -173,7 +178,8 @@ export function CohortActions({
         term: term.trim(),
         notes: cohort.notes,
         majors,
-        terms,
+        // The field as edited, plus any term the cohort gained while the dialog was open.
+        terms: [...terms, ...cohort.terms.filter((code) => !openedTerms.includes(code) && !terms.includes(code))],
         yearLevel: yearLevel.trim(),
         workbookTab: workbookTab.trim(),
         firstSemester: Number(firstSemester) || 0,
@@ -264,6 +270,7 @@ export function CohortActions({
             setTerm(cohort.term);
             setMajors(cohort.majors);
             setTerms(cohort.terms);
+            setOpenedTerms(cohort.terms);
             setYearLevel(cohort.yearLevel);
             setWorkbookTab(cohort.workbookTab);
             setFirstSemester(String(cohort.firstSemester || ""));
@@ -354,6 +361,10 @@ export function CohortActions({
         {tab === "rollover" ? (
           <RollOverTab
             cohort={cohort}
+            onRolled={(code) => {
+              setTerms((current) => (current.includes(code) ? current : [...current, code]));
+              setOpenedTerms((current) => (current.includes(code) ? current : [...current, code]));
+            }}
             onDone={
               onRolledOver
                 ? (semesterId, cohortId) => {

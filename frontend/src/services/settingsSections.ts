@@ -12,6 +12,7 @@ import {
   Building2,
   HardDrive,
   KeyRound,
+  MessageSquareText,
   MinusCircle,
   SlidersHorizontal,
   Users,
@@ -32,6 +33,8 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string; Icon:
   { section: "department", label: "Department", Icon: Building2, adminOnly: false },
   // What this browser holds and nobody else does: the portal's names and their history.
   { section: "this-browser", label: "This browser", Icon: HardDrive, adminOnly: false },
+  // Connecting Claude to read as you: everybody's own, and it needs nothing installed.
+  { section: "claude", label: "Claude", Icon: MessageSquareText, adminOnly: false },
 ];
 
 /** The pages this person may open, in menu order. */

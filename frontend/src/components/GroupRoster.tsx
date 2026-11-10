@@ -41,6 +41,7 @@ export function GroupRoster({
   groupId,
   groupLabel,
   courses = [],
+  semester = "",
   onClose,
 }: {
   open: boolean;
@@ -57,6 +58,8 @@ export function GroupRoster({
    * and a second read of it here would be a second answer to the same question.
    */
   courses?: { id: string; code: string }[];
+  /** The group's semester, so a record opened from here places students in it and no other. */
+  semester?: string;
   onClose: () => void;
 }) {
   const client = useQueryClient();
@@ -279,6 +282,7 @@ export function GroupRoster({
            * what the register makes of them — is there.
            */
           history={EMPTY_HISTORY}
+          semester={semester}
           onClose={() => setChosen("")}
         />
       ) : null}

@@ -52,8 +52,17 @@ describe("a student list, for the semester chosen", () => {
     });
   });
 
+  it("leaves out a list whose own filter asks for another term, and pulls it with its own", () => {
+    // "All Sorbonne Students - S1" pulled while Semester 2 was chosen brought Semester 1's
+    // students back labelled Semester 2: the filter's own term wins over the one asked for.
+    const autumn = { ...VIEW, name: "All Sorbonne Students - S1", filter: { TERM_CODE: ["262710"] } };
+    expect(studentTarget(autumn, SPRING)).toBeNull();
+    expect(studentTarget(autumn, { code: "262710", name: "Semester 1 2026-27" })?.termCode).toBe("262710");
+    expect(studentTarget(autumn, null)?.name).toBe("All Sorbonne Students - S1");
+  });
+
   it("names no term when no semester with a portal term is chosen", () => {
-    expect(studentTarget(VIEW, null).termCode).toBeUndefined();
-    expect(studentTarget(VIEW, { code: "", name: "A plan with no term" }).termCode).toBeUndefined();
+    expect(studentTarget(VIEW, null)?.termCode).toBeUndefined();
+    expect(studentTarget(VIEW, { code: "", name: "A plan with no term" })?.termCode).toBeUndefined();
   });
 });

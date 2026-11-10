@@ -48,6 +48,11 @@ EXCLUDED: dict[str, str] = {
         "Credentials. Copied, every production token would authenticate against a "
         "developer's laptop. A developer mints their own token in their own Settings."
     ),
+    "oauth_clients": "Claude's registrations with production; a laptop is registered with on its own.",
+    "oauth_codes": "Credentials, if short-lived ones: a copied code could be traded for a key.",
+    "connector_grants": (
+        "Credentials. Copied, every coordinator's Claude connection would read a developer's laptop."
+    ),
 }
 
 

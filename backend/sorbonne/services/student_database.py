@@ -69,6 +69,15 @@ class InvalidCohortMove(ValueError):
     """A move between cohorts that cannot be made, said in words."""
 
 
+# Every semester a cohort still holds anything in, but `:term` ("" for none): its students,
+# its sets, and its placements — a placement filed under it in another cohort's set open to
+# every cohort (the languages) is its own too, and goes when the cohort does.
+_HELD_TERMS = """SELECT term_id FROM cohort_members WHERE cohort_id = :id AND term_id <> :term
+                 UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id AND term_id <> :term
+                 UNION SELECT s.term_id FROM group_assignments a JOIN cohort_scopes s ON s.id = a.scope_id
+                        WHERE a.cohort_id = :id AND s.term_id <> :term"""
+
+
 class CohortSpansSemesters(ValueError):
     """A whole cohort asked to go while it still holds more than one semester, said in words."""
 
@@ -253,7 +262,11 @@ class StudentDatabase:
                                 (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
-                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code
+                                                          ORDER BY t.portal_term_code), '[]')
+                                 FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
+                                 WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c ORDER BY c.name""")
                 )
                 .mappings()
@@ -271,7 +284,11 @@ class StudentDatabase:
                                 (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
-                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code
+                                                          ORDER BY t.portal_term_code), '[]')
+                                 FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
+                                 WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c WHERE c.id = :id"""),
                     {"id": cohort_id},
                 )
@@ -370,9 +387,7 @@ class StudentDatabase:
             held = sorted(
                 term
                 for (term,) in connection.execute(
-                    text("""SELECT term_id FROM cohort_members WHERE cohort_id = :id
-                            UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id"""),
-                    {"id": cohort_id},
+                    text(_HELD_TERMS), {"id": cohort_id, "term": ""}
                 )
             )
             if len(held) > 1:
@@ -426,13 +441,18 @@ class StudentDatabase:
                     {"id": cohort_id, "term": term},
                 )
             ]
+            # Its students' placements in ANOTHER cohort's set that semester — the languages,
+            # open to every cohort and kept on one cohort's row. They are filed under this
+            # cohort, so they go when its students leave it: counted here, said on screen.
+            shared = connection.execute(
+                text("""SELECT s.code, count(*) FROM group_assignments a
+                          JOIN cohort_scopes s ON s.id = a.scope_id
+                         WHERE a.cohort_id = :id AND s.term_id = :term AND s.cohort_id <> :id
+                         GROUP BY s.code ORDER BY s.code"""),
+                {"id": cohort_id, "term": term},
+            ).all()
             elsewhere = sorted(
-                other
-                for (other,) in connection.execute(
-                    text("""SELECT term_id FROM cohort_members WHERE cohort_id = :id AND term_id <> :term
-                            UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id AND term_id <> :term"""),
-                    {"id": cohort_id, "term": term},
-                )
+                other for (other,) in connection.execute(text(_HELD_TERMS), {"id": cohort_id, "term": term})
             )
         return {
             "termId": term,
@@ -441,6 +461,8 @@ class StudentDatabase:
             "groups": sum(each["groups"] for each in sets),
             "placements": sum(each["placements"] for each in sets),
             "othersPlacements": sum(each["others"] for each in sets),
+            "sharedSets": [code for code, _ in shared],
+            "sharedPlacements": sum(int(count) for _, count in shared),
             "otherSemesters": elsewhere,
         }
 
@@ -1145,7 +1167,11 @@ class StudentDatabase:
                                 (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
-                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code
+                                                          ORDER BY t.portal_term_code), '[]')
+                                 FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
+                                 WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c ORDER BY c.name""")
                 )
                 .mappings()
@@ -1530,9 +1556,22 @@ class StudentDatabase:
         }
 
     def _placeable(self, connection: Connection, scope_id: str, cohort_id: str) -> set[str]:
-        """The students this set may hold: its cohort's in its semester, or the whole department's."""
+        """The students this set may hold in its semester: its cohort's, or — a set open to every
+        cohort — anybody in a cohort that semester.
+
+        Open used to mean anybody the department held, so a student who had only joined in
+        Semester 2 could be put in a Semester 1 language group from a Semester 2 screen, and
+        filed under a cohort they were never in that semester.
+        """
         if self._open_to_all(connection, scope_id):
-            return {row[0] for row in connection.execute(text("SELECT student_id FROM students"))}
+            return {
+                row[0]
+                for row in connection.execute(
+                    text("""SELECT m.student_id FROM cohort_members m
+                            JOIN cohort_scopes s ON s.id = :scope AND s.term_id = m.term_id"""),
+                    {"scope": scope_id},
+                )
+            }
         return {
             row[0]
             for row in connection.execute(
@@ -3285,6 +3324,13 @@ def _rule(row) -> dict[str, Any]:
     }
 
 
+def _held_terms(row) -> list[str]:
+    saved = json.loads(row["term_codes"] or "[]")
+    held = row.get("held_codes")
+    held = json.loads(held) if isinstance(held, str) else (held or [])
+    return [*saved, *(code for code in held if code not in saved)]
+
+
 def _cohort(row) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -3293,7 +3339,11 @@ def _cohort(row) -> dict[str, Any]:
         "notes": row["notes"],
         # What the cohort expects, as the portal codes it: the majors and terms it spans.
         "majors": json.loads(row["major_codes"] or "[]"),
-        "terms": json.loads(row["term_codes"] or "[]"),
+        # Saved, and every term it holds students in. Rolling over adds the new term to the
+        # saved list, and the settings dialog's Save used to write back the list it had
+        # opened with: all four cohorts rolled into Semester 2 on 9 Nov 2026 still listed
+        # 262710 alone, and the checks that walk these terms never looked at Semester 2.
+        "terms": _held_terms(row),
         "yearLevel": row["year_level"] or "",
         # What its sheet is called in the timetable workbook, and the number that sheet
         # gives its first semester — S3 for Licence 2, because the numbering runs across

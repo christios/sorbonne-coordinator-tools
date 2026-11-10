@@ -21,8 +21,15 @@ import { fetchTimetableTerms } from "@/services/timetables";
 export function RollOverTab({
   cohort,
   onDone,
+  onRolled,
 }: {
   cohort: Cohort;
+  /**
+   * The portal term of the semester just rolled into, which the cohort now expects: the
+   * dialog this sits in holds the terms field, and its Save must not write back the list it
+   * opened with.
+   */
+  onRolled?: (portalTerm: string) => void;
   /** Afterwards, to show the cohort in the semester rolled into. */
   onDone?: (semesterId: string, cohortId: string) => void;
 }) {
@@ -74,6 +81,8 @@ export function RollOverTab({
   const roll = useMutation({
     mutationFn: () => rollOverCohort(cohort.id, from?.id ?? "", into?.id ?? ""),
     onSuccess: () => {
+      const code = into ? (links[into.id] ?? "") : "";
+      if (code) onRolled?.(code);
       afterPlacement(client);
       client.invalidateQueries({ queryKey: ["course-cards"] });
     },

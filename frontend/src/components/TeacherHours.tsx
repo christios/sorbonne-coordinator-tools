@@ -28,7 +28,7 @@ import {
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
-import { buildCards } from "@/services/courseCards";
+import { buildCards, parentsOf } from "@/services/courseCards";
 import {
   fetchActiveCourses,
   fetchActiveCrns,
@@ -93,10 +93,9 @@ export function TeacherHours({
   const [termId, setTermId] = useRemembered(SCHEMA_TERM);
 
   const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
-  const parentOf = useMemo(
-    () => new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn])),
-    [registered.data],
-  );
+  // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
+  const linked = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const parentOf = useMemo(() => parentsOf(registered.data ?? [], linked.data ?? {}), [registered.data, linked.data]);
   const cards = useMemo(
     () => buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf),
     [catalogues.data, terms.data, courses.data, parentOf], // eslint-disable-line react-hooks/exhaustive-deps

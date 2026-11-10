@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { StaffSettings } from "@/components/StaffSettings";
@@ -246,5 +246,49 @@ describe("tokens for scripts", () => {
     fireEvent.change(screen.getByLabelText("What the token can do"), { target: { value: "change" } });
     fireEvent.click(screen.getByRole("button", { name: "Make a token" }));
     await waitFor(() => expect(create).toHaveBeenLastCalledWith({ name: "Data load", days: 90, readOnly: false }));
+  });
+});
+
+describe("Claude, reading as you", () => {
+  const CONNECTION: directory.ClaudeConnection = {
+    id: "g1",
+    clientName: "Claude",
+    email: "colleague@sorbonne.ae",
+    createdAt: "2026-11-10T09:00:00+00:00",
+    lastUsedAt: "2026-11-10T10:00:00+00:00",
+    revokedAt: "",
+    expiresAt: "2099-01-01T00:00:00+00:00",
+  };
+
+  it("is every coordinator's: the address to paste into Claude, and their own connection to end", async () => {
+    window.history.replaceState(null, "", "#/settings/claude");
+    vi.spyOn(directory, "fetchClaudeConnections").mockResolvedValue({
+      connectorUrl: "https://coordinator.example/mcp",
+      connections: [CONNECTION],
+    });
+    const disconnect = vi.spyOn(directory, "disconnectClaude").mockResolvedValue();
+    renderSettings({ ...ADMIN, email: "colleague@sorbonne.ae", isAdmin: false });
+
+    expect(await screen.findByText("https://coordinator.example/mcp")).toBeTruthy();
+    expect(screen.getByText(/Add custom connector/)).toBeTruthy();
+    expect(screen.getByText("Your connections")).toBeTruthy();
+    // Opened from the menu by somebody who administers nothing.
+    expect(screen.getByRole("button", { name: "Claude" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Disconnect/ }));
+    // Asked first, since Claude stops at once.
+    const asked = await screen.findByText("Disconnect Claude?");
+    fireEvent.click(within(asked.closest("[role=dialog], [role=alertdialog]") as HTMLElement).getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(disconnect).toHaveBeenCalledWith("g1"));
+  });
+
+  it("says so when Claude is not connected yet", async () => {
+    window.history.replaceState(null, "", "#/settings/claude");
+    vi.spyOn(directory, "fetchClaudeConnections").mockResolvedValue({ connectorUrl: "https://x/mcp", connections: [] });
+    renderSettings();
+
+    expect(await screen.findByText("Claude is not connected yet.")).toBeTruthy();
+    expect(screen.getByText("Everybody's connections")).toBeTruthy();
   });
 });

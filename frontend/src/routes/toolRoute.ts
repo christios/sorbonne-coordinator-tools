@@ -9,7 +9,8 @@ export type SettingsSection =
   | "programme-codes"
   | "exemption-reasons"
   | "department"
-  | "this-browser";
+  | "this-browser"
+  | "claude";
 
 const tools = new Set<ToolId>(["roster", "syllabus", "database", "settings"]);
 

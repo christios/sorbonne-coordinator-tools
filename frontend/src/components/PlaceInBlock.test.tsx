@@ -79,6 +79,26 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("placing students in a group", () => {
+  it("places in the semester the page has on screen, and offers no other", async () => {
+    // The roster on Semester 2 opened this with every semester listed and none chosen; the
+    // languages take anybody, so a Semester 2 student could land in Semester 1's French.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <PlaceInBlock open cohort={COHORT} studentIds={["A00025735"]} semester="term-2" onClose={vi.fn()} onPlaced={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(database.fetchCatalogue).toHaveBeenCalledWith("cohort-1", "term-2"));
+    await waitFor(() =>
+      expect((screen.getByRole("combobox", { name: "Semester" }) as HTMLButtonElement).disabled).toBe(false),
+    );
+    fireEvent.click(screen.getByRole("combobox", { name: "Semester" }));
+    const offered = (await screen.findAllByRole("option")).map((option) => option.textContent);
+    expect(offered.join(" | ")).toContain("Semester 2");
+    expect(offered.join(" | ")).not.toContain("Semester 1");
+  });
+
   it("says how many are being placed, and into which cohort", () => {
     show();
 

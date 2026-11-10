@@ -31,6 +31,7 @@ import {
   setParentCrn,
 } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
+import { useTicks } from "@/components/useTicks";
 
 const COLUMNS: GridColumn<ActiveCrn>[] = [
   { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, required: true, defaultWidth: 90 },
@@ -132,7 +133,7 @@ export function ActiveCourses({
   const client = useQueryClient();
   // The semester the register is shown for: its CRNs, and the courses active in it.
   const { semesters, semester, setTermId, term } = usePortalSemester();
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useTicks(term);
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ActiveCrn | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);

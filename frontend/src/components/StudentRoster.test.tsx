@@ -633,6 +633,46 @@ describe("StudentRoster", () => {
     expect(within(dialog).getByText(/no group in any semester/)).toBeTruthy();
   });
 
+  it("offers only the semester on screen, never Semester 1's groups from Semester 2", async () => {
+    // In Semester 2, before anyone was placed there, Semester 1 was the only semester
+    // they held a group in, so it was named and its groups were taken.
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-1", name: "Semester 1" },
+      { id: "term-2", name: "Semester 2" },
+    ] as never);
+    vi.spyOn(database, "fetchStudents").mockResolvedValue(
+      HELD.map((student) =>
+        student.studentId === "A001"
+          ? {
+              ...student,
+              cohorts: [
+                { id: "cohort-1", name: "Foundation Year", since: "", termId: "term-1" },
+                { id: "cohort-1", name: "Foundation Year", since: "", termId: "term-2" },
+              ],
+              groups: [{ termId: "term-1", scopeCode: "TD", groupLabel: "1" }],
+            }
+          : student,
+      ),
+    );
+    const empty = vi.spyOn(database, "assignStudents");
+    await withNames();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudentRoster cohorts={COHORTS} viewId="" scope={{ cohortId: "cohort-1", termId: "term-2" }} />
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Amira Haddad");
+
+    fireEvent.click(screen.getByLabelText("Select Amira Haddad"));
+    fireEvent.click(screen.getByRole("button", { name: /Out of groups/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/no group in Semester 2/)).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: /Take them out of/ })).toBeNull();
+    expect(empty).not.toHaveBeenCalled();
+  });
+
   it("lets the move be called off, and nothing is written", async () => {
     inSemesterOne([{ termId: "term-1", scopeCode: "TD", groupLabel: "1" }]);
     const move = vi.spyOn(database, "setCohort").mockResolvedValue(1);

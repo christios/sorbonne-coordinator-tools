@@ -34,6 +34,8 @@ const reach = (over: Partial<SemesterReach> = {}): SemesterReach => ({
   groups: 7,
   placements: 139,
   othersPlacements: 0,
+  sharedSets: [],
+  sharedPlacements: 0,
   otherSemesters: ["plan:262710"],
   ...over,
 });
@@ -95,6 +97,19 @@ describe("the bin button, with a semester on screen", () => {
 
     expect((await screen.findByText(/Only Semester 2 changes/)).textContent).toContain(
       "195 of those placements are OTHER cohorts' students in LANG, which is open to every cohort",
+    );
+  });
+
+  it("says its students lose their language groups, kept in another cohort's set", async () => {
+    vi.spyOn(database, "fetchSemesterReach").mockResolvedValue(
+      reach({ sets: [], groups: 0, placements: 0, sharedSets: ["LANG"], sharedPlacements: 43 }),
+    );
+    show();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove FYS from Semester 2" }));
+
+    expect((await screen.findByText(/Only Semester 2 changes/)).textContent).toContain(
+      "Its students also lose their 43 group(s) in LANG, the set open to every cohort",
     );
   });
 

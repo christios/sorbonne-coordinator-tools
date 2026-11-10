@@ -24,7 +24,7 @@ const CATALOGUE: CohortCatalogue[] = [
     ],
   },
 ];
-const CARDS = buildCards(CATALOGUE, () => "Semester 1", [], new Map());
+const CARDS = buildCards(CATALOGUE, () => "Semester 1", []);
 const LINKS = { "term-1": "262710" };
 const NAMES: Record<string, string> = { ahmed: "Ahmed Menaa", amina: "Amina Menaa", sachin: "Sachin Valera" };
 const PLANNED = plannedTeachers(CARDS, LINKS, (id) => NAMES[id] ?? "");

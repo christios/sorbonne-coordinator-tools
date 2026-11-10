@@ -33,7 +33,7 @@ import {
   removeActiveTeacher,
 } from "@/services/portalLists";
 import { removeEach, stillSelected } from "@/services/bulkRemove";
-import { buildCards } from "@/services/courseCards";
+import { buildCards, parentsOf } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchFacilityHours, fetchTermLinks, splitCodes } from "@/services/portalLists";
 import { KIND_WORDS, plannedTeachers, portalScheduleWarnings } from "@/services/portalSchedule";
 import type { GridColumn } from "@/services/studentColumns";
@@ -43,6 +43,7 @@ import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { exportTeacherTimetables } from "@/services/timetableExports";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
+import { useTicks } from "@/components/useTicks";
 
 /**
  * An Active teacher with what the planning has them teaching: the kinds of class their
@@ -330,11 +331,13 @@ export function ActiveTeachers({
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  const linked = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const cards = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
-    const parentOf = new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
+    // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
+    const parentOf = parentsOf(registered.data ?? [], linked.data ?? {});
     return buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
-  }, [catalogues.data, terms.data, courses.data, registered.data]);
+  }, [catalogues.data, terms.data, courses.data, registered.data, linked.data]);
   /*
    * The registrar's timetable, for the portal-schedule warnings: who it staffs each section
    * with, semester by semester. Only the terms that answered are compared — a term still
@@ -458,7 +461,7 @@ export function ActiveTeachers({
   }, [rows, asking, answered, showing, availability.byId]);
   const noun = answered && showing !== "all" ? `${SHOWING_WORDS[showing]} of ${rows.length} teachers` : "teachers";
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useTicks(term);
   const [picking, setPicking] = useState(false);
   const [bringing, setBringing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);

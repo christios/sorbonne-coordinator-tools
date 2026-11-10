@@ -558,6 +558,26 @@ describe("choosing what to pull", () => {
     expect(screen.getByText(/1 of 1 synced/)).toBeTruthy();
   });
 
+  it("leaves out a student list whose own filter asks for another semester, and says why", async () => {
+    // "All Sorbonne Students - S1" pulled while Semester 2 was chosen brought Semester 1's
+    // students back labelled Semester 2.
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-2": "262720" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-2", name: "Semester 2" } as unknown as timetables.TimetableTerm,
+    ]);
+    const autumn = { ...VIEW, id: "view-s1", name: "All Sorbonne Students - S1", filter: { TERM_CODE: ["262710"] } };
+    vi.spyOn(database, "fetchViews").mockResolvedValue([VIEW, autumn]);
+    show();
+    const button = await screen.findByRole("button", { name: /portal sync/i });
+    await waitFor(() => expect(button).toHaveProperty("disabled", false));
+    fireEvent.click(button);
+
+    expect(await screen.findByText("Foundation Year · Semester 2")).toBeTruthy();
+    expect(screen.queryByText(/All Sorbonne Students - S1 ·/)).toBeNull();
+    const why = screen.getByText("All Sorbonne Students - S1").closest("p")!;
+    expect(why.textContent).toMatch(/not pulled while Semester 2 is chosen: its own filter asks the portal for 262710 only/);
+  });
+
   it("starts nothing with nothing ticked, and nothing at all when cancelled", async () => {
     show();
     const button = await screen.findByRole("button", { name: /portal sync/i });

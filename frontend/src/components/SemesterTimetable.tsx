@@ -15,7 +15,7 @@ import { Zoom } from "@/components/TimelineZoom";
 import { useKeptNumber } from "@/services/keptNumber";
 import { HEIGHT, WIDTH } from "@/services/timelineZoom";
 import { buildCards, cardSubRows, rowsPerPart, subRowLabel, teaches } from "@/services/courseCards";
-import { fetchActiveCrns, fetchFacilitySections, fetchTermCrns, type ActiveCrn } from "@/services/portalLists";
+import { fetchActiveCrns, fetchFacilitySections, fetchTermCrns, type ActiveCrn, registerRow } from "@/services/portalLists";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
 import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
@@ -196,7 +196,8 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
   });
   // The department's own list, so a box knows whether there is a record behind it to open.
   const register = useQuery({ queryKey: ["active-crns", ""], queryFn: () => fetchActiveCrns(), retry: false });
-  const inRegister = (crn: string) => (register.data ?? []).find((row) => row.crn === crn) ?? null;
+  // Read in this semester's term: the registrar reuses CRN numbers from term to term.
+  const inRegister = (crn: string) => registerRow(register.data ?? [], crn, held.data?.portalTermCode ?? "");
 
   /*
    * Course-level rows, which are not classes and are never drawn.

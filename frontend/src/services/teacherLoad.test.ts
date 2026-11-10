@@ -90,7 +90,7 @@ const CATALOGUE: CohortCatalogue[] = [
 ];
 
 describe("what one teacher teaches", () => {
-  const cards = buildCards(CATALOGUE, () => "Semester 1", [], new Map());
+  const cards = buildCards(CATALOGUE, () => "Semester 1", []);
 
   it("finds the sections chosen for them", () => {
     const taught = sectionsTaughtBy(cards, "act-1");
@@ -127,7 +127,6 @@ describe("what one teacher teaches", () => {
       ],
       () => "Semester 1",
       [],
-      new Map(),
     );
 
     expect(sectionsTaughtBy(typed, "", "Grace Younes").map((section) => section.crn)).toEqual(["1"]);
@@ -241,7 +240,7 @@ describe("a course handed from one professor to another at mid-semester", () => 
     },
   ];
 
-  const cards = buildCards(SPLIT, () => "Semester 1", [], new Map());
+  const cards = buildCards(SPLIT, () => "Semester 1", []);
 
   it("gives each professor the half they teach, not the whole course or none of it", () => {
     /*

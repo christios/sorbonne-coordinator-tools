@@ -19,7 +19,7 @@ const l1 = (memberCounts: Record<string, number>): Cohort =>
 
 afterEach(() => vi.restoreAllMocks());
 
-function show(cohort: Cohort, onDone = vi.fn()) {
+function show(cohort: Cohort, onDone = vi.fn(), onRolled = vi.fn()) {
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue(LINKS);
   vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue(SEMESTERS as never);
   vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
@@ -27,7 +27,7 @@ function show(cohort: Cohort, onDone = vi.fn()) {
   ] as never);
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <RollOverTab cohort={cohort} onDone={onDone} />
+      <RollOverTab cohort={cohort} onDone={onDone} onRolled={onRolled} />
     </QueryClientProvider>,
   );
   return onDone;
@@ -60,6 +60,18 @@ describe("a cohort's semesters, and rolling it over", () => {
     expect(await screen.findByText(/109 students added/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Show L1 in Semester 2 2026-27" }));
     expect(onDone).toHaveBeenCalledWith("plan:262720", "l1");
+  });
+
+  it("tells the settings dialog the term rolled into, so its Save keeps it", async () => {
+    // The dialog's Save wrote back the terms it had opened with: on 9 Nov 2026 all four
+    // cohorts rolled into Semester 2 still listed 262710 alone.
+    vi.spyOn(database, "rollOverCohort").mockResolvedValue({ cohort: l1({}), added: 109, skipped: [] });
+    const onRolled = vi.fn();
+    show(l1({ "hub-s1": 109 }), vi.fn(), onRolled);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Roll over into Semester 2 2026-27" }));
+
+    await waitFor(() => expect(onRolled).toHaveBeenCalledWith("262720"));
   });
 
   it("says when the next semester already holds some, and names who was elsewhere", async () => {

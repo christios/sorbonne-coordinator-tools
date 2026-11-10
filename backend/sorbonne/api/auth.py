@@ -19,6 +19,7 @@ from sorbonne.config import config
 from sorbonne.services.account_access import AccountAccess, granted
 from sorbonne.services import coordinator_directory
 from sorbonne.services.api_tokens import DEFAULT_LIFETIME_DAYS, MAX_LIFETIME_DAYS, ApiTokenStore, TokenRejected
+from sorbonne.services.connector_auth import MCP_PATH, ConnectorStore, GrantRejected, public_base
 from sorbonne.services.staff_auth import (
     SESSION_COOKIE,
     AuthNotConfigured,
@@ -158,4 +159,31 @@ def revoke_token(token_id: str, request: Request, tokens: ApiTokenStore = Depend
     try:
         tokens.revoke(token_id, email=user.email, everyone=user.is_admin)
     except TokenRejected as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+# ------------------------------------------------------------- Claude, connected
+
+
+def get_connectors() -> ConnectorStore:
+    return ConnectorStore(config.database_url)
+
+
+@router.get("/connections")
+def list_connections(request: Request, connectors: ConnectorStore = Depends(get_connectors)) -> dict[str, Any]:
+    """The address to paste into Claude, and who has connected it; an administrator sees everybody."""
+    user = _signed_in(request)
+    return {
+        "connectorUrl": f"{public_base(request)}{MCP_PATH}",
+        "connections": connectors.grants_for(user.email, everyone=user.is_admin),
+    }
+
+
+@router.delete("/connections/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
+def disconnect(grant_id: str, request: Request, connectors: ConnectorStore = Depends(get_connectors)) -> None:
+    """Claude stops reading at once. From a signed-in browser, as tokens are."""
+    user = _at_the_keyboard(request)
+    try:
+        connectors.revoke(grant_id, email=user.email, everyone=user.is_admin)
+    except GrantRejected as exc:
         raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

@@ -24,7 +24,7 @@ import {
 } from "@/services/capacity";
 import { copyTable } from "@/services/copyCells";
 import { COHORT } from "@/services/remembered";
-import { type ActiveCrn, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilitySections, fetchTermLinks } from "@/services/portalLists";
+import { type ActiveCrn, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilitySections, fetchTermLinks, registerRow } from "@/services/portalLists";
 import { useRooms } from "@/services/rooms";
 import { formatDayAndMonth, formatRoom } from "@/services/weekSchedule";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
@@ -367,12 +367,13 @@ export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
   const openCrn = (crn: string) => {
-    const held = (registered.data ?? []).find((entry) => entry.crn === crn);
+    // Read in the semester on screen: the registrar reuses CRN numbers from term to term.
+    const held = registerRow(registered.data ?? [], crn, portalTerm);
     if (held) setShowingCrn(held);
   };
 
   // The semester every page is on: its sets alone, since a room is booked a semester at a time.
-  const { semesters, semester, setTermId } = usePortalSemester();
+  const { semesters, semester, setTermId, term: portalTerm } = usePortalSemester();
   const rows = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
     const teacherName = (id: string) => (teachers.data ?? []).find((teacher) => teacher.id === id)?.fullName ?? "";

@@ -3202,6 +3202,91 @@ def test_a_teacher_carries_on_into_a_semester_and_leaves_it_alone(client: TestCl
     assert still["Bilal Maaz"]["terms"] == [TERM]
 
 
+def test_leaving_semester_2_last_keeps_semester_1s_sections_and_the_record(
+    client: TestClient, database: StudentDatabase
+):
+    """Off Semester 2's list, where they were last counted: Semester 2's sections let go of
+    them, Semester 1's keep them, and so does the record they name. It used to be cleared
+    from every semester's sections and deleted whenever Semester 2 was the last to count them."""
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A002"], "termCode": SPRING})
+    [bilal] = client.get(f"{BASE}/active-teachers", params={"term": SPRING}).json()["teachers"]
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    client.put(f"{BASE}/term-links/spring-1", json={"portalTermCode": SPRING})
+    cohort = database.create_cohort(name="Second year", term="2026-27")
+    for term_id, crn in ((HUB_TERM, "24075"), ("spring-1", "34075")):
+        scope = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=term_id)
+        course_id = database.add_course(scope, code="PHYS-105")
+        group = database.add_group(scope, label="A")
+        database.set_cell(group_id=group, course_id=course_id, crn=crn, part=1)
+        database.update_section(group_id=group, course_id=course_id, part=1, teacher_id=bilal["id"])
+
+    client.delete(f"{BASE}/active-teachers/{bilal['id']}", params={"term": SPRING})
+
+    with database.engine.connect() as connection:
+        named = dict(
+            connection.execute(text("SELECT crn, teacher_id FROM group_crns WHERE crn IN ('24075', '34075')")).all()
+        )
+    assert named == {"24075": bilal["id"], "34075": ""}
+    assert [row["id"] for row in client.get(f"{BASE}/active-teachers").json()["teachers"]] == [bilal["id"]]
+
+
+def test_leaving_semester_1_last_keeps_a_courses_crns_of_semester_2(client: TestClient, database: StudentDatabase):
+    """A course active in Semester 1 alone, with a CRN of Semester 2 in the register — as
+    a register kept from before courses were active per semester can hold: off Semester 1's
+    list, Semester 2's CRN stays, and so does the course it belongs to."""
+    made = make_filter(client, "courses")
+    client.post(f"{BASE}/filters/{made['id']}/sync/courses", json={"rows": [course("22151", "MATH-001")]})
+    client.post(f"{BASE}/active-courses", json={"courseCodes": ["MATH-001"], "termCode": TERM})
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO active_course_crns (id, term_code, crn, course_code, parent_crn, added_at, added_by)
+                    VALUES (:id, :term, '32151', 'MATH-001', '', now()::text, '')"""),
+            {"id": uuid4().hex, "term": SPRING},
+        )
+    [held] = client.get(f"{BASE}/active-courses", params={"term": TERM}).json()["courses"]
+
+    client.delete(f"{BASE}/active-courses/{held['id']}", params={"term": TERM})
+
+    crns = client.get(f"{BASE}/active-crns").json()["crns"]
+    assert [(row["termCode"], row["crn"]) for row in crns] == [(SPRING, "32151")]
+    assert [row["id"] for row in client.get(f"{BASE}/active-courses").json()["courses"]] == [held["id"]]
+
+
+def test_a_crn_number_in_both_semesters_is_two_sections(client: TestClient, database: StudentDatabase):
+    """The registrar reuses CRN numbers: 23304 is French in Semester 1 and MATH-114 in
+    Semester 2. A Semester 1 card using it says nothing about Semester 2's 23304, and a
+    Semester 2 card is registered only by Semester 2's register."""
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    client.put(f"{BASE}/term-links/spring-1", json={"portalTermCode": SPRING})
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    for term_id, code, crn in ((HUB_TERM, "FREN-101", "23304"), ("spring-1", "MATH-114", "23305")):
+        scope = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=term_id)
+        course_id = database.add_course(scope, code=code)
+        group = database.add_group(scope, label="1")
+        database.set_cell(group_id=group, course_id=course_id, crn=crn, part=1)
+    client.post(
+        f"{BASE}/active-crns",
+        json={
+            "crns": [
+                {"termCode": TERM, "crn": "23304", "courseCode": "FREN-101"},
+                {"termCode": SPRING, "crn": "23304", "courseCode": "MATH-114"},
+                # Registered in Semester 1 only: Semester 2's card under 23305 is not.
+                {"termCode": TERM, "crn": "23305", "courseCode": "FREN-101"},
+            ]
+        },
+    )
+
+    on_cards = {
+        (row["termCode"], row["crn"]): row["usedBy"] for row in client.get(f"{BASE}/active-crns").json()["crns"]
+    }
+    assert on_cards == {(TERM, "23304"): 1, (SPRING, "23304"): 0, (TERM, "23305"): 0}
+    spring = client.get(f"{BASE}/register-check", params={"term": SPRING}).json()
+    assert [row["crn"] for row in spring["unregistered"]] == ["23305"]
+    # Semester 2's Meets column is not blind to Semester 1's sections.
+    assert client.get(f"{BASE}/terms/{SPRING}/section-days").json()["blind"] == ["23305"]
+
+
 def test_pulling_one_semester_says_nothing_about_another_semesters_courses(client: TestClient):
     made = make_filter(client, "courses")
     at = f"{BASE}/filters/{made['id']}/sync/courses"

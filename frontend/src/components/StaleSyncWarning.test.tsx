@@ -26,6 +26,7 @@ function synced(at: number | null) {
   vi.spyOn(targets, "useSyncTargets").mockReturnValue({
     targets: [{ kind: "students", id: "view-1", label: "L1" }] as never,
     ready: true,
+    leftOut: [],
     syncedAt: at,
     syncedBy: null,
   });

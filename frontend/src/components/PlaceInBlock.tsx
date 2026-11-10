@@ -45,6 +45,7 @@ export function PlaceInBlock({
   cohort,
   studentIds,
   opens,
+  semester = "",
   onClose,
   onPlaced,
 }: {
@@ -64,11 +65,22 @@ export function PlaceInBlock({
    * button a lie about what it opens.
    */
   opens?: "by hand" | "proposed";
+  /**
+   * The semester the page has on screen, which the placement is made in and the only one
+   * offered. Left out, every semester is offered and none is chosen. The dialog listed every
+   * semester with none chosen even on Semester 2's roster, and the languages take anybody,
+   * so a Semester 2 student could be put in a Semester 1 French group.
+   */
+  semester?: string;
   onClose: () => void;
   /** `removed` when the group was "take them out", so the report can say so. */
   onPlaced: (report: PlacementReport & { removed: boolean }) => void;
 }) {
-  const [termId, setTermId] = useState("");
+  const [termId, setTermId] = useState(semester);
+  // The page changing semester under an open dialog moves the dialog with it.
+  useEffect(() => {
+    if (semester) setTermId(semester);
+  }, [semester]);
   /*
    * Two ways to answer one question, not two buttons on the toolbar.
    *
@@ -464,7 +476,9 @@ export function PlaceInBlock({
           label="Semester"
           value={termId}
           placeholder="Which semester…"
-          options={(terms.data ?? []).map((term) => ({ value: term.id, ...shownOf(term) }))}
+          options={(terms.data ?? [])
+            .filter((term) => !semester || term.id === semester)
+            .map((term) => ({ value: term.id, ...shownOf(term) }))}
           onChange={setTermId}
         />
 

@@ -23,6 +23,7 @@ export function RemoveFromGroups({
   count,
   cohortName,
   semesters,
+  semesterName = "",
   busy,
   onRemove,
   onClose,
@@ -32,6 +33,8 @@ export function RemoveFromGroups({
   cohortName: string;
   /** Every semester the chosen hold a group in, worst first. */
   semesters: SemesterHeld[];
+  /** The semester on screen, when the page has one: `semesters` then holds that one at most. */
+  semesterName?: string;
   busy: boolean;
   onRemove: (termId: string) => void;
   onClose: () => void;
@@ -72,8 +75,8 @@ export function RemoveFromGroups({
     >
       {semesters.length === 0 ? (
         <p className="rounded-md border border-[#d9dee7] bg-[#f8fafc] px-4 py-3 text-sm text-[#667085]">
-          {count === 1 ? "This student holds" : "These students hold"} no group in any semester, so there is nothing
-          to take {count === 1 ? "them" : "them"} out of.
+          {count === 1 ? "This student holds" : "These students hold"} no group in {semesterName || "any semester"}, so
+          there is nothing to take them out of.
         </p>
       ) : (
         <div className="space-y-4">

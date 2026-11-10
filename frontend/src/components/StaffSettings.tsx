@@ -17,12 +17,15 @@ import { sectionFrom, sectionsFor } from "@/services/settingsSections";
 import { useStaffUser } from "@/components/useStaffUser";
 import {
   type ApiToken,
+  type ClaudeConnection,
   AppAccess,
   AppRole,
   CoordinatorAccount,
   type Owner,
   createApiToken,
+  disconnectClaude,
   fetchApiTokens,
+  fetchClaudeConnections,
   fetchStaffList,
   inviteCoordinator,
   removeCoordinator,
@@ -98,6 +101,8 @@ export function StaffSettings() {
         <AppDepartment />
       ) : page === "this-browser" ? (
         <ThisBrowser />
+      ) : page === "claude" ? (
+        <ClaudeConnector />
       ) : (
         <AppChecks />
       )}
@@ -403,6 +408,137 @@ function ApiTokens() {
         confirmLabel="Revoke"
         onConfirm={() => pendingRevoke && revoke.mutate(pendingRevoke)}
         onClose={() => setPendingRevoke(null)}
+      />
+    </section>
+  );
+}
+
+/**
+ * Claude, reading as you.
+ *
+ * A custom connector in Claude, added by pasting one address. Claude then sends you here
+ * to sign in and allow it, and holds and renews its key itself — nothing to install and
+ * nothing to copy but the address, which is what lets a coordinator who cannot install
+ * anything use it. It reads what you can and changes nothing, and it never sees a student's
+ * name: this application does not hold them.
+ */
+function ClaudeConnector() {
+  const queryClient = useQueryClient();
+  const user = useStaffUser();
+  const held = useQuery({ queryKey: ["claude-connections"], queryFn: fetchClaudeConnections });
+  const [copied, setCopied] = useState(false);
+  const [pending, setPending] = useState<ClaudeConnection | null>(null);
+  const disconnect = useMutation({
+    mutationFn: (connection: ClaudeConnection) => disconnectClaude(connection.id),
+    onSuccess: () => {
+      setPending(null);
+      void queryClient.invalidateQueries({ queryKey: ["claude-connections"] });
+    },
+  });
+  const day = (value: string) => (value ? value.slice(0, 10) : "—");
+  const live = (connection: ClaudeConnection) =>
+    !connection.revokedAt && (!connection.expiresAt || connection.expiresAt > new Date().toISOString());
+  const address = held.data?.connectorUrl ?? "";
+
+  return (
+    <section className="mt-6 max-w-3xl space-y-5">
+      <PageHeading title="Claude, reading as you" about="What connecting Claude does">
+        Claude can then answer questions from this application — timetables, CRNs, groups, teachers, rooms, hours — as
+        you. It can read what you can read and change nothing, and it never sees student names or e-mails.
+      </PageHeading>
+
+      <ol className="list-decimal space-y-3 rounded-lg border border-[#e5e9f0] bg-[#f8fafc] p-4 pl-9 text-sm text-[#344054]">
+        <li>
+          In Claude, open <strong>Settings → Connectors</strong> and choose <strong>Add custom connector</strong>.
+        </li>
+        <li>
+          Name it <strong>SCEN Coordinator Tools</strong> and paste this address:
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <code className="min-w-0 flex-1 break-all rounded-md border border-[#cbd5e1] bg-white px-3 py-2 font-mono text-xs text-[#171717]">
+              {address || "…"}
+            </code>
+            <button
+              type="button"
+              disabled={!address}
+              onClick={() => {
+                void navigator.clipboard?.writeText(address);
+                setCopied(true);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] disabled:opacity-50"
+            >
+              <Copy size={14} aria-hidden="true" /> {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+        </li>
+        <li>
+          Choose <strong>Connect</strong>. A page from this application opens: sign in with your usual Google account
+          if it asks, then choose <strong>Allow</strong>.
+        </li>
+      </ol>
+      <p className="text-xs text-[#667085]">
+        On a Claude Team or Enterprise plan, an owner of the Claude organisation adds the connector once; each person then
+        connects it for themselves in step 3.
+      </p>
+
+      <h4 className="pt-2 text-sm font-semibold text-[#344054]">
+        {user?.isAdmin ? "Everybody's connections" : "Your connections"}
+      </h4>
+      {held.isLoading ? (
+        <p className="inline-flex items-center gap-2 text-sm text-[#667085]">
+          <Loader2 size={15} className="animate-spin" aria-hidden="true" /> Loading connections…
+        </p>
+      ) : held.error ? (
+        <p role="alert" className="text-sm text-[#a6292f]">{(held.error as Error).message}</p>
+      ) : (held.data?.connections ?? []).length === 0 ? (
+        <p className="text-sm text-[#667085]">Claude is not connected yet.</p>
+      ) : (
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs uppercase tracking-wide text-[#667085]">
+            <tr>
+              <th className="py-2 pr-4 font-semibold">Whose</th>
+              <th className="py-2 pr-4 font-semibold">Connected</th>
+              <th className="py-2 pr-4 font-semibold">Last used</th>
+              <th className="py-2" />
+            </tr>
+          </thead>
+          <tbody>
+            {(held.data?.connections ?? []).map((connection) => (
+              <tr key={connection.id} className={`border-t border-[#e4e8ef] ${live(connection) ? "" : "text-[#98a2b3]"}`}>
+                <td className="py-2.5 pr-4">{connection.email}</td>
+                <td className="py-2.5 pr-4 tabular-nums">{day(connection.createdAt)}</td>
+                <td className="py-2.5 pr-4 tabular-nums">{day(connection.lastUsedAt)}</td>
+                <td className="py-2.5 text-right">
+                  {connection.revokedAt ? (
+                    <span className="text-xs">Disconnected {day(connection.revokedAt)}</span>
+                  ) : !live(connection) ? (
+                    <span className="text-xs">Lapsed</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setPending(connection)}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-[#e5b7b9] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+                    >
+                      <Trash2 size={13} aria-hidden="true" /> Disconnect
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <ConfirmDialog
+        open={pending !== null}
+        title="Disconnect Claude?"
+        description={
+          pending
+            ? `Claude stops reading as ${pending.email} at once. To use it again, connect it again from Claude.`
+            : ""
+        }
+        confirmLabel="Disconnect"
+        onConfirm={() => pending && disconnect.mutate(pending)}
+        onClose={() => setPending(null)}
       />
     </section>
   );
