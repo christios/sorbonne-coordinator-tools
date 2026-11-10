@@ -75,6 +75,7 @@ import {
   type PlacementReport,
 } from "@/services/studentDatabase";
 import { semestersHeldBy, setsToEmpty } from "@/services/groupRemoval";
+import { useTicks } from "@/components/useTicks";
 
 /** Where a student goes when the picker is used, with "no cohort" as a real choice. */
 /** Making one is a way of moving into one, so it lives in the same picker. */
@@ -254,7 +255,9 @@ export function StudentRoster({
   const [filters, setFilters] = usePageState<FilterModel[]>(`roster:${stateKey}:filters`, []);
   const [query, setQuery] = usePageState(`roster:${stateKey}:search`, "");
   const [sort, setSort] = usePageState<Sort>(`roster:${stateKey}:sort`, defaultSort ?? { key: "studentId", ascending: true });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Ticks belong to the view, cohort and semester they were made in: see `useTicks`. A
+  // change of view alone is caught below, with the focus.
+  const [selected, setSelected] = useTicks(termId ? `${stateKey}|${termId}` : "");
   /*
    * What the portal last said about each student, from whichever view asked most
    * recently. A view chooses which students, not what is true about them.

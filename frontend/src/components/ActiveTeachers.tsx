@@ -43,6 +43,7 @@ import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { exportTeacherTimetables } from "@/services/timetableExports";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
+import { useTicks } from "@/components/useTicks";
 
 /**
  * An Active teacher with what the planning has them teaching: the kinds of class their
@@ -458,7 +459,7 @@ export function ActiveTeachers({
   }, [rows, asking, answered, showing, availability.byId]);
   const noun = answered && showing !== "all" ? `${SHOWING_WORDS[showing]} of ${rows.length} teachers` : "teachers";
 
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useTicks(term);
   const [picking, setPicking] = useState(false);
   const [bringing, setBringing] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(false);

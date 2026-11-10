@@ -9,6 +9,7 @@ import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemest
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
+import { useTicks } from "@/components/useTicks";
 
 const FILTER_KEY = "scen-portal-filter:courses";
 
@@ -59,7 +60,7 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
   const { semesters, semester, setTermId, term } = usePortalSemester();
   // What Portal sync pulls this list for: the semester on screen, by its portal term.
   const syncing = semester && term ? { code: term, name: semester.name } : null;
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selected, setSelected] = useTicks(term);
   const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
   const active = useQuery({ queryKey: ["active-courses", term], queryFn: () => fetchActiveCourses(term) });
   const activeCodes = useMemo(() => new Set((active.data ?? []).map((row) => row.courseCode.toUpperCase())), [active.data]);

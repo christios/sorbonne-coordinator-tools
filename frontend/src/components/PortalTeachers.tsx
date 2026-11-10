@@ -22,6 +22,7 @@ import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import type { GridColumn } from "@/services/studentColumns";
+import { useTicks } from "@/components/useTicks";
 
 const FILTER_KEY = "scen-portal-filter:teachers";
 
@@ -92,11 +93,11 @@ export function PortalTeachers({
       return "";
     }
   });
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const teachers = useQuery({ queryKey: ["portal", "teachers", filterId], queryFn: () => fetchPortalTeachers(filterId) });
   const active = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   // Active is said of a semester: the one in view, which a teacher added here joins.
   const { semesters, semester, setTermId, term } = usePortalSemester();
+  const [selected, setSelected] = useTicks(term);
   const activeHere = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term) });
   const activeIds = new Set((activeHere.data ?? []).map((row) => row.portalTeacherId).filter(Boolean));
   // The planning, for the Cohorts column. The portal knows the courses; only we know the years.
