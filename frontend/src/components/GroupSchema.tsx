@@ -173,7 +173,15 @@ export function GroupSchema({
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
-  const active = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
+  /*
+   * The courses active in the semester on screen, by its portal term: a set of Semester 2
+   * is given Semester 2's courses. Every semester's were offered, so a course chosen for
+   * Semester 1 only could be put on a Semester 2 set. A semester linked to no portal term
+   * still offers them all, as before.
+   */
+  const termLinks = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const portalTerm = termLinks.data?.[termId] ?? "";
+  const active = useQuery({ queryKey: ["active-courses", portalTerm], queryFn: () => fetchActiveCourses(portalTerm) });
   /*
    * The programmes the registrar has for this browser's students, which is the vocabulary
    * both pickers below must speak: `scope_groups.program` is matched against a student's
