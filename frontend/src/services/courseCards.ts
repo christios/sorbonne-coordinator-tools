@@ -8,7 +8,7 @@
  * so the page can be filtered and searched the way the tables are.
  */
 
-import type { ActiveCourse } from "@/services/portalLists";
+import type { ActiveCourse, ActiveCrn } from "@/services/portalLists";
 import { partsOf, sectionFor, shortProgram } from "@/services/studentDatabase";
 import type { CatalogueCourse, CatalogueGroup, CatalogueMajor, CatalogueScope, CohortCatalogue, SectionPart } from "@/services/studentDatabase";
 import type { GridColumn } from "@/services/studentColumns";
@@ -93,12 +93,42 @@ export type Card = {
  * UE and parent CRN are the active course's, since that is the one place they are kept;
  * a card whose code is not on that list keeps the title typed on its rows and has no UE.
  */
+/** The parent CRN the register holds for a section, read in the section's own semester. */
+export type ParentOf = (termId: string, crn: string) => string;
+
+/**
+ * The register's parent CRNs, looked up by semester AND number.
+ *
+ * The registrar reuses CRN numbers from term to term — 23304 is French in Semester 1 and
+ * MATH-114 in Semester 2 — so a map keyed on the number gave a Semester 2 card Semester 1's
+ * parent, which the timetable workbook then carried. A semester linked to no portal term
+ * still reads a number whose parent is the same wherever the register holds it.
+ */
+export function parentsOf(registered: ActiveCrn[], links: Record<string, string>): ParentOf {
+  const inTerm = new Map<string, string>();
+  const anywhere = new Map<string, Set<string>>();
+  for (const row of registered) {
+    if (!row.parentCrn) continue;
+    inTerm.set(`${row.termCode}|${row.crn}`, row.parentCrn);
+    anywhere.set(row.crn, (anywhere.get(row.crn) ?? new Set()).add(row.parentCrn));
+  }
+  return (termId, crn) => {
+    if (!crn) return "";
+    const code = links[termId];
+    if (code) return inTerm.get(`${code}|${crn}`) ?? "";
+    const parents = anywhere.get(crn);
+    return parents?.size === 1 ? [...parents][0] : "";
+  };
+}
+
+const NO_PARENTS: ParentOf = () => "";
+
 export function buildCards(
   cohorts: CohortCatalogue[],
   termName: (termId: string) => string,
   activeCourses: ActiveCourse[] = [],
-  /** CRN -> the parent CRN the register holds for it. */
-  parentOf: Map<string, string> = new Map(),
+  /** A section's parent CRN, in its own semester: `parentsOf`. */
+  parentOf: ParentOf = NO_PARENTS,
 ): Card[] {
   const active = new Map(activeCourses.map((course) => [course.courseCode.toUpperCase(), course]));
   const cards = new Map<string, Card>();
@@ -179,7 +209,7 @@ function subRows(
   scope: CatalogueScope,
   group: CatalogueGroup,
   course: CatalogueCourse,
-  parentOf: Map<string, string>,
+  parentOf: ParentOf,
 ): SectionRow[] {
   const majors = group.majors ?? [];
   if (majors.length === 0) {
@@ -191,7 +221,7 @@ function subRows(
         course,
         section,
         exempt: section?.exempt ?? 0,
-        parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+        parentCrn: (section?.crn && parentOf(scope.termId ?? "", section.crn)) || "",
         major: null,
         notTaught: false,
         sharedCell: false,
@@ -208,7 +238,7 @@ function subRows(
       course,
       section,
       exempt: section?.exempt ?? 0,
-      parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+      parentCrn: (section?.crn && parentOf(scope.termId ?? "", section.crn)) || "",
       major,
       notTaught: Boolean(own?.notTaught),
       sharedCell: Boolean(section) && !own,
@@ -238,7 +268,7 @@ function subRows(
       course,
       section,
       exempt: section?.exempt ?? 0,
-      parentCrn: (section?.crn && parentOf.get(section.crn)) || "",
+      parentCrn: (section?.crn && parentOf(scope.termId ?? "", section.crn)) || "",
       major: null,
       notTaught: false,
       sharedCell: false,

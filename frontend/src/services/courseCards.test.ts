@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { anticipatedOf, buildCards, cardColumns, cardSeats, cardSubRows, sectionsOf, teaches, teachersOf } from "@/services/courseCards";
+import { anticipatedOf, buildCards, cardColumns, cardSeats, cardSubRows, parentsOf, sectionsOf, teaches, teachersOf } from "@/services/courseCards";
+import type { ActiveCrn } from "@/services/portalLists";
 import { type CatalogueScope, type CohortCatalogue, EMPTY_REQUEST, EMPTY_SECTION } from "@/services/studentDatabase";
 
 const section = (crn: string, teacherId = "") => ({ ...EMPTY_SECTION, crn, teacherId });
@@ -35,7 +36,7 @@ const nameOf = (id: string) => ({ "t-maaz": "Bilal Maaz", "t-ghantous": "Samar G
 
 describe("cards from the catalogue", () => {
   it("makes one card per course per semester, whichever sets carry it", () => {
-    const cards = buildCards([FYS], termName, ACTIVE, new Map([["23223", "24226"]]));
+    const cards = buildCards([FYS], termName, ACTIVE, parentsOf([{ termCode: "262710", crn: "23223", parentCrn: "24226" }] as ActiveCrn[], { "term-1": "262710" }));
 
     expect(cards.map((card) => card.code)).toEqual(["MATH001", "MATH011"]);
     const maths = cards[0];
@@ -171,5 +172,31 @@ describe("a group with sub-rows, one per major it holds", () => {
     expect([row.group.label, row.major, row.sharedCell, teaches(row)]).toEqual(["1", null, false, true]);
     // Its seats are its own, and so is the class.
     expect([cardSeats(row), anticipatedOf(row), cardSubRows(row)]).toEqual([{ seats: 110, placed: 100 }, 110, []]);
+  });
+});
+
+describe("a section's parent CRN", () => {
+  /*
+   * The registrar reuses CRN numbers: 23304 is French in Semester 1 and MATH-114 in
+   * Semester 2. A map keyed on the number gave a Semester 2 card Semester 1's parent.
+   */
+  const register = [
+    { termCode: "262710", crn: "23304", parentCrn: "24001" },
+    { termCode: "262720", crn: "23305", parentCrn: "34001" },
+  ] as ActiveCrn[];
+  const links = { "plan:262710": "262710", "plan:262720": "262720" };
+
+  it("is read in the section's own semester", () => {
+    const parentOf = parentsOf(register, links);
+    expect(parentOf("plan:262710", "23304")).toBe("24001");
+    expect(parentOf("plan:262720", "23304")).toBe("");
+    expect(parentOf("plan:262720", "23305")).toBe("34001");
+  });
+
+  it("falls back to the number in a semester linked to no portal term, when that is unambiguous", () => {
+    const parentOf = parentsOf(register, links);
+    expect(parentOf("hub-old", "23304")).toBe("24001");
+    const twice = parentsOf([...register, { termCode: "262720", crn: "23304", parentCrn: "34009" } as ActiveCrn], links);
+    expect(twice("hub-old", "23304")).toBe("");
   });
 });

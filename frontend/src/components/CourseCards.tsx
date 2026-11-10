@@ -17,7 +17,7 @@ import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { usePageState } from "@/components/usePageState";
 import { afterPlacement } from "@/services/afterPlacement";
-import { buildCards, cardColumns, rowsPerPart, teaches, type Card } from "@/services/courseCards";
+import { buildCards, cardColumns, rowsPerPart, teaches, type Card, parentsOf } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns, fetchTermLinks } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn, describeClashCoverage } from "@/services/publicationView";
@@ -105,10 +105,8 @@ export function CourseCards({
     () => new Set((drift.data?.teacherDiffers ?? []).map((row) => row.crn)),
     [drift.data],
   );
-  const parentOf = useMemo(
-    () => new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn])),
-    [registered.data],
-  );
+  // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
+  const parentOf = useMemo(() => parentsOf(registered.data ?? [], links.data ?? {}), [registered.data, links.data]);
   const termName = (termId: string) => (terms.data ?? []).find((term) => term.id === termId)?.name ?? (termId ? "unknown semester" : "");
   const cards = useMemo(() => buildCards(catalogues.data ?? [], termName, activeCourses.data ?? [], parentOf), [catalogues.data, terms.data, activeCourses.data, parentOf]); // eslint-disable-line react-hooks/exhaustive-deps
   const termIds = useMemo(() => [...new Set(cards.map((card) => card.termId).filter(Boolean))], [cards]);

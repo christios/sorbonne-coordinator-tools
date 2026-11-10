@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { courseRowOf, describeMismatch, registrationRowOf, teacherRowOf, termCodeOf } from "@/services/portalLists";
+import { type ActiveCrn, courseRowOf, describeMismatch, registerRow, registrationRowOf, teacherRowOf, termCodeOf } from "@/services/portalLists";
 
 describe("what a portal row becomes before it is sent", () => {
   it("keeps a course whole, in the server's words", () => {
@@ -60,5 +60,25 @@ describe("a mismatch as a sentence", () => {
     expect(
       describeMismatch({ ...base, kind: "missing", expected: ["22151", "23561"], registered: ["22151"] }),
     ).toBe("MATH-011: not registered in 23561");
+  });
+});
+
+describe("a CRN's register row", () => {
+  // 23304 is French in Semester 1 and MATH-114 in Semester 2: LANG's 23304 opened MATH-114.
+  const register = [
+    { termCode: "262710", crn: "23304", courseCode: "FREN-101" },
+    { termCode: "262720", crn: "23304", courseCode: "MATH-114" },
+    { termCode: "262720", crn: "34075", courseCode: "PHYS-105" },
+  ] as ActiveCrn[];
+
+  it("is read in the term asked for", () => {
+    expect(registerRow(register, "23304", "262710")?.courseCode).toBe("FREN-101");
+    expect(registerRow(register, "23304", "262720")?.courseCode).toBe("MATH-114");
+    expect(registerRow(register, "34075", "262710")).toBeNull();
+  });
+
+  it("without a term, opens only a number the register holds in one term", () => {
+    expect(registerRow(register, "34075")?.courseCode).toBe("PHYS-105");
+    expect(registerRow(register, "23304")).toBeNull();
   });
 });

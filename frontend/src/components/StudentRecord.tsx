@@ -24,16 +24,7 @@ import {
   type Options,
   type Warning,
 } from "@/services/discrepancies";
-import {
-  type Elective,
-  type Mismatch,
-  describeMismatch,
-  fetchActiveCrns,
-  fetchRegistrationCheck,
-  fetchRegistrations,
-  fetchTermLinks,
-  type ActiveCrn,
-} from "@/services/portalLists";
+import { type Elective, type Mismatch, describeMismatch, fetchActiveCrns, fetchRegistrationCheck, fetchRegistrations, fetchTermLinks, type ActiveCrn, registerRow } from "@/services/portalLists";
 import { fetchExemptionReasons } from "@/services/exemptionReasons";
 import { otherGroupsOf, placementsOf, studentTimetable } from "@/services/personTimetable";
 import { fetchPublication } from "@/services/publication";
@@ -556,7 +547,13 @@ export function StudentRecord({
   };
 
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
-  const inRegister = (crn: string) => (register.data ?? []).find((entry) => entry.crn === crn) ?? null;
+  /*
+   * A CRN's register row, read in a term: the registrar reuses CRN numbers from term to
+   * term, and a lookup by number opened LANG's 23304 as MATH-114. A group's CRN is read in
+   * its set's term; a CRN with no term of its own in the record's semester, when the page
+   * that opened it says which, and otherwise only when the number is in one term alone.
+   */
+  const inRegister = (crn: string, termId = semester) => registerRow(register.data ?? [], crn, (termId && links.data?.[termId]) || "");
   /*
    * One timeline from two records: what the server saw happen (moves, placements,
    * registrations, approvals — signed) and what the portal's own record did (from this
@@ -937,7 +934,7 @@ export function StudentRecord({
                                   ? "registered"
                                   : "not registered"
                           }
-                          onOpen={cell.crn && inRegister(cell.crn) ? () => setShowingCrn(inRegister(cell.crn)) : undefined}
+                          onOpen={cell.crn && inRegister(cell.crn, scope.termId) ? () => setShowingCrn(inRegister(cell.crn, scope.termId)) : undefined}
                           exempting={exempt.isPending}
                           scopeCode={scope.code}
                           // How many of their sets carry this course: one, and there is no part to choose.

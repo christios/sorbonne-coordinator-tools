@@ -9,7 +9,7 @@ import { Modal } from "@/components/Modal";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
-import { buildCards } from "@/services/courseCards";
+import { buildCards, parentsOf } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
 import { requisitionCheck } from "@/services/requisitionCheck";
 import { teacherTimetable } from "@/services/personTimetable";
@@ -75,10 +75,9 @@ export function TeacherRecord({
     null;
 
   const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
-  const parentOf = useMemo(
-    () => new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn])),
-    [registered.data],
-  );
+  // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
+  const linked = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
+  const parentOf = useMemo(() => parentsOf(registered.data ?? [], linked.data ?? {}), [registered.data, linked.data]);
   const cards = useMemo(
     () => buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf),
     [catalogues.data, terms.data, courses.data, parentOf], // eslint-disable-line react-hooks/exhaustive-deps

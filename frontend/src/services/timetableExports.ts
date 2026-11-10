@@ -12,7 +12,7 @@ import type { QueryClient } from "@tanstack/react-query";
 
 import { downloadSchedulePdf, type ScheduleInput } from "@/services/crnSchedulePdf";
 import { scheduleInputFor, type ScheduleReads } from "@/services/crnScheduleInput";
-import { buildCards, groupNamesByCrn } from "@/services/courseCards";
+import { buildCards, groupNamesByCrn, parentsOf } from "@/services/courseCards";
 import { scheduleFromEntries, timetablesFilename } from "@/services/entrySchedule";
 import { mergedTeacherTimetable, placementsOf, studentTimetable, teacherTimetable } from "@/services/personTimetable";
 import {
@@ -109,8 +109,8 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
     read.links().catch(() => ({}) as Record<string, string>),
   ]);
   const termName = (id: string) => terms.find((term) => term.id === id)?.name ?? "";
-  const parentOf = new Map(registered.filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
-  const cards = buildCards(catalogues, termName, courses, parentOf);
+  // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
+  const cards = buildCards(catalogues, termName, courses, parentsOf(registered, links));
   // Every linked term's notes: a cover can be in a semester they teach nothing else in.
   const notes = (
     await Promise.all([...new Set(Object.values(links).filter(Boolean))].map((termCode) => read.notes(termCode).catch(() => [])))

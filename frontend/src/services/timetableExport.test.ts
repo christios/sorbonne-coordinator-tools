@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCards } from "@/services/courseCards";
+import { buildCards, parentsOf } from "@/services/courseCards";
+import type { ActiveCrn } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { REQUEST_COLUMNS, asNumber, buildTimetableWorkbook, groupLabelsOf, hoursColumn, parallelNote, requestSheets, sectionName, semesterLabel, sheetPrefix, sheetTitle, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
 
@@ -20,7 +21,14 @@ const FYS: CohortCatalogue = {
 
 const termName = (id: string) => (id === "term-1" ? "Physics & Maths — First Year, Semester 1" : id);
 const nameOf = (id: string) => ({ "t-ghantous": "Samar Ghantous" })[id] ?? "";
-const PARENTS = new Map([["23223", "24226"], ["23899", "24226"]]);
+// Semester 1's register, read in the cards' own semester.
+const PARENTS = parentsOf(
+  [
+    { termCode: "262710", crn: "23223", parentCrn: "24226" },
+    { termCode: "262710", crn: "23899", parentCrn: "24226" },
+  ] as ActiveCrn[],
+  { "term-1": "262710" },
+);
 const ACTIVE = [
   { id: "a1", courseCode: "MATH001", title: "Pre-calculus 1", ue: "UL1MA001", mutualized: "" as const, addedAt: "", addedBy: "", crnCount: 2, portalCrnCount: 2, termCount: 1, lastTerm: "262710", portalParentCrn: "24226" },
 ];

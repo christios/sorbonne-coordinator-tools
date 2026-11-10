@@ -8,16 +8,8 @@ import { PortalFilterBar, PortalSyncLine } from "@/components/PortalFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import {
-  type PortalTeacher,
-  addActiveTeachers,
-  fetchActiveCourses,
-  fetchActiveCrns,
-  fetchActiveTeachers,
-  fetchPortalTeachers,
-  splitCodes,
-} from "@/services/portalLists";
-import { buildCards } from "@/services/courseCards";
+import { type PortalTeacher, addActiveTeachers, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchPortalTeachers, splitCodes, fetchTermLinks } from "@/services/portalLists";
+import { buildCards, parentsOf } from "@/services/courseCards";
 import { sectionsTaughtBy } from "@/services/teacherLoad";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -105,6 +97,7 @@ export function PortalTeachers({
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
+  const linked = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
 
   /*
    * Which cohorts our own planning has each of these teachers standing in front of.
@@ -118,8 +111,8 @@ export function PortalTeachers({
    */
   const cohortsOf = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
-    const parentOf = new Map((registered.data ?? []).filter((row) => row.parentCrn).map((row) => [row.crn, row.parentCrn]));
-    const cards = buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf);
+    // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
+    const cards = buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentsOf(registered.data ?? [], linked.data ?? {}));
     const ourIdOf = new Map((active.data ?? []).filter((row) => row.portalTeacherId).map((row) => [row.portalTeacherId, row.id]));
     const held = new Map<string, string[]>();
     for (const teacher of teachers.data ?? []) {
@@ -132,7 +125,7 @@ export function PortalTeachers({
       held.set(teacher.teacherId, [...names].sort((left, right) => left.localeCompare(right)));
     }
     return held;
-  }, [catalogues.data, terms.data, courses.data, registered.data, active.data, teachers.data]);
+  }, [catalogues.data, terms.data, courses.data, registered.data, linked.data, active.data, teachers.data]);
   const cohortsFor = (row: PortalTeacher) => cohortsOf.get(row.teacherId) ?? [];
 
   const add = useMutation({
