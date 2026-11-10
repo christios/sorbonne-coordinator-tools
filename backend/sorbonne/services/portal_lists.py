@@ -1554,9 +1554,11 @@ class PortalListStore:
         is what the page warned about before asking.
 
         From one semester when `term_code` is said: they stop being active in it, and that
-        semester's sections let go of them. Their record — and the time sheets, roles and
-        links that hang on it — stays while another semester still counts them, and goes
-        with the last.
+        semester's sections let go of them — that semester's only, even when it is their
+        last. Their record — and the time sheets, roles and links that hang on it — stays
+        while another semester still counts them or still has a section naming them, and
+        goes with the last. Removing a teacher from Semester 2's list used to clear them
+        from Semester 1's sections too whenever Semester 2 was the last to count them.
         """
         term = _text(term_code)
         with self.engine.begin() as connection:
@@ -1569,18 +1571,24 @@ class PortalListStore:
                     text("DELETE FROM active_teacher_terms WHERE active_id = :id AND term_code = :t"),
                     {"id": active_id, "t": term},
                 )
-                if connection.execute(
+                loosened = connection.execute(
+                    text("""UPDATE group_crns gc SET teacher_id = ''
+                            WHERE gc.teacher_id = :id AND EXISTS (
+                                SELECT 1 FROM scope_courses c
+                                JOIN cohort_scopes s ON s.id = c.scope_id
+                                JOIN term_links l ON l.term_id = s.term_id
+                                WHERE c.id = gc.course_id AND l.portal_term_code = :t)"""),
+                    {"id": active_id, "t": term},
+                ).rowcount
+                still_counted = connection.execute(
                     text("SELECT 1 FROM active_teacher_terms WHERE active_id = :id"), {"id": active_id}
-                ).first():
-                    return connection.execute(
-                        text("""UPDATE group_crns gc SET teacher_id = ''
-                                WHERE gc.teacher_id = :id AND EXISTS (
-                                    SELECT 1 FROM scope_courses c
-                                    JOIN cohort_scopes s ON s.id = c.scope_id
-                                    JOIN term_links l ON l.term_id = s.term_id
-                                    WHERE c.id = gc.course_id AND l.portal_term_code = :t)"""),
-                        {"id": active_id, "t": term},
-                    ).rowcount
+                ).first()
+                still_named = connection.execute(
+                    text("SELECT 1 FROM group_crns WHERE teacher_id = :id"), {"id": active_id}
+                ).first()
+                if not (still_counted or still_named):
+                    connection.execute(text("DELETE FROM active_teachers WHERE id = :id"), {"id": active_id})
+                return loosened
             loosened = connection.execute(
                 text("UPDATE group_crns SET teacher_id = '' WHERE teacher_id = :id"), {"id": active_id}
             ).rowcount
@@ -2323,8 +2331,10 @@ class PortalListStore:
     def remove_active_course(self, active_id: str, term_code: str = "") -> None:
         """Take a course off the department's list, with its CRNs in the register.
 
-        From one semester when `term_code` is said: its CRNs of that term go, and the course
-        stays — with its UE — while another semester still has it, and goes with the last.
+        From one semester when `term_code` is said: its CRNs of that term go, and no other
+        term's. The course stays — with its UE — while another semester still has it or still
+        holds CRNs of it, and goes with the last. Removing a course from Semester 2's list
+        used to delete its CRNs in every term whenever Semester 2 was the last to have it.
         """
         term = _text(term_code)
         with self.engine.begin() as connection:
@@ -2341,7 +2351,9 @@ class PortalListStore:
                     {"code": code, "t": term},
                 )
                 if connection.execute(
-                    text("SELECT 1 FROM active_course_terms WHERE course_code = :code"), {"code": code}
+                    text("""SELECT 1 FROM active_course_terms WHERE course_code = :code
+                            UNION ALL SELECT 1 FROM active_course_crns WHERE course_code = :code"""),
+                    {"code": code},
                 ).first():
                     return
             # Its CRNs go with it: they were in the register because the course was.
