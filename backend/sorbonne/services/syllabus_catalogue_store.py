@@ -349,21 +349,30 @@ class SyllabusCatalogueStore:
         return resolved
 
     def resolve_rubrics(self, content: dict[str, Any]) -> dict[str, Any]:
-        """Attach the approved rubric for each assessment type the course uses.
+        """The rubrics the syllabus prints: exactly one per kind of graded activity it has.
 
-        A course does not write its own rubrics: the ones that belong in the syllabus
-        follow from the assessment types named in the graded activities.
+        A course does not write its own rubrics: an activity of a catalogue assessment type
+        brings that type's approved rubric. Older syllabi named the type in their own words
+        and wrote a rubric by hand; such a rubric is kept only while an activity of that
+        kind still exists (November 2026 review: the preview must be faithful to the
+        graded activities), and with no activities there is no rubric at all.
         """
         resolved = deepcopy(content)
+        if "assessment" not in resolved:
+            return resolved
         assessment = _record(resolved.get("assessment"))
         used: list[str] = []
+        typed: list[str] = []
         for item in assessment.get("items") or []:
             type_id = _text(_record(item).get("assessmentTypeId"))
-            if type_id and type_id not in used:
-                used.append(type_id)
-        if not used:
-            return resolved
-        types = {item["id"]: item for item in self.list("assessment-types", include_retired=True)}
+            if type_id:
+                if type_id not in used:
+                    used.append(type_id)
+                continue
+            kind = _normalised_kind(_record(item).get("type"))
+            if kind and kind not in typed:
+                typed.append(kind)
+        types = {item["id"]: item for item in self.list("assessment-types", include_retired=True)} if used else {}
         rubrics = []
         for type_id in used:
             preset = types.get(type_id)
@@ -385,9 +394,12 @@ class SyllabusCatalogueStore:
                     ],
                 }
             )
-        if rubrics:
-            assessment["rubrics"] = rubrics
-            resolved["assessment"] = assessment
+        written = {
+            _normalised_kind(_record(rubric).get("assignment")): rubric for rubric in assessment.get("rubrics") or []
+        }
+        rubrics.extend(written[kind] for kind in typed if kind in written)
+        assessment["rubrics"] = rubrics
+        resolved["assessment"] = assessment
         return resolved
 
     def _person(self, item_id: str) -> dict[str, Any]:
@@ -466,3 +478,8 @@ def _text(value: Any) -> str:
 
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _normalised_kind(value: Any) -> str:
+    """How an activity's kind is matched with a hand-written rubric: case and spacing aside."""
+    return " ".join(_text(value).split()).casefold()

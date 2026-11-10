@@ -194,6 +194,30 @@ def test_the_document_has_no_document_control_section_even_when_the_syllabus_kep
     assert "DOCUMENT CONTROL" not in template_sections("scen-en-v1")
 
 
+def _rubric_tables(document) -> list:
+    return [table for table in document.tables if table.cell(0, 0).text.startswith("Assessment type:")]
+
+
+def test_the_document_has_one_rubric_table_per_rubric_and_no_blank_ones(tmp_path) -> None:
+    """The template ships two rubric tables; an unused one used to print empty."""
+    one = {"courseTitle": "Optics", "content": {"assessment": {"rubrics": [{"assignment": "Quiz", "criteria": []}]}}}
+    none = {"courseTitle": "Optics", "content": {"assessment": {"rubrics": []}}}
+    three = {
+        "courseTitle": "Optics",
+        "content": {"assessment": {"rubrics": [{"assignment": name, "criteria": []} for name in ("A", "B", "C")]}},
+    }
+
+    cases = (
+        (one, ["Assessment type: Quiz"]),
+        (none, []),
+        (three, ["Assessment type: A", "Assessment type: B", "Assessment type: C"]),
+    )
+    for syllabus, expected in cases:
+        output = tmp_path / "syllabus.docx"
+        build_syllabus_docx(syllabus, output)
+        assert [table.cell(0, 0).text for table in _rubric_tables(Document(output))] == expected
+
+
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:
     syllabus = {
         "courseTitle": "Environmental Policy",

@@ -449,6 +449,11 @@ def _fill_rubrics(document: Document, rubrics: list[dict[str, Any]]) -> None:
         clone = deepcopy(tables[-1]._tbl)
         tables[-1]._tbl.addnext(clone)
         tables = list(document.tables[11 : 11 + len(tables) + 1])
+    # The template ships two empty rubric tables; one the course does not need would print
+    # as a blank "Assessment type:" form, so each unused one is taken out.
+    for unused in tables[len(rubrics):]:
+        unused._tbl.getparent().remove(unused._tbl)
+    tables = tables[: len(rubrics)]
 
     for index, table in enumerate(tables):
         rubric = rubrics[index] if index < len(rubrics) else {}

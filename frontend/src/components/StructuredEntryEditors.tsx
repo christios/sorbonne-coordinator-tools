@@ -12,7 +12,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { InfoTip } from "@/components/InfoTip";
 import { BibliographyReferenceFinder } from "@/components/BibliographyReferenceFinder";
-import { AssessmentEntry, PloEntry, ResourceEntry, Rubric, assessmentEntries, bibliographyEntries, ploEntries, rubricEntries } from "@/services/syllabusContent";
+import { AssessmentEntry, PloEntry, ResourceEntry, Rubric, RubricInUse, assessmentEntries, bibliographyEntries, ploEntries, rubricEntries, rubricsInUse } from "@/services/syllabusContent";
 import { CatalogueEntry } from "@/services/syllabusCatalogues";
 import { BibliographyLookupItem } from "@/services/bibliographyLookup";
 
@@ -149,20 +149,15 @@ function otherPermittedUses(value: Record<string, unknown>): OtherPermittedUse[]
 
 export function AssessmentGradingEditor({ value, assessmentTypes = [], ...history }: HistoryContext & { value: Record<string, unknown>; assessmentTypes?: CatalogueEntry[]; onChange?: (value: Record<string, unknown>) => void }) {
   void history;
-  // The rubric follows from the assessment types the course actually uses, so there is
-  // nothing to tick here and nothing that can disagree with section 9.1.
-  const used: string[] = [];
-  for (const entry of assessmentEntries(value.items)) {
-    const id = stringValue(entry.assessmentTypeId);
-    if (id && !used.includes(id)) used.push(id);
-  }
-  const shown = assessmentTypes.filter((type) => used.includes(type.id));
-  return <section><div><h4 className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">Grading rubrics<InfoTip label="Where the rubrics come from">They are maintained in the catalogue and appear here automatically.</InfoTip></h4><p className="mt-1 text-sm text-[#667085]">One rubric per assessment type used in this course.</p></div>{shown.length ? <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4">{shown.map((type) => <RubricPresetTable key={type.id} preset={type} />)}</div> : <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">Choose an assessment type for each graded activity and its rubric will appear here.</p>}</section>;
+  // The rubrics follow from the graded activities, exactly as the document prints them, so
+  // there is nothing to tick here and nothing that can disagree with section 9.1.
+  const shown = rubricsInUse(value, assessmentTypes);
+  return <section><div><h4 className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">Grading rubrics<InfoTip label="Where the rubrics come from">They are maintained in the catalogue and appear here automatically.</InfoTip></h4><p className="mt-1 text-sm text-[#667085]">One rubric per assessment type used in this course.</p></div>{shown.length ? <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4">{shown.map((rubric) => <RubricTable key={rubric.id} rubric={rubric} />)}</div> : <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">Choose an assessment type for each graded activity and its rubric will appear here.</p>}</section>;
 }
 
-function RubricPresetTable({ preset }: { preset: CatalogueEntry }) {
-  const criteria = Array.isArray(preset.payload.criteria) ? (preset.payload.criteria as Array<Record<string, string>>) : [];
-  return <article className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4"><p className="text-sm font-semibold text-[#344054]">{preset.label}</p>{criteria.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[46rem] border-collapse text-left text-sm"><thead><tr className="text-[#344054]"><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Criteria</th><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Inadequate (0–9)</th><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Meets expectations (10–15)</th><th className="border-b border-[#d9dee7] py-2 font-semibold">Exceeds expectations (16–20)</th></tr></thead><tbody>{criteria.map((criterion, index) => <tr key={index} className="align-top text-[#475467]"><td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{criterion.name}</td><td className="border-b border-[#eef1f5] py-2 pr-3">{criterion.inadequate}</td><td className="border-b border-[#eef1f5] py-2 pr-3">{criterion.meets}</td><td className="border-b border-[#eef1f5] py-2">{criterion.exceeds}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-sm text-[#667085]">This rubric has not been written yet.</p>}</article>;
+function RubricTable({ rubric }: { rubric: RubricInUse }) {
+  const criteria = rubric.criteria;
+  return <article className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4"><p className="text-sm font-semibold text-[#344054]">{rubric.label}</p>{criteria.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[46rem] border-collapse text-left text-sm"><thead><tr className="text-[#344054]"><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Criteria</th><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Inadequate (0–9)</th><th className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">Meets expectations (10–15)</th><th className="border-b border-[#d9dee7] py-2 font-semibold">Exceeds expectations (16–20)</th></tr></thead><tbody>{criteria.map((criterion, index) => <tr key={index} className="align-top text-[#475467]"><td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{criterion.name}</td><td className="border-b border-[#eef1f5] py-2 pr-3">{criterion.inadequate}</td><td className="border-b border-[#eef1f5] py-2 pr-3">{criterion.meets}</td><td className="border-b border-[#eef1f5] py-2">{criterion.exceeds}</td></tr>)}</tbody></table></div> : <p className="mt-2 text-sm text-[#667085]">This rubric has not been written yet.</p>}</article>;
 }
 
 function AssessmentCard({ entry, index, outcomes, assessmentTypes = [], aiPolicies = [], scheduleBy = "date", onChange, onRemove, ...history }: HistoryContext & { entry: AssessmentEntry; index: number; scheduleBy?: "date" | "week"; outcomes: Array<Record<string, string> & { id: string }>; assessmentTypes?: CatalogueEntry[]; aiPolicies?: CatalogueEntry[]; onChange: (id: string, changes: Partial<AssessmentEntry>) => void; onRemove: (id: string) => void }) {

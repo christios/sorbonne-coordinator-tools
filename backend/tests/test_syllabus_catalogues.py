@@ -197,3 +197,43 @@ def test_attaches_the_approved_rubric_for_each_assessment_type_used() -> None:
     assert rubrics[0]["criteria"] == [
         {"criterion": "Accuracy", "inadequate": "Poor.", "meets": "Sound.", "exceeds": "Excellent."}
     ]
+
+
+def test_rubrics_follow_the_graded_activities_and_nothing_else() -> None:
+    """November 2026 review: the rubric preview must be faithful to the graded activities.
+
+    Older syllabi stored rubrics written by hand. One is shown only while an activity of
+    that kind exists; with no activities, there is no rubric to show.
+    """
+    store = make_store()
+    stored = [
+        {"id": "r1", "assignment": "Lab report", "criteria": [{"criterion": "Method"}]},
+        {"id": "r2", "assignment": "Essay", "criteria": [{"criterion": "Argument"}]},
+    ]
+
+    nothing_graded = store.resolve_rubrics({"assessment": {"items": [], "rubrics": stored}})
+    assert nothing_graded["assessment"]["rubrics"] == []
+
+    typed_by_hand = store.resolve_rubrics(
+        {"assessment": {"items": [{"id": "a1", "type": " lab REPORT "}], "rubrics": stored}}
+    )
+    assert [rubric["assignment"] for rubric in typed_by_hand["assessment"]["rubrics"]] == ["Lab report"]
+
+
+def test_a_catalogue_rubric_and_a_hand_written_one_can_sit_side_by_side() -> None:
+    store = make_store()
+    quiz = store.create(
+        "assessment-types",
+        label=f"Quiz {uuid4()}",
+        payload={"criteria": [{"name": "Accuracy", "inadequate": "", "meets": "", "exceeds": ""}]},
+    )
+    content = {
+        "assessment": {
+            "items": [{"id": "a1", "assessmentTypeId": quiz["id"]}, {"id": "a2", "type": "Lab report"}],
+            "rubrics": [{"id": "r1", "assignment": "Lab report", "criteria": []}],
+        }
+    }
+
+    rubrics = store.resolve_rubrics(content)["assessment"]["rubrics"]
+
+    assert [rubric["assignment"] for rubric in rubrics] == [quiz["label"], "Lab report"]

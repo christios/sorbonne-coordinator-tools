@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bibliographyEntries, deliveryPercentageError, ploDisplayLabel, rubricEntries, sectionParts } from "./syllabusContent";
+import { bibliographyEntries, deliveryPercentageError, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
 
 describe("bibliographyEntries", () => {
   it("preserves a legacy free-text bibliography as one editable entry", () => {
@@ -51,5 +51,23 @@ describe("sectionParts", () => {
   it("treats a section without parts as editing itself", () => {
     expect(sectionParts(sections, "schedule")).toEqual(["schedule"]);
     expect(sectionParts(sections, "unknown")).toEqual(["unknown"]);
+  });
+});
+
+describe("rubricsInUse", () => {
+  const quiz = { id: "type-quiz", label: "Quiz", payload: { criteria: [{ name: "Accuracy", inadequate: "Poor", meets: "Sound", exceeds: "Excellent" }] } };
+  const written = [
+    { id: "r1", assignment: "Lab report", criteria: [{ id: "c1", criterion: "Method" }] },
+    { id: "r2", assignment: "Essay", criteria: [{ id: "c2", criterion: "Argument" }] },
+  ];
+
+  it("shows one rubric per kind of graded activity, as the document prints them", () => {
+    const shown = rubricsInUse({ items: [{ id: "a1", assessmentTypeId: "type-quiz" }, { id: "a2", type: " lab REPORT " }], rubrics: written }, [quiz]);
+    expect(shown.map((rubric) => rubric.label)).toEqual(["Quiz", "Lab report"]);
+    expect(shown[0].criteria[0]).toEqual({ name: "Accuracy", inadequate: "Poor", meets: "Sound", exceeds: "Excellent" });
+  });
+
+  it("shows nothing when there is nothing graded, whatever was written before", () => {
+    expect(rubricsInUse({ items: [], rubrics: written }, [quiz])).toEqual([]);
   });
 });

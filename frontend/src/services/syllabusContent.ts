@@ -68,6 +68,54 @@ export function rubricEntries(value: unknown): Rubric[] {
   return [...grouped.values()];
 }
 
+export type RubricInUse = {
+  id: string;
+  label: string;
+  criteria: Array<{ name: string; inadequate: string; meets: string; exceeds: string }>;
+};
+
+/**
+ * The rubrics a syllabus prints: one per kind of graded activity it has, as the export does
+ * (resolve_rubrics). A catalogue assessment type brings its approved rubric; a rubric an
+ * older syllabus wrote by hand is kept only while an activity of that kind still exists.
+ */
+export function rubricsInUse(
+  assessment: Record<string, unknown>,
+  assessmentTypes: Array<{ id: string; label: string; payload: Record<string, unknown> }>,
+): RubricInUse[] {
+  const used: string[] = [];
+  const typed: string[] = [];
+  for (const entry of assessmentEntries(assessment.items)) {
+    const typeId = typeof entry.assessmentTypeId === "string" ? entry.assessmentTypeId : "";
+    if (typeId) {
+      if (!used.includes(typeId)) used.push(typeId);
+      continue;
+    }
+    const kind = normalisedKind(entry.type);
+    if (kind && !typed.includes(kind)) typed.push(kind);
+  }
+  const fromCatalogue = used.flatMap((id) => {
+    const type = assessmentTypes.find((item) => item.id === id);
+    if (!type) return [];
+    const criteria = Array.isArray(type.payload.criteria) ? (type.payload.criteria as Array<Record<string, unknown>>) : [];
+    return [{ id: type.id, label: type.label, criteria: criteria.map((item) => ({ name: text(item.name), inadequate: text(item.inadequate), meets: text(item.meets), exceeds: text(item.exceeds) })) }];
+  });
+  const written = new Map(rubricEntries(assessment.rubrics).map((rubric) => [normalisedKind(rubric.assignment), rubric]));
+  const byHand = typed.flatMap((kind) => {
+    const rubric = written.get(kind);
+    return rubric ? [{ id: rubric.id, label: rubric.assignment ?? "", criteria: rubric.criteria.map((item) => ({ name: text(item.criterion), inadequate: text(item.inadequate), meets: text(item.meets), exceeds: text(item.exceeds) })) }] : [];
+  });
+  return [...fromCatalogue, ...byHand];
+}
+
+function normalisedKind(value: unknown): string {
+  return typeof value === "string" ? value.split(/\s+/).filter(Boolean).join(" ").toLocaleLowerCase() : "";
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 export function deliveryPercentageError(faceToFace: string, online: string): string | null {
   const values = [faceToFace, online].filter((value) => value.trim() !== "");
   if (values.some((value) => !/^\d+(?:\.\d+)?$/.test(value) || Number(value) < 0 || Number(value) > 100)) {
