@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bibliographyEntries, deliveryPercentageError, gradedActivities, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
+import { bibliographyEntries, deliveryPercentageError, fysComponentRows, gradedActivities, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
 
 describe("bibliographyEntries", () => {
   it("preserves a legacy free-text bibliography as one editable entry", () => {
@@ -84,5 +84,19 @@ describe("gradedActivities", () => {
       assessment: { items: [{ id: "old" }] },
       schedule: [{ id: "s1", topic: "Optics" }, { id: "g1", kind: "graded", type: "Quiz" }],
     })).toEqual([{ id: "g1", kind: "graded", type: "Quiz" }]);
+  });
+});
+
+describe("fysComponentRows", () => {
+  it("fills the Foundation Year form's rows from the graded cards, as the document does", () => {
+    const rows = fysComponentRows([
+      { component: "continuous:In class assignment", description: "Quiz on functions", weight: "10", cloNumbers: ["1"] },
+      { component: "continuous:In class assignment", description: "Quiz on limits", weight: "10", cloNumbers: ["1", "2"] },
+      { component: "final", description: "Written exam", weight: "50", cloNumbers: ["1", "2", "3"] },
+    ]);
+
+    expect(rows.continuous[0]).toEqual({ component: "In class assignment", description: "Quiz on functions\nQuiz on limits", clos: "CLO 1, CLO 2", weight: "20%" });
+    expect(rows.final).toEqual([{ description: "Written exam", clos: "CLO 1, CLO 2, CLO 3", weight: "50%" }]);
+    expect(rows.laboratory.map((row) => row.description)).toEqual(["", ""]);
   });
 });

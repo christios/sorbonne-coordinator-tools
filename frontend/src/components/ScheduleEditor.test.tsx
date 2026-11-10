@@ -124,4 +124,27 @@ describe("ScheduleEditor", () => {
       expect(onChange).toHaveBeenCalledWith([expect.objectContaining({ id: "s1", assessments: "", deadline: "" })]);
     });
   });
+
+  it("in the Foundation Year, a graded card names the row of the form it fills and the outcomes it measures by number", async () => {
+    const onChange = vi.fn();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ScheduleEditor
+      rows={[{ id: "q1", kind: "graded", week: "2", name: "", type: "" }]}
+      onChange={onChange}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+      holdsGradedActivities
+      foundationYear
+      outcomes={[{ id: "fys-clo-1", clo: "Solve equations." }, { id: "fys-clo-2", clo: "Sketch functions." }]}
+    /></QueryClientProvider>);
+
+    expect(screen.queryByText("Applicable AI policy")).toBeNull();
+    fireEvent.click(screen.getByRole("combobox", { name: "Graded activity 1 row of the form" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Final assessment" }));
+    expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ id: "q1", component: "final" })]);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Add a CLO graded activity 1 measures" }));
+    fireEvent.click(await screen.findByRole("option", { name: /CLO 2: Sketch functions/ }));
+    expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ id: "q1", cloNumbers: ["2"] })]);
+  });
 });

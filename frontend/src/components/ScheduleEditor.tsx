@@ -14,7 +14,9 @@ import { HistoryTextField } from "@/components/HistoryTextField";
 import { type HistoryField } from "@/components/FieldHistory";
 import { GradedActivityFields, type CloKey } from "@/components/StructuredEntryEditors";
 import type { CatalogueEntry } from "@/services/syllabusCatalogues";
-import { scheduleOrder } from "@/services/syllabusContent";
+import { FYS_COMPONENTS, scheduleOrder } from "@/services/syllabusContent";
+import { PloAlignmentField } from "@/components/PloAlignmentField";
+import { DateField } from "@/components/DateField";
 
 type ScheduleRow = Record<string, string> & { id: string };
 type ScheduleField = {
@@ -96,6 +98,8 @@ type Props = {
    * longer carry their own deadline and assessment notes.
    */
   holdsGradedActivities?: boolean;
+  /** The Foundation Year form: a graded card names the row of its assessment tables it fills. */
+  foundationYear?: boolean;
   outcomes?: Array<Record<string, string> & { id: string }>;
   cloKey?: CloKey;
   assessmentTypes?: CatalogueEntry[];
@@ -119,6 +123,7 @@ export function ScheduleEditor({
   revision,
   onOpenHistory,
   holdsGradedActivities = false,
+  foundationYear = false,
   outcomes = [],
   cloKey = "cloIds",
   assessmentTypes = [],
@@ -240,6 +245,7 @@ export function ScheduleEditor({
                   cloKey={cloKey}
                   assessmentTypes={assessmentTypes}
                   aiPolicies={aiPolicies}
+                  foundationYear={foundationYear}
                   syllabusId={syllabusId}
                   revision={revision}
                   onOpenHistory={onOpenHistory}
@@ -540,7 +546,8 @@ function EarlierNote({ row, onRemove }: { row: ScheduleRow; onRemove: () => void
   );
 }
 
-function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outcomes, cloKey, assessmentTypes, aiPolicies, syllabusId, revision, onOpenHistory }: {
+function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outcomes, cloKey, assessmentTypes, aiPolicies, foundationYear = false, syllabusId, revision, onOpenHistory }: {
+  foundationYear?: boolean;
   card: ScheduleRow;
   number: number;
   expanded: boolean;
@@ -582,7 +589,9 @@ function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outc
       }
     >
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-        <GradedActivityFields
+        {foundationYear ? (
+          <FoundationYearGradedFields card={card} number={number} outcomes={outcomes} onChange={onChange} onOpenHistory={onOpenHistory} />
+        ) : <GradedActivityFields
           entry={card}
           index={number - 1}
           path={`schedule[${card.id}]`}
@@ -596,7 +605,7 @@ function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outc
           syllabusId={syllabusId}
           revision={revision}
           onOpenHistory={onOpenHistory}
-        />
+        />}
         {problem ? <p role="alert" className="text-sm text-[#a6292f]">{problem}</p> : null}
       </div>
     </CollapsibleEntryCard>
@@ -605,4 +614,41 @@ function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outc
 
 function displayDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value.slice(8, 10)}/${value.slice(5, 7)}/${value.slice(0, 4)}` : value;
+}
+
+/**
+ * A Foundation Year graded activity: the row of the form's assessment tables it fills, what it
+ * is, the outcomes it measures (by number, as the form names them) and its weight.
+ */
+function FoundationYearGradedFields({ card, number, outcomes, onChange, onOpenHistory }: { card: ScheduleRow; number: number; outcomes: Array<Record<string, string> & { id: string }>; onChange: (changes: Record<string, unknown>) => void; onOpenHistory: (field: HistoryField) => void }) {
+  const path = `schedule[${card.id}]`;
+  const field = (key: string, label: string) => ({ field: { path: `${path}.${key}`, label: `Graded activity ${number} · ${label}` }, onOpenHistory });
+  const numbers = Array.isArray((card as Record<string, unknown>).cloNumbers) ? ((card as Record<string, unknown>).cloNumbers as string[]) : [];
+  const options = outcomes.map((outcome, index) => ({ value: String(index + 1), label: `CLO ${index + 1}: ${(outcome.clo ?? outcome.outcome ?? "").trim() || "Untitled outcome"}` }));
+  return (
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+      <FieldRow>
+        <HistoryTextField label="Week" value={card.week ?? ""} onChange={(week) => onChange({ week })} type="number" min={1} step={1} size="counter" history={field("week", "Week")} />
+        <div className={`grid content-start gap-1 ${fieldSizeClass.code}`}>
+          <DateField label="Assessment date (optional)" value={card.date ?? ""} onChange={(date) => onChange({ date })} trailing={<FieldHistoryControl field={field("date", "Assessment date").field} onOpenSidebar={onOpenHistory} placement="center" />} />
+        </div>
+        <SyllabusField label="Row of the form" fieldKey={`${path}.component`} size="title" hint="Which line of the Foundation Year form's assessment tables this activity fills: a continuous-assessment component, the final assessment, or a laboratory component.">
+          <SelectMenu label={`Graded activity ${number} row of the form`} value={(card as Record<string, string>).component ?? ""} onChange={(component) => onChange({ component })} wrap placeholder="Choose the row it fills" options={FYS_COMPONENTS} />
+        </SyllabusField>
+        <HistoryTextField label="Name" value={card.name ?? ""} onChange={(name) => onChange({ name })} size="name" grow history={field("name", "Name")} />
+        <HistoryTextField label="Weight (%)" value={card.weight ?? ""} onChange={(weight) => onChange({ weight })} type="number" min={0} max={100} step={1} size="counter" history={field("weight", "Weight")} />
+      </FieldRow>
+      <HistoryTextField label="Description" value={(card as Record<string, string>).description ?? ""} onChange={(description) => onChange({ description })} multiline minRows={2} history={field("description", "Description")} />
+      <PloAlignmentField
+        label="CLO(s) to be measured"
+        pickerLabel={`Add a CLO graded activity ${number} measures`}
+        emptyText="No course outcomes selected yet."
+        addText="Add CLO measured"
+        value={numbers.map((value) => options.find((option) => option.value === value)?.label ?? "").filter(Boolean).join("\n")}
+        onChange={(next) => onChange({ cloNumbers: next.split("\n").filter(Boolean).map((label) => options.find((option) => option.label === label)?.value).filter((value): value is string => Boolean(value)) })}
+        options={options.map((option) => ({ value: option.label, label: option.label }))}
+      />
+      {(card as Record<string, string>).earlierClos ? <p className="text-sm text-[#667085]">Before the conversion this row said: CLO(s) {(card as Record<string, string>).earlierClos}</p> : null}
+    </div>
+  );
 }

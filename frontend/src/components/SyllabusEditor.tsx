@@ -64,9 +64,11 @@ import {
 import {
   SCHEDULE_HOLDS_GRADED_ACTIVITIES,
   deliveryPercentageError,
+  fysComponentRows,
   gradedActivities,
   schemaVersion,
   sectionParts,
+  type FysTableRow,
 } from "@/services/syllabusContent";
 import { courseAiFallback } from "@/services/aiPolicy";
 import { alignablePlos, catalogueCloRows, mappingEntryFor, unalignedPloIds, type CatalogueCloRow } from "@/services/outcomes";
@@ -750,6 +752,47 @@ function SectionForm({
           )}
         </Section>
       );
+    // Since November 2026 a Foundation Year syllabus keeps its graded activities in the
+    // teaching schedule too; its outcomes are numbered as the form numbers them.
+    const fysOutcomes: Row[] =
+      outcomeMode === "hod"
+        ? hodClos
+        : String(sectionFrom(content.learningOutcomes).closText ?? "")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((clo, index) => ({ id: `fys-clo-${index + 1}`, clo }));
+    if (active === "assessment" && schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES)
+      return (
+        <Section title="Course assessment">
+          <FoundationYearAssessmentSummary
+            activities={gradedActivities(content)}
+            earlier={section}
+            onOpenSchedule={onOpenSection ? () => onOpenSection("schedule") : undefined}
+          />
+        </Section>
+      );
+    if (active === "schedule" && schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES)
+      return (
+        <Section title="Teaching schedule">
+          {stringify(sectionFrom(content.earlierSchedule).scheduleText) ? (
+            <p role="note" className="mb-4 whitespace-pre-line rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+              <span className="font-semibold">Written before the schedule had cards: </span>
+              {stringify(sectionFrom(content.earlierSchedule).scheduleText)}
+            </p>
+          ) : null}
+          <ScheduleEditor
+            rows={((content.schedule as Row[]) ?? [])}
+            onChange={(schedule) => editContent(active, schedule)}
+            syllabusId={draft.id}
+            revision={draft.revision}
+            onOpenHistory={onOpenHistory}
+            holdsGradedActivities
+            foundationYear
+            outcomes={fysOutcomes}
+          />
+        </Section>
+      );
     if (active === "assessment")
       return (
         <Section title="Course assessment">
@@ -1252,6 +1295,54 @@ function LearningOutcomesEditor({
         />
       </div>
     </section>
+  );
+}
+
+/**
+ * A Foundation Year syllabus's assessment tables, as its form prints them, built from the
+ * graded cards in its teaching schedule. Read here, edited there; text typed into the old
+ * free-text boxes is shown until it has been moved across.
+ */
+function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }: { activities: Array<Record<string, unknown>>; earlier: Record<string, unknown>; onOpenSchedule?: () => void }) {
+  const tables = fysComponentRows(activities);
+  const table = (title: string, rows: FysTableRow[], withComponent: boolean) => (
+    <div className="mt-4">
+      <p className="text-sm font-semibold text-[#344054]">{title}</p>
+      {rows.length ? (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+            <thead><tr className="text-[#344054]">{[...(withComponent ? ["Component"] : []), "Description", "CLO(s) to be measured", "% of the final grade"].map((heading) => <th key={heading} className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">{heading}</th>)}</tr></thead>
+            <tbody>{rows.map((row, index) => (
+              <tr key={index} className="align-top text-[#475467]">
+                {withComponent ? <td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{row.component === "Other" ? "Other (specify)" : row.component}</td> : null}
+                <td className="whitespace-pre-line border-b border-[#eef1f5] py-2 pr-3">{row.description || "—"}</td>
+                <td className="border-b border-[#eef1f5] py-2 pr-3">{row.clos || "—"}</td>
+                <td className="border-b border-[#eef1f5] py-2">{row.weight || "—"}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <p className="mt-2 text-sm text-[#667085]">None yet.</p>}
+    </div>
+  );
+  const typed = ([["Continuous assessment", earlier.continuousText], ["Final assessment", earlier.finalText], ["Laboratory assessment", earlier.laboratoryText]] as const)
+    .filter(([, value]) => typeof value === "string" && value.trim());
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm text-[#667085]">Built from the graded activities in the teaching schedule, each filling the row of the form it names.</p>
+        {onOpenSchedule ? <button type="button" onClick={onOpenSchedule} className="shrink-0 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Edit in the teaching schedule</button> : null}
+      </div>
+      {table("Continuous assessment", tables.continuous, true)}
+      {table("Final assessment", tables.final, false)}
+      {table("Laboratory", tables.laboratory, true)}
+      {typed.length ? (
+        <div role="note" className="mt-5 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+          <p className="font-semibold">Written before graded activities had cards — move it into the teaching schedule:</p>
+          {typed.map(([title, value]) => <p key={title} className="mt-1 whitespace-pre-line"><span className="font-medium">{title}:</span> {String(value)}</p>)}
+        </div>
+      ) : null}
+    </div>
   );
 }
 

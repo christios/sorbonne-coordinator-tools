@@ -253,3 +253,40 @@ export function scheduleOrder<T extends ScheduleCard>(cards: T[]): T[] {
       left.position - right.position)
     .map(({ card }) => card);
 }
+
+/** The Foundation Year form's assessment rows a graded card can fill (fys_component_rows on the server). */
+export const FYS_CONTINUOUS_ROWS = ["In class assignment", "In class presentation", "Report / homework assignment", "Other"] as const;
+export const FYS_LABORATORY_ROWS = ["Report / homework assignment", "Lab exam"] as const;
+
+export const FYS_COMPONENTS: Array<{ value: string; label: string }> = [
+  ...FYS_CONTINUOUS_ROWS.map((row) => ({ value: `continuous:${row}`, label: `Continuous assessment — ${row === "Other" ? "Other (specify)" : row}` })),
+  { value: "final", label: "Final assessment" },
+  ...FYS_LABORATORY_ROWS.map((row) => ({ value: `laboratory:${row}`, label: `Laboratory — ${row}` })),
+];
+
+export type FysTableRow = { component?: string; description: string; clos: string; weight: string };
+
+/** The Foundation Year assessment tables as the form prints them, from its graded cards. */
+export function fysComponentRows(activities: Array<Record<string, unknown>>): { continuous: FysTableRow[]; final: FysTableRow[]; laboratory: FysTableRow[] } {
+  const joined = (cards: Array<Record<string, unknown>>): FysTableRow => {
+    const weights = cards.map((card) => String(card.weight ?? "").trim()).filter((weight) => weight && !Number.isNaN(Number(weight))).map(Number);
+    const clos: string[] = [];
+    for (const card of cards) {
+      for (const number of Array.isArray(card.cloNumbers) ? card.cloNumbers : []) {
+        const label = `CLO ${String(number)}`;
+        if (!clos.includes(label)) clos.push(label);
+      }
+    }
+    return {
+      description: lines(...cards.map((card) => String(card.description ?? card.name ?? ""))),
+      clos: clos.join(", "),
+      weight: weights.length ? `${weights.reduce((total, weight) => total + weight, 0)}%` : "",
+    };
+  };
+  const of = (component: string) => activities.filter((card) => card.component === component);
+  return {
+    continuous: FYS_CONTINUOUS_ROWS.map((row) => ({ component: row, ...joined(of(`continuous:${row}`)) })),
+    final: of("final").map((card) => joined([card])),
+    laboratory: FYS_LABORATORY_ROWS.map((row) => ({ component: row, ...joined(of(`laboratory:${row}`)) })),
+  };
+}
