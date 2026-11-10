@@ -15,6 +15,7 @@ from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_PROGRA
 from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
 from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
+from sorbonne.services.syllabus_content import convert_to_schedule_cards
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
     FolderNameConflict,
@@ -359,6 +360,65 @@ def compare_syllabi(
             status_code=422,
             detail="These templates do not yet have an approved comparison mapping.",
         ) from exc
+
+
+class ConversionRequest(BaseModel):
+    dryRun: bool = True
+
+
+@router.post("/convert-v2")
+def convert_syllabi_to_schedule_cards(
+    body: ConversionRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+) -> dict[str, Any]:
+    """TEMPORARY (November 2026): move every bachelor syllabus's graded activities into its schedule.
+
+    Christian approved converting every existing syllabus at once. This is how that one run
+    is made: a platform administrator calls it with `dryRun` first and reads the report,
+    then — after a backup and his go-ahead — without. Each syllabus is converted through the
+    ordinary save, so its revision moves and its field history records the change; nothing
+    is removed from it (see convert_to_schedule_cards). A syllabus already converted is left
+    alone, so running it again changes nothing. Remove this route in the release after the
+    production run.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a platform administrator can run this.")
+    results: list[dict[str, Any]] = []
+    for summary in store.list():
+        if summary["templateId"] != DEFAULT_TEMPLATE_ID:
+            continue
+        syllabus = store.get(summary["id"])
+        converted, report = convert_to_schedule_cards(syllabus["content"])
+        if converted is syllabus["content"]:
+            continue
+        outcome = "would convert" if body.dryRun else "converted"
+        if not body.dryRun:
+            try:
+                store.update(summary["id"], expected_revision=syllabus["revision"], content=converted)
+            except RevisionConflict:
+                outcome = "changed while converting: run again"
+        results.append(
+            {
+                "id": summary["id"],
+                "courseCode": summary["courseCode"],
+                "courseTitle": summary["courseTitle"],
+                "academicYear": summary["academicYear"],
+                "outcome": outcome,
+                **report,
+            }
+        )
+    return {
+        "dryRun": body.dryRun,
+        "syllabi": results,
+        "totals": {
+            "syllabi": len(results),
+            "gradedActivities": sum(item["gradedActivities"] for item in results),
+            "withoutWeek": sum(len(item["withoutWeek"]) for item in results),
+            "inheritedAiPolicy": sum(item["inheritedAiPolicy"] for item in results),
+            "earlierNotes": sum(item["earlierNotes"] for item in results),
+        },
+    }
 
 
 @router.get("/{syllabus_id}/export-preview")
