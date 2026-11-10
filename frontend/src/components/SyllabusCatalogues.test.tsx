@@ -92,6 +92,25 @@ describe("SyllabusCatalogues", () => {
     expect(screen.queryByDisplayValue("Dr. Grace Murray Hopper")).toBeNull();
   });
 
+  it("shows an AI policy's stored wording when it is opened, and saves it back to the same place", async () => {
+    // The policies were seeded from the Provost's template with their wording under
+    // `description`; the form used to read `details`, so the wording looked empty.
+    vi.mocked(listCatalogueEntries).mockResolvedValue([
+      { id: "ai-policy-1", category: "ai-policies", parentId: null, label: "AI Prohibited", payload: { description: "The use of generative AI is prohibited." }, sortOrder: 1, isRetired: false, retiredAt: null, revision: 3, createdAt: "2026-08-31T00:00:00Z", updatedAt: "2026-08-31T00:00:00Z" },
+    ]);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SyllabusCatalogues onBack={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "AI policies" }));
+    fireEvent.click(await screen.findByText("AI Prohibited"));
+
+    const wording = await screen.findByDisplayValue("The use of generative AI is prohibited.");
+    fireEvent.change(wording, { target: { value: "Generative AI may not be used." } });
+    fireEvent.submit(wording.closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(updateCatalogueEntry).toHaveBeenCalledWith("ai-policies", "ai-policy-1", expect.objectContaining({ payload: { description: "Generative AI may not be used." } })));
+    vi.mocked(listCatalogueEntries).mockResolvedValue([]);
+  });
+
   it("wraps long catalogue labels inside their cards", async () => {
     const longName = "Bachelor in Physics – Concentration in Quantum Technologies";
     vi.mocked(listCatalogueEntries).mockResolvedValueOnce([

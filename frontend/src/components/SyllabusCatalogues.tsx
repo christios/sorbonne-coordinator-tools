@@ -327,9 +327,24 @@ function CompetencyForm({ category, entry, entries, onCancel, onSaved }: { categ
   </form>;
 }
 
+// AI policies were seeded from the Provost's template with their wording under
+// `description` (migration 0048); every other simple catalogue keeps `details`.
+function detailsKeyFor(category: CatalogueCategory): "description" | "details" {
+  return category === "ai-policies" ? "description" : "details";
+}
+
 function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { category: CatalogueCategory; entry?: CatalogueEntry; fieldLabel: string; onCancel: () => void; onSaved: () => void }) {
-  const client = useQueryClient(); const [label, setLabel] = useState(entry?.label ?? ""); const [details, setDetails] = useState(stringValue(entry?.payload.details)); const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: details.trim() ? { ...entry?.payload, details: details.trim() } : entry?.payload ?? {}, parentId: entry?.parentId, sortOrder: entry?.sortOrder }; return entry ? updateCatalogueEntry(category, entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry(category, input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Supporting details" hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
+  const key = detailsKeyFor(category);
+  const client = useQueryClient(); const [label, setLabel] = useState(entry?.label ?? ""); const [details, setDetails] = useState(stringValue(entry?.payload[key]) || stringValue(entry?.payload.details));
+  const payload = (): Record<string, unknown> => {
+    const current = { ...(entry?.payload ?? {}) };
+    if (!details.trim()) return current;
+    // Writing the wording where it belongs retires any copy left under the legacy key.
+    if (key === "description") delete current.details;
+    return { ...current, [key]: details.trim() };
+  };
+  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: payload(), parentId: entry?.parentId, sortOrder: entry?.sortOrder }; return entry ? updateCatalogueEntry(category, entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry(category, input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); } });
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label={key === "description" ? "Policy wording" : "Supporting details"} hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
 }
 
 function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect, selectOnly = false }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void; selectOnly?: boolean }) {
