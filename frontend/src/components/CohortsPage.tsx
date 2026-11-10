@@ -60,6 +60,7 @@ import {
   fetchTeamsCheck,
   setCohort,
   inSemester,
+  withGroupsIn,
   type CatalogueScope,
   type Cohort,
   type Student,
@@ -540,7 +541,8 @@ export function CohortsPage({
   const judged = useMemo(() => {
     if (!evidence || !students.data || !rules.data) return null;
     // The semester's cohorts, each judging the students as that semester has them.
-    return judge(semesterCohorts, inSemester(students.data, semester?.id), rules.data, evidence, options);
+    // Judged on the semester's own groups: Semester 1's are not where they sit in Semester 2.
+    return judge(semesterCohorts, withGroupsIn(inSemester(students.data, semester?.id), semester?.id), rules.data, evidence, options);
   }, [semesterCohorts, semester, evidence, students.data, rules.data, options]);
 
   /*

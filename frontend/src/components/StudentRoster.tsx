@@ -69,6 +69,7 @@ import {
   fetchCatalogue,
   fetchStudents,
   inSemester,
+  withGroupsIn,
   setCohort,
   type Cohort,
   type PlacementReport,
@@ -490,27 +491,33 @@ export function StudentRoster({
   const crnsOf = useMemo(() => groupCrns(catalogues.data ?? []), [catalogues.data]);
   // What each student does not take, and why — the Exempt from column.
   const exemptions = useQuery({ queryKey: ["exemptions", "every"], queryFn: fetchEveryExemption, retry: false });
+  // The semester's own, as the groups are: a Semester 1 exemption is not a Semester 2 one.
+  const termExemptions = useMemo(
+    () => (exemptions.data ?? []).filter((entry) => !termId || entry.termId === termId),
+    [exemptions.data, termId],
+  );
   const exemptionsFor = useMemo(() => {
     const cohortOf = new Map(seen.map((student) => [student.studentId, student.cohortId]));
-    const tokens = exemptionTokens(exemptions.data ?? [], (studentId) => cohortOf.get(studentId) ?? null, catalogues.data ?? []);
+    const tokens = exemptionTokens(termExemptions, (studentId) => cohortOf.get(studentId) ?? null, catalogues.data ?? []);
     return (studentId: string) => tokens.get(studentId) ?? [];
-  }, [exemptions.data, seen, catalogues.data]);
+  }, [termExemptions, seen, catalogues.data]);
   // The same exemptions by course, so Meets leaves out the days of a course they do not take.
   const excusedFor = useMemo(() => {
     const held = new Map<string, Set<string>>();
-    for (const entry of exemptions.data ?? []) {
+    for (const entry of termExemptions) {
       const courses = held.get(entry.studentId) ?? new Set<string>();
       courses.add(entry.courseId);
       held.set(entry.studentId, courses);
     }
     const none = new Set<string>();
     return (studentId: string): ReadonlySet<string> => held.get(studentId) ?? none;
-  }, [exemptions.data]);
+  }, [termExemptions]);
 
   const everyRow = useMemo(
     () =>
       studentRows(
-        seen,
+        // Only the semester on screen's groups: the others are not this list's to show.
+        withGroupsIn(seen, termId),
         portalRows,
         changes,
         syncedAt,
@@ -522,7 +529,7 @@ export function StudentRoster({
         exemptionsFor,
         excusedFor,
       ),
-    [seen, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor, excusedFor],
+    [seen, termId, portalRows, changes, syncedAt, termNames, warningsFor, crnsOf, sectionDays.data, electivesFor, exemptionsFor, excusedFor],
   );
   const rows = useMemo(() => {
     /*

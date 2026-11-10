@@ -913,6 +913,20 @@ export function inSemester<T extends Student>(students: T[], termId?: string): T
 }
 
 /**
+ * Their groups and nothing of another semester, for a list about one semester.
+ *
+ * A student's groups are kept per set and a set is one semester's, but every list showed
+ * all of them: in Semester 2, before anybody was placed there, each student still read as
+ * "CM A · TD 1 · LANG A0-F1" — their Semester 1 groups, untagged, since one semester's
+ * groups carry no semester name. So a new Semester 2 cohort looked as though it had
+ * inherited them. With no semester named, nothing is taken away.
+ */
+export function withGroupsIn<T extends Student>(students: T[], termId?: string): T[] {
+  if (!termId) return students;
+  return students.map((student) => ({ ...student, groups: (student.groups ?? []).filter((group) => group.termId === termId) }));
+}
+
+/**
  * Students as one cohort has them — in one semester when it is named — for a page about
  * that cohort: a group's roster, a fill. Somebody not in it reads as in none.
  */
