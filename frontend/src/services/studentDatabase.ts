@@ -791,6 +791,8 @@ export type HistoryLine = {
     fromProgram?: string;
     program?: string;
     scopeCode?: string;
+    /** The semester a placement or a cohort change was made in; missing on lines older than 10 Nov 2026. */
+    termId?: string;
     termCode?: string;
     crn?: string;
     courseCode?: string;
@@ -805,8 +807,18 @@ export async function fetchStudentHistory(studentId: string): Promise<HistoryLin
   return answer.entries;
 }
 
-/** The sentence a history line reads as, without its date or its signature. */
-export function describeHistory(line: HistoryLine): string {
+/**
+ * The sentence a history line reads as, without its date or its signature — led by its
+ * semester where the line knows it and `semesterName` can name it: a cohort is a year's,
+ * and "TD: placed in 2" said nothing about which of its semesters.
+ */
+export function describeHistory(line: HistoryLine, semesterName: (termId: string) => string = () => ""): string {
+  const said = sayHistory(line);
+  const semester = line.detail.termId ? semesterName(line.detail.termId) : "";
+  return semester ? `${semester} · ${said}` : said;
+}
+
+function sayHistory(line: HistoryLine): string {
   const { detail } = line;
   const group = (label?: string, program?: string) => [label, program ? `(${program})` : ""].filter(Boolean).join(" ");
   switch (line.kind) {

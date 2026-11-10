@@ -550,6 +550,18 @@ def test_a_set_is_carried_into_another_semester_with_its_groups_and_exemptions(
         database.carry_scope(lang, autumn)
 
 
+def test_a_history_line_says_the_semester_it_was_made_in(database: StudentDatabase, two_semesters_of_fys) -> None:
+    """A cohort is a year's: "placed in TD 1" and "left FYS" have to say which semester."""
+    fys, _l1, fys_student, *_rest, autumn, spring = two_semesters_of_fys
+
+    database.remove_from_semester(fys["id"], spring)
+
+    lines = [(line["kind"], line["detail"].get("termId")) for line in database.history_of(fys_student)]
+    assert ("placed", autumn) in lines, "the fixture's placements, made in the autumn"
+    assert ("cohort", spring) in lines, "leaving FYS in the spring"
+    assert ("removed", spring) in lines, "and the spring's TD with it"
+
+
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:
     database.replace_discrepancy_rules([])
 

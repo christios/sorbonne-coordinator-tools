@@ -1159,7 +1159,7 @@ export function StudentRecord({
                 <span className="tabular-nums text-[#98a2b3]">{new Date(entry.at).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" })}</span>
                 {entry.line ? (
                   <span className={entry.line.kind === "dropped" || entry.line.kind === "removed" ? "text-[#a6292f]" : "text-[#344054]"}>
-                    {describeHistory(entry.line)}
+                    {describeHistory(entry.line, (id) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "")}
                     {entry.line.authorName || entry.line.author ? (
                       <span className="text-[#98a2b3]"> · by {entry.line.authorName || entry.line.author}</span>
                     ) : (

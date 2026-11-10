@@ -563,6 +563,7 @@ class StudentDatabase:
                 connection,
                 [{"studentId": student, "kind": "cohort", "detail": {"from": "", "to": name}} for student in added],
                 actor=actor,
+                term_id=target,
             )
             self._touch(connection, cohort_id)
         return {"cohort": self.get_cohort(cohort_id), "added": len(added), "skipped": sorted(elsewhere)}
@@ -914,7 +915,7 @@ class StudentDatabase:
                 for student in present
                 if before.get(student, "") != (cohort_id or "") and (cohort_id is not None or student in before)
             )
-            self._record(connection, lines, actor=actor)
+            self._record(connection, lines, actor=actor, term_id=term)
             if cohort_id is not None:
                 self._touch(connection, cohort_id)
         return len(present)
@@ -3078,14 +3079,20 @@ class StudentDatabase:
 
     # -------------------------------------------------------------- history
 
-    def _record(self, connection: Connection, entries: list[dict[str, Any]], *, actor: str = "") -> None:
+    def _record(
+        self, connection: Connection, entries: list[dict[str, Any]], *, actor: str = "", term_id: str = ""
+    ) -> None:
         """Write what just happened to these students, one line each, signed and dated.
 
         Called inside the transaction that did the thing, so a placement that is rolled
-        back leaves no line saying it happened.
+        back leaves no line saying it happened. `term_id` is the semester it happened in,
+        kept on each line: a cohort is a year's, and "placed in TD 2" or "joined L1" said
+        nothing about which of its semesters.
         """
         if not entries:
             return
+        if term_id:
+            entries = [{**entry, "detail": {"termId": term_id, **entry.get("detail", {})}} for entry in entries]
         now = _now()
         connection.execute(
             text("""INSERT INTO student_history (id, student_id, kind, detail, author, happened_at)
@@ -3152,6 +3159,8 @@ class StudentDatabase:
         line: the history says what happened, not what was pressed.
         """
         scope_code, labels, programs = self._placement_facts(connection, scope_id)
+        # The set's semester, so the line says which one the placement was made in.
+        term = connection.execute(text("SELECT term_id FROM cohort_scopes WHERE id = :id"), {"id": scope_id}).scalar()
         lines: list[dict[str, Any]] = []
         for student, (group_id, major_id) in after.items():
             old = before.get(student)
@@ -3159,6 +3168,7 @@ class StudentDatabase:
                 continue
             detail = {
                 "scopeCode": scope_code,
+                "termId": term or "",
                 "from": labels.get(old[0], "") if old else "",
                 "fromProgram": programs.get(old[1], "") if old else "",
                 "to": labels.get(group_id or "", ""),

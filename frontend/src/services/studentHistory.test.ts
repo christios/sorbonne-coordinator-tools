@@ -12,6 +12,17 @@ const line = (kind: HistoryLine["kind"], detail: HistoryLine["detail"]): History
 });
 
 describe("describeHistory", () => {
+  it("leads with the semester the line was made in, where it knows it", () => {
+    // A cohort is a year's: "TD: placed in 2" said nothing about which of its semesters.
+    const named = (id: string) => (id === "plan:262720" ? "Semester 2" : "");
+    expect(describeHistory(line("placed", { scopeCode: "TD", from: "", to: "2", termId: "plan:262720" }), named)).toBe(
+      "Semester 2 · TD: placed in 2",
+    );
+    expect(describeHistory(line("cohort", { from: "", to: "L1", termId: "plan:262720" }), named)).toBe("Semester 2 · Added to L1");
+    // An older line, or a semester nobody can name, reads as it always did.
+    expect(describeHistory(line("placed", { scopeCode: "TD", from: "", to: "2" }), named)).toBe("TD: placed in 2");
+  });
+
   it("reads a cohort move as where they came from and where they went", () => {
     expect(describeHistory(line("cohort", { from: "", to: "L1-S1" }))).toBe("Added to L1-S1");
     expect(describeHistory(line("cohort", { from: "FYS", to: "L1-S1" }))).toBe("Moved from FYS to L1-S1");
