@@ -153,4 +153,34 @@ describe("Choosing an assessment type", () => {
 
     expect(onChange).toHaveBeenLastCalledWith({ items: [{ id: "a1", name: "Quiz", cloIds: ["teacher-clo"], catalogueCloIds: ["hod-2"] }] });
   });
+
+  it("once the schedule holds the graded activities, summarises them as 9.1 and sends the teacher to the schedule to edit them", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onOpenSchedule = vi.fn();
+    render(<QueryClientProvider client={queryClient}><AssessmentTabs
+      value={{ methodologies: "Written tests.", lateSubmissionPolicy: "" }}
+      activities={[
+        { id: "g1", kind: "graded", name: "Quiz 1", week: "1", date: "2026-09-10", weight: "10", cloIds: ["clo-1"], aiPolicy: "AI Prohibited" },
+        { id: "g2", kind: "graded", name: "Midterm", week: "6", weight: "40", aiPolicy: "Other (Specify)", aiOtherText: "Calculators only" },
+      ]}
+      holdsGradedActivities
+      onOpenSchedule={onOpenSchedule}
+      outcomes={[{ id: "clo-1", clo: "Trace rays." }]}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    const rows = screen.getAllByRole("row").slice(1).map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent));
+    expect(rows).toEqual([
+      ["10/09/2026", "Quiz 1", "10%", "CLO 1", "AI Prohibited"],
+      ["Week 6", "Midterm", "40%", "—", "Other: Calculators only"],
+    ]);
+    // Nothing to add or edit here any more; the methodology and late policy still are.
+    expect(screen.queryByRole("button", { name: "Add assessment" })).toBeNull();
+    expect(screen.getByLabelText("Assessment methodologies")).toHaveProperty("value", "Written tests.");
+    fireEvent.click(screen.getByRole("button", { name: "Edit in the course schedule" }));
+    expect(onOpenSchedule).toHaveBeenCalledOnce();
+  });
 });

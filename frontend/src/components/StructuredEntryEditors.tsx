@@ -14,7 +14,7 @@ import { InfoTip } from "@/components/InfoTip";
 import { BibliographyReferenceFinder } from "@/components/BibliographyReferenceFinder";
 import { AssessmentEntry, PloEntry, ResourceEntry, RubricInUse, assessmentEntries, bibliographyEntries, ploEntries, rubricsInUse } from "@/services/syllabusContent";
 import { CatalogueEntry } from "@/services/syllabusCatalogues";
-import { OTHER_AI_OPTION, activityAiPolicy, aiOption, aiOptions, aiOptionsInUse, templatePermittedUse } from "@/services/aiPolicy";
+import { OTHER_AI_OPTION, activityAiPolicy, aiOption, aiOptions, aiOptionsInUse, aiPolicySummary, templatePermittedUse } from "@/services/aiPolicy";
 import { BibliographyLookupItem } from "@/services/bibliographyLookup";
 
 type HistoryContext = { syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void };
@@ -112,6 +112,49 @@ export function AssessmentItemsEditor({ value, outcomes, assessmentTypes = [], a
   const update = (id: string, changes: Partial<AssessmentEntry>) => onChange({ ...value, items: entries.map((entry) => entry.id === id ? { ...entry, ...changes } : entry) });
   const remove = (id: string) => onChange({ ...value, items: entries.filter((entry) => entry.id !== id) });
   return <section><div className="flex flex-wrap items-start justify-between gap-3"><div><h4 className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">Summary of graded learning activities<InfoTip label="How to add the graded activities">Add one assessment at a time and link it to the relevant course outcomes.</InfoTip></h4></div><fieldset className="shrink-0"><legend className="text-sm font-medium text-[#344054]">Show each assessment by</legend><div className="mt-1 inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">{([["date","Date"],["week","Week"]] as const).map(([mode,modeLabel]) => <button key={mode} type="button" aria-pressed={scheduleBy === mode} onClick={() => onChange({ ...value, scheduleBy: mode })} className={`rounded px-3 py-1 text-sm font-semibold ${scheduleBy === mode ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}>{modeLabel}</button>)}</div></fieldset></div><div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3">{entries.map((entry, index) => <AssessmentCard key={entry.id} entry={entry} index={index} outcomes={outcomes} assessmentTypes={assessmentTypes} aiPolicies={aiPolicies} courseAiPolicy={stringValue(value.aiPolicy)} cloKey={cloKey} scheduleBy={scheduleBy} onChange={update} onRemove={remove} {...history} />)}</div>{entries.length === 0 ? <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No assessments added.</p> : null}<AddEntryButton onClick={() => onChange({ ...value, items: [...entries, { id: crypto.randomUUID() }] })} label="Add assessment" /></section>;
+}
+
+/**
+ * Section 9.1 as the document prints it, once the graded activities live in the course
+ * schedule: read here, edited there.
+ */
+export function GradedActivitiesSummary({ activities, outcomes, cloKey = "cloIds", aiFallback = "", onOpenSchedule }: { activities: AssessmentEntry[]; outcomes: Array<Record<string, string> & { id: string }>; cloKey?: CloKey; aiFallback?: string; onOpenSchedule?: () => void }) {
+  const numberOf = (id: string) => outcomes.findIndex((outcome) => outcome.id === id) + 1;
+  return <section>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h4 className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">Summary of graded learning activities<InfoTip label="Where the graded activities are edited">Graded activities are cards in the course schedule, beside the sessions they belong to. This summary is what the document prints in section 9.1.</InfoTip></h4>
+        <p className="mt-1 text-sm text-[#667085]">Built from the graded activities in the course schedule.</p>
+      </div>
+      {onOpenSchedule ? <button type="button" onClick={onOpenSchedule} className="shrink-0 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Edit in the course schedule</button> : null}
+    </div>
+    {activities.length ? <div className="mt-3 overflow-x-auto"><table className="w-full min-w-[40rem] border-collapse text-left text-sm">
+      <thead><tr className="text-[#344054]">{["Assessment date", "Assessment", "Weight", "CLOs assessed", "Applicable AI policy"].map((heading) => <th key={heading} className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">{heading}</th>)}</tr></thead>
+      <tbody>{activities.map((activity) => {
+        const ids = selectedCloIds(activity, outcomes, cloKey);
+        const when = displayDate(stringValue(activity.date)) || (stringValue(activity.week) ? `Week ${stringValue(activity.week)}` : "");
+        return <tr key={activity.id} className="align-top text-[#475467]">
+          <td className="border-b border-[#eef1f5] py-2 pr-3">{when || "—"}</td>
+          <td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{stringValue(activity.name) || stringValue(activity.type) || "Untitled graded activity"}</td>
+          <td className="border-b border-[#eef1f5] py-2 pr-3">{stringValue(activity.weight) ? `${stringValue(activity.weight)}%` : "—"}</td>
+          <td className="border-b border-[#eef1f5] py-2 pr-3">{ids.map(numberOf).filter((number) => number > 0).map((number) => `CLO ${number}`).join(", ") || "—"}</td>
+          <td className="border-b border-[#eef1f5] py-2">{aiPolicySummary(activity, aiFallback) || "—"}</td>
+        </tr>;
+      })}</tbody>
+    </table></div> : <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No graded activities yet. Add them in the course schedule, beside the sessions they belong to.</p>}
+  </section>;
+}
+
+/** Sections 9.4 and 9.6: how the course assesses, and what happens to late work. */
+export function AssessmentPolicies({ value, onChange, ...history }: HistoryContext & { value: Record<string, unknown>; onChange: (value: Record<string, unknown>) => void }) {
+  return <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+    <NarrativeField label="Assessment methodologies" value={stringValue(value.methodologies)} onChange={(methodologies) => onChange({ ...value, methodologies })} field={{ path: "assessment.methodologies", label: "Assessment methodologies" }} {...history} />
+    <NarrativeField label="Late submission policy" value={stringValue(value.lateSubmissionPolicy)} onChange={(lateSubmissionPolicy) => onChange({ ...value, lateSubmissionPolicy })} field={{ path: "assessment.lateSubmissionPolicy", label: "Late submission policy" }} {...history} />
+  </div>;
+}
+
+function displayDate(value: string): string {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value.slice(8, 10)}/${value.slice(5, 7)}/${value.slice(0, 4)}` : value;
 }
 
 /**

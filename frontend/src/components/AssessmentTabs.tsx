@@ -1,6 +1,7 @@
 import { useState } from "react";
 
-import { AssessmentAiPolicyEditor, AssessmentGradingEditor, AssessmentItemsEditor, type CloKey } from "@/components/StructuredEntryEditors";
+import { AssessmentAiPolicyEditor, AssessmentGradingEditor, AssessmentItemsEditor, AssessmentPolicies, GradedActivitiesSummary, type CloKey } from "@/components/StructuredEntryEditors";
+import { assessmentEntries, type AssessmentEntry } from "@/services/syllabusContent";
 import { HistoryField } from "@/components/FieldHistory";
 import { CatalogueEntry } from "@/services/syllabusCatalogues";
 
@@ -15,6 +16,16 @@ type Props = {
   aiPolicies?: CatalogueEntry[];
   /** Which outcomes graded activities assess: the syllabus's own, or the catalogue's. */
   cloKey?: CloKey;
+  /**
+   * The syllabus's graded activities. Once they live in the course schedule (November 2026)
+   * this tab only summarises them, and `onOpenSchedule` takes the teacher to where they are
+   * edited; until then they are edited here.
+   */
+  activities?: AssessmentEntry[];
+  holdsGradedActivities?: boolean;
+  onOpenSchedule?: () => void;
+  /** The course-wide AI policy an older syllabus set; none once converted. */
+  aiFallback?: string;
 };
 
 const tabs = [
@@ -23,9 +34,10 @@ const tabs = [
   { key: "ai", label: "AI policy" },
 ] as const;
 
-export function AssessmentTabs({ value, outcomes, onChange, syllabusId, revision, onOpenHistory, assessmentTypes = [], aiPolicies = [], cloKey = "cloIds" }: Props) {
+export function AssessmentTabs({ value, outcomes, onChange, syllabusId, revision, onOpenHistory, assessmentTypes = [], aiPolicies = [], cloKey = "cloIds", activities, holdsGradedActivities = false, onOpenSchedule, aiFallback }: Props) {
   const [tab, setTab] = useState<(typeof tabs)[number]["key"]>("activities");
   const history = { syllabusId, revision, onOpenHistory };
+  const graded = activities ?? assessmentEntries(value.items);
 
-  return <div role="tablist" aria-label="Course assessment editor" className="mt-5 border-b border-[#d9dee7]"><div className="flex gap-1 overflow-x-auto">{tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} onClick={() => setTab(item.key)} className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:border-[#b7bec8] hover:text-[#344054]"}`}>{item.label}</button>)}</div><div role="tabpanel" className="mt-5">{tab === "activities" ? <AssessmentItemsEditor value={value} outcomes={outcomes} assessmentTypes={assessmentTypes} aiPolicies={aiPolicies} cloKey={cloKey} onChange={onChange} {...history} /> : null}{tab === "rubrics" ? <AssessmentGradingEditor value={value} assessmentTypes={assessmentTypes} {...history} /> : null}{tab === "ai" ? <AssessmentAiPolicyEditor value={value} onChange={onChange} aiPolicies={aiPolicies} {...history} /> : null}</div></div>;
+  return <div role="tablist" aria-label="Course assessment editor" className="mt-5 border-b border-[#d9dee7]"><div className="flex gap-1 overflow-x-auto">{tabs.map((item) => <button key={item.key} type="button" role="tab" aria-selected={tab === item.key} onClick={() => setTab(item.key)} className={`shrink-0 border-b-2 px-3 py-2 text-sm font-semibold transition-colors ${tab === item.key ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:border-[#b7bec8] hover:text-[#344054]"}`}>{item.label}</button>)}</div><div role="tabpanel" className="mt-5">{tab === "activities" ? <div className="grid grid-cols-[minmax(0,1fr)] gap-7">{holdsGradedActivities ? <GradedActivitiesSummary activities={graded} outcomes={outcomes} cloKey={cloKey} aiFallback={aiFallback ?? ""} onOpenSchedule={onOpenSchedule} /> : <AssessmentItemsEditor value={value} outcomes={outcomes} assessmentTypes={assessmentTypes} aiPolicies={aiPolicies} cloKey={cloKey} onChange={onChange} {...history} />}<AssessmentPolicies value={value} onChange={onChange} {...history} /></div> : null}{tab === "rubrics" ? <AssessmentGradingEditor value={value} activities={graded} assessmentTypes={assessmentTypes} {...history} /> : null}{tab === "ai" ? <AssessmentAiPolicyEditor value={value} onChange={onChange} activities={graded} aiFallback={aiFallback} aiPolicies={aiPolicies} {...history} /> : null}</div></div>;
 }

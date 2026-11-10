@@ -64,9 +64,11 @@ import {
 import {
   SCHEDULE_HOLDS_GRADED_ACTIVITIES,
   deliveryPercentageError,
+  gradedActivities,
   schemaVersion,
   sectionParts,
 } from "@/services/syllabusContent";
+import { courseAiFallback } from "@/services/aiPolicy";
 import { alignablePlos, catalogueCloRows, mappingEntryFor, unalignedPloIds, type CatalogueCloRow } from "@/services/outcomes";
 import { useOutcomeMode } from "@/services/syllabusOutcomeMode";
 import {
@@ -379,6 +381,7 @@ export function SyllabusEditor({
                 editContent={editContent}
                 editMetadata={editMetadata}
                 onOpenHistory={setHistoryField}
+                onOpenSection={setActive}
               />
             ))}
           </div>
@@ -467,6 +470,7 @@ function SectionForm({
   editContent,
   editMetadata,
   onOpenHistory,
+  onOpenSection,
 }: {
   active: string;
   draft: Syllabus;
@@ -476,6 +480,8 @@ function SectionForm({
     value: string,
   ) => void;
   onOpenHistory: (field: HistoryField) => void;
+  /** Takes the teacher to another section, as the table of contents does. */
+  onOpenSection?: (section: string) => void;
 }) {
   const content = draft.content as Record<string, unknown>;
   const people = useQuery({
@@ -933,6 +939,10 @@ function SectionForm({
             value={section}
             outcomes={courseOutcomes}
             cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
+            activities={gradedActivities(content)}
+            holdsGradedActivities={schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES}
+            onOpenSchedule={onOpenSection ? () => onOpenSection("schedule") : undefined}
+            aiFallback={courseAiFallback(content)}
             onChange={(assessment) => editContent(active, assessment)}
             syllabusId={draft.id}
             revision={draft.revision}
