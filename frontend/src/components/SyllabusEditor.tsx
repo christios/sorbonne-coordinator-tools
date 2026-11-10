@@ -51,6 +51,7 @@ import { SyllabusField } from "@/components/SyllabusField";
 import { SyllabusSharing } from "@/components/SyllabusSharing";
 import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
 import { useSyllabusCompleteness } from "@/components/useSyllabusCompleteness";
+import { dropLocalDraft, keepLocalDraft, restoredDraft } from "@/services/syllabusLocalDraft";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import {
@@ -90,6 +91,10 @@ type Props = {
   onCompare: () => void;
   onHeaderCollapseChange?: (collapsed: boolean) => void;
   compactHeaderActions?: ReactNode;
+  /** The section the address names, so a refresh reopens it. */
+  section?: string;
+  /** Told whenever another section opens, to write it into the address. */
+  onSectionChange?: (section: string) => void;
 };
 type Row = Record<string, string> & { id: string };
 
@@ -101,12 +106,19 @@ export function SyllabusEditor({
   onCompare,
   onHeaderCollapseChange,
   compactHeaderActions,
+  section,
+  onSectionChange,
 }: Props) {
-  const [draft, setDraft] = useState(syllabus);
+  // Edits this browser kept but never saved — a refresh inside the moment before a save —
+  // are picked up again and saved (11 Nov 2026).
+  const [restored] = useState(() => restoredDraft(syllabus));
+  const [draft, setDraft] = useState(restored ?? syllabus);
+  const known = (id: string | undefined) => Boolean(id && template.sections.some((item) => item.id === id));
   const [active, setActive] = useState(
-    template.sections[0]?.id ?? "identification",
+    known(section) ? (section as string) : template.sections[0]?.id ?? "identification",
   );
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(Boolean(restored));
+  const [showRestored, setShowRestored] = useState(Boolean(restored));
   const [saveState, setSaveState] = useState<SyllabusSaveState>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
@@ -116,7 +128,7 @@ export function SyllabusEditor({
   >("idle");
   const [historyField, setHistoryField] = useState<HistoryField | null>(null);
   const requestId = useRef(0);
-  const draftRef = useRef(syllabus);
+  const draftRef = useRef(restored ?? syllabus);
   const saveInFlight = useRef(false);
   const saveConflict = useRef(false);
   const editorRef = useRef<HTMLDivElement>(null);
@@ -125,6 +137,29 @@ export function SyllabusEditor({
   const sectionCounts: Record<string, number> = {};
   for (const item of missing) sectionCounts[item.section] = (sectionCounts[item.section] ?? 0) + 1;
 
+  // Whatever is not saved yet is also kept in this browser; once saved, it is let go. Kept
+  // as the change is committed, before the page could be refreshed away from under it.
+  useLayoutEffect(() => {
+    if (dirty) keepLocalDraft(draft);
+    else dropLocalDraft(draft.id);
+  }, [dirty, draft]);
+  useEffect(() => {
+    if (!showRestored) return;
+    const timer = window.setTimeout(() => setShowRestored(false), 8000);
+    return () => window.clearTimeout(timer);
+  }, [showRestored]);
+  // The section follows the address (Back, a link) and the address follows the section.
+  useEffect(() => {
+    if (known(section) && section !== active) setActive(section as string);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only an address change moves the section
+  }, [section]);
+  const reportSection = useRef(onSectionChange);
+  useEffect(() => {
+    reportSection.current = onSectionChange;
+  });
+  useEffect(() => {
+    reportSection.current?.(active);
+  }, [active]);
   useEffect(() => {
     if (draftRef.current.id !== syllabus.id || !dirty) {
       draftRef.current = syllabus;
@@ -338,6 +373,11 @@ export function SyllabusEditor({
           compactHeaderActions={compactHeaderActions}
           actions={
             <>
+              {showRestored ? (
+                <span role="status" className="text-sm text-[#475467]">
+                  Restored your unsaved changes
+                </span>
+              ) : null}
               <SaveStatus
                 state={saveState}
                 error={saveError}

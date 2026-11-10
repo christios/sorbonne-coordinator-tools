@@ -41,8 +41,13 @@ const sections = [
   { id: "bibliography", label: "Bibliography" },
 ];
 
-export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
-  const [activeSection, setActiveSection] = useState<CatalogueSection>("people");
+/** The section is the address's (`#/syllabus/catalogues/<section>`), so a refresh stays on it. */
+export function SyllabusCatalogues({ onBack, section, onSectionChange }: { onBack: () => void; section?: string; onSectionChange?: (section: string) => void }) {
+  const known = sections.find((item) => item.id === section)?.id as CatalogueSection | undefined;
+  const [chosen, setChosen] = useState<CatalogueSection>(known ?? "people");
+  // Driven by the address when there is one; on its own otherwise.
+  const activeSection = onSectionChange ? known ?? "people" : chosen;
+  const setActiveSection = (next: CatalogueSection) => (onSectionChange ? onSectionChange(next) : setChosen(next));
   return <SectionEditorShell
     backLabel="Back to syllabus library"
     onBack={onBack}
