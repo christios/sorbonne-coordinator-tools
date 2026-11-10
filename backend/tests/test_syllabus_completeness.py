@@ -201,6 +201,21 @@ def test_a_foundation_year_syllabus_has_four_to_six_outcomes_and_fills_a_row_of_
     ]
 
 
+def test_a_foundation_year_instructor_may_be_typed_in_and_methods_described_in_words() -> None:
+    content = complete_fys_content()
+    content["facultyDetails"] = {"staff": [], "staffText": "A Lecturer", "email": "lecturer@sorbonne.ae"}
+    content["teachingMethodologies"] = {"methods": {}, "notes": "Lectures, 30 hours."}
+
+    assert missing_for_submission(FYS, content) == []
+
+    content["facultyDetails"]["email"] = ""
+    content["teachingMethodologies"]["notes"] = ""
+    assert messages(missing_for_submission(FYS, content)) == [
+        "Give the course instructor's email.",
+        "Describe the teaching methods and hours.",
+    ]
+
+
 # Through the API
 
 

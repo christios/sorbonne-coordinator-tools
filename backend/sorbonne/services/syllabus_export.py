@@ -85,11 +85,15 @@ def _fill_fys(document: Document, syllabus: dict[str, Any], content: dict[str, A
         _set_cell_text(table.cell(row, column), _text(hours.get(key)))
     faculty = _record(content.get("facultyDetails"))
     staff = _rows(faculty.get("staff"))
-    _set_cell_text(document.tables[1].cell(0, 1), "\n".join(_text(item.get("nameAndStatus")) for item in staff))
+    # A faculty member chosen from the People directory arrives as `staff` rows; one typed in
+    # by hand is the editor's "Name and status" and "Email" boxes, which printed blank before.
+    names = "\n".join(_text(item.get("nameAndStatus")) for item in staff if _text(item.get("nameAndStatus")))
+    emails = "\n".join(_text(item.get("email")) for item in staff if _text(item.get("email")))
+    _set_cell_text(document.tables[1].cell(0, 1), names or _text(faculty.get("staffText")))
     _set_cell_text(document.tables[1].cell(1, 1), _text(faculty.get("institution")))
     _set_cell_text(document.tables[1].cell(2, 1), _text(faculty.get("officeHours")))
     _set_cell_text(document.tables[1].cell(3, 1), _text(faculty.get("officePhone")))
-    _set_cell_text(document.tables[1].cell(4, 1), "\n".join(_text(item.get("email")) for item in staff))
+    _set_cell_text(document.tables[1].cell(4, 1), emails or _text(faculty.get("email")))
     _fill_delivery(document.tables[2], _record(content.get("delivery")))
     _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
     outcomes = _record(content.get("learningOutcomes"))

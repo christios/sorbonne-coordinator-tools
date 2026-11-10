@@ -312,6 +312,24 @@ def test_a_foundation_year_syllabus_prints_the_outcomes_its_editor_writes_one_pe
     assert [row.cells[1].text for row in table.rows[1:3]] == ["Solve equations.", "Sketch functions."]
 
 
+def test_a_foundation_year_instructor_typed_in_by_hand_is_printed(tmp_path) -> None:
+    """The editor's "Name and status" and "Email" boxes printed blank: only a directory choice did."""
+    syllabus = {
+        "courseTitle": "Pre-Calculus",
+        "templateId": "fys-2025-26",
+        "content": {
+            "facultyDetails": {"staff": [], "staffText": "A Lecturer, Lecturer", "email": "lecturer@sorbonne.ae"}
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[1]
+    assert table.cell(0, 1).text == "A Lecturer, Lecturer"
+    assert table.cell(4, 1).text == "lecturer@sorbonne.ae"
+
+
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:
     syllabus = {
         "courseTitle": "Environmental Policy",

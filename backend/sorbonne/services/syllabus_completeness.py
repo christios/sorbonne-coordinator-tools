@@ -292,12 +292,17 @@ def _fys_details(missing: Missing, content: dict[str, Any]) -> None:
     ):
         if not _text(details.get(key)):
             _add(missing, "courseDetails", f"Give the {label}.")
+    # Chosen from the People directory (`staff` rows), or typed into the editor's boxes.
     faculty = _record(content.get("facultyDetails"))
     staff = _rows(faculty.get("staff"))
     from_directory = bool(_text(faculty.get("personId")))
-    if not (from_directory or any(_text(person.get("nameAndStatus")) for person in staff)):
+    if not (
+        from_directory
+        or _text(faculty.get("staffText"))
+        or any(_text(person.get("nameAndStatus")) for person in staff)
+    ):
         _add(missing, "facultyDetails", "Name the course instructor.")
-    if not (from_directory or any(_text(person.get("email")) for person in staff)):
+    if not (from_directory or _text(faculty.get("email")) or any(_text(person.get("email")) for person in staff)):
         _add(missing, "facultyDetails", "Give the course instructor's email.")
     if not _text(_record(content.get("delivery")).get("mode")):
         _add(missing, "description", "Choose the delivery mode.")
@@ -320,9 +325,11 @@ def _fys_outcomes(missing: Missing, content: dict[str, Any], outcome_mode: str) 
 def _fys_materials(missing: Missing, content: dict[str, Any]) -> None:
     if not _text(_record(content.get("requiredMaterials")).get("textbooks")):
         _add(missing, "requiredMaterials", "List the textbooks and recommended reading.")
-    methods = _record(_record(content.get("teachingMethodologies")).get("methods"))
-    if not any(_record(entry).get("selected") for entry in methods.values()):
-        _add(missing, "teachingMethodologies", "Tick at least one teaching methodology.")
+    # The editor offers the free text; the ticks only come from a converted bachelor syllabus.
+    methodologies = _record(content.get("teachingMethodologies"))
+    methods = _record(methodologies.get("methods"))
+    if not (_text(methodologies.get("notes")) or any(_record(entry).get("selected") for entry in methods.values())):
+        _add(missing, "teachingMethodologies", "Describe the teaching methods and hours.")
 
 
 def _fys_graded(missing: Missing, content: dict[str, Any]) -> None:
