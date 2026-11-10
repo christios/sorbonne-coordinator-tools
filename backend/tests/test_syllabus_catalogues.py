@@ -256,3 +256,56 @@ def test_the_ai_policies_are_the_templates_five_each_tied_to_its_row() -> None:
     support = policies[1]["payload"]
     assert "Language editing (grammar, spelling, style, and readability)" in support["permittedUses"]
     assert support["description"].startswith("Students may use generative artificial intelligence")
+
+
+def test_in_head_of_department_mode_a_syllabus_shows_its_courses_outcomes_from_the_mapping() -> None:
+    """November 2026 review: the HoD writes a course's CLOs once; every syllabus shows them."""
+    store = make_store()
+    programme = store.create("programmes", label=f"Physics {uuid4()}", payload={})
+    plo = store.create("plos", label="PLO 1", parent_id=programme["id"], payload={"code": "PLO 1", "outcome": "Model."})
+    competency = store.create("competencies", label=f"C1 {uuid4()}", payload={"code": "C1", "outcome": "Reason."})
+    store.create(
+        "curriculum-mapping",
+        label="PHYS 118",
+        parent_id=programme["id"],
+        payload={
+            "ploIds": [plo["id"]],
+            "clos": [{"id": "hod-clo-1", "clo": "Trace rays.", "ploIds": [plo["id"]], "skillIds": [competency["id"]]}],
+        },
+    )
+    content = {
+        "identification": {"catalogueProgrammeId": programme["id"]},
+        "learningOutcomes": {"clos": [{"id": "teacher-clo", "clo": "The teacher's own."}]},
+        "assessment": {"items": [{"id": "a1", "cloIds": ["teacher-clo"], "catalogueCloIds": ["hod-clo-1"]}]},
+    }
+
+    hod = store.resolve_outcomes(content, course_code="PHYS-118", mode="hod")
+    teacher = store.resolve_outcomes(content, course_code="PHYS-118", mode="teacher")
+
+    assert hod["learningOutcomes"]["clos"] == [
+        {
+            "id": "hod-clo-1",
+            "clo": "Trace rays.",
+            "plo": "PLO 1: Model.",
+            "ploIds": plo["id"],
+            "skills": "C1: Reason.",
+            "skillIds": competency["id"],
+        }
+    ]
+    assert hod["assessment"]["items"][0]["cloIds"] == ["hod-clo-1"]
+    # The teacher's outcomes are kept for the day the department switches back.
+    assert content["learningOutcomes"]["clos"][0]["id"] == "teacher-clo"
+    assert teacher is content
+
+
+def test_in_head_of_department_mode_a_course_the_mapping_has_no_outcomes_for_shows_none() -> None:
+    store = make_store()
+    programme = store.create("programmes", label=f"Physics {uuid4()}", payload={})
+
+    resolved = store.resolve_outcomes(
+        {"identification": {"catalogueProgrammeId": programme["id"]}, "learningOutcomes": {"clos": [{"id": "x"}]}},
+        course_code="PHYS-999",
+        mode="hod",
+    )
+
+    assert resolved["learningOutcomes"]["clos"] == []

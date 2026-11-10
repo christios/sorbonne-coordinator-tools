@@ -12,6 +12,8 @@ from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
 from sorbonne.services.syllabus_visibility import VISIBILITIES, can_edit, can_view
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID
+from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
+from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
@@ -256,12 +258,15 @@ def export_syllabus(  # noqa: PLR0913 - the id, the cleanup, two stores, and who
     catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
     user: StaffUser = Depends(current_user),
     curator: bool = Depends(administers_syllabi),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
 ) -> FileResponse:
     syllabus = _readable(store, syllabus_id, user, curator=curator)
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
-    build_syllabus_docx({**syllabus, "content": _resolved_content(catalogue_store, syllabus)}, output_path)
+    build_syllabus_docx(
+        {**syllabus, "content": _resolved_content(catalogue_store, syllabus, outcome_mode.read()["mode"])}, output_path
+    )
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(
         output_path,
@@ -357,6 +362,7 @@ def export_preview(
     syllabus_id: str,
     store: SyllabusStore = Depends(get_store),
     catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
 ) -> dict[str, Any]:
     """What the exported document will say, before it is a document."""
     try:
@@ -365,18 +371,24 @@ def export_preview(
         raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
     return {
         **syllabus,
-        "content": _resolved_content(catalogue_store, syllabus),
+        "content": _resolved_content(catalogue_store, syllabus, outcome_mode.read()["mode"]),
         "sections": template_sections(str(syllabus.get("templateId") or DEFAULT_TEMPLATE_ID)),
     }
 
 
-def _resolved_content(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any]) -> dict[str, Any]:
+def _resolved_content(
+    catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], outcome_mode: str = "teacher"
+) -> dict[str, Any]:
     """Everything the catalogue owns, applied to a copy of the syllabus's content.
 
     The document builder and the export preview are both handed this, so what a
-    professor is shown cannot drift from what the Provost receives.
+    professor is shown cannot drift from what the Provost receives. The course's own
+    outcomes come first: in Head-of-Department mode they are the catalogue's, and the
+    competencies are worked out from whichever outcomes the syllabus ends up with.
     """
-    content = syllabus["content"]
+    content = catalogue_store.resolve_outcomes(
+        syllabus["content"], course_code=str(syllabus.get("courseCode") or ""), mode=outcome_mode
+    )
     for resolve in (
         catalogue_store.resolve_people,
         catalogue_store.resolve_plos,

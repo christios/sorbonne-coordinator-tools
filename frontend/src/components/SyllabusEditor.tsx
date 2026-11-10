@@ -65,7 +65,8 @@ import {
   deliveryPercentageError,
   sectionParts,
 } from "@/services/syllabusContent";
-import { alignablePlos, mappingEntryFor, unalignedPloIds } from "@/services/outcomes";
+import { alignablePlos, catalogueCloRows, mappingEntryFor, unalignedPloIds, type CatalogueCloRow } from "@/services/outcomes";
+import { useOutcomeMode } from "@/services/syllabusOutcomeMode";
 import {
   CatalogueEntry,
   listCatalogueEntries,
@@ -538,6 +539,11 @@ function SectionForm({
   const section = (
     Array.isArray(content[active]) ? {} : (content[active] ?? {})
   ) as Record<string, unknown>;
+  // Who writes the course learning outcomes (Settings → Department, November 2026): in
+  // Head-of-Department mode they are the curriculum mapping's, shown read-only.
+  const outcomeMode = useOutcomeMode();
+  const mappingEntry = mappingEntryFor(curriculumMap.data ?? [], draft.courseCode);
+  const hodClos = catalogueCloRows(mappingEntry, cataloguePlos.data ?? [], scenCompetencies.data ?? []);
   const history = (label: string) => ({
     syllabusId: draft.id,
     revision: draft.revision,
@@ -854,9 +860,10 @@ function SectionForm({
         onOpenHistory={onOpenHistory}
         cataloguePlos={cataloguePlos.data ?? []}
         catalogueProgrammeId={catalogueProgrammeId}
-        mappingEntry={mappingEntryFor(curriculumMap.data ?? [], draft.courseCode)}
+        mappingEntry={mappingEntry}
         scenCompetencies={scenCompetencies.data ?? []}
         graduateCompetencies={graduateCompetencies.data ?? []}
+        headOfDepartmentClos={outcomeMode === "hod" ? hodClos : undefined}
       />
     );
   if (active === "schedule") {
@@ -904,8 +911,11 @@ function SectionForm({
           <AssessmentTabs
             value={section}
             outcomes={
-              (sectionFrom(content.learningOutcomes).clos as Row[]) ?? []
+              outcomeMode === "hod"
+                ? hodClos
+                : ((sectionFrom(content.learningOutcomes).clos as Row[]) ?? [])
             }
+            cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
             onChange={(assessment) => editContent(active, assessment)}
             syllabusId={draft.id}
             revision={draft.revision}
@@ -1085,6 +1095,7 @@ function LearningOutcomesEditor({
   mappingEntry,
   scenCompetencies,
   graduateCompetencies,
+  headOfDepartmentClos,
 }: {
   section: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
@@ -1097,7 +1108,10 @@ function LearningOutcomesEditor({
   mappingEntry: CatalogueEntry | undefined;
   scenCompetencies: CatalogueEntry[];
   graduateCompetencies: CatalogueEntry[];
+  /** Set in Head-of-Department mode: the course's outcomes from the curriculum mapping, read-only. */
+  headOfDepartmentClos?: CatalogueCloRow[];
 }) {
+  if (headOfDepartmentClos) return <HeadOfDepartmentOutcomes clos={headOfDepartmentClos} graduateCompetencies={graduateCompetencies} scenCompetencies={scenCompetencies} />;
   /*
    * The code is shown as a pill and the outcome read beside it, but the value stored on the
    * syllabus stays "code: outcome" — that string is what the document says and what a
@@ -1210,6 +1224,46 @@ function LearningOutcomesEditor({
           onOpenHistory={onOpenHistory}
         />
       </div>
+    </section>
+  );
+}
+
+/**
+ * Head-of-Department mode: the course's outcomes are written once in the curriculum mapping
+ * and every syllabus of the course shows them as they are. The teacher's own outcomes stay
+ * stored, and come back if the department hands the outcomes to teachers again.
+ */
+function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[] }) {
+  const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
+  return (
+    <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
+      <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+        Learning outcomes
+        <InfoTip label="Why these cannot be edited here">
+          The Head of Department writes each course&apos;s learning outcomes in Manage catalogues → Curriculum mapping,
+          and every syllabus of the course shows them.
+        </InfoTip>
+      </h3>
+      <p role="note" className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
+        Set by the Head of Department in the catalogue. They appear here, in the preview and in the document as written there.
+      </p>
+      {clos.length ? (
+        <ol className="mt-5 grid gap-3">
+          {clos.map((clo, index) => (
+            <li key={clo.id} className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4 text-sm">
+              <p className="font-semibold text-[#344054]">CLO {index + 1}: {clo.clo}</p>
+              {clo.plo ? <p className="mt-2 whitespace-pre-line text-[#475467]"><span className="font-medium text-[#344054]">Aligned PLOs:</span> {clo.plo.split("\n").join(" · ")}</p> : null}
+              {clo.skills ? <p className="mt-1 whitespace-pre-line text-[#475467]"><span className="font-medium text-[#344054]">SCEN graduate competencies:</span> {clo.skills.split("\n").join(" · ")}</p> : null}
+              {clo.skills ? <p className="mt-1 text-[#475467]"><span className="font-medium text-[#344054]">SUAD graduate competencies:</span> {suadCompetencyText(clo.skills, scenCompetencies, graduateById).split("\n").filter(Boolean).join(" · ") || "—"}</p> : null}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p role="alert" className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+          The Head of Department has not written this course&apos;s learning outcomes yet. They are added in Manage
+          catalogues → Curriculum mapping; until then this syllabus cannot be submitted.
+        </p>
+      )}
     </section>
   );
 }

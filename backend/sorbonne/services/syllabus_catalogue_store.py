@@ -293,6 +293,62 @@ class SyllabusCatalogueStore:
         resolved["learningOutcomes"] = outcomes
         return resolved
 
+    def resolve_outcomes(self, content: dict[str, Any], *, course_code: str, mode: str) -> dict[str, Any]:
+        """When the Head of Department writes the outcomes, the course's come from the catalogue.
+
+        November 2026 review: in that mode a course's CLOs, their aligned PLOs and their SCEN
+        competencies are written once in the curriculum mapping and every syllabus of the
+        course shows them; the graded activities assess them by the ids they picked
+        (`catalogueCloIds`). The CLOs a teacher wrote stay stored, untouched, for the day the
+        department switches back. In teacher mode nothing changes.
+        """
+        if mode != "hod":
+            return content
+        resolved = deepcopy(content)
+        identification = _record(resolved.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        wanted = _course_key(course_code)
+        entry = next(
+            (
+                item
+                for item in (self.list("curriculum-mapping", parent_id=programme_id) if programme_id else [])
+                if wanted and _course_key(item.get("label")) == wanted
+            ),
+            None,
+        )
+        written = _record(entry.get("payload")).get("clos") if entry else None
+        plos = (
+            {item["id"]: item for item in self.list("plos", parent_id=programme_id, include_retired=True)}
+            if programme_id
+            else {}
+        )
+        competencies = {item["id"]: item for item in self.list("competencies", include_retired=True)} if written else {}
+        rows = []
+        for item in written if isinstance(written, list) else []:
+            clo = _record(item)
+            plo_ids = [str(plo_id) for plo_id in clo.get("ploIds") or [] if str(plo_id) in plos]
+            skill_ids = [str(skill_id) for skill_id in clo.get("skillIds") or [] if str(skill_id) in competencies]
+            rows.append(
+                {
+                    "id": _text(clo.get("id")),
+                    "clo": _text(clo.get("clo")),
+                    "plo": "\n".join(_coded(plos[plo_id]) for plo_id in plo_ids),
+                    "ploIds": "\n".join(plo_ids),
+                    "skills": "\n".join(_coded(competencies[skill_id]) for skill_id in skill_ids),
+                    "skillIds": "\n".join(skill_ids),
+                }
+            )
+        outcomes = _record(resolved.get("learningOutcomes"))
+        outcomes["clos"] = rows
+        resolved["learningOutcomes"] = outcomes
+        for activity in graded_activities(resolved):
+            picked = activity.get("catalogueCloIds")
+            activity["cloIds"] = [str(item) for item in picked] if isinstance(picked, list) else []
+            activity["clos"] = ""
+        return resolved
+
     def resolve_competencies(self, content: dict[str, Any]) -> dict[str, Any]:
         """Fill each outcome's SUAD competencies from the SCEN ones it develops.
 
@@ -484,3 +540,16 @@ def _timestamp() -> str:
 def _normalised_kind(value: Any) -> str:
     """How an activity's kind is matched with a hand-written rubric: case and spacing aside."""
     return " ".join(_text(value).split()).casefold()
+
+
+def _course_key(value: Any) -> str:
+    """A course code as the curriculum mapping is matched on: letters and digits, upper case."""
+    return "".join(character for character in _text(value) if character.isalnum()).upper()
+
+
+def _coded(entry: dict[str, Any]) -> str:
+    """A PLO or competency the way a syllabus quotes it: "CODE: outcome"."""
+    payload = _record(entry.get("payload"))
+    code = _text(payload.get("code")) or _text(entry.get("label"))
+    outcome = _text(payload.get("outcome"))
+    return f"{code}: {outcome}" if outcome else code

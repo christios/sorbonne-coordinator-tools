@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { alignablePlos, expectedPloIds, mappingEntryFor, unalignedPloIds } from "./outcomes";
+import { alignablePlos, catalogueCloRows, expectedPloIds, mappingEntryFor, unalignedPloIds } from "./outcomes";
 import type { CatalogueEntry } from "./syllabusCatalogues";
 
 const entry = (id: string, category: CatalogueEntry["category"], label: string, payload: Record<string, unknown> = {}, isRetired = false): CatalogueEntry => ({
@@ -33,5 +33,18 @@ describe("aligning CLOs to the curriculum mapping", () => {
     const expected = expectedPloIds(mappingEntryFor(mapping, "PHYS-118"));
     expect(unalignedPloIds(expected, [{ ploIds: "plo-3" }, { ploIds: ["plo-4"] }])).toEqual(["plo-1"]);
     expect(unalignedPloIds(expected, [{ ploIds: "plo-1\nplo-3\nplo-4" }])).toEqual([]);
+  });
+});
+
+describe("the Head of Department's outcomes, as a syllabus shows them", () => {
+  it("quotes each aligned PLO and competency as code and outcome, keeping their ids", () => {
+    const programmePlos = [entry("plo-1", "plos", "PLO 1", { code: "PLO 1", outcome: "Model." })];
+    const competencies = [entry("c-1", "competencies", "C1", { code: "C1", outcome: "Reason." })];
+    const mapped = entry("map", "curriculum-mapping", "PHYS-118", { clos: [{ id: "hod-1", clo: "Trace rays.", ploIds: ["plo-1", "gone"], skillIds: ["c-1"] }] });
+
+    expect(catalogueCloRows(mapped, programmePlos, competencies)).toEqual([
+      { id: "hod-1", clo: "Trace rays.", plo: "PLO 1: Model.", ploIds: "plo-1", skills: "C1: Reason.", skillIds: "c-1" },
+    ]);
+    expect(catalogueCloRows(undefined, programmePlos, competencies)).toEqual([]);
   });
 });

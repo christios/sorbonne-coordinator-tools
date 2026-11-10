@@ -590,12 +590,17 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
   const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
   const [selected, setSelected] = useState<string[]>(initial);
   const [clos, setClos] = useState<MappedClo[]>(mappedClos(entry));
+  const competencies = useQuery({ queryKey: ["syllabus-catalogues", "competencies", "mapping"], queryFn: () => listCatalogueEntries("competencies") });
+  const competencyOptions = (competencies.data ?? []).filter((item) => !item.isRetired).map((item) => {
+    const code = stringValue(item.payload.code) || item.label;
+    return { value: item.id, label: stringValue(item.payload.outcome) || code, badge: code, badgePlacement: "leading" as const };
+  });
   const save = useMutation({
     mutationFn: () => {
       // A CLO keeps only the PLOs still expected of the course; empty outcomes are dropped.
       const kept = clos
         .filter((clo) => clo.clo.trim())
-        .map((clo) => ({ id: clo.id, clo: clo.clo.trim(), ploIds: clo.ploIds.filter((id) => selected.includes(id)) }));
+        .map((clo) => ({ id: clo.id, clo: clo.clo.trim(), ploIds: clo.ploIds.filter((id) => selected.includes(id)), skillIds: clo.skillIds }));
       const input: CatalogueEntryInput = {
         label: code.trim(),
         payload: { ...entry?.payload, courseTitle: title.trim(), semester: semester.trim(), ploIds: selected, clos: kept },
@@ -650,12 +655,12 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
       onChange={(next) => setSelected(next.split("\n").filter(Boolean))}
       options={options}
     />
-    <MappedCloEditor clos={clos} onChange={setClos} expected={options.filter((option) => selected.includes(option.value))} />
+    <MappedCloEditor clos={clos} onChange={setClos} expected={options.filter((option) => selected.includes(option.value))} competencies={competencyOptions} />
     <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to the map"} />
   </form>;
 }
 
-type MappedClo = { id: string; clo: string; ploIds: string[] };
+type MappedClo = { id: string; clo: string; ploIds: string[]; skillIds: string[] };
 
 function mappedClos(entry?: CatalogueEntry): MappedClo[] {
   const stored = entry?.payload.clos;
@@ -667,6 +672,7 @@ function mappedClos(entry?: CatalogueEntry): MappedClo[] {
       id: typeof record.id === "string" ? record.id : `clo-${index}`,
       clo: stringValue(record.clo),
       ploIds: Array.isArray(record.ploIds) ? record.ploIds.filter((id): id is string => typeof id === "string") : [],
+      skillIds: Array.isArray(record.skillIds) ? record.skillIds.filter((id): id is string => typeof id === "string") : [],
     }];
   });
 }
@@ -677,7 +683,9 @@ function mappedClos(entry?: CatalogueEntry): MappedClo[] {
  * Each is aligned only to PLOs the course is expected to serve, and every expected PLO must be
  * aligned to at least one of them.
  */
-function MappedCloEditor({ clos, onChange, expected }: { clos: MappedClo[]; onChange: (clos: MappedClo[]) => void; expected: Array<{ value: string; label: string; badge?: string; badgePlacement?: "leading" }> }) {
+type ChipOption = { value: string; label: string; badge?: string; badgePlacement?: "leading" };
+
+function MappedCloEditor({ clos, onChange, expected, competencies }: { clos: MappedClo[]; onChange: (clos: MappedClo[]) => void; expected: ChipOption[]; competencies: ChipOption[] }) {
   const update = (id: string, change: Partial<MappedClo>) => onChange(clos.map((clo) => (clo.id === id ? { ...clo, ...change } : clo)));
   const aligned = new Set(clos.flatMap((clo) => clo.ploIds));
   const unaligned = clos.length ? expected.filter((option) => !aligned.has(option.value)) : [];
@@ -701,9 +709,18 @@ function MappedCloEditor({ clos, onChange, expected }: { clos: MappedClo[]; onCh
         onChange={(next) => update(clo.id, { ploIds: next.split("\n").filter(Boolean) })}
         options={expected}
       /> : null}
+      {competencies.length ? <PloAlignmentField
+        label="SCEN graduate competencies"
+        pickerLabel={`Add a competency CLO ${index + 1} develops`}
+        emptyText="No competencies yet."
+        addText="Add competency"
+        value={clo.skillIds.join("\n")}
+        onChange={(next) => update(clo.id, { skillIds: next.split("\n").filter(Boolean) })}
+        options={competencies}
+      /> : null}
     </article>)}
     {unaligned.length ? <p role="status" className="rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">Every expected PLO must be aligned to at least one course outcome. Still to align: {unaligned.map((option) => option.badge ?? option.label).join(", ")}.</p> : null}
-    <button type="button" onClick={() => onChange([...clos, { id: crypto.randomUUID(), clo: "", ploIds: [] }])} className="justify-self-start text-sm font-semibold text-[#1f4e79] hover:underline">+ Add course learning outcome</button>
+    <button type="button" onClick={() => onChange([...clos, { id: crypto.randomUUID(), clo: "", ploIds: [], skillIds: [] }])} className="justify-self-start text-sm font-semibold text-[#1f4e79] hover:underline">+ Add course learning outcome</button>
   </section>;
 }
 

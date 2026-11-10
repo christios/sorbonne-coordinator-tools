@@ -132,4 +132,25 @@ describe("Choosing an assessment type", () => {
     expect(screen.getByLabelText("Describe the AI policy for this activity")).toBeTruthy();
     expect(screen.getByRole("combobox", { name: "Assessment 2 AI policy" }).textContent).toContain("From the course: AI Prohibited");
   });
+
+  it("in Head-of-Department mode, an activity assesses the catalogue's outcomes and keeps its own picks apart", async () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onChange = vi.fn();
+    render(<QueryClientProvider client={queryClient}><AssessmentItemsEditor
+      value={{ items: [{ id: "a1", name: "Quiz", cloIds: ["teacher-clo"], catalogueCloIds: [] }] }}
+      outcomes={[{ id: "hod-1", clo: "Trace rays." }, { id: "hod-2", clo: "Image formation." }]}
+      cloKey="catalogueCloIds"
+      onChange={onChange}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    // The teacher's own pick does not show against the catalogue's outcomes.
+    expect(screen.getByText("No course outcomes selected yet.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: "Add CLO assessed by assessment 1" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Image formation/ }));
+
+    expect(onChange).toHaveBeenLastCalledWith({ items: [{ id: "a1", name: "Quiz", cloIds: ["teacher-clo"], catalogueCloIds: ["hod-2"] }] });
+  });
 });

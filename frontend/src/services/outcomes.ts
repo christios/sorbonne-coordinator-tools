@@ -46,3 +46,38 @@ export function unalignedPloIds(expected: string[], clos: Array<Record<string, u
   );
   return expected.filter((id) => !aligned.has(id));
 }
+
+export type CatalogueCloRow = Record<string, string> & { id: string; clo: string; plo: string; ploIds: string; skills: string; skillIds: string };
+
+function coded(entry: CatalogueEntry): string {
+  const code = typeof entry.payload.code === "string" && entry.payload.code ? entry.payload.code : entry.label;
+  const outcome = typeof entry.payload.outcome === "string" ? entry.payload.outcome : "";
+  return outcome ? `${code}: ${outcome}` : code;
+}
+
+/**
+ * The course's outcomes as the Head of Department wrote them in the curriculum mapping, in the
+ * shape a syllabus keeps its own — what every syllabus of the course shows, read-only, when the
+ * Head of Department writes the outcomes. The backend's resolve_outcomes says the same.
+ */
+export function catalogueCloRows(entry: CatalogueEntry | undefined, plos: CatalogueEntry[], competencies: CatalogueEntry[]): CatalogueCloRow[] {
+  const written = entry?.payload.clos;
+  if (!Array.isArray(written)) return [];
+  const ploById = new Map(plos.map((plo) => [plo.id, plo]));
+  const competencyById = new Map(competencies.map((competency) => [competency.id, competency]));
+  return written.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const clo = item as Record<string, unknown>;
+    const ids = (key: string) => (Array.isArray(clo[key]) ? (clo[key] as unknown[]).map(String) : []);
+    const ploIds = ids("ploIds").filter((id) => ploById.has(id));
+    const skillIds = ids("skillIds").filter((id) => competencyById.has(id));
+    return [{
+      id: typeof clo.id === "string" ? clo.id : "",
+      clo: typeof clo.clo === "string" ? clo.clo : "",
+      plo: ploIds.map((id) => coded(ploById.get(id) as CatalogueEntry)).join("\n"),
+      ploIds: ploIds.join("\n"),
+      skills: skillIds.map((id) => coded(competencyById.get(id) as CatalogueEntry)).join("\n"),
+      skillIds: skillIds.join("\n"),
+    }];
+  });
+}
