@@ -22,27 +22,36 @@ export function AddFromPortal({
   cohorts,
   terms,
   activeCourses,
+  cohortShown = "",
+  semesterShown = "",
   onClose,
   onAdded,
 }: {
   open: boolean;
   cohorts: Cohort[];
   terms: TimetableTerm[];
+  /**
+   * The cohort and semester the page has on screen, which the card is made for unless
+   * changed here. It opened on the first cohort and Semester 1 before: built quickly
+   * while looking at Semester 2, a course, its groups and its CRNs landed in Semester 1.
+   */
+  cohortShown?: string;
+  semesterShown?: string;
   /** The department's own list: a card is only made for a course on it. */
   activeCourses: ActiveCourse[];
   onClose: () => void;
   onAdded: () => void;
 }) {
   const client = useQueryClient();
-  const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
-  const [termId, setTermId] = useState(terms[0]?.id ?? "");
+  const [cohortId, setCohortId] = useState(cohortShown || (cohorts[0]?.id ?? ""));
+  const [termId, setTermId] = useState(semesterShown || (terms[0]?.id ?? ""));
   const shownOf = useSemesterShown();
   const [courseCode, setCourseCode] = useState("");
   const [rows, setRows] = useState<SeedRow[]>([]);
   useEffect(() => {
-    if (!cohortId && cohorts[0]) setCohortId(cohorts[0].id);
-    if (!termId && terms[0]) setTermId(terms[0].id);
-  }, [cohorts, terms, cohortId, termId]);
+    if (!cohortId && (cohortShown || cohorts[0])) setCohortId(cohortShown || cohorts[0].id);
+    if (!termId && (semesterShown || terms[0])) setTermId(semesterShown || terms[0].id);
+  }, [cohorts, terms, cohortId, termId, cohortShown, semesterShown]);
 
   const portal = useQuery({ queryKey: ["portal-crns", termId], queryFn: () => fetchTermCrns(termId), enabled: open && Boolean(termId), retry: false });
   const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId, "own-only"], queryFn: () => fetchCatalogue(cohortId, termId, true), enabled: open && Boolean(cohortId && termId) });

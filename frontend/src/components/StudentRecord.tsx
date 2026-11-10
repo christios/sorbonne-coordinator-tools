@@ -116,12 +116,15 @@ export function StudentRecord({
   row,
   cohorts,
   history,
+  semester = "",
   onClose,
 }: {
   open: boolean;
   row: StudentRow;
   cohorts: Cohort[];
   history: PullHistory;
+  /** The semester the page that opened it has on screen: "Place in every set" places in it. */
+  semester?: string;
   onClose: () => void;
 }) {
   const cohortId = row.cohortId ?? "";
@@ -1099,6 +1102,7 @@ export function StudentRecord({
                 cohort={cohort}
                 studentIds={[row.studentId]}
                 opens="proposed"
+                semester={semester}
                 onClose={() => setPlacing(false)}
                 onPlaced={() => {
                   setPlacing(false);

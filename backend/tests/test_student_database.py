@@ -438,6 +438,26 @@ def test_a_cohort_whose_only_other_semester_is_a_language_group_is_not_deleted_w
     assert database.cohort_members(l1["id"], autumn) == {l1_student}
 
 
+def test_a_language_set_takes_only_students_held_in_its_own_semester(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """A student who joined in the spring is turned away from the autumn's French, and named."""
+    fys, _l1, fys_student, _l1_student, _autumn, spring = two_semesters_of_fys
+    newcomer = f"N{uuid4().hex[:8].upper()}"
+    _hold(database, newcomer)
+    database.set_cohort([newcomer], fys["id"], term_id=spring)
+    with database.engine.connect() as connection:
+        lang, french = connection.execute(
+            text("""SELECT s.id, g.id FROM cohort_scopes s JOIN scope_groups g ON g.scope_id = s.id
+                    WHERE s.cohort_id = :id AND s.code = 'LANG'"""),
+            {"id": fys["id"]},
+        ).one()
+
+    report = database.assign_many(scope_id=lang, student_ids=[newcomer, fys_student], group_id=french)
+
+    assert report["skipped"] == [newcomer]
+
+
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:
     database.replace_discrepancy_rules([])
 

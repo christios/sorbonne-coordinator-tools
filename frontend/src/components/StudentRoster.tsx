@@ -813,7 +813,7 @@ export function StudentRoster({
         {commentingOn ? <CommentThread studentId={commentingOn.studentId} label={commentingOn.name || commentingOn.studentId} /> : null}
       </Modal>
       {recordOf ? (
-        <StudentRecord open row={recordOf} cohorts={cohorts} history={history} onClose={() => setRecordOf(null)} />
+        <StudentRecord open row={recordOf} cohorts={cohorts} history={history} semester={moveTerm} onClose={() => setRecordOf(null)} />
       ) : null}
 
       {cohortOfSelection ? (
@@ -821,6 +821,7 @@ export function StudentRoster({
           open={placing}
           cohort={cohortOfSelection}
           studentIds={chosen}
+          semester={moveTerm}
           onClose={() => setPlacing(false)}
           onPlaced={(report) => {
             setPlaced(report);

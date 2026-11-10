@@ -1544,9 +1544,22 @@ class StudentDatabase:
         }
 
     def _placeable(self, connection: Connection, scope_id: str, cohort_id: str) -> set[str]:
-        """The students this set may hold: its cohort's in its semester, or the whole department's."""
+        """The students this set may hold in its semester: its cohort's, or — a set open to every
+        cohort — anybody in a cohort that semester.
+
+        Open used to mean anybody the department held, so a student who had only joined in
+        Semester 2 could be put in a Semester 1 language group from a Semester 2 screen, and
+        filed under a cohort they were never in that semester.
+        """
         if self._open_to_all(connection, scope_id):
-            return {row[0] for row in connection.execute(text("SELECT student_id FROM students"))}
+            return {
+                row[0]
+                for row in connection.execute(
+                    text("""SELECT m.student_id FROM cohort_members m
+                            JOIN cohort_scopes s ON s.id = :scope AND s.term_id = m.term_id"""),
+                    {"scope": scope_id},
+                )
+            }
         return {
             row[0]
             for row in connection.execute(

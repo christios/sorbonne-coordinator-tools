@@ -827,6 +827,7 @@ export function CourseDetail({
           cohortName={cohort.name}
           scopeId={showingGroup.scope.id}
           scopeCode={showingGroup.scope.code}
+          semester={card.termId}
           groupId={showingGroup.group.id}
           groupLabel={showingGroup.group.label}
           /*
