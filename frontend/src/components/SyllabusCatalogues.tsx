@@ -548,6 +548,9 @@ function MappedCourseDetails({ entry, ploLabel }: { entry: CatalogueEntry; ploLa
     {outcomes.length
       ? outcomes.map((code) => <Pill key={code}>{code}</Pill>)
       : <span>No outcomes expected yet</span>}
+    {Array.isArray(entry.payload.clos) && entry.payload.clos.length
+      ? <span>· {entry.payload.clos.length} course learning outcome{entry.payload.clos.length === 1 ? "" : "s"}</span>
+      : null}
   </p>;
 }
 
@@ -586,11 +589,16 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
   });
   const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
   const [selected, setSelected] = useState<string[]>(initial);
+  const [clos, setClos] = useState<MappedClo[]>(mappedClos(entry));
   const save = useMutation({
     mutationFn: () => {
+      // A CLO keeps only the PLOs still expected of the course; empty outcomes are dropped.
+      const kept = clos
+        .filter((clo) => clo.clo.trim())
+        .map((clo) => ({ id: clo.id, clo: clo.clo.trim(), ploIds: clo.ploIds.filter((id) => selected.includes(id)) }));
       const input: CatalogueEntryInput = {
         label: code.trim(),
-        payload: { ...entry?.payload, courseTitle: title.trim(), semester: semester.trim(), ploIds: selected },
+        payload: { ...entry?.payload, courseTitle: title.trim(), semester: semester.trim(), ploIds: selected, clos: kept },
         parentId: programmeId,
         sortOrder: entry?.sortOrder,
       };
@@ -642,8 +650,61 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
       onChange={(next) => setSelected(next.split("\n").filter(Boolean))}
       options={options}
     />
+    <MappedCloEditor clos={clos} onChange={setClos} expected={options.filter((option) => selected.includes(option.value))} />
     <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to the map"} />
   </form>;
+}
+
+type MappedClo = { id: string; clo: string; ploIds: string[] };
+
+function mappedClos(entry?: CatalogueEntry): MappedClo[] {
+  const stored = entry?.payload.clos;
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    return [{
+      id: typeof record.id === "string" ? record.id : `clo-${index}`,
+      clo: stringValue(record.clo),
+      ploIds: Array.isArray(record.ploIds) ? record.ploIds.filter((id): id is string => typeof id === "string") : [],
+    }];
+  });
+}
+
+/**
+ * The course's own learning outcomes, written once here by the Head of Department and shown
+ * read-only in every syllabus of the course when Settings → Department hands them the outcomes.
+ * Each is aligned only to PLOs the course is expected to serve, and every expected PLO must be
+ * aligned to at least one of them.
+ */
+function MappedCloEditor({ clos, onChange, expected }: { clos: MappedClo[]; onChange: (clos: MappedClo[]) => void; expected: Array<{ value: string; label: string; badge?: string; badgePlacement?: "leading" }> }) {
+  const update = (id: string, change: Partial<MappedClo>) => onChange(clos.map((clo) => (clo.id === id ? { ...clo, ...change } : clo)));
+  const aligned = new Set(clos.flatMap((clo) => clo.ploIds));
+  const unaligned = clos.length ? expected.filter((option) => !aligned.has(option.value)) : [];
+  return <section className="grid gap-3">
+    <div>
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
+        Course learning outcomes
+        <InfoTip label="When these are used">When Settings → Department says the Head of Department writes the course learning outcomes, every syllabus of this course shows these and cannot change them.</InfoTip>
+      </p>
+      <p className="mt-1 text-sm text-[#667085]">Each aligned to the expected programme outcomes above.</p>
+    </div>
+    {clos.map((clo, index) => <article key={clo.id} className="grid gap-3 rounded-md border border-[#d9dee7] bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <Field label={`CLO ${index + 1}`}><AutoResizeTextarea minRows={2} aria-label={`CLO ${index + 1}`} value={clo.clo} onChange={(event) => update(clo.id, { clo: event.target.value })} className={textareaClass} /></Field>
+        <button type="button" onClick={() => onChange(clos.filter((item) => item.id !== clo.id))} aria-label={`Remove CLO ${index + 1}`} className="mt-6 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button>
+      </div>
+      {expected.length ? <PloAlignmentField
+        label="Aligned PLOs"
+        pickerLabel={`Align CLO ${index + 1} to a PLO`}
+        value={clo.ploIds.join("\n")}
+        onChange={(next) => update(clo.id, { ploIds: next.split("\n").filter(Boolean) })}
+        options={expected}
+      /> : null}
+    </article>)}
+    {unaligned.length ? <p role="status" className="rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">Every expected PLO must be aligned to at least one course outcome. Still to align: {unaligned.map((option) => option.badge ?? option.label).join(", ")}.</p> : null}
+    <button type="button" onClick={() => onChange([...clos, { id: crypto.randomUUID(), clo: "", ploIds: [] }])} className="justify-self-start text-sm font-semibold text-[#1f4e79] hover:underline">+ Add course learning outcome</button>
+  </section>;
 }
 
 /** Editing a mapped course needs its programme's outcomes, which the row points at. */
