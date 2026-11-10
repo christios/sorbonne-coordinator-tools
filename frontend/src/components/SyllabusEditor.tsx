@@ -62,7 +62,9 @@ import {
   BibliographyEditor,
 } from "@/components/StructuredEntryEditors";
 import {
+  SCHEDULE_HOLDS_GRADED_ACTIVITIES,
   deliveryPercentageError,
+  schemaVersion,
   sectionParts,
 } from "@/services/syllabusContent";
 import { alignablePlos, catalogueCloRows, mappingEntryFor, unalignedPloIds, type CatalogueCloRow } from "@/services/outcomes";
@@ -553,6 +555,9 @@ function SectionForm({
   const outcomeMode = useOutcomeMode();
   const mappingEntry = mappingEntryFor(curriculumMap.data ?? [], draft.courseCode);
   const hodClos = catalogueCloRows(mappingEntry, cataloguePlos.data ?? [], scenCompetencies.data ?? []);
+  // The outcomes a graded activity can say it assesses, wherever it is edited.
+  const courseOutcomes: Row[] =
+    outcomeMode === "hod" ? hodClos : ((sectionFrom(content.learningOutcomes).clos as Row[]) ?? []);
   const history = (label: string) => ({
     syllabusId: draft.id,
     revision: draft.revision,
@@ -891,6 +896,11 @@ function SectionForm({
           syllabusId={draft.id}
           revision={draft.revision}
           onOpenHistory={onOpenHistory}
+          holdsGradedActivities={schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES}
+          outcomes={courseOutcomes}
+          cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
+          assessmentTypes={assessmentTypes.data ?? []}
+          aiPolicies={aiPolicies.data ?? []}
         />
       </Section>
     );
@@ -921,11 +931,7 @@ function SectionForm({
         <SyllabusSubsection title="Course assessment">
           <AssessmentTabs
             value={section}
-            outcomes={
-              outcomeMode === "hod"
-                ? hodClos
-                : ((sectionFrom(content.learningOutcomes).clos as Row[]) ?? [])
-            }
+            outcomes={courseOutcomes}
             cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
             onChange={(assessment) => editContent(active, assessment)}
             syllabusId={draft.id}

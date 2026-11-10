@@ -12,6 +12,9 @@ import { SyllabusField } from "@/components/SyllabusField";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { type HistoryField } from "@/components/FieldHistory";
+import { GradedActivityFields, type CloKey } from "@/components/StructuredEntryEditors";
+import type { CatalogueEntry } from "@/services/syllabusCatalogues";
+import { scheduleOrder } from "@/services/syllabusContent";
 
 type ScheduleRow = Record<string, string> & { id: string };
 type ScheduleField = {
@@ -87,7 +90,18 @@ type Props = {
   syllabusId: string;
   revision: number;
   onOpenHistory: (field: HistoryField) => void;
+  /**
+   * Set once the syllabus keeps its graded activities in the schedule (November 2026): a
+   * card is then a session or a graded activity, cards go in week order, and sessions no
+   * longer carry their own deadline and assessment notes.
+   */
+  holdsGradedActivities?: boolean;
+  outcomes?: Array<Record<string, string> & { id: string }>;
+  cloKey?: CloKey;
+  assessmentTypes?: CatalogueEntry[];
+  aiPolicies?: CatalogueEntry[];
 };
+
 
 const fields: ScheduleField[] = [
   { key: "week", label: "Week", size: "counter" },
@@ -101,10 +115,21 @@ const fields: ScheduleField[] = [
 export function ScheduleEditor({
   rows,
   onChange,
+  syllabusId,
+  revision,
   onOpenHistory,
+  holdsGradedActivities = false,
+  outcomes = [],
+  cloKey = "cloIds",
+  assessmentTypes = [],
+  aiPolicies = [],
 }: Props) {
+  // A card opens by itself only while it is blank: a session without a topic, a graded
+  // activity without a name or a type.
   const [expandedIds, setExpandedIds] = useState<string[]>(() =>
-    rows.filter((row) => !row.topic?.trim()).map((row) => row.id),
+    rows
+      .filter((row) => (row.kind === "graded" ? !row.name?.trim() && !row.type?.trim() : !row.topic?.trim()))
+      .map((row) => row.id),
   );
   const [movingRowId, setMovingRowId] = useState<string | null>(null);
   const [moveQuery, setMoveQuery] = useState("");
@@ -132,9 +157,15 @@ export function ScheduleEditor({
         : [...current, id],
     );
   const weeksInUse = weeksTaught(rows);
+  const shown = holdsGradedActivities ? scheduleOrder(rows) : rows;
   const sessionNumbers = new Map<string, number>();
+  const gradedNumbers = new Map<string, number>();
   const counts = new Map<string, number>();
-  for (const row of rows) {
+  for (const row of shown) {
+    if (row.kind === "graded") {
+      gradedNumbers.set(row.id, gradedNumbers.size + 1);
+      continue;
+    }
     const type = row.sessionType || DEFAULT_SESSION_TYPE;
     const next = (counts.get(type) ?? 0) + 1;
     counts.set(type, next);
@@ -146,11 +177,23 @@ export function ScheduleEditor({
     );
   const removeRow = (id: string) =>
     onChange(rows.filter((row) => row.id !== id));
+  const updateCard = (id: string, changes: Record<string, unknown>) =>
+    onChange(rows.map((row) => (row.id === id ? ({ ...row, ...changes } as ScheduleRow) : row)));
+  const addGraded = () => {
+    const id = crypto.randomUUID();
+    onChange([...rows, { id, kind: "graded", week: "", date: "", name: "", weight: "" }]);
+    setExpandedIds((current) => [...current, id]);
+    window.requestAnimationFrame(() =>
+      document.getElementById(`schedule-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
+    );
+  };
   const addRow = () => {
     const id = crypto.randomUUID();
     onChange([
       ...rows,
-      { id, sessionType: DEFAULT_SESSION_TYPE, week: "", deadline: "", topic: "", details: "", preClass: "", assessments: "" },
+      holdsGradedActivities
+        ? { id, sessionType: DEFAULT_SESSION_TYPE, week: "", topic: "", details: "", preClass: "" }
+        : { id, sessionType: DEFAULT_SESSION_TYPE, week: "", deadline: "", topic: "", details: "", preClass: "", assessments: "" },
     ]);
     setExpandedIds((current) => [...current, id]);
     window.requestAnimationFrame(() =>
@@ -177,12 +220,31 @@ export function ScheduleEditor({
 
   return (
     <section className="mt-2">
-      <h4 className="mb-3 text-sm font-semibold text-[#344054]">Sessions</h4>
+      <h4 className="mb-3 text-sm font-semibold text-[#344054]">{holdsGradedActivities ? "Sessions and graded activities" : "Sessions"}</h4>
       {rows.length ? (
         <>
         <div className="grid grid-cols-[minmax(0,1fr)] gap-3">
-          {rows.map((row, index) => {
+          {shown.map((row, index) => {
             const isExpanded = expandedIds.includes(row.id);
+            if (row.kind === "graded")
+              return (
+                <GradedCard
+                  key={row.id}
+                  card={row}
+                  number={gradedNumbers.get(row.id) ?? index + 1}
+                  expanded={isExpanded}
+                  onToggle={() => toggleExpanded(row.id)}
+                  onChange={(changes) => updateCard(row.id, changes)}
+                  onRemove={() => removeRow(row.id)}
+                  outcomes={outcomes}
+                  cloKey={cloKey}
+                  assessmentTypes={assessmentTypes}
+                  aiPolicies={aiPolicies}
+                  syllabusId={syllabusId}
+                  revision={revision}
+                  onOpenHistory={onOpenHistory}
+                />
+              );
             const destinations = rows.filter(
               (item) =>
                 item.id !== row.id &&
@@ -325,6 +387,7 @@ export function ScheduleEditor({
                         </div>
                       );
                     }
+                    if (field.key === "deadline" && holdsGradedActivities) return null;
                     if (field.key === "deadline") {
                       const byWeek = deadlineMode(row, weeksInUse) === "week";
                       return (
@@ -403,8 +466,9 @@ export function ScheduleEditor({
                         onOpenHistory,
                       }}
                     />
-                    <div className="grid grid-cols-[minmax(0,1fr)] grid-rows-2 gap-4">
-                      {(["preClass", "assessments"] as const).map((key) => (
+                    <div className={`grid grid-cols-[minmax(0,1fr)] gap-4 ${holdsGradedActivities ? "" : "grid-rows-2"}`}>
+                      {holdsGradedActivities ? <EarlierNote row={row} onRemove={() => onChange(rows.map((item) => (item.id === row.id ? { ...item, assessments: "", deadline: "" } : item)))} /> : null}
+                      {(holdsGradedActivities ? (["preClass"] as const) : (["preClass", "assessments"] as const)).map((key) => (
                         <HistoryTextField
                           key={key}
                           label={fields.find((field) => field.key === key)?.label ?? key}
@@ -429,14 +493,20 @@ export function ScheduleEditor({
             );
           })}
         </div>
-        <AddEntryButton onClick={addRow} label="Add session" ariaLabel="Add session at end" />
+        <div className="flex flex-wrap gap-x-4">
+          <AddEntryButton onClick={addRow} label="Add session" ariaLabel="Add session at end" />
+          {holdsGradedActivities ? <AddEntryButton onClick={addGraded} label="Add graded activity" /> : null}
+        </div>
         </>
       ) : (
         <>
         <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-          No sessions added yet.
+          {holdsGradedActivities ? "No sessions or graded activities added yet." : "No sessions added yet."}
         </p>
-        <AddEntryButton onClick={addRow} label="Add session" />
+        <div className="flex flex-wrap gap-x-4">
+          <AddEntryButton onClick={addRow} label="Add session" />
+          {holdsGradedActivities ? <AddEntryButton onClick={addGraded} label="Add graded activity" /> : null}
+        </div>
         </>
       )}
     </section>
@@ -451,3 +521,88 @@ function scheduleSummary(row: ScheduleRow) {
   return `${topicLabel(row)}${row.week ? ` · week ${row.week}` : ""}`;
 }
 
+/**
+ * What a session said about assessments and deadlines before graded activities had cards of
+ * their own. It still prints, beside the session, until the teacher removes it.
+ */
+function EarlierNote({ row, onRemove }: { row: ScheduleRow; onRemove: () => void }) {
+  const assessments = (row.assessments ?? "").trim();
+  const deadline = (row.deadline ?? "").trim();
+  if (!assessments && !deadline) return null;
+  return (
+    <div role="note" className="rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+      <p className="font-semibold">Earlier note</p>
+      {assessments ? <p className="mt-1 whitespace-pre-line">Assessments: {assessments}</p> : null}
+      {deadline ? <p className="mt-1">Deadline: {deadline}</p> : null}
+      <p className="mt-1 text-xs">Written before graded activities had cards of their own. It still prints with this session until you remove it.</p>
+      <button type="button" onClick={onRemove} className="mt-2 text-sm font-semibold text-[#a6292f] hover:underline">Remove note</button>
+    </div>
+  );
+}
+
+function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outcomes, cloKey, assessmentTypes, aiPolicies, syllabusId, revision, onOpenHistory }: {
+  card: ScheduleRow;
+  number: number;
+  expanded: boolean;
+  onToggle: () => void;
+  onChange: (changes: Record<string, unknown>) => void;
+  onRemove: () => void;
+  outcomes: Array<Record<string, string> & { id: string }>;
+  cloKey: CloKey;
+  assessmentTypes: CatalogueEntry[];
+  aiPolicies: CatalogueEntry[];
+  syllabusId: string;
+  revision: number;
+  onOpenHistory: (field: HistoryField) => void;
+}) {
+  const title = (card.name ?? "").trim() || (card.type ?? "").trim() || "Untitled graded activity";
+  const week = (card.week ?? "").trim();
+  const date = (card.date ?? "").trim();
+  const weight = (card.weight ?? "").trim();
+  const summary = [week ? `Week ${week}` : "No week set", date ? displayDate(date) : "", weight ? `${weight}%` : ""].filter(Boolean).join(" · ");
+  const problem = week ? weekProblem(week) : "Give it a week: the week is what places it in the schedule.";
+  return (
+    <CollapsibleEntryCard
+      id={`schedule-${card.id}`}
+      expanded={expanded}
+      onToggle={onToggle}
+      toggleLabel={`${expanded ? "Collapse" : "Expand"} graded activity: ${title}`}
+      title={title}
+      summary={summary}
+      leading={
+        <span className="mt-0.5 inline-flex shrink-0 items-center gap-1">
+          <span aria-label={`Graded activity ${number}`} className="inline-flex h-5 items-center justify-center rounded-full bg-[#f3e8f7] px-2 text-xs font-semibold text-[#6b2c86]">Graded</span>
+          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold text-[#344054]">{number}</span>
+        </span>
+      }
+      actions={
+        <button type="button" onClick={onRemove} className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove graded activity: ${title}`} title="Remove graded activity">
+          <Trash2 size={17} />
+        </button>
+      }
+    >
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
+        <GradedActivityFields
+          entry={card}
+          index={number - 1}
+          path={`schedule[${card.id}]`}
+          name={`Graded activity ${number}`}
+          outcomes={outcomes}
+          cloKey={cloKey}
+          assessmentTypes={assessmentTypes}
+          aiPolicies={aiPolicies}
+          timing="both"
+          onChange={onChange}
+          syllabusId={syllabusId}
+          revision={revision}
+          onOpenHistory={onOpenHistory}
+        />
+        {problem ? <p role="alert" className="text-sm text-[#a6292f]">{problem}</p> : null}
+      </div>
+    </CollapsibleEntryCard>
+  );
+}
+
+function displayDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value.slice(8, 10)}/${value.slice(5, 7)}/${value.slice(0, 4)}` : value;
+}

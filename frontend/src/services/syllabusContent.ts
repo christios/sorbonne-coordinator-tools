@@ -233,3 +233,23 @@ export function documentSchedule(content: Record<string, unknown>): PrintedSched
   }
   return [...printed].sort((left, right) => weekOrder(left) - weekOrder(right));
 }
+
+type ScheduleCard = Record<string, unknown> & { id: string };
+
+/**
+ * Cards in the order the schedule is read: by week; in a week, its sessions as they were
+ * placed, then its graded activities by date (an undated one last). Nobody drags them.
+ */
+export function scheduleOrder<T extends ScheduleCard>(cards: T[]): T[] {
+  const dateOf = (card: T) => String(card.date ?? "");
+  return cards
+    .map((card, position) => ({ card, position }))
+    .sort((left, right) =>
+      weekOrder(left.card) - weekOrder(right.card) ||
+      Number(left.card.kind === "graded") - Number(right.card.kind === "graded") ||
+      (left.card.kind === "graded"
+        ? Number(!dateOf(left.card)) - Number(!dateOf(right.card)) || dateOf(left.card).localeCompare(dateOf(right.card))
+        : 0) ||
+      left.position - right.position)
+    .map(({ card }) => card);
+}
