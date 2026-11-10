@@ -54,6 +54,7 @@ import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
 import { SyllabusSharing } from "@/components/SyllabusSharing";
+import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
 import { useSyllabusCompleteness } from "@/components/useSyllabusCompleteness";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
@@ -66,6 +67,7 @@ import {
 } from "@/components/StructuredEntryEditors";
 import {
   SCHEDULE_HOLDS_GRADED_ACTIVITIES,
+  contactHours,
   deliveryPercentageError,
   fysComponentRows,
   gradedActivities,
@@ -319,12 +321,18 @@ export function SyllabusEditor({
           title={draft.courseTitle}
           subtitle={draft.courseCode || "Course code not set"}
           titleMeta={
-            <a
-              href={syllabusTemplateDocumentUrl(template)}
-              className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-[#1f4e79] hover:underline"
-            >
-              <FileText size={15} aria-hidden="true" /> {template.name}
-            </a>
+            <>
+              <SyllabusStatusPill syllabus={draft} className="py-0!" />
+              <span aria-hidden="true" className="text-[#c0c6cf]">·</span>
+              <a
+                href={syllabusTemplateDocumentUrl(template)}
+                title={template.name}
+                aria-label={`Download the template: ${template.name}`}
+                className="inline-flex items-center gap-1 font-medium text-[#1f4e79] hover:underline"
+              >
+                <FileText size={15} aria-hidden="true" /> Word template
+              </a>
+            </>
           }
           sections={template.sections}
           activeSection={active}
@@ -332,7 +340,8 @@ export function SyllabusEditor({
           sectionCounts={sectionCounts}
           onHeaderCollapseChange={onHeaderCollapseChange}
           compactHeaderActions={compactHeaderActions}
-          actions={
+          actions={null}
+          toolbar={
             <>
               <SaveStatus
                 state={saveState}
@@ -344,7 +353,7 @@ export function SyllabusEditor({
                 onClick={() => setPreviewOpen(true)}
                 className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
               >
-                <FileText size={17} /> Preview export
+                <FileText size={17} aria-hidden="true" /> <span>Preview<span className="lg:max-xl:sr-only"> export</span></span>
               </button>
               <button
                 type="button"
@@ -366,9 +375,9 @@ export function SyllabusEditor({
                 onClick={onCompare}
                 className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
               >
-                <GitCompareArrows size={17} /> Compare years
+                <GitCompareArrows size={17} aria-hidden="true" /> <span>Compare<span className="lg:max-xl:sr-only"> years</span></span>
               </button>
-              <SyllabusSharing syllabus={draft} sections={template.sections} onOpenSection={setActive} />
+              <SyllabusSharing syllabus={draft} sections={template.sections} onOpenSection={setActive} showStatus={false} />
               {exportState === "error" ? (
                 <span
                   role="alert"
@@ -502,8 +511,8 @@ export function SaveStatus({
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-2 text-sm text-[#24805a]">
-      <CheckCircle2 size={16} /> Saved
+    <span className="inline-flex items-center gap-2 text-sm text-[#24805a]" title="Saved">
+      <CheckCircle2 size={16} aria-hidden="true" /> <span className="lg:max-xl:sr-only">Saved</span>
     </span>
   );
 }
@@ -898,6 +907,8 @@ function SectionForm({
         academicYears={academicYears.data ?? []}
         semesters={curriculumSemesters(curriculumMap.data ?? [])}
         semesterByCourse={semesterByCourse(curriculumMap.data ?? [])}
+        contactHours={contactHours(draft.content)}
+        onOpenSchedule={onOpenSection ? () => onOpenSection("schedule") : undefined}
       />
     );
   if (active === "contacts")
@@ -1720,9 +1731,12 @@ function RowsEditor({
                       <span className="block text-sm font-semibold text-[#344054]">
                         CLO {index + 1}
                       </span>
-                      <span className="mt-0.5 block text-sm text-[#475467]">
-                        {outcomeSummary(row.clo, index) || "Untitled outcome"}
-                      </span>
+                      {/* Open, the outcome is in the box right below: the header names it only. */}
+                      {isExpanded ? null : (
+                        <span className="mt-0.5 block text-sm text-[#475467]">
+                          {outcomeSummary(row.clo, index) || "Untitled outcome"}
+                        </span>
+                      )}
                     </span>
                   </button>
                 ) : (

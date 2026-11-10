@@ -80,4 +80,28 @@ describe("SectionEditorShell", () => {
     expect(workspace.scrollTop).toBe(0);
     expect(screen.getByRole("button", { name: "2. Review, 3 to fill in" }).getAttribute("aria-current")).toBe("step");
   });
+
+  it("puts the record's actions in a bar over the content, so the header matches every other screen's", () => {
+    render(
+      <SectionEditorShell
+        backLabel="Back to library"
+        onBack={vi.fn()}
+        eyebrow="2026-2027"
+        title="Example record"
+        subtitle="Builder"
+        actions={null}
+        toolbar={<button type="button">Export</button>}
+        sections={[{ id: "details", label: "1. Details" }]}
+        activeSection="details"
+        onSectionChange={vi.fn()}
+      >
+        <p>Canvas</p>
+      </SectionEditorShell>,
+    );
+
+    const toolbar = screen.getByTestId("editor-toolbar");
+    expect(toolbar.contains(screen.getByRole("button", { name: "Export" }))).toBe(true);
+    expect(screen.getByTestId("editor-workspace").contains(toolbar)).toBe(true);
+    expect(screen.getByTestId("editor-header").contains(toolbar)).toBe(false);
+  });
 });

@@ -21,10 +21,13 @@ export function SyllabusSharing({
   syllabus,
   sections = [],
   onOpenSection,
+  showStatus = true,
 }: {
   syllabus: Syllabus;
   sections?: Array<{ id: string; label: string }>;
   onOpenSection?: (section: string) => void;
+  /** False where the page shows the status itself, beside the syllabus's name. */
+  showStatus?: boolean;
 }) {
   const client = useQueryClient();
   const user = useStaffUser();
@@ -60,13 +63,14 @@ export function SyllabusSharing({
   const checklist = missing.length && !awaitingSubmission ? (
     <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} forReview={false} />
   ) : null;
-  if (!decides) return <><SyllabusStatusPill syllabus={syllabus} />{checklist}</>;
+  const status = showStatus ? <SyllabusStatusPill syllabus={syllabus} /> : null;
+  if (!decides) return <>{status}{checklist}</>;
 
   const button =
     "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60";
   return (
     <>
-      <SyllabusStatusPill syllabus={syllabus} />
+      {status}
       {/* Publishing and asking for a review are different things: one opens it to everybody,
           the other to a coordinator only, and a syllabus can want the second without the first. */}
       <button

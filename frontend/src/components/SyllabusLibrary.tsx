@@ -8,6 +8,7 @@ import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
 import { useStaffUser } from "@/components/useStaffUser";
+import { WORKSPACE_BODY, WORKSPACE_SIDEBAR } from "@/components/workspaceLayout";
 
 const UNFILED = "unfiled";
 /** Not a folder — the syllabi whose authors have asked for them to be read. */
@@ -150,26 +151,28 @@ export function SyllabusLibrary({
   }
 
   return (
-    <div className="w-full page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-3">
-      <div className="flex flex-col justify-between gap-4 border-b border-[#d9dee7] pb-5 lg:flex-row lg:items-end">
-        <div>
+    <div className="h-full w-full page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-3 lg:flex lg:flex-col lg:overflow-hidden">
+      {/* The same header as the editor's and the catalogues': eyebrow, title, one line. */}
+      <div className="flex shrink-0 flex-col justify-between gap-3 border-b border-[#d9dee7] pb-4 lg:flex-row lg:items-center">
+        <div className="min-w-0">
           <p className="text-sm font-medium text-[#a6292f]">SCEN workspace</p>
-          <h2 className="mt-1 text-2xl font-semibold text-[#171717]">Syllabus library</h2>
+          <h2 className="text-xl font-semibold text-[#171717]">Syllabus library</h2>
+          <p className="text-sm text-[#667085]">Every course syllabus, by folder and academic year</p>
         </div>
         <div className="flex flex-wrap gap-3 lg:justify-end">
           {/* The catalogue is the standards, not a working document: whoever may not change
               them is not offered a screen full of controls that would refuse them. They read
               the catalogue where they need it — in the syllabus, as the choices on offer. */}
-          {curator ? <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button> : null}
-          <button type="button" onClick={() => setShowFolderForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><FolderPlus size={17} aria-hidden="true" /> New folder</button>
-          <button type="button" onClick={startSyllabus} disabled={isCreating} aria-busy={isCreating || undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63] disabled:cursor-wait disabled:bg-[#9ba8b5]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>
+          {curator ? <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button> : null}
+          <button type="button" onClick={() => setShowFolderForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><FolderPlus size={17} aria-hidden="true" /> New folder</button>
+          <button type="button" onClick={startSyllabus} disabled={isCreating} aria-busy={isCreating || undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63] disabled:cursor-wait disabled:bg-[#9ba8b5]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>
         </div>
       </div>
 
-      {error ? <p role="alert" className="mt-4 rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{error}</p> : null}
+      {error ? <p role="alert" className="mt-4 shrink-0 rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{error}</p> : null}
 
       {showFolderForm ? (
-        <form onSubmit={submitFolder} className="mt-5 flex max-w-lg flex-col gap-3 rounded-lg border border-[#cbd5e1] bg-white p-4 sm:flex-row sm:items-end">
+        <form onSubmit={submitFolder} className="mt-5 flex max-w-lg shrink-0 flex-col gap-3 rounded-lg border border-[#cbd5e1] bg-white p-4 sm:flex-row sm:items-end">
           <label className="grid flex-1 gap-1 text-sm font-medium text-[#344054]">Folder name<span className="text-xs font-normal text-[#667085]">{selectedFolder ? `Creates inside ${folderPaths.get(selectedFolder.id)?.map((folder) => folder.name).join(" › ") ?? selectedFolder.name}.` : "Creates at the top level."}</span><input autoFocus required value={folderName} onChange={(event) => setFolderName(event.target.value)} placeholder="e.g. Bachelor in Public Affairs" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
           <div className="flex gap-2"><button disabled={isCreatingFolder} className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreatingFolder ? "Creating…" : "Create folder"}</button><button type="button" onClick={() => setShowFolderForm(false)} className="rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
         </form>
@@ -199,8 +202,8 @@ export function SyllabusLibrary({
         </form>
       </ModalDialog>
 
-      <div className="mt-6 grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
-        <aside className="rounded-lg border border-[#d9dee7] bg-white p-2 lg:h-fit">
+      <div className={WORKSPACE_BODY}>
+        <aside aria-label="Folders" className={WORKSPACE_SIDEBAR}>
           <FolderButton label="All syllabi" count={syllabi.length} active={activeFolder === "all"} onClick={() => setActiveFolder("all")} />
           {/* The review queue sits where syllabi are already looked for, rather than on a page
               of its own nobody thinks to open. It appears when there is something in it. */}
@@ -215,9 +218,9 @@ export function SyllabusLibrary({
           {folderQuery.trim() && filteredFolders.length === 0 ? <p className="px-3 py-2 text-sm text-[#667085]">No matching folders.</p> : null}
         </aside>
 
-        <section className="relative rounded-lg border border-[#d9dee7] bg-white">
+        <section aria-label={activeFolderLabel} className="relative rounded-lg border border-[#d9dee7] bg-white lg:min-h-0 lg:overflow-y-auto">
           {isLoading ? <div className="flex min-h-48 items-center justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading syllabi</div> : null}
-          {!isLoading ? <div className="border-b border-[#e5e7eb] px-5 py-4"><label className="relative block"><Search size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={activeFolder === REVIEW ? "Search syllabi for review" : `Search syllabi in ${activeFolderLabel}`} value={syllabusQuery} onChange={(event) => setSyllabusQuery(event.target.value)} placeholder={activeFolder === REVIEW ? "Search syllabi for review" : `Search ${activeFolderLabel.toLocaleLowerCase()}`} className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label></div> : null}
+          {!isLoading ? <div className="sticky top-0 z-20 rounded-t-lg border-b border-[#e5e7eb] bg-white px-5 py-4"><label className="relative block"><Search size={17} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={activeFolder === REVIEW ? "Search syllabi for review" : `Search syllabi in ${activeFolderLabel}`} value={syllabusQuery} onChange={(event) => setSyllabusQuery(event.target.value)} placeholder={activeFolder === REVIEW ? "Search syllabi for review" : `Search ${activeFolderLabel.toLocaleLowerCase()}`} className="w-full rounded-md border border-[#cbd5e1] py-2 pl-10 pr-3 text-sm text-[#344054] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label></div> : null}
           {!isLoading && activeFolder === REVIEW ? <p className="border-b border-[#f0e3c6] bg-[#fdf8ee] px-5 py-3 text-sm leading-6 text-[#8a6116]">{curator ? "Their authors have asked for these to be read. You can open and comment on one while it is up for review — its author is still the one writing it." : "You have asked for these to be read. They stay yours to write; withdraw a request from the syllabus itself."}</p> : null}
           {!isLoading && filteredSyllabi.length === 0 ? <EmptyLibraryState hasSyllabi={syllabi.length > 0} hasSearch={Boolean(syllabusQuery.trim())} /> : null}
           {!isLoading && filteredSyllabi.length > 0 ? <div className="divide-y divide-[#e5e7eb]" role="list">{filteredSyllabi.map((syllabus) => <SyllabusRow key={syllabus.id} syllabus={syllabus} viewerEmail={user?.email ?? null} folders={folders} folderPath={syllabus.folderId ? folderPaths.get(syllabus.folderId) ?? [] : []} isMoving={movingId === syllabus.id} isRenaming={renamingId === syllabus.id} isDeleting={deletingId === syllabus.id} onOpen={onOpen} onDuplicate={startDuplicate} onMove={onMove} onRename={onRename} onRequestDelete={setDeleteCandidate} />)}</div> : null}

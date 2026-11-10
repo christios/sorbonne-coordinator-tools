@@ -145,8 +145,13 @@ describe("ScheduleEditor", () => {
       fireEvent.click(screen.getByRole("button", { name: "Expand graded activity: Quiz" }));
 
       expect(screen.getByLabelText("Assessment date (optional)")).toBeTruthy();
-      expect(screen.getByRole("alert").textContent).toContain("Give it a week");
+      const warning = screen.getByRole("alert");
+      expect(warning.textContent).toContain("Give it a week");
       expect(screen.getByLabelText("Graded activity 1")).toBeTruthy();
+      // What it is comes first, then when; the warning sits on the week's line, above the outcomes.
+      const order = (text: string) => screen.getByText(text, { selector: "span" });
+      expect(order("Assessment type").compareDocumentPosition(order("Week")) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(warning.compareDocumentPosition(screen.getByRole("combobox", { name: "Add CLO assessed by assessment 1" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     });
 
     it("drops a session's deadline and assessment boxes, keeping an older note until it is removed", () => {

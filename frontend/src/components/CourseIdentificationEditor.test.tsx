@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -43,7 +43,31 @@ describe("CourseIdentificationEditor", () => {
 
     // Since 10 Nov 2026 the hours come from the course schedule: no boxes here to type them in.
     expect(screen.queryByRole("spinbutton", { name: "Lectures" })).toBeNull();
-    expect(screen.getByText(/Contact hours are added up from the course schedule/)).toBeTruthy();
+    expect(screen.getByText("None yet: give each session a length in the course schedule.")).toBeTruthy();
+  });
+
+  it("shows the contact hours the schedule adds up, beside the credits, and leads to the schedule", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onOpenSchedule = vi.fn();
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{ ects: "6" }}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+      contactHours={{ Lectures: "8", Tutorials: "10", Laboratory: "12" }}
+      onOpenSchedule={onOpenSchedule}
+    /></QueryClientProvider>);
+
+    expect(screen.getByText("Course contact hours")).toBeTruthy();
+    expect(screen.getByText("8 h")).toBeTruthy();
+    expect(screen.getByText("30 h")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit in the course schedule" }));
+    expect(onOpenSchedule).toHaveBeenCalled();
   });
 
   it("groups course-identification fields into named subsections", () => {
@@ -61,7 +85,9 @@ describe("CourseIdentificationEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByRole("heading", { name: "Course details" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Credits" })).toBeTruthy();
+    // The credits sit with the course's identity, not in a card of their own.
+    expect(screen.queryByRole("heading", { name: "Credits" })).toBeNull();
+    expect(screen.getByRole("spinbutton", { name: "Number of ECTS" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Requirements and equipment" })).toBeTruthy();
   });
 });

@@ -4,12 +4,13 @@ import { X } from "lucide-react";
 import { HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { SelectMenu, SelectOption } from "@/components/SelectMenu";
-import { FieldRow } from "@/components/FieldRow";
+import { FormGrid } from "@/components/FormGrid";
 import { SyllabusField } from "@/components/SyllabusField";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, type CatalogueCourse } from "@/services/courses";
 import { UNTITLED_SYLLABUS } from "@/services/syllabi";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
+import { CONTACT_HOUR_ROWS } from "@/services/syllabusContent";
 
 type HistoryContext = { syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void };
 type ListItem = { id: string; text: string };
@@ -25,6 +26,26 @@ type Props = HistoryContext & {
   academicYears?: string[];
   semesters?: string[];
   semesterByCourse?: Record<string, string>;
+  /** The hours the document prints, added up from the course schedule's sessions. */
+  contactHours?: Partial<Record<(typeof CONTACT_HOUR_ROWS)[number], string>>;
+  onOpenSchedule?: () => void;
+};
+
+/*
+ * Where each field sits on the card's twelve columns. Two to a row on a narrow card; on a
+ * wide one the course takes half the row beside its code and title, and the year, level
+ * and programme line up under them on the same edges, then the credits and the hours.
+ */
+const SPAN = {
+  course: "col-span-12 @4xl:col-span-6",
+  code: "col-span-12 @md:col-span-6 @4xl:col-span-2",
+  title: "col-span-12 @md:col-span-6 @4xl:col-span-4",
+  year: "col-span-12 @md:col-span-6 @4xl:col-span-3",
+  level: "col-span-12 @md:col-span-6 @4xl:col-span-3",
+  programme: "col-span-12 @4xl:col-span-6",
+  ects: "col-span-12 @md:col-span-6 @4xl:col-span-3",
+  hours: "col-span-12 @md:col-span-6 @4xl:col-span-9",
+  half: "col-span-12 @2xl:col-span-6",
 };
 
 
@@ -32,7 +53,7 @@ const boundCourseHint =
   "Title, code, credits and level come from the course record in Students and Timetables. " +
   "Change them there and this syllabus follows; there is nothing to retype here.";
 
-export function CourseIdentificationEditor({ value, courseTitle, courseCode, academicYear, onChange, onMetadataChange, programmes = [], courses = [], academicYears = [], semesters = [], semesterByCourse = {}, ...history }: Props) {
+export function CourseIdentificationEditor({ value, courseTitle, courseCode, academicYear, onChange, onMetadataChange, programmes = [], courses = [], academicYears = [], semesters = [], semesterByCourse = {}, contactHours = {}, onOpenSchedule, ...history }: Props) {
   const update = (change: Record<string, unknown>) => onChange({ ...value, ...change });
   const programmeId = stringValue(value.catalogueProgrammeId);
   const chooseProgramme = (nextId: string) => {
@@ -74,42 +95,37 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
 
   return <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
     <SyllabusSubsection title="Course details">
-      <FieldRow>
-        {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint} size="line"><SelectMenu label="Course" wrap defaultOpen={unnamed} value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
+      <FormGrid>
+        {courses.length ? <SyllabusField className={SPAN.course} label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint}><SelectMenu label="Course" wrap defaultOpen={unnamed} value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
         {bound
-          ? <><ReadOnlyField label="Course code" value={bound.courseCode} size="code" /><ReadOnlyField label="Course title" value={bound.courseTitle} size="title" /></>
-          : <><IdentificationField label="Course code" required value={courseCode} onChange={(next) => onMetadataChange("courseCode", next)} size="code" grow field={{ path: "metadata.courseCode", label: "Course code" }} {...history} /><IdentificationField label="Course title" required value={courseTitle} onChange={(next) => onMetadataChange("courseTitle", next)} size="title" grow field={{ path: "metadata.courseTitle", label: "Course title" }} {...history} /></>}
+          ? <><ReadOnlyField className={SPAN.code} label="Course code" value={bound.courseCode} /><ReadOnlyField className={SPAN.title} label="Course title" value={bound.courseTitle} /></>
+          : <><IdentificationField className={SPAN.code} label="Course code" required value={courseCode} onChange={(next) => onMetadataChange("courseCode", next)} grow field={{ path: "metadata.courseCode", label: "Course code" }} {...history} /><IdentificationField className={SPAN.title} label="Course title" required value={courseTitle} onChange={(next) => onMetadataChange("courseTitle", next)} grow field={{ path: "metadata.courseTitle", label: "Course title" }} {...history} /></>}
         {academicYears.length
-          ? <SyllabusField label="Academic year" required fieldKey="metadata.academicYear" hint="Which academic year this syllabus is for. The years offered are the ones Students and Timetables has imported terms for." size="code"><SelectMenu label="Academic year" wrap value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} placeholder="Select the academic year" options={withCurrent(academicYears, academicYear)} /></SyllabusField>
-          : <IdentificationField label="Academic year" required value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} size="code" grow field={{ path: "metadata.academicYear", label: "Academic year" }} {...history} />}
+          ? <SyllabusField className={SPAN.year} label="Academic year" required fieldKey="metadata.academicYear" hint="Which academic year this syllabus is for. The years offered are the ones Students and Timetables has imported terms for."><SelectMenu label="Academic year" wrap value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} placeholder="Select the academic year" options={withCurrent(academicYears, academicYear)} /></SyllabusField>
+          : <IdentificationField className={SPAN.year} label="Academic year" required value={academicYear} onChange={(next) => onMetadataChange("academicYear", next)} grow field={{ path: "metadata.academicYear", label: "Academic year" }} {...history} />}
         {semesters.length
-          ? <SyllabusField label="Degree level and semester" required fieldKey="identification.degreeLevelAndSemester" hint="The year and semester this course is taught in, as the curriculum map records it. Add or correct a course's place in Manage catalogues → Curriculum mapping." size="code"><SelectMenu label="Degree level and semester" wrap value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} placeholder="Select the level and semester" options={withCurrent(semesters, stringValue(value.degreeLevelAndSemester))} /></SyllabusField>
-          : <IdentificationField label="Degree level and semester" required value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} size="code" grow field={{ path: "identification.degreeLevelAndSemester", label: "Degree level and semester" }} {...history} />}
+          ? <SyllabusField className={SPAN.level} label="Degree level and semester" required fieldKey="identification.degreeLevelAndSemester" hint="The year and semester this course is taught in, as the curriculum map records it. Add or correct a course's place in Manage catalogues → Curriculum mapping."><SelectMenu label="Degree level and semester" wrap value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} placeholder="Select the level and semester" options={withCurrent(semesters, stringValue(value.degreeLevelAndSemester))} /></SyllabusField>
+          : <IdentificationField className={SPAN.level} label="Degree level and semester" required value={stringValue(value.degreeLevelAndSemester)} onChange={(degreeLevelAndSemester) => update({ degreeLevelAndSemester })} grow field={{ path: "identification.degreeLevelAndSemester", label: "Degree level and semester" }} {...history} />}
         {/* Required since the November 2026 review: the programme is where the course's
             PLOs and its curriculum mapping come from, so there is no "local outcomes" choice. */}
-        {programmes.length ? <SyllabusField label="Programme" required fieldKey="identification.catalogueProgrammeId" hint="The programme this course belongs to. Its programme learning outcomes, and the ones the curriculum mapping expects of this course, come from it in section 4." size="sentence"><SelectMenu label="Programme" wrap value={programmeId} onChange={chooseProgramme} placeholder="Select the programme" searchable options={programmes} /></SyllabusField> : null}
+        {programmes.length ? <SyllabusField className={SPAN.programme} label="Programme" required fieldKey="identification.catalogueProgrammeId" hint="The programme this course belongs to. Its programme learning outcomes, and the ones the curriculum mapping expects of this course, come from it in section 4."><SelectMenu label="Programme" wrap value={programmeId} onChange={chooseProgramme} placeholder="Select the programme" searchable options={programmes} /></SyllabusField> : null}
         {/* Chosen from the catalogue, the programme's title is the choice above, character for
             character; a second box repeating it filled a row and told nobody anything. Typed
             instead of chosen, it is the only place the title exists, so it is a field — kept
             for older syllabi that typed one, and for when no programme catalogue exists. */}
-        {chosenProgramme || (programmes.length && !stringValue(value.programmeTitle)) ? null : <IdentificationField label="Programme title" required value={stringValue(value.programmeTitle)} onChange={(programmeTitle) => update({ programmeTitle, catalogueProgrammeId: undefined, cataloguePloProgrammeId: undefined })} size="sentence" grow field={{ path: "identification.programmeTitle", label: "Programme title" }} {...history} />}
-      </FieldRow>
-    </SyllabusSubsection>
-
-    {/* No contact-hour boxes since 10 Nov 2026: the document adds the hours up from the
-        sessions in the course schedule, each counted under its session type. */}
-    <SyllabusSubsection title="Credits">
-      <FieldRow>
-        <IdentificationField label="Number of ECTS" required value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} size="counter" field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
-      </FieldRow>
-      <p className="text-sm text-[#667085]">Contact hours are added up from the course schedule: each session's length, under its session type.</p>
+        {chosenProgramme || (programmes.length && !stringValue(value.programmeTitle)) ? null : <IdentificationField className={SPAN.programme} label="Programme title" required value={stringValue(value.programmeTitle)} onChange={(programmeTitle) => update({ programmeTitle, catalogueProgrammeId: undefined, cataloguePloProgrammeId: undefined })} grow field={{ path: "identification.programmeTitle", label: "Programme title" }} {...history} />}
+        {/* The credits sit with the rest of the course's identity rather than in a card of
+            their own, beside the contact hours the document prints next to them. */}
+        <IdentificationField className={SPAN.ects} label="Number of ECTS" required value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
+        <ContactHours className={SPAN.hours} hours={contactHours} onOpenSchedule={onOpenSchedule} />
+      </FormGrid>
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Requirements and equipment">
-      <FieldRow align="start">
-        <CourseList title="Prerequisites" fieldKey="identification.prerequisiteItems" hint="Courses a student must have passed in a previous year before taking this one." items={prerequisiteItems} options={courseOptions} onChange={(items) => update({ prerequisiteItems: items, prerequisites: items.map((item) => item.text).filter(Boolean).join("\n") })} />
-        <CourseList title="Co-requisites" fieldKey="identification.corequisiteItems" hint="Courses taken alongside this one, in the same year." items={corequisiteItems} options={courseOptions} onChange={(items) => update({ corequisiteItems: items, corequisites: items.map((item) => item.text).filter(Boolean).join("\n") })} />
-      </FieldRow>
+      <FormGrid align="start">
+        <CourseList className={SPAN.half} title="Prerequisites" fieldKey="identification.prerequisiteItems" hint="Courses a student must have passed in a previous year before taking this one." items={prerequisiteItems} options={courseOptions} onChange={(items) => update({ prerequisiteItems: items, prerequisites: items.map((item) => item.text).filter(Boolean).join("\n") })} />
+        <CourseList className={SPAN.half} title="Co-requisites" fieldKey="identification.corequisiteItems" hint="Courses taken alongside this one, in the same year." items={corequisiteItems} options={courseOptions} onChange={(items) => update({ corequisiteItems: items, corequisites: items.map((item) => item.text).filter(Boolean).join("\n") })} />
+      </FormGrid>
       <TextList title="Equipment" singular="equipment item" legacyValue={value.equipment} itemsValue={value.equipmentItems} path="identification.equipmentItems" onChange={(items) => update({ equipmentItems: items, equipment: items.map((item) => item.text).filter(Boolean).join("\n") })} {...history} />
     </SyllabusSubsection>
   </div>;
@@ -119,7 +135,7 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
 
 function TextList({ title, singular, legacyValue, itemsValue, path, onChange, ...history }: HistoryContext & { title: string; singular: string; legacyValue: unknown; itemsValue: unknown; path: string; onChange: (value: ListItem[]) => void }) {
   const items = listItems(itemsValue, legacyValue, title);
-  return <section><h4 className="text-sm font-semibold text-[#344054]">{title}</h4>{items.length ? <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2">{items.map((item, index) => <div key={item.id} className="flex items-start gap-2"><div className="min-w-0 flex-1"><IdentificationField label={`${title} ${index + 1}`} value={item.text} onChange={(text) => onChange(items.map((entry) => entry.id === item.id ? { ...entry, text } : entry))} size="line" grow field={{ path: `${path}[${item.id}].text`, label: `${title} ${index + 1}` }} {...history} /></div><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="mt-7 rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${singular} ${index + 1}`}><X size={17} /></button></div>)}</div> : null}<AddEntryButton onClick={() => onChange([...items, { id: crypto.randomUUID(), text: "" }])} label={`Add ${singular}`} /></section>;
+  return <section><h4 className="text-sm font-semibold text-[#344054]">{title}</h4>{items.length ? <div className="@container"><div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-x-6 gap-y-3 @2xl:grid-cols-2">{items.map((item, index) => <div key={item.id} className="flex items-start gap-2"><div className="min-w-0 flex-1"><IdentificationField label={`${title} ${index + 1}`} value={item.text} onChange={(text) => onChange(items.map((entry) => entry.id === item.id ? { ...entry, text } : entry))} grow field={{ path: `${path}[${item.id}].text`, label: `${title} ${index + 1}` }} {...history} /></div><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="mt-7 rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]" aria-label={`Remove ${singular} ${index + 1}`}><X size={17} /></button></div>)}</div></div> : null}<AddEntryButton onClick={() => onChange([...items, { id: crypto.randomUUID(), text: "" }])} label={`Add ${singular}`} /></section>;
 }
 
 function IdentificationField({ label, value, onChange, field, onOpenHistory, multiline = false, minRows = 2, type = "text", min, step, inputMode, size = "full", grow = false, className, required = false }: HistoryContext & { label: string; value: string; onChange: (value: string) => void; field: HistoryField; multiline?: boolean; minRows?: number; type?: string; min?: number; step?: number; inputMode?: "decimal"; size?: FieldSize; grow?: boolean; className?: string; required?: boolean }) {
@@ -140,13 +156,13 @@ function ReadOnlyField({ label, value, size = "full", className = "" }: { label:
 }
 
 /** Prerequisites and co-requisites are courses, so they are chosen, not typed. */
-function CourseList({ title, hint, fieldKey, items, options, onChange }: { title: string; hint: string; fieldKey: string; items: ListItem[]; options: SelectOption[]; onChange: (items: ListItem[]) => void }) {
+function CourseList({ title, hint, fieldKey, items, options, onChange, className = "" }: { title: string; hint: string; fieldKey: string; items: ListItem[]; options: SelectOption[]; onChange: (items: ListItem[]) => void; className?: string }) {
   const chosen = items.map((item) => item.text).filter(Boolean);
   const add = (label: string) => {
     if (!label || chosen.includes(label)) return;
     onChange([...items, { id: crypto.randomUUID(), text: label }]);
   };
-  return <SyllabusField label={title} fieldKey={fieldKey} hint={hint} size="line">
+  return <SyllabusField className={className} label={title} fieldKey={fieldKey} hint={hint}>
     {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="grid grid-cols-[minmax(0,1fr)] gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm font-normal text-[#344054]"><span className="min-w-0 break-words">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : null}
     <SelectMenu label={`Add ${title.toLowerCase()}`} value="" onChange={add} placeholder={chosen.length ? `Add another ${title.toLowerCase().replace(/s$/, "")}` : `None yet — add a ${title.toLowerCase().replace(/s$/, "")}`} searchable searchPlaceholder="Search by code or title" options={options.filter((option) => option.value && !chosen.includes(option.label))} />
   </SyllabusField>;
@@ -156,4 +172,22 @@ function CourseList({ title, hint, fieldKey, items, options, onChange }: { title
 function withCurrent(values: string[], current: string): SelectOption[] {
   const all = current && !values.includes(current) ? [current, ...values] : values;
   return all.map((value) => ({ value, label: value }));
+}
+
+/**
+ * The contact hours, as the document will print them: added up from the course schedule's
+ * sessions, so they are read here and changed there (no boxes since 10 Nov 2026).
+ */
+function ContactHours({ hours, onOpenSchedule, className = "" }: { hours: Partial<Record<(typeof CONTACT_HOUR_ROWS)[number], string>>; onOpenSchedule?: () => void; className?: string }) {
+  const rows = CONTACT_HOUR_ROWS.flatMap((row) => (hours[row] ? [{ row, value: hours[row] as string }] : []));
+  const total = rows.reduce((sum, { value }) => sum + (Number(value) || 0), 0);
+  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}>
+    <span className="sm:whitespace-nowrap">Course contact hours<span className="ml-1 font-normal text-[#667085]">from the course schedule</span></span>
+    <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 py-2 font-normal text-[#475467]">
+      {rows.length
+        ? <><span className="flex flex-wrap gap-x-3 gap-y-1">{rows.map(({ row, value }) => <span key={row}>{row} <span className="font-semibold tabular-nums text-[#344054]">{value} h</span></span>)}</span><span className="text-[#98a2b3]" aria-hidden="true">·</span><span>In all <span className="font-semibold tabular-nums text-[#344054]">{Number(total.toFixed(2))} h</span></span></>
+        : <span>None yet: give each session a length in the course schedule.</span>}
+      {onOpenSchedule ? <button type="button" onClick={onOpenSchedule} className="ml-auto rounded px-1 font-semibold text-[#1f4e79] hover:underline">Edit in the course schedule</button> : null}
+    </div>
+  </div>;
 }

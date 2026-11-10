@@ -6,6 +6,7 @@ import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
 import { SelectMenu } from "@/components/SelectMenu";
 import { FieldHistoryControl } from "@/components/FieldHistory";
 import { FieldRow } from "@/components/FieldRow";
+import { FormGrid } from "@/components/FormGrid";
 import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { RichTextField } from "@/components/RichTextField";
 import { SyllabusField } from "@/components/SyllabusField";
@@ -110,6 +111,14 @@ type Props = {
   aiPolicies?: CatalogueEntry[];
 };
 
+
+/** A session's first line on the card's twelve columns, matching a graded card's. */
+const SESSION_SPAN = {
+  sessionType: "col-span-12 @md:col-span-6 @4xl:col-span-7",
+  week: "col-span-12 @md:col-span-3 @4xl:col-span-2",
+  duration: "col-span-12 @md:col-span-3 @4xl:col-span-3",
+  deadline: "col-span-12 @4xl:col-span-5",
+};
 
 const fields: ScheduleField[] = [
   { key: "week", label: "Week", size: "counter" },
@@ -360,12 +369,12 @@ export function ScheduleEditor({
                 }
               >
                 <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-                  <FieldRow>
+                  <FormGrid>
                   <SyllabusField
+                    className={SESSION_SPAN.sessionType}
                     label="Session type"
                     required
                     fieldKey={`schedule[${row.id}].sessionType`}
-                    size="name"
                     hint="Which kind of session this is. The numbering runs separately for each kind, so a course has its own CM 1, TD 1 and TP 1."
                   >
                     <SelectMenu
@@ -384,7 +393,7 @@ export function ScheduleEditor({
                     };
                     if (field.key === "duration") {
                       return (
-                        <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
+                        <div key={field.key} className={SESSION_SPAN.duration}>
                           <HistoryTextField
                             label={field.label}
                             required
@@ -402,7 +411,7 @@ export function ScheduleEditor({
                     if (field.key === "week") {
                       const problem = weekProblem(value);
                       return (
-                        <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
+                        <div key={field.key} className={SESSION_SPAN.week}>
                           <HistoryTextField
                             label={field.label}
                             required
@@ -422,7 +431,7 @@ export function ScheduleEditor({
                     if (field.key === "deadline") {
                       const byWeek = deadlineMode(row, weeksInUse) === "week";
                       return (
-                        <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
+                        <div key={field.key} className={SESSION_SPAN.deadline}>
                           <div className="grid content-start gap-1 text-sm font-medium text-[#344054]">
                             <span className="flex flex-wrap items-center justify-between gap-2">
                               <FormFieldLabel
@@ -478,16 +487,16 @@ export function ScheduleEditor({
                         required={field.key === "topic"}
                         value={value}
                         onChange={(next) => updateRow(row.id, field.key, next)}
-                        size={field.size ?? "full"}
+                        className="col-span-12"
                         grow
                         history={{ field: historyField, onOpenHistory }}
                       />
                     );
                   })}
-                  </FieldRow>
+                  </FormGrid>
                   {/* The session written out, with the two shorter answers about it stacked
                       alongside rather than underneath: all three are read together. */}
-                  <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-2">
+                  <div className="@container"><div className="grid grid-cols-[minmax(0,1fr)] gap-4 @3xl:grid-cols-2">
                     <RichTextField
                       label="Session details"
                       required
@@ -520,7 +529,7 @@ export function ScheduleEditor({
                         />
                       ))}
                     </div>
-                  </div>
+                  </div></div>
                 </div>
               </CollapsibleEntryCard>
             );
@@ -628,12 +637,13 @@ function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outc
           assessmentTypes={assessmentTypes}
           aiPolicies={aiPolicies}
           timing="both"
+          timingNote={problem ?? undefined}
           onChange={onChange}
           syllabusId={syllabusId}
           revision={revision}
           onOpenHistory={onOpenHistory}
         />}
-        {problem ? <p role="alert" className="text-sm text-[#a6292f]">{problem}</p> : null}
+        {problem && foundationYear ? <p role="alert" className="text-sm text-[#a6292f]">{problem}</p> : null}
       </div>
     </CollapsibleEntryCard>
   );

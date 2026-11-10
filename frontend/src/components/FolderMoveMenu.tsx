@@ -17,6 +17,9 @@ type Destination = { id: string | null; name: string };
 export function FolderMoveMenu({ label, value, folders, isMoving = false, compact = false, onChange }: Props) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Near the bottom of the window the list opens upwards rather than past the edge of the
+  // library's scrolling list, where it could only be reached by scrolling.
+  const [opensUp, setOpensUp] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const destinations = useMemo<Destination[]>(() => {
     const foldersById = new Map(folders.map((folder) => [folder.id, folder]));
@@ -70,7 +73,11 @@ export function FolderMoveMenu({ label, value, folders, isMoving = false, compac
         aria-haspopup="listbox"
         aria-busy={isMoving || undefined}
         disabled={isMoving}
-        onClick={() => setIsOpen((open) => !open)}
+        onClick={() => {
+          const bottom = menuRef.current?.getBoundingClientRect().bottom ?? 0;
+          setOpensUp(window.innerHeight - bottom < 340 && bottom > 340);
+          setIsOpen((open) => !open);
+        }}
         className={compact ? "inline-flex h-10 w-10 items-center justify-center rounded-md text-[#1f4e79] transition-colors hover:bg-[#f2f7fb] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-wait disabled:opacity-50" : "flex w-full items-center gap-2 rounded-lg border border-[#b7bec8] bg-white px-3 py-2 pr-10 text-left font-normal text-[#344054] transition-colors hover:border-[#98a2b3] hover:bg-[#f8fafc] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3] disabled:cursor-wait disabled:opacity-70"}
       >
         {isMoving ? <Loader2 aria-hidden="true" size={17} className="animate-spin" /> : compact ? <FolderInput aria-hidden="true" size={18} className="shrink-0 text-[#1f4e79]" /> : <Folder aria-hidden="true" size={16} className="shrink-0 text-[#667085]" />}
@@ -78,7 +85,7 @@ export function FolderMoveMenu({ label, value, folders, isMoving = false, compac
       </button>
       {!compact ? (isMoving ? <Loader2 aria-hidden="true" size={17} className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#667085]" /> : <ChevronDown aria-hidden="true" size={17} className={`pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#667085] transition-transform ${isOpen ? "rotate-180" : ""}`} />) : null}
       {isOpen ? (
-        <div role="listbox" aria-label={label} className="absolute right-0 z-[90] isolate mt-2 w-80 overflow-hidden rounded-lg border border-[#d9dee7] bg-white p-2 opacity-100 shadow-lg">
+        <div role="listbox" aria-label={label} className={`absolute right-0 z-[90] isolate w-80 overflow-hidden ${opensUp ? "bottom-full mb-2" : "mt-2"} rounded-lg border border-[#d9dee7] bg-white p-2 opacity-100 shadow-lg`}>
           <p className="px-2 pb-2 pt-1 text-xs font-semibold uppercase tracking-wide text-[#667085]">Move to folder</p>
           <label className="relative block">
             <Search aria-hidden="true" size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" />
