@@ -36,6 +36,9 @@ def token_user(token: str):
 
 
 # Everything a signed-out browser is allowed to reach.
+#: All a read-only token may ask. OPTIONS never reaches the check: the gate lets it by.
+READ_METHODS = frozenset({"GET", "HEAD"})
+
 PUBLIC_PATHS = frozenset({"/healthcheck", "/api/v1/auth/config", "/api/v1/auth/session"})
 PROTECTED_PREFIXES = ("/api/", "/handbook")
 
@@ -150,6 +153,12 @@ class StaffAuthGate(BaseHTTPMiddleware):
             user, kind = user_for_request(cookie, authorization), "google"
         if user is None:
             return JSONResponse(status_code=401, content={"detail": "Sign in to continue."})
+        # Here rather than on each route, so a route added tomorrow is covered too.
+        if kind == "token" and user.read_only and request.method not in READ_METHODS:
+            return JSONResponse(
+                status_code=403,
+                content={"detail": "This token is read-only: it can read, and change nothing."},
+            )
 
         request.state.staff_user = user
         request.state.auth_kind = kind

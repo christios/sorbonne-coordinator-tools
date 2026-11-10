@@ -45,6 +45,8 @@ class StaffUser:
     email: str
     name: str
     is_admin: bool = False
+    #: Came in on a read-only token: it may read what this person can, and change nothing.
+    read_only: bool = False
 
 
 def owner_emails() -> frozenset[str]:
