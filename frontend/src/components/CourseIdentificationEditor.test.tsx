@@ -134,4 +134,30 @@ describe("Course details taken from the other app", () => {
 
     expect(screen.getByLabelText(/^Programme title\*?$/)).toHaveProperty("value", "Bachelor in Physics");
   });
+  it("opens the course list ready to search on a syllabus just started, and only then", () => {
+    const course = { courseCode: "PHYS-118", courseTitle: "Geometric Optics", credit: "6", level: "L1", department: "SCEN", college: "", contactHours: "", terms: [], crns: [], teachers: [] };
+    const show = (courseTitle: string) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      return render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+        value={{}}
+        courseTitle={courseTitle}
+        courseCode=""
+        academicYear="2026-2027"
+        courses={[course]}
+        onChange={vi.fn()}
+        onMetadataChange={vi.fn()}
+        syllabusId="syllabus-1"
+        revision={1}
+        onOpenHistory={vi.fn()}
+      /></QueryClientProvider>);
+    };
+
+    const started = show("Untitled syllabus");
+    expect(screen.getByRole("listbox", { name: "Course" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Search Course" })).toBeTruthy();
+    started.unmount();
+
+    show("Geometric Optics");
+    expect(screen.queryByRole("listbox", { name: "Course" })).toBeNull();
+  });
 });

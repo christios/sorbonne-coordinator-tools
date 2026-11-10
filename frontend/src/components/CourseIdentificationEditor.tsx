@@ -8,6 +8,7 @@ import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, type CatalogueCourse } from "@/services/courses";
+import { UNTITLED_SYLLABUS } from "@/services/syllabi";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 
 type HistoryContext = { syllabusId: string; revision: number; onOpenHistory: (field: HistoryField) => void };
@@ -41,6 +42,9 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
     update({ catalogueProgrammeId: nextId || undefined, programmeTitle: programme?.label ?? stringValue(value.programmeTitle), cataloguePloProgrammeId: nextId || undefined });
   };
   const boundCode = stringValue(value.catalogueCourseCode);
+  // A syllabus just started is named by choosing its course, so the list opens ready to
+  // search (Christian, 10 Nov 2026). Typing a title stays possible for a course not listed.
+  const unnamed = courseTitle.trim() === UNTITLED_SYLLABUS && !boundCode;
   const bound = courses.find((item) => item.courseCode === boundCode);
   const chooseCourse = (nextCode: string) => {
     const course = courses.find((item) => item.courseCode === nextCode);
@@ -73,7 +77,7 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
   return <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
     <SyllabusSubsection title="Course details">
       <FieldRow>
-        {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint} size="line"><SelectMenu label="Course" wrap value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
+        {courses.length ? <SyllabusField label="Course" source={courseSource} fieldKey="identification.catalogueCourseCode" hint={boundCourseHint} size="line"><SelectMenu label="Course" wrap defaultOpen={unnamed} value={boundCode} onChange={chooseCourse} placeholder="Enter the course details manually" searchable searchPlaceholder="Search by code or title" options={[{ value: "", label: "Enter the course details manually" }, ...courseOptions]} /></SyllabusField> : null}
         {bound
           ? <><ReadOnlyField label="Course code" value={bound.courseCode} size="code" /><ReadOnlyField label="Course title" value={bound.courseTitle} size="title" /></>
           : <><IdentificationField label="Course code" required value={courseCode} onChange={(next) => onMetadataChange("courseCode", next)} size="code" grow field={{ path: "metadata.courseCode", label: "Course code" }} {...history} /><IdentificationField label="Course title" required value={courseTitle} onChange={(next) => onMetadataChange("courseTitle", next)} size="title" grow field={{ path: "metadata.courseTitle", label: "Course title" }} {...history} /></>}

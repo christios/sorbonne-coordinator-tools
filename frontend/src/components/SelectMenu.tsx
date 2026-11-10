@@ -151,10 +151,12 @@ type Props = {
    * the full-height field would make every row twice as tall as its neighbours.
    */
   size?: "default" | "small";
+  /** Open as soon as it appears: the first thing to do on the screen it is on. */
+  defaultOpen?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center", size = "default" }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center", size = "default", defaultOpen = false }: Props) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
