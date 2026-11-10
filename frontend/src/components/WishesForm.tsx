@@ -1339,6 +1339,9 @@ export function WishesForm({
                           aria-haspopup={holds ? "dialog" : undefined}
                           onPointerDown={(event) => {
                             event.preventDefault();
+                            // On the tour's painting step a press on a block is nothing at all:
+                            // opening it is the next step, and painting starts on a white hour.
+                            if (holds && brushNow !== "erase" && noOpenYet.current) return;
                             const last = { day, time, cell: event.currentTarget };
                             setStroking(true);
                             setResting(null);

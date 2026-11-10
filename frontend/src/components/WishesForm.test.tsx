@@ -316,9 +316,14 @@ describe("the guided tour", () => {
     // Painted: the block does not open by itself, while the tour is to teach opening it — nor
     // when clicked, before the step that teaches it.
     expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
-    tap("Tuesday", "14:00");
+    // A press on it changes nothing, not even the tour's card while it is held.
+    fireEvent.pointerDown(cell("Tuesday", "14:00"));
+    expect(within(step("Paint the week")).getByText("Nicely done")).toBeTruthy();
+    expect(within(step("Paint the week")).getByRole("button", { name: "Next" })).toBeTruthy();
+    fireEvent.pointerUp(window);
     fireEvent.click(cell("Tuesday", "15:00"), { detail: 0 });
     expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
+    expect(within(step("Paint the week")).getByText("Nicely done")).toBeTruthy();
     next("Paint the week");
 
     expect(step("Open a block").textContent).toContain("Click the block you painted");
