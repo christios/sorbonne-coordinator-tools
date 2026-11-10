@@ -330,6 +330,27 @@ def test_a_foundation_year_instructor_typed_in_by_hand_is_printed(tmp_path) -> N
     assert table.cell(4, 1).text == "lecturer@sorbonne.ae"
 
 
+def test_the_word_contact_hours_are_added_up_from_the_course_schedule(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Geometric Optics",
+        "content": {
+            "identification": {"contactHours": {"Lectures": "99"}},
+            "schedule": [
+                {"id": "a", "sessionType": "CM", "duration": "2"},
+                {"id": "b", "sessionType": "CM", "duration": "2"},
+                {"id": "c", "sessionType": "TP", "duration": "3"},
+            ],
+            "schemaVersion": 2,
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[0]
+    assert [table.cell(row, 3).text for row in range(6, 12)] == ["4", "", "", "", "3", ""]
+
+
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:
     syllabus = {
         "courseTitle": "Environmental Policy",

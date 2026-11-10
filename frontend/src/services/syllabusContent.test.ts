@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bibliographyEntries, deliveryPercentageError, fysComponentRows, gradedActivities, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
+import { bibliographyEntries, contactHours, deliveryPercentageError, fysComponentRows, gradedActivities, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
 
 describe("bibliographyEntries", () => {
   it("preserves a legacy free-text bibliography as one editable entry", () => {
@@ -100,3 +100,31 @@ describe("fysComponentRows", () => {
     expect(rows.laboratory.map((row) => row.description)).toEqual(["", ""]);
   });
 });
+
+describe("the contact hours the document prints", () => {
+  it("adds up the sessions' lengths by type, as the server does", () => {
+    const content = {
+      identification: { contactHours: { Lectures: "99" } },
+      schedule: [
+        { id: "a", sessionType: "CM", duration: "1.5" },
+        { id: "b", duration: "1,5" },
+        { id: "c", sessionType: "TD", duration: "2" },
+        { id: "d", sessionType: "TP", duration: "3" },
+        { id: "e", sessionType: "Workshop", duration: "2" },
+        { id: "f", sessionType: "Seminar", duration: "1" },
+        { id: "g", sessionType: "Other", duration: "0.5" },
+        { id: "h", sessionType: "TD" },
+        { id: "exam", kind: "graded", duration: "3" },
+      ],
+    };
+
+    expect(contactHours(content)).toEqual({ Lectures: "3", Tutorials: "2", Workshops: "2", Seminars: "1", Laboratory: "3", Other: "0.5" });
+  });
+
+  it("keeps a syllabus's typed hours while none of its sessions has a length", () => {
+    const content = { identification: { contactHours: { Lectures: "8", Tutorials: "10", Laboratory: "12" } }, schedule: [{ id: "a", sessionType: "CM" }] };
+
+    expect(contactHours(content)).toEqual({ Lectures: "8", Tutorials: "10", Workshops: "", Seminars: "", Laboratory: "12", Other: "" });
+  });
+});
+

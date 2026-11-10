@@ -290,3 +290,44 @@ export function fysComponentRows(activities: Array<Record<string, unknown>>): { 
     laboratory: FYS_LABORATORY_ROWS.map((row) => ({ component: row, ...joined(of(`laboratory:${row}`)) })),
   };
 }
+
+/** The template's contact-hour rows, in its order (November 2026: they come from the course schedule). */
+export const CONTACT_HOUR_ROWS = ["Lectures", "Tutorials", "Workshops", "Seminars", "Laboratory", "Other"] as const;
+/** The row each session type adds its hours to. */
+export const SESSION_TYPE_ROWS: Record<string, (typeof CONTACT_HOUR_ROWS)[number]> = {
+  CM: "Lectures",
+  TD: "Tutorials",
+  Workshop: "Workshops",
+  Seminar: "Seminars",
+  TP: "Laboratory",
+  Other: "Other",
+};
+
+/** A session's length in hours, or null when it has none (a comma reads as a decimal point). */
+export function sessionHours(row: Record<string, unknown>): number | null {
+  const raw = String(row.duration ?? "").trim().replace(",", ".");
+  const hours = raw ? Number(raw) : NaN;
+  return Number.isFinite(hours) && hours > 0 ? hours : null;
+}
+
+/**
+ * The contact hours the document prints, row by row: the course schedule's sessions added up
+ * by type; graded activities do not count. A syllabus none of whose sessions has a length yet
+ * keeps the hours typed into section 1 before November 2026. The server's contact_hours says
+ * the same.
+ */
+export function contactHours(content: Record<string, unknown>): Record<(typeof CONTACT_HOUR_ROWS)[number], string> {
+  const schedule = Array.isArray(content.schedule) ? (content.schedule as Array<Record<string, unknown>>) : [];
+  const sessions = schedule.filter((row) => row && typeof row === "object" && row.kind !== "graded");
+  const timed = sessions.flatMap((row) => { const hours = sessionHours(row); return hours === null ? [] : [{ row, hours }]; });
+  type Hours = Record<(typeof CONTACT_HOUR_ROWS)[number], string>;
+  if (!timed.length) {
+    const identification = content.identification && typeof content.identification === "object" ? (content.identification as Record<string, unknown>) : {};
+    const typed = identification.contactHours && typeof identification.contactHours === "object" ? (identification.contactHours as Record<string, unknown>) : {};
+    return Object.fromEntries(CONTACT_HOUR_ROWS.map((row) => [row, String(typed[row] ?? "").trim()])) as Hours;
+  }
+  const totals = Object.fromEntries(CONTACT_HOUR_ROWS.map((row) => [row, 0])) as Record<(typeof CONTACT_HOUR_ROWS)[number], number>;
+  for (const { row, hours } of timed) totals[SESSION_TYPE_ROWS[String(row.sessionType || "CM")] ?? "Other"] += hours;
+  return Object.fromEntries(CONTACT_HOUR_ROWS.map((row) => [row, totals[row] ? String(Number(totals[row].toFixed(4))) : ""])) as Hours;
+}
+

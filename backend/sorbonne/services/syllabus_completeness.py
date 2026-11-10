@@ -25,6 +25,7 @@ from sorbonne.services.syllabus_content import (
     course_ai_fallback,
     graded_activities,
     schema_version,
+    session_hours,
 )
 from sorbonne.services.syllabus_templates import FYS_TEMPLATE_ID
 
@@ -128,8 +129,6 @@ def _identification(missing: Missing, syllabus: dict[str, Any], content: dict[st
         _add(missing, "identification", "Choose the programme.")
     if not _text(identification.get("ects")):
         _add(missing, "identification", "Give the number of ECTS.")
-    if not any(_number(hours) for hours in _record(identification.get("contactHours")).values()):
-        _add(missing, "identification", "Give the contact hours.")
 
 
 def _contacts(missing: Missing, content: dict[str, Any]) -> None:
@@ -242,6 +241,10 @@ def _sessions(missing: Missing, content: dict[str, Any], *, flag_earlier_notes: 
     ]
     if unplaced:
         _add(missing, "schedule", f"Give {_count(len(unplaced), 'session')} a week: {_some(unplaced)}.")
+    # The contact hours are the sessions' lengths added up (10 Nov 2026).
+    untimed = [_short(_text(row.get("topic"))) or "untitled" for row in sessions if session_hours(row) is None]
+    if untimed:
+        _add(missing, "schedule", f"Give {_count(len(untimed), 'session')} a length in hours: {_some(untimed)}.")
     # Ticked required by Christian, 10 Nov 2026. The details are rich text: an emptied box
     # still holds its tags. The session type needs no rule: a card without one shows, and
     # prints, the default CM.

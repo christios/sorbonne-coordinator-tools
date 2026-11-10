@@ -1,4 +1,4 @@
-from sorbonne.services.syllabus_content import graded_activities, schema_version
+from sorbonne.services.syllabus_content import contact_hours, graded_activities, schema_version
 
 
 def test_graded_activities_are_the_assessment_list_on_a_syllabus_written_before_november_2026() -> None:
@@ -151,3 +151,43 @@ def test_a_foundation_year_syllabus_gets_cards_from_the_rows_it_had_and_keeps_it
     ]
     assert after["assessment"]["finalText"] == "Two hours, closed book."
     assert report["gradedActivities"] == 2 and report["earlierNotes"] == 2
+
+
+def test_the_contact_hours_are_the_sessions_lengths_added_up_by_type() -> None:
+    """Christian, 10 Nov 2026: the document's contact hours come from the course schedule."""
+    content = {
+        "identification": {"contactHours": {"Lectures": "99"}},
+        "schedule": [
+            {"id": "a", "sessionType": "CM", "duration": "1.5"},
+            {"id": "b", "duration": "1,5"},  # no type: a CM; a comma reads as a decimal point
+            {"id": "c", "sessionType": "TD", "duration": "2"},
+            {"id": "d", "sessionType": "TP", "duration": "3"},
+            {"id": "e", "sessionType": "Workshop", "duration": "2"},
+            {"id": "f", "sessionType": "Seminar", "duration": "1"},
+            {"id": "g", "sessionType": "Other", "duration": "0.5"},
+            {"id": "h", "sessionType": "TD"},  # no length yet: counts nothing
+            {"id": "exam", "kind": "graded", "duration": "3"},
+        ],
+        "schemaVersion": 2,
+    }
+
+    assert contact_hours(content) == {
+        "Lectures": "3",
+        "Tutorials": "2",
+        "Workshops": "2",
+        "Seminars": "1",
+        "Laboratory": "3",
+        "Other": "0.5",
+    }
+
+
+def test_a_syllabus_whose_sessions_have_no_length_yet_keeps_its_typed_hours() -> None:
+    content = {
+        "identification": {"contactHours": {"Lectures": "8", "Tutorials": "10", "Laboratory": "12"}},
+        "schedule": [{"id": "a", "sessionType": "CM"}],
+    }
+
+    assert contact_hours(content) == {
+        "Lectures": "8", "Tutorials": "10", "Workshops": "", "Seminars": "", "Laboratory": "12", "Other": "",
+    }
+

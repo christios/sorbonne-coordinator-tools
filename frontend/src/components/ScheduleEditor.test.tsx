@@ -22,7 +22,12 @@ describe("ScheduleEditor", () => {
       const text = element?.textContent?.trim() ?? "";
       return element?.tagName === "SPAN" && text.startsWith(label) && text.endsWith("*") && text.length <= label.length + 3;
     }).length > 0;
-    for (const label of ["Session type", "Week", "Topic", "Session details"]) expect(marked(label), label).toBe(true);
+    for (const label of ["Session type", "Week", "Length (hours)", "Topic", "Session details"]) expect(marked(label), label).toBe(true);
+    // Every contact-hour row of the template has a session type that adds up to it.
+    fireEvent.click(screen.getByRole("combobox", { name: "Session 1 type" }));
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "CM — Cours magistral", "TD — Travaux dirigés", "TP — Travaux pratiques", "Workshop", "Seminar", "Other",
+    ]);
     expect(marked("Pre-class learning activities")).toBe(false);
     // The asterisk is for the eye only: the field's name stays its label.
     expect(screen.getByRole("textbox", { name: "Topic" })).toBeTruthy();

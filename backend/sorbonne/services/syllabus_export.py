@@ -17,6 +17,8 @@ from sorbonne.services import rich_text
 from sorbonne.services.syllabus_content import (
     SCHEDULE_HOLDS_GRADED_ACTIVITIES,
     AI_OPTIONS,
+    CONTACT_HOUR_ROWS,
+    contact_hours,
     OTHER_AI_OPTION,
     activity_ai_policy,
     course_ai_fallback,
@@ -42,7 +44,7 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
         document.save(output_path)
         return
 
-    _fill_identification(document.tables[0], syllabus, _record(content.get("identification")))
+    _fill_identification(document.tables[0], syllabus, _record(content.get("identification")), contact_hours(content))
     _fill_contacts(document.tables[1], document.tables[2], _record(content.get("contacts")))
     _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
     _fill_delivery(document.tables[4], _record(content.get("delivery")))
@@ -195,7 +197,9 @@ def template_sections(template_id: str) -> list[str]:
     return [heading for heading in headings if heading not in removed]
 
 
-def _fill_identification(table: Table, syllabus: dict[str, Any], identification: dict[str, Any]) -> None:
+def _fill_identification(
+    table: Table, syllabus: dict[str, Any], identification: dict[str, Any], hours: dict[str, str]
+) -> None:
     values = [
         _text(syllabus.get("academicYear")),
         _text(syllabus.get("courseTitle")),
@@ -207,11 +211,9 @@ def _fill_identification(table: Table, syllabus: dict[str, Any], identification:
     for index, value in enumerate(values):
         _set_cell_text(table.cell(index, 1), value)
 
-    contact_hours = _record(identification.get("contactHours"))
-    for row_index, label in enumerate(
-        ["Lectures", "Tutorials", "Workshops", "Seminars", "Laboratory", "Other"], start=6
-    ):
-        _set_cell_text(table.cell(row_index, 3), _text(contact_hours.get(label)))
+    # Added up from the course schedule's sessions (contact_hours), row by row.
+    for row_index, label in enumerate(CONTACT_HOUR_ROWS, start=6):
+        _set_cell_text(table.cell(row_index, 3), hours.get(label, ""))
 
     # The template gives prerequisites and co-requisites one row between them.
     requirements = [

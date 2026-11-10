@@ -27,7 +27,7 @@ describe("CourseIdentificationEditor", () => {
     expect(screen.getByRole("button", { name: "Add equipment item" })).toBeTruthy();
   });
 
-  it("gives contact hours a number stepper", () => {
+  it("asks for no contact hours: the course schedule adds them up", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
       value={{ contactHours: { Lectures: "20" } }}
@@ -41,12 +41,9 @@ describe("CourseIdentificationEditor", () => {
       onOpenHistory={vi.fn()}
     /></QueryClientProvider>);
 
-    // Arrows are wanted; HistoryTextField stops the wheel changing a focused number,
-    // which is what made the old stepper feel twitchy.
-    const lectures = screen.getByRole("spinbutton", { name: "Lectures" });
-    expect(lectures.getAttribute("type")).toBe("number");
-    expect(lectures.getAttribute("step")).toBe("1");
-    expect(lectures).toHaveProperty("value", "20");
+    // Since 10 Nov 2026 the hours come from the course schedule: no boxes here to type them in.
+    expect(screen.queryByRole("spinbutton", { name: "Lectures" })).toBeNull();
+    expect(screen.getByText(/Contact hours are added up from the course schedule/)).toBeTruthy();
   });
 
   it("groups course-identification fields into named subsections", () => {
@@ -64,8 +61,7 @@ describe("CourseIdentificationEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByRole("heading", { name: "Course details" })).toBeTruthy();
-    // The programme sits with the course it belongs to, and the credit with the hours it counts.
-    expect(screen.getByRole("heading", { name: "Credits and contact hours" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Credits" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Requirements and equipment" })).toBeTruthy();
   });
 });

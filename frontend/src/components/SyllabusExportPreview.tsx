@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { API_BASE_URL, apiFetch } from "@/services/http";
 import { previewProjection } from "@/services/syllabusProjection";
 import { OTHER_AI_OPTION, activityAiPolicy, aiOption, courseAiFallback, templatePermittedUse } from "@/services/aiPolicy";
-import { gradedActivities } from "@/services/syllabusContent";
+import { contactHours, gradedActivities } from "@/services/syllabusContent";
 
 type Resolved = { courseTitle: string; courseCode: string; academicYear: string; content: Record<string, unknown>; sections: string[] };
 
@@ -59,7 +59,7 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
           ["Programme title", text(identification.programmeTitle)],
           ["Degree level and semester", text(identification.degreeLevelAndSemester)],
           ["Number of ECTS", text(identification.ects)],
-          ...Object.entries(record(identification.contactHours)).map(([label, value]) => [`Contact hours — ${label}`, text(value)] as [string, string]),
+          ...Object.entries(contactHours(content)).filter(([, value]) => value).map(([label, value]) => [`Contact hours — ${label}`, value] as [string, string]),
           ["Prerequisites", listText(identification.prerequisiteItems, identification.prerequisites)],
           ["Co-requisites", listText(identification.corequisiteItems, identification.corequisites)],
           ["Equipment", listText(identification.equipmentItems, identification.equipment)],

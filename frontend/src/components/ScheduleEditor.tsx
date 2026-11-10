@@ -20,7 +20,7 @@ import { DateField } from "@/components/DateField";
 
 type ScheduleRow = Record<string, string> & { id: string };
 type ScheduleField = {
-  key: "week" | "deadline" | "topic" | "details" | "preClass" | "assessments";
+  key: "week" | "duration" | "deadline" | "topic" | "details" | "preClass" | "assessments";
   size?: FieldSize;
   label: string;
   multiline?: boolean;
@@ -34,6 +34,10 @@ export const SESSION_TYPES = [
   { value: "CM", label: "CM — Cours magistral", pill: "bg-[#e8edf3] text-[#1f4e79]" },
   { value: "TD", label: "TD — Travaux dirigés", pill: "bg-[#fdf3e3] text-[#8a6116]" },
   { value: "TP", label: "TP — Travaux pratiques", pill: "bg-[#e9f5ec] text-[#1f6b3a]" },
+  // The template's other contact-hour rows, so every row comes from the schedule (10 Nov 2026).
+  { value: "Workshop", label: "Workshop", pill: "bg-[#f3e8f7] text-[#6b2c86]" },
+  { value: "Seminar", label: "Seminar", pill: "bg-[#e6f4f1] text-[#1d6b5f]" },
+  { value: "Other", label: "Other", pill: "bg-[#eef1f5] text-[#344054]" },
 ] as const;
 
 const DEFAULT_SESSION_TYPE = "CM";
@@ -109,6 +113,8 @@ type Props = {
 
 const fields: ScheduleField[] = [
   { key: "week", label: "Week", size: "counter" },
+  // The contact hours in the document are these added up by session type (10 Nov 2026).
+  { key: "duration", label: "Length (hours)", size: "counter" },
   { key: "deadline", label: "Deadline", size: "name" },
   { key: "topic", label: "Topic", size: "line" },
   { key: "details", label: "Session details", multiline: true },
@@ -376,6 +382,23 @@ export function ScheduleEditor({
                       path: `schedule[${row.id}].${field.key}`,
                       label: `Course schedule · ${field.label}`,
                     };
+                    if (field.key === "duration") {
+                      return (
+                        <div key={field.key} className={fieldSizeClass[field.size ?? "full"]}>
+                          <HistoryTextField
+                            label={field.label}
+                            required
+                            value={value}
+                            onChange={(next) => updateRow(row.id, field.key, next)}
+                            type="number"
+                            min={0.25}
+                            step={0.25}
+                            hint="How long this session lasts. The syllabus's contact hours (lectures, tutorials and so on) are these lengths added up by session type."
+                            history={{ field: historyField, onOpenHistory }}
+                          />
+                        </div>
+                      );
+                    }
                     if (field.key === "week") {
                       const problem = weekProblem(value);
                       return (

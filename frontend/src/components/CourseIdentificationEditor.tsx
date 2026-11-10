@@ -27,14 +27,12 @@ type Props = HistoryContext & {
   semesterByCourse?: Record<string, string>;
 };
 
-const contactHourKinds = ["Lectures", "Tutorials", "Workshops", "Seminars", "Laboratory", "Other"];
 
 const boundCourseHint =
   "Title, code, credits and level come from the course record in Students and Timetables. " +
   "Change them there and this syllabus follows; there is nothing to retype here.";
 
 export function CourseIdentificationEditor({ value, courseTitle, courseCode, academicYear, onChange, onMetadataChange, programmes = [], courses = [], academicYears = [], semesters = [], semesterByCourse = {}, ...history }: Props) {
-  const contactHours = record(value.contactHours);
   const update = (change: Record<string, unknown>) => onChange({ ...value, ...change });
   const programmeId = stringValue(value.catalogueProgrammeId);
   const chooseProgramme = (nextId: string) => {
@@ -98,12 +96,13 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
       </FieldRow>
     </SyllabusSubsection>
 
-    <SyllabusSubsection title="Credits and contact hours">
+    {/* No contact-hour boxes since 10 Nov 2026: the document adds the hours up from the
+        sessions in the course schedule, each counted under its session type. */}
+    <SyllabusSubsection title="Credits">
       <FieldRow>
         <IdentificationField label="Number of ECTS" required value={stringValue(value.ects)} onChange={(ects) => update({ ects })} type="number" min={0} step={0.5} size="counter" field={{ path: "identification.ects", label: "Number of ECTS" }} {...history} />
-        {contactHourKinds.map((label) => <IdentificationField key={label} label={label} value={stringValue(contactHours[label])} onChange={(next) => update({ contactHours: { ...contactHours, [label]: next } })} type="number" min={0} step={1} size="counter" field={{ path: `identification.contactHours.${label}`, label }} {...history} />)}
       </FieldRow>
-      <ContactHoursTotal contactHours={contactHours} />
+      <p className="text-sm text-[#667085]">Contact hours are added up from the course schedule: each session's length, under its session type.</p>
     </SyllabusSubsection>
 
     <SyllabusSubsection title="Requirements and equipment">
@@ -117,12 +116,6 @@ export function CourseIdentificationEditor({ value, courseTitle, courseCode, aca
 
 }
 
-/** Six numbers that are only ever wanted added up; the sum was left to the reader. */
-function ContactHoursTotal({ contactHours }: { contactHours: Record<string, unknown> }) {
-  const total = contactHourKinds.reduce((sum, kind) => sum + (Number(stringValue(contactHours[kind])) || 0), 0);
-  if (!total) return <p className="text-sm text-[#667085]"><span aria-hidden="true" className="mr-1 text-[#a6292f]">*</span>Give the hours of at least one type of session.</p>;
-  return <p className="text-sm text-[#667085]">Total <span className="font-semibold text-[#344054]">{total}</span> contact hour{total === 1 ? "" : "s"}</p>;
-}
 
 function TextList({ title, singular, legacyValue, itemsValue, path, onChange, ...history }: HistoryContext & { title: string; singular: string; legacyValue: unknown; itemsValue: unknown; path: string; onChange: (value: ListItem[]) => void }) {
   const items = listItems(itemsValue, legacyValue, title);
@@ -139,7 +132,6 @@ function listItems(value: unknown, legacy: unknown, name: string): ListItem[] {
   return text.trim() ? [{ id: `legacy-${name.toLowerCase().replace(/[^a-z]+/g, "-")}`, text }] : [];
 }
 
-function record(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function stringValue(value: unknown): string { return typeof value === "string" ? value : value === 0 ? "0" : ""; }
 
 /** A value the course record owns: shown, never edited here. */

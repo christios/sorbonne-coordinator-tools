@@ -21,7 +21,7 @@ _SCEN: dict[str, Any] = {
         "clos": [{"id": "clo-1", "clo": "Trace rays.", "ploIds": ["plo-1"], "skillIds": ["competency-1"]}],
     },
     "schedule": [
-        {"id": "session-1", "week": "1", "topic": "Reflection", "details": "<p>Plane mirrors.</p>"},
+        {"id": "session-1", "week": "1", "topic": "Reflection", "details": "<p>Plane mirrors.</p>", "duration": "2"},
         {
             "id": "essay",
             "kind": "graded",
@@ -64,7 +64,7 @@ _FYS: dict[str, Any] = {
     "teachingMethodologies": {"methods": {"Lectures": {"selected": True, "hours": "30"}}},
     "assessment": {},
     "schedule": [
-        {"id": "session-1", "week": "1", "topic": "Forces", "details": "<p>Newton's laws.</p>"},
+        {"id": "session-1", "week": "1", "topic": "Forces", "details": "<p>Newton's laws.</p>", "duration": "2"},
         {
             "id": "quiz",
             "kind": "graded",

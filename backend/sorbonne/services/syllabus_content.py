@@ -318,3 +318,50 @@ def convert_fys_to_schedule_cards(content: dict[str, Any]) -> tuple[dict[str, An
     converted["schedule"] = [*sessions, *cards]
     converted["schemaVersion"] = SCHEDULE_HOLDS_GRADED_ACTIVITIES
     return converted, report
+
+
+# The template's contact-hour rows, in its order, and the session type each one adds up
+# (Christian, 10 Nov 2026: the hours come from the course schedule, not from boxes in section 1).
+CONTACT_HOUR_ROWS = ("Lectures", "Tutorials", "Workshops", "Seminars", "Laboratory", "Other")
+SESSION_TYPE_ROWS = {
+    "CM": "Lectures",
+    "TD": "Tutorials",
+    "Workshop": "Workshops",
+    "Seminar": "Seminars",
+    "TP": "Laboratory",
+    "Other": "Other",
+}
+# What a session card shows, and prints, when nobody chose its type.
+DEFAULT_SESSION_TYPE = "CM"
+
+
+def session_hours(row: dict[str, Any]) -> float | None:
+    """A session's length in hours, or None when it has none (a comma is read as a decimal point)."""
+    raw = str(row.get("duration") or "").strip().replace(",", ".")
+    try:
+        hours = float(raw)
+    except ValueError:
+        return None
+    return hours if hours > 0 else None
+
+
+def contact_hours(content: dict[str, Any]) -> dict[str, str]:
+    """The contact hours the document prints, row by row: the course schedule's sessions added up.
+
+    Each session counts its length under its type's row; graded activities do not count. A
+    syllabus none of whose sessions has a length yet keeps printing the hours typed into
+    section 1 before November 2026, so its export does not go blank before its teacher has
+    been through the schedule.
+    """
+    sessions = [row for row in content.get("schedule") or [] if isinstance(row, dict) and row.get("kind") != "graded"]
+    timed = [(row, hours) for row in sessions if (hours := session_hours(row)) is not None]
+    if not timed:
+        identification = content.get("identification")
+        typed = identification.get("contactHours") if isinstance(identification, dict) else None
+        typed = typed if isinstance(typed, dict) else {}
+        return {row: str(typed.get(row) or "").strip() for row in CONTACT_HOUR_ROWS}
+    totals = dict.fromkeys(CONTACT_HOUR_ROWS, 0.0)
+    for row, hours in timed:
+        totals[SESSION_TYPE_ROWS.get(str(row.get("sessionType") or DEFAULT_SESSION_TYPE), "Other")] += hours
+    return {row: (f"{total:g}" if total else "") for row, total in totals.items()}
+

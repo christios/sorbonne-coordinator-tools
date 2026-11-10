@@ -127,7 +127,7 @@ def test_sessions_are_listed_once_per_kind_of_gap_naming_the_first_few_by_their_
     content = complete_scen_content()
     long_topic = "Chapter 3: Imaging\n- Recap\n- Combination of two lenses and a great deal more besides"
     content["schedule"][:1] = [
-        {"id": f"s{number}", "topic": topic, "date": "", "details": "<p>Read the chapter.</p>"}
+        {"id": f"s{number}", "topic": topic, "date": "", "details": "<p>Read the chapter.</p>", "duration": "1.5"}
         for number, topic in enumerate(["Rays", long_topic, "", "Mirrors", "Prisms"], start=1)
     ]
 
@@ -140,6 +140,13 @@ def test_sessions_are_listed_once_per_kind_of_gap_naming_the_first_few_by_their_
         row["date"] = "2027-01-11"
     content["schedule"][2]["topic"] = "Lenses"
     assert missing_for_submission(SCEN, content) == []
+
+
+def test_every_session_needs_its_length_since_the_contact_hours_add_them_up() -> None:
+    content = complete_scen_content()
+    content["schedule"][0]["duration"] = ""
+
+    assert messages(missing_for_submission(SCEN, content)) == ['Give 1 session a length in hours: "Reflection".']
 
 
 def test_an_activity_carried_over_from_an_older_syllabus_may_name_its_outcomes_as_text() -> None:
