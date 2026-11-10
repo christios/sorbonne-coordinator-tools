@@ -190,13 +190,14 @@ def _sessions(missing: Missing, content: dict[str, Any], *, flag_earlier_notes: 
     untitled = sum(1 for row in sessions if not _text(row.get("topic")))
     if untitled:
         _add(missing, "schedule", f"Give {_count(untitled, 'session')} a topic.")
+    # The session card asks for a week; rows from older syllabi may carry a date instead.
     unplaced = [
         _short(_text(row.get("topic"))) or "untitled"
         for row in sessions
         if not (_text(row.get("week")) or _text(row.get("date")))
     ]
     if unplaced:
-        _add(missing, "schedule", f"Give {_count(len(unplaced), 'session')} a week or a date: {_some(unplaced)}.")
+        _add(missing, "schedule", f"Give {_count(len(unplaced), 'session')} a week: {_some(unplaced)}.")
     if flag_earlier_notes:
         noted = [
             _short(_text(row.get("topic"))) or "untitled"

@@ -127,7 +127,7 @@ def test_sessions_are_listed_once_per_kind_of_gap_naming_the_first_few_by_their_
 
     assert messages(missing_for_submission(SCEN, content)) == [
         "Give 1 session a topic.",
-        'Give 5 sessions a week or a date: "Rays", "Chapter 3: Imaging", "untitled" and 2 more.',
+        'Give 5 sessions a week: "Rays", "Chapter 3: Imaging", "untitled" and 2 more.',
     ]
 
     for row in content["schedule"][:5]:
