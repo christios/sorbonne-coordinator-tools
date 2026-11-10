@@ -1,10 +1,11 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Eye, Loader2, Lock, Send, Undo2 } from "lucide-react";
 
 import { SubmissionChecklist } from "@/components/SubmissionChecklist";
 import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
 import { useStaffUser } from "@/components/useStaffUser";
-import { getSyllabusCompleteness, setSyllabusReview, setSyllabusVisibility, type Syllabus } from "@/services/syllabi";
+import { useSyllabusCompleteness } from "@/components/useSyllabusCompleteness";
+import { setSyllabusReview, setSyllabusVisibility, type Syllabus } from "@/services/syllabi";
 
 /**
  * Who else may read this syllabus, and whether its author has asked for it to be looked at.
@@ -37,15 +38,7 @@ export function SyllabusSharing({
   // request is already the one reading it.
   const offersReview = decides && syllabus.visibility !== "public" && !shared;
   const awaitingSubmission = offersReview && !syllabus.submittedAt;
-  // Whoever may write it sees what it still lacks, whatever its status (Christian, 10 Nov
-  // 2026): the same rule as the server's can_edit.
-  const canEdit = mine || (curator && (shared || syllabus.visibility === "public"));
-  // Asked again whenever a save changes the syllabus: the list answers for the saved version.
-  const completeness = useQuery({
-    queryKey: ["syllabus-completeness", syllabus.id, syllabus.revision],
-    queryFn: () => getSyllabusCompleteness(syllabus.id),
-    enabled: canEdit,
-  });
+  const { completeness, missing } = useSyllabusCompleteness(syllabus);
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["syllabi"] });
     void client.invalidateQueries({ queryKey: ["syllabus", syllabus.id] });
@@ -63,7 +56,6 @@ export function SyllabusSharing({
   });
   const busy = publish.isPending || review.isPending;
 
-  const missing = canEdit ? completeness.data?.missing ?? [] : [];
   // Outside the review step the list only informs: nothing waits on it.
   const checklist = missing.length && !awaitingSubmission ? (
     <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} forReview={false} />

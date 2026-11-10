@@ -34,6 +34,23 @@ describe("ScheduleEditor", () => {
     expect(screen.getByLabelText("Pre-class learning activities")).toBeTruthy();
   });
 
+  it("shows each closed session's week and length, the hours the document adds up", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><ScheduleEditor
+      rows={[
+        { id: "session-1", sessionType: "CM", week: "1", duration: "1,5", topic: "Climate governance", preClass: "", assessments: "" },
+        { id: "session-2", sessionType: "TD", week: "", topic: "Problem solving", preClass: "", assessments: "" },
+      ]}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    expect(screen.getByText("Week 1 · 1.5 h")).toBeTruthy();
+    expect(screen.getByText("No week set · No length set")).toBeTruthy();
+  });
+
   it("keeps sessions compact until one is opened", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><ScheduleEditor

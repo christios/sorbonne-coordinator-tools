@@ -8,8 +8,10 @@ import {
   Loader2,
   Trash2,
   TriangleAlert,
+  X,
   } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import {
   Fragment,
   type ReactNode,
@@ -52,6 +54,7 @@ import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
 import { SyllabusSharing } from "@/components/SyllabusSharing";
+import { useSyllabusCompleteness } from "@/components/useSyllabusCompleteness";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import {
@@ -119,6 +122,10 @@ export function SyllabusEditor({
   const saveInFlight = useRef(false);
   const saveConflict = useRef(false);
   const editorRef = useRef<HTMLDivElement>(null);
+  // The section menu counts what each section still lacks, from the header list's answer.
+  const { missing } = useSyllabusCompleteness(draft);
+  const sectionCounts: Record<string, number> = {};
+  for (const item of missing) sectionCounts[item.section] = (sectionCounts[item.section] ?? 0) + 1;
 
   useEffect(() => {
     if (draftRef.current.id !== syllabus.id || !dirty) {
@@ -322,6 +329,7 @@ export function SyllabusEditor({
           sections={template.sections}
           activeSection={active}
           onSectionChange={setActive}
+          sectionCounts={sectionCounts}
           onHeaderCollapseChange={onHeaderCollapseChange}
           compactHeaderActions={compactHeaderActions}
           actions={
@@ -402,16 +410,50 @@ export function SyllabusEditor({
         </SectionEditorShell>
       </FieldHistoryProvider>
       {previewOpen ? (
-        <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#0f172a]/40 p-4" role="dialog" aria-label="Export preview" onClick={() => setPreviewOpen(false)}>
-          <div className="mx-auto max-w-[56rem]" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-3 flex justify-end">
-              <button type="button" onClick={() => setPreviewOpen(false)} className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm">Close preview</button>
-            </div>
-            <SyllabusExportPreview syllabusId={draft.id} />
-          </div>
-        </div>
+        <ExportPreviewDialog onClose={() => setPreviewOpen(false)}>
+          <SyllabusExportPreview syllabusId={draft.id} />
+        </ExportPreviewDialog>
       ) : null}
     </FieldInfoProvider>
+  );
+}
+
+/**
+ * The export preview over the editor: a long document, so its Close stays at the top while it
+ * scrolls, Escape closes it, and keyboard focus starts on Close and returns where it was.
+ */
+function ExportPreviewDialog({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // The editor hands a new function each render; opening is what focuses Close, once.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  useEffect(() => {
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCloseRef.current();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      returnTo?.focus();
+    };
+  }, []);
+  return createPortal(
+    <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#0f172a]/40 px-4 pb-6" onMouseDown={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="export-preview-title" className="mx-auto max-w-[56rem]" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-4 mb-3 flex items-center justify-between gap-3 bg-[#0f172a]/70 px-4 py-3 backdrop-blur-sm">
+          <h2 id="export-preview-title" className="text-sm font-semibold text-white">Export preview</h2>
+          <button ref={closeRef} type="button" onClick={onClose} className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f4e79]">
+            <X size={16} aria-hidden="true" /> Close preview
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body,
   );
 }
 

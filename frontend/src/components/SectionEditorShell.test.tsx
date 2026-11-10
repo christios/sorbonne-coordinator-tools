@@ -56,4 +56,28 @@ describe("SectionEditorShell", () => {
     expect(onHeaderCollapseChange).toHaveBeenLastCalledWith(false);
     expect(screen.getByTestId("editor-workspace").className).not.toContain("lg:pb-36");
   });
+
+  it("counts what each section still lacks, marks the current one, and opens a section at its top", () => {
+    const props = {
+      backLabel: "Back to library",
+      onBack: vi.fn(),
+      eyebrow: "2026-2027",
+      title: "Example record",
+      subtitle: "Builder",
+      actions: null,
+      sections: [{ id: "details", label: "1. Details" }, { id: "review", label: "2. Review" }],
+      onSectionChange: vi.fn(),
+      sectionCounts: { review: 3 },
+    };
+    const { rerender } = render(<SectionEditorShell {...props} activeSection="details"><p>Canvas</p></SectionEditorShell>);
+
+    expect(screen.getByRole("button", { name: "1. Details" }).getAttribute("aria-current")).toBe("step");
+    expect(screen.getByRole("button", { name: "2. Review, 3 to fill in" }).getAttribute("aria-current")).toBeNull();
+
+    const workspace = screen.getByTestId("editor-workspace");
+    workspace.scrollTop = 400;
+    rerender(<SectionEditorShell {...props} activeSection="review"><p>Canvas</p></SectionEditorShell>);
+    expect(workspace.scrollTop).toBe(0);
+    expect(screen.getByRole("button", { name: "2. Review, 3 to fill in" }).getAttribute("aria-current")).toBe("step");
+  });
 });

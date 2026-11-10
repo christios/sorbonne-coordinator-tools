@@ -14,7 +14,7 @@ import { HistoryTextField } from "@/components/HistoryTextField";
 import { type HistoryField } from "@/components/FieldHistory";
 import { GradedActivityFields, type CloKey } from "@/components/StructuredEntryEditors";
 import type { CatalogueEntry } from "@/services/syllabusCatalogues";
-import { FYS_COMPONENTS, scheduleOrder } from "@/services/syllabusContent";
+import { FYS_COMPONENTS, scheduleOrder, sessionHours } from "@/services/syllabusContent";
 import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { DateField } from "@/components/DateField";
 
@@ -272,7 +272,7 @@ export function ScheduleEditor({
                 onToggle={() => toggleExpanded(row.id)}
                 toggleLabel={`${isExpanded ? "Collapse" : "Expand"} topic: ${topicLabel(row)} (position ${index + 1})`}
                 title={topicLabel(row)}
-                summary={row.week ? `Week ${row.week}` : "No week set"}
+                summary={[row.week ? `Week ${row.week}` : "No week set", lengthLabel(row)].filter(Boolean).join(" · ")}
                 leading={
                   <span className="mt-0.5 inline-flex shrink-0 items-center gap-1">
                     <span
@@ -284,7 +284,7 @@ export function ScheduleEditor({
                     >
                       {row.sessionType || DEFAULT_SESSION_TYPE}
                     </span>
-                    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold text-[#344054]">
+                    <span className="inline-flex h-5 min-w-7 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold tabular-nums text-[#344054]">
                       {sessionNumbers.get(row.id) ?? index + 1}
                     </span>
                   </span>
@@ -606,7 +606,7 @@ function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outc
       leading={
         <span className="mt-0.5 inline-flex shrink-0 items-center gap-1">
           <span aria-label={`Graded activity ${number}`} className="inline-flex h-5 items-center justify-center rounded-full bg-[#f3e8f7] px-2 text-xs font-semibold text-[#6b2c86]">Graded</span>
-          <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold text-[#344054]">{number}</span>
+          <span className="inline-flex h-5 min-w-7 items-center justify-center rounded-full bg-[#eef1f5] px-1.5 text-xs font-semibold tabular-nums text-[#344054]">{number}</span>
         </span>
       }
       actions={
@@ -678,4 +678,10 @@ function FoundationYearGradedFields({ card, number, outcomes, onChange, onOpenHi
       {(card as Record<string, string>).earlierClos ? <p className="text-sm text-[#667085]">Before the conversion this row said: CLO(s) {(card as Record<string, string>).earlierClos}</p> : null}
     </div>
   );
+}
+
+/** "2 h" on a session card, so the hours the document adds up show without opening it. */
+function lengthLabel(row: Record<string, unknown>): string {
+  const hours = sessionHours(row);
+  return hours === null ? "No length set" : `${hours} h`;
 }

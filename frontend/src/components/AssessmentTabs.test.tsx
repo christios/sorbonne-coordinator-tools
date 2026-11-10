@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AssessmentTabs } from "./AssessmentTabs";
 import { FieldHistoryProvider } from "./FieldHistory";
-import { AssessmentAiPolicyEditor, AssessmentItemsEditor } from "./StructuredEntryEditors";
+import { AssessmentAiPolicyEditor, AssessmentItemsEditor, GradedActivitiesSummary } from "./StructuredEntryEditors";
 
 describe("AssessmentTabs", () => {
   it("shows one focused assessment editor at a time", () => {
@@ -172,7 +172,8 @@ describe("Choosing an assessment type", () => {
       onOpenHistory={vi.fn()}
     /></QueryClientProvider>);
 
-    const rows = screen.getAllByRole("row").slice(1).map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent));
+    // The body's rows; the total under them has its own test.
+    const rows = Array.from(document.querySelectorAll("tbody tr")).map((row) => Array.from(row.querySelectorAll("td")).map((cell) => cell.textContent));
     expect(rows).toEqual([
       ["10/09/2026", "Quiz 1", "10%", "CLO 1", "AI Prohibited"],
       ["Week 6", "Midterm", "40%", "—", "Other: Calculators only"],
@@ -182,5 +183,18 @@ describe("Choosing an assessment type", () => {
     expect(screen.getByLabelText(/^Assessment methodologies\*?$/)).toHaveProperty("value", "Written tests.");
     fireEvent.click(screen.getByRole("button", { name: "Edit in the course schedule" }));
     expect(onOpenSchedule).toHaveBeenCalledOnce();
+  });
+});
+
+describe("The summary of graded activities", () => {
+  it("adds up the weights and says so when they do not make 100%", () => {
+    const { rerender } = render(<GradedActivitiesSummary outcomes={[]} activities={[{ id: "a", name: "Exam", weight: "60" }, { id: "b", name: "Lab report", weight: "40" }]} />);
+    expect(screen.getByRole("rowheader", { name: "Total" })).toBeTruthy();
+    expect(screen.getByText("100%")).toBeTruthy();
+    expect(screen.queryByText("The weights must add up to 100%.")).toBeNull();
+
+    rerender(<GradedActivitiesSummary outcomes={[]} activities={[{ id: "a", name: "Exam", weight: "60" }, { id: "b", name: "Lab report", weight: "25,5" }]} />);
+    expect(screen.getByText("85.5%")).toBeTruthy();
+    expect(screen.getByText("The weights must add up to 100%.")).toBeTruthy();
   });
 });

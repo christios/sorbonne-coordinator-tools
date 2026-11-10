@@ -141,8 +141,27 @@ export function GradedActivitiesSummary({ activities, outcomes, cloKey = "cloIds
           <td className="border-b border-[#eef1f5] py-2">{aiPolicySummary(activity, aiFallback) || "—"}</td>
         </tr>;
       })}</tbody>
+      <tfoot><WeightTotalRow activities={activities} /></tfoot>
     </table></div> : <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">No graded activities yet. Add them in the course schedule, beside the sessions they belong to.</p>}
   </section>;
+}
+
+/**
+ * The weights added up under the summary: 100% is what the template asks for, and what
+ * Submit for review checks, so a total that is not says so here, where it is read.
+ */
+function WeightTotalRow({ activities }: { activities: AssessmentEntry[] }) {
+  const total = activities.reduce((sum, activity) => {
+    const weight = Number(stringValue(activity.weight).replace(",", "."));
+    return Number.isFinite(weight) ? sum + weight : sum;
+  }, 0);
+  const rounded = Math.round(total * 100) / 100;
+  const complete = Math.abs(rounded - 100) < 0.01;
+  return <tr className="text-sm">
+    <th scope="row" colSpan={2} className="py-2 pr-3 text-right font-semibold text-[#344054]">Total</th>
+    <td className={`py-2 pr-3 font-semibold tabular-nums ${complete ? "text-[#24805a]" : "text-[#8a4b00]"}`}>{rounded}%</td>
+    <td colSpan={2} className="py-2 text-[#8a4b00]">{complete ? null : "The weights must add up to 100%."}</td>
+  </tr>;
 }
 
 /** Sections 9.4 and 9.6: how the course assesses, and what happens to late work. */
