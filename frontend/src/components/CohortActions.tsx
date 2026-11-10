@@ -25,6 +25,7 @@ import {
   updateCohort,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { studentsIn } from "@/components/CohortMenu";
 
 /**
  * One line on what the roster sync's last reading makes of one of the cohort's channels,
@@ -157,8 +158,8 @@ export function CohortActions({
    * — and the channels its reading holds, which are the ones there are to choose from.
    */
   const teams = useQuery({
-    queryKey: ["teams-check", cohort.id],
-    queryFn: () => fetchTeamsCheck(cohort.id),
+    queryKey: ["teams-check", cohort.id, semester?.id ?? ""],
+    queryFn: () => fetchTeamsCheck(cohort.id, semester?.id ?? ""),
     enabled: editing,
     retry: false,
   });
@@ -166,7 +167,7 @@ export function CohortActions({
   // Said of a saved channel only: one just chosen has not been compared with anything yet.
   const teamsLines = (teams.data?.channels ?? [])
     .filter((entry) => teamsChannels.includes(entry.channel))
-    .map((entry) => teamsStatus(entry, cohort.memberCount))
+    .map((entry) => teamsStatus(entry, studentsIn(cohort, semester?.id)))
     .filter(Boolean);
   const readAt = teams.data?.syncedAt ? Date.parse(teams.data.syncedAt) : NaN;
 
@@ -253,11 +254,12 @@ export function CohortActions({
           <button
             type="button"
             onClick={() => onShowMembers(cohort)}
-            title={`Show the ${cohort.memberCount} students in ${cohort.name}`}
+            title={`Show the ${studentsIn(cohort, semester?.id)} students in ${cohort.name}${semester ? ` in ${semester.name}` : ""}`}
             className="inline-flex h-10 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]"
           >
             <Users size={15} aria-hidden="true" />
-            <span className="tabular-nums">{cohort.memberCount}</span>
+            {/* The semester on screen's: rolled over, L1 holds the same students in both. */}
+            <span className="tabular-nums">{studentsIn(cohort, semester?.id)}</span>
           </button>
         ) : null}
         <button

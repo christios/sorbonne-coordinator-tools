@@ -205,6 +205,18 @@ describe("adding a set", () => {
 });
 
 
+describe("the courses a set is offered", () => {
+  it("are the ones active in the semester on screen", async () => {
+    // Every semester's were offered, so a course chosen for Semester 1 only could be put on
+    // a Semester 2 set.
+    vi.spyOn(database, "fetchCatalogue").mockResolvedValue(catalogue(["PHYS - Physics"]));
+    vi.spyOn(portal, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    shown();
+
+    await waitFor(() => expect(portal.fetchActiveCourses).toHaveBeenCalledWith("262710"));
+  });
+});
+
 describe("choosing a sub-row's major", () => {
   /** Another cohort's set, whose group already splits by major. */
   const elsewhere = [

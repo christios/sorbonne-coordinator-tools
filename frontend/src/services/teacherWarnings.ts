@@ -65,6 +65,13 @@ export type TeacherFigures = {
   registrar: number;
   /** Hours their requisitions contract them for. Zero where they have none. */
   contracted: number;
+  /**
+   * What the requisitions are held against, when they are a year's and the page is one
+   * semester's: the plan of every semester of that year, and what that year has used so far
+   * (the earlier semesters' plan and this one's taught so far). Left out, the semester's own
+   * `planned` and `taughtSoFar` are used, as before.
+   */
+  year?: { label: string; planned: number; taughtSoFar: number };
   /** Hours actually taught to date: what met, less cancelled, plus stood in for. */
   taughtSoFar: number;
   /** A submitted timesheet, beside what actually met in the period it claims. */
@@ -113,15 +120,19 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
   // Ours against their requisitions' teaching hours — never their admin hours, which are
   // paid but not taught. Silent for anybody with no requisition, which is most of the
   // full-time staff.
-  if (figures.contracted > 0 && figures.planned > 0 && gap(figures.planned, figures.contracted) >= apart) {
-    const apartBy = gap(figures.planned, figures.contracted);
+  // A year's requisitions against the year's plan: one semester's plan against them read
+  // every Semester 2 teacher as under-planned by their whole Semester 1.
+  const plannedForContract = figures.year?.planned ?? figures.planned;
+  const over = figures.year ? ` over ${figures.year.label}` : "";
+  if (figures.contracted > 0 && plannedForContract > 0 && gap(plannedForContract, figures.contracted) >= apart) {
+    const apartBy = gap(plannedForContract, figures.contracted);
     found.push({
-      key: `teacher-hours:plan-vs-contract:${who}:${figures.planned}:${figures.contracted}`,
+      key: `teacher-hours:plan-vs-contract:${who}:${plannedForContract}:${figures.contracted}`,
       teacherKey: who,
       kind: "plan_vs_contract",
       severity: bySize(apartBy, apart),
-      label: `Requisition ${figures.contracted < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
-      sentence: `${name}: we plan ${hours(figures.planned)} and their requisitions pay for ${hours(figures.contracted)} of teaching.`,
+      label: `Requisition ${figures.contracted < plannedForContract ? "short" : "over"} ${hours(apartBy)}`,
+      sentence: `${name}: we plan ${hours(plannedForContract)}${over} and their requisitions pay for ${hours(figures.contracted)} of teaching.`,
       apart: apartBy,
     });
   }
@@ -149,10 +160,12 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
    * enough to mention, not how far apart two numbers are. Over the requisition it always
    * shows, whatever the threshold. Admin hours are no part of it: nothing is taught in them.
    */
-  if (figures.contracted > 0 && figures.taughtSoFar > 0 && figures.taughtSoFar + apart >= figures.contracted) {
-    const left = Math.round((figures.contracted - figures.taughtSoFar) * 100) / 100;
+  // The year's, when the requisitions are a year's: the earlier semesters count too.
+  const usedSoFar = figures.year?.taughtSoFar ?? figures.taughtSoFar;
+  if (figures.contracted > 0 && usedSoFar > 0 && usedSoFar + apart >= figures.contracted) {
+    const left = Math.round((figures.contracted - usedSoFar) * 100) / 100;
     found.push({
-      key: `teacher-hours:contract-nearly-spent:${who}:${figures.contracted}:${figures.taughtSoFar}`,
+      key: `teacher-hours:contract-nearly-spent:${who}:${figures.contracted}:${usedSoFar}`,
       teacherKey: who,
       kind: "contract_nearly_spent",
       /*
@@ -164,8 +177,8 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       label: left < 0 ? `${hours(Math.abs(left))} past requisition` : left === 0 ? "Requisition used up" : `${hours(left)} of requisition left`,
       sentence:
         left < 0
-          ? `${name} has taught ${hours(figures.taughtSoFar)} against a requisition of ${hours(figures.contracted)} — ${hours(Math.abs(left))} past it.`
-          : `${name} has taught ${hours(figures.taughtSoFar)} of the ${hours(figures.contracted)} requisitioned, with ${hours(left)} left.`,
+          ? `${name} has taught ${hours(usedSoFar)} against a requisition of ${hours(figures.contracted)} — ${hours(Math.abs(left))} past it.`
+          : `${name} has taught ${hours(usedSoFar)} of the ${hours(figures.contracted)} requisitioned, with ${hours(left)} left.`,
       apart: Math.abs(left),
     });
   }

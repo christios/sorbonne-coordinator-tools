@@ -82,3 +82,11 @@ describe("a term linked to two semesters", () => {
     expect(input.weekOne).toEqual({ weekOne: "2026-09-07", without: [] });
   });
 });
+
+describe("a timetables file's name", () => {
+  it("says the semester when the file is one semester's", () => {
+    expect(timetablesFilename(["Grace Younes"], "teachers", "S2")).toBe("Grace-Younes-S2-timetable.pdf");
+    expect(timetablesFilename(["A", "B", "C", "D"], "teachers", "S2")).toBe("timetables-S2-4-teachers.pdf");
+    expect(timetablesFilename(["Grace Younes"], "teachers")).toBe("Grace-Younes-timetable.pdf");
+  });
+});

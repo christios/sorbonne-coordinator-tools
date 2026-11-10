@@ -51,6 +51,12 @@ export type HoursSource = {
   contracts: Record<string, TeacherSummary>;
   /** The semester's academic year, "2026-2027", for the requisitions of that year; "" for all of them. */
   academicYear?: string;
+  /**
+   * Every semester of that year, for the requisition warnings: a requisition is a year's,
+   * so it is held against the year's plan, and what the year has used so far counts the
+   * earlier semesters' plan. Keyed as the plan is: a teacher's id, or their name in lower case.
+   */
+  year?: { planned: Map<string, number>; earlier: Map<string, number> };
   decided: Map<string, Dismissal>;
   /** How far apart two figures have to be before the department wants to hear about it. */
   threshold: number;
@@ -356,16 +362,27 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
      * contract, so picking a month changed which teachers were flagged and, with the
      * figures, the keys their dismissals were held against.
      */
-    const plan = planOf.get(row.teacherId || row.teacher.trim().toLowerCase());
+    const planKey = row.teacherId || row.teacher.trim().toLowerCase();
+    const plan = planOf.get(planKey);
+    const taughtSoFar = hoursBetween(source, row, { from: "0000-01-01", to: today });
     const warnings = warningsFor(
       {
         teacherKey: row.active?.id || row.teacherId || row.teacher,
         teacher: row.teacher,
         planned: plan?.total ?? 0,
         registrar: registrarHoursFor(booked, row.teacher, sameTeacher),
-        // Teaching only: admin hours are paid, not taught, and have nothing to meet.
-        contracted: paid?.contractedHours ?? 0,
-        taughtSoFar: hoursBetween(source, row, { from: "0000-01-01", to: today }),
+        // Teaching only: admin hours are paid, not taught, and have nothing to meet. The
+        // semester's year's requisitions, as the column shows, not every year's.
+        contracted: mine.requisitionedHours ?? 0,
+        taughtSoFar,
+        year:
+          source.year && source.academicYear
+            ? {
+                label: source.academicYear,
+                planned: source.year.planned.get(planKey) ?? (plan?.total ?? 0),
+                taughtSoFar: (source.year.earlier.get(planKey) ?? 0) + taughtSoFar,
+              }
+            : undefined,
         claims,
       },
       threshold,
@@ -377,6 +394,29 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
     });
     return { ...mine, warnings };
   });
+}
+
+/**
+ * The claims of one semester: a claim is the latest semester's whose Week 1 is on or before
+ * the end of the period it claims. Every claim used to be listed on every semester, so on
+ * Semester 2 each of Semester 1's read "the timetable has 0 h" against Semester 2's classes.
+ * A semester whose Week 1 is not set keeps them all, as before.
+ */
+export function claimsOfSemester<T extends { periodStart: string; periodEnd?: string }>(
+  claims: T[],
+  termId: string,
+  weekOnes: Record<string, string>,
+): T[] {
+  if (!weekOnes[termId]) return claims;
+  const starts = Object.entries(weekOnes)
+    .filter(([, day]) => Boolean(day))
+    .sort(([, left], [, right]) => left.localeCompare(right));
+  const semesterOf = (claim: T) => {
+    const ends = claim.periodEnd || periodEnd(claim.periodStart);
+    const begun = starts.filter(([, day]) => day <= ends);
+    return (begun[begun.length - 1] ?? starts[0])?.[0] ?? "";
+  };
+  return claims.filter((claim) => semesterOf(claim) === termId);
 }
 
 /** "2026-2027" for the portal's 262710: the two years a term code's first four digits name. */

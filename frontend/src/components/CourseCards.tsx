@@ -570,7 +570,7 @@ export function CourseCards({
       )}
 
       {adding ? <AddFromPortal open cohorts={cohorts} terms={terms.data ?? []} activeCourses={activeCourses.data ?? []} cohortShown={chosen?.id} semesterShown={semester?.id} onClose={() => setAdding(false)} onAdded={() => { setAdding(false); refresh(); }} /> : null}
-      <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} cards={cards} teacherName={nameOf} onClose={() => setTools(false)} />
+      <WorkbookTools open={tools} cohorts={cohorts} terms={terms.data ?? []} cards={cards} teacherName={nameOf} cohortShown={chosen?.id} semesterShown={semester?.id} onClose={() => setTools(false)} />
     </section>
   );
 }

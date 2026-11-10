@@ -33,6 +33,7 @@ import {
   fetchExemptions,
 } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
+import { shortSemester } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /** What a schedule is read from, through the cache the pages share. */
@@ -53,6 +54,23 @@ export function scheduleReads(client: QueryClient): ScheduleReads {
 /** Who had nothing to draw, so the page can say so rather than hand over blank pages silently. */
 export type ExportOutcome = { people: number; withoutClasses: string[] };
 
+/**
+ * The semester a set of weeks is about, "S2", when it is one: the tag a file name carries.
+ * Weeks of several semesters, or of none, carry none.
+ */
+function semesterTag(inputs: ScheduleInput[]): string {
+  const said = [...new Set(inputs.map((input) => input.semester ?? ""))];
+  return said.length === 1 && said[0] ? shortSemester(said[0]) : "";
+}
+
+/**
+ * One semester's classes, when a page says which: a week drawn from both semesters put
+ * Semester 1's and Semester 2's classes on one grid. Left out, every semester's, as before.
+ */
+function inTerm<T extends { termCode: string }>(entries: T[], termCode: string): T[] {
+  return termCode ? entries.filter((entry) => entry.termCode === termCode) : entries;
+}
+
 async function download(inputs: ScheduleInput[], names: string[], noun: string): Promise<ExportOutcome> {
   const withoutClasses = inputs
     .filter((input) => input.sections.every((section) => section.meetings.length === 0))
@@ -64,7 +82,7 @@ async function download(inputs: ScheduleInput[], names: string[], noun: string):
         : "The portal has booked no classes for any of them — run a portal sync if that is new.",
     );
   }
-  await downloadSchedulePdf(inputs, timetablesFilename(names, noun));
+  await downloadSchedulePdf(inputs, timetablesFilename(names, noun, semesterTag(inputs)));
   return { people: inputs.length, withoutClasses };
 }
 
@@ -99,7 +117,12 @@ export type TeacherWanted = { id: string; fullName: string };
  * they covered — each box naming whose class it is. One teacher is their own week, as
  * their record draws it.
  */
-export async function exportTeacherTimetables(client: QueryClient, teachers: TeacherWanted[]): Promise<ExportOutcome> {
+export async function exportTeacherTimetables(
+  client: QueryClient,
+  teachers: TeacherWanted[],
+  /** The portal term of the semester on screen; "" for every semester. */
+  termCode = "",
+): Promise<ExportOutcome> {
   const read = scheduleReads(client);
   const [catalogues, terms, courses, registered, links] = await Promise.all([
     client.fetchQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards }),
@@ -116,7 +139,10 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
     await Promise.all([...new Set(Object.values(links).filter(Boolean))].map((termCode) => read.notes(termCode).catch(() => [])))
   ).flat();
   const ordered = [...teachers].sort((a, b) => a.fullName.localeCompare(b.fullName));
-  const weeks = ordered.map((teacher) => ({ teacher, entries: teacherTimetable({ cards, links, registered, notes, teacher }) }));
+  const weeks = ordered.map((teacher) => ({
+    teacher,
+    entries: inTerm(teacherTimetable({ cards, links, registered, notes, teacher }), termCode),
+  }));
   const names = ordered.map((teacher) => teacher.fullName);
   const one = ordered.length === 1;
   const input = await scheduleFromEntries(
@@ -135,7 +161,7 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
         : "The portal has booked no classes for any of them — run a portal sync if that is new.",
     );
   }
-  await downloadSchedulePdf(input, timetablesFilename(names, "teachers"));
+  await downloadSchedulePdf(input, timetablesFilename(names, "teachers", semesterTag([input])));
   return { people: ordered.length, withoutClasses };
 }
 
@@ -143,7 +169,12 @@ export async function exportTeacherTimetables(client: QueryClient, teachers: Tea
 export type StudentWanted = { studentId: string; name: string; cohortId: string | null; cohortName?: string };
 
 /** Each student's week — their groups' sections, and whatever else the registrar has them in. */
-export async function exportStudentTimetables(client: QueryClient, students: StudentWanted[]): Promise<ExportOutcome> {
+export async function exportStudentTimetables(
+  client: QueryClient,
+  students: StudentWanted[],
+  /** The portal term of the semester on screen; "" for every semester. */
+  termCode = "",
+): Promise<ExportOutcome> {
   const read = scheduleReads(client);
   const links = await read.links().catch(() => ({}) as Record<string, string>);
   const cohortIds = [...new Set(students.map((student) => student.cohortId).filter((id): id is string => Boolean(id)))];
@@ -184,7 +215,10 @@ export async function exportStudentTimetables(client: QueryClient, students: Stu
       const excused = new Set(
         (theirs?.exemptions ?? []).filter((entry) => entry.studentId === student.studentId).map((entry) => entry.courseId),
       );
-      const entries = studentTimetable({ placements, excused, links, registrations: registrations.get(student.studentId) ?? [] });
+      const entries = inTerm(
+        studentTimetable({ placements, excused, links, registrations: registrations.get(student.studentId) ?? [] }),
+        termCode,
+      );
       return scheduleFromEntries(
         entries,
         { title: student.name || student.studentId, subtitle: [student.studentId, student.cohortName].filter(Boolean).join(" · ") },

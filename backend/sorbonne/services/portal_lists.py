@@ -401,7 +401,7 @@ class PortalListStore:
         self,
         row: Any,
         held: tuple[int, int],
-        synced: dict[str, str] | None = None,
+        synced: dict[str, tuple[str, str]] | None = None,
         by_term: dict[str, tuple[int, int]] | None = None,
     ) -> dict[str, Any]:
         return {
@@ -414,7 +414,9 @@ class PortalListStore:
             "lastSyncedAt": row["last_synced_at"],
             "lastSyncedBy": row["last_synced_by"],
             # When each portal term was last pulled: {"262710": "...", "262720": "..."}.
-            "syncedTerms": synced or {},
+            "syncedTerms": {term: at for term, (at, _by) in (synced or {}).items()},
+            # And who pulled it, so "last synced by" names the semester's own sync.
+            "syncedTermsBy": {term: by for term, (_at, by) in (synced or {}).items()},
             # What it holds in each portal term, and has stopped returning there — `held` and
             # `gone` above are every term's added up, which no page should show as one list's.
             "heldTerms": {term: {"held": counts[0], "gone": counts[1]} for term, counts in (by_term or {}).items()},
@@ -3145,13 +3147,13 @@ def _synced_terms(connection: Connection, filter_id: str, terms: set[str], now: 
         )
 
 
-def _terms_synced(connection: Connection) -> dict[str, dict[str, str]]:
-    """`filter id -> {portal term -> when it was last pulled}`."""
-    held: dict[str, dict[str, str]] = {}
-    for filter_id, term, at in connection.execute(
-        text("SELECT filter_id, term_code, last_synced_at FROM portal_filter_terms")
+def _terms_synced(connection: Connection) -> dict[str, dict[str, tuple[str, str]]]:
+    """`filter id -> {portal term -> (when it was last pulled, by whom)}`."""
+    held: dict[str, dict[str, tuple[str, str]]] = {}
+    for filter_id, term, at, by in connection.execute(
+        text("SELECT filter_id, term_code, last_synced_at, last_synced_by FROM portal_filter_terms")
     ):
-        held.setdefault(filter_id, {})[term] = at
+        held.setdefault(filter_id, {})[term] = (at, by or "")
     return held
 
 

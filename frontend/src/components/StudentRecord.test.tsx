@@ -333,6 +333,26 @@ describe("a student's record", () => {
     await waitFor(() => expect(within(table).getByText("23652").closest("tr")?.textContent).toContain("exempt · still registered"));
   });
 
+  it("reads the semester the page is on: its sets, and its registrations alone", async () => {
+    // A student who moved from L1 to L2 for Semester 2 was read against every semester's
+    // registrations; another term's CRN sat in the table as though it were this one's.
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710", "term-2": "262720" });
+    vi.spyOn(lists, "fetchRegistrations").mockResolvedValue([
+      { termCode: "262710", crn: "23652", courseCode: "MATH-011", title: "Algorithms", teacherName: "Dr Ahmed", status: "in_portal", lastSeenAt: "" },
+      { termCode: "262720", crn: "39999", courseCode: "SPRT-650", title: "Sport", teacherName: "", status: "in_portal", lastSeenAt: "" },
+    ]);
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <StudentRecord open row={ROW} cohorts={[COHORT]} history={HISTORY} semester="term-1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    const table = await screen.findByLabelText("CRNs");
+    await waitFor(() => expect(within(table).getByText("23652")).toBeTruthy());
+    expect(within(table).queryByText("39999")).toBeNull();
+    expect(database.fetchCatalogue).toHaveBeenCalledWith(COHORT.id, "term-1");
+  });
+
   it("still calls an unregistered CRN a fault when nothing excuses it", async () => {
     show();
 

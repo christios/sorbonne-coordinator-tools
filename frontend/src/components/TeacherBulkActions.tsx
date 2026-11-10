@@ -42,6 +42,7 @@ import {
   markSubmittedToHr,
   SHEET_WORDS,
 } from "@/services/teachers";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 
 /** A row of the list a time-sheet download comes to. */
 export type SheetLine = { teacher: string; sheet: TeacherTimeSheet };
@@ -81,6 +82,7 @@ export function TeacherBulkActions({
   onClear: () => void;
 }) {
   const client = useQueryClient();
+  const { term: portalTerm } = usePortalSemester();
   const [showingSheets, setShowingSheets] = useState(false);
   const [showingPartTime, setShowingPartTime] = useState(false);
   const [said, setSaid] = useState("");
@@ -155,6 +157,8 @@ export function TeacherBulkActions({
             return exportTeacherTimetables(
               client,
               chosen.map((id) => ({ id: active.find((row) => row.partTimeTeacherId === id)?.id ?? "", fullName: nameOf(id) })),
+              // The semester chosen in the header, which every page is on.
+              portalTerm,
             );
           }}
         />

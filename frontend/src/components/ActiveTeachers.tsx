@@ -371,13 +371,21 @@ export function ActiveTeachers({
   const [showDismissed, setShowDismissed] = usePageState("active-teachers:show-dismissed", false);
   const [bringingBack, setBringingBack] = useState(false);
 
+  /*
+   * The semester on screen's cards, for the Teaches, Cohorts and Warnings columns. Every
+   * semester's were read, so on Semester 2 a teacher showed Semester 1's cohorts and
+   * Semester 1's timetable warnings. Free-when below still reads every card: it asks about
+   * dates, which belong to one semester or the other on their own.
+   */
+  const semesterId = semester?.id ?? "";
+  const shown = useMemo(() => (semesterId ? cards.filter((card) => card.termId === semesterId) : cards), [cards, semesterId]);
   const rows = useMemo<TeacherRow[]>(() => {
     const order = ["CM", "TD", "TP"];
     const teachers = active.data ?? [];
     const nameOf = new Map(teachers.map((teacher) => [teacher.id, teacher.fullName]));
-    const planned = plannedTeachers(cards, links.data ?? {}, (id) => nameOf.get(id) ?? "");
+    const planned = plannedTeachers(shown, links.data ?? {}, (id) => nameOf.get(id) ?? "");
     return teachers.map((teacher) => {
-      const live = sectionsTaughtBy(cards, teacher.id, teacher.fullName).filter((section) => !section.retired);
+      const live = sectionsTaughtBy(shown, teacher.id, teacher.fullName).filter((section) => !section.retired);
       const kinds = new Set(live.map((section) => section.component.toUpperCase()));
       const cohorts = new Set(live.map((section) => section.cohortName).filter(Boolean));
       return {
@@ -385,10 +393,10 @@ export function ActiveTeachers({
         teaches: [...kinds].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)),
         cohorts: [...cohorts].sort((left, right) => left.localeCompare(right)),
         courseList: splitCodes(teacher.courses),
-        warnings: [...portalScheduleWarnings({ teacher, cards, links: links.data ?? {}, registrar, planned, decided })],
+        warnings: [...portalScheduleWarnings({ teacher, cards: shown, links: links.data ?? {}, registrar, planned, decided })],
       };
     });
-  }, [active.data, cards, links.data, registrar, decided]);
+  }, [active.data, shown, links.data, registrar, decided]);
 
   // The dismissed ones, teacher by teacher, for the count and the list "Bring back" opens.
   const dismissedGroups = useMemo<DismissedGroup[]>(
@@ -523,7 +531,7 @@ export function ActiveTeachers({
         * ones on this page, and a warning under a grid of two dozen rows is a warning
         * nobody scrolls to.
         */}
-      <ClassChangesBanner className="mb-3" />
+      <ClassChangesBanner className="mb-3" term={term} />
       {error ? (
         <p role="alert" className="mb-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">{error}</p>
       ) : null}
@@ -680,6 +688,8 @@ export function ActiveTeachers({
             exportTeacherTimetables(
               client,
               (active.data ?? []).filter((row) => selected.has(row.id)).map((row) => ({ id: row.id, fullName: row.fullName })),
+              // The semester on screen's classes, not both semesters' on one week.
+              term,
             )
           }
         />

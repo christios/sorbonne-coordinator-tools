@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StudentRoster } from "@/components/StudentRoster";
 import { forgetHistory, recordPull } from "@/services/pullHistory";
 import { forgetRosters, rememberPull, rememberSync } from "@/services/rosterStore";
+import * as portal from "@/services/portalLists";
 import * as rosters from "@/services/scenRosters";
 import * as comments from "@/services/studentComments";
 import * as database from "@/services/studentDatabase";
@@ -671,6 +672,22 @@ describe("StudentRoster", () => {
     expect(within(dialog).getByText(/no group in Semester 2/)).toBeTruthy();
     expect(within(dialog).queryByRole("button", { name: /Take them out of/ })).toBeNull();
     expect(empty).not.toHaveBeenCalled();
+  });
+
+  it("asks the registrar for the weekdays of the semester on screen", async () => {
+    // The Meets column read the first linked semester's weekdays, Semester 1's on Semester 2.
+    vi.spyOn(portal, "fetchTermLinks").mockResolvedValue({ "term-1": "262710", "term-2": "262720" });
+    const days = vi.spyOn(portal, "fetchSectionDays").mockResolvedValue({ days: {}, blind: [] });
+    await withNames();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <StudentRoster cohorts={COHORTS} viewId="" scope={{ cohortId: "cohort-1", termId: "term-2" }} />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(days).toHaveBeenCalledWith("262720"));
+    expect(days).not.toHaveBeenCalledWith("262710");
   });
 
   it("lets the move be called off, and nothing is written", async () => {

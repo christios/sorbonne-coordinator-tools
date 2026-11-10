@@ -38,6 +38,7 @@ from sorbonne.services.student_database import (
     InvalidRule,
     DuplicateFilterName,
     DuplicateLabel,
+    SharedSetTaken,
     FilterNotFound,
     GroupNotFound,
     InvalidFilter,
@@ -518,6 +519,7 @@ def list_members(
 @router.get("/cohorts/{cohort_id}/teams-check")
 def teams_check(
     cohort_id: str,
+    term: str | None = None,
     database: StudentDatabase = Depends(get_database),
     rosters: TeamRosterStore = Depends(get_rosters),
 ) -> dict[str, Any]:
@@ -525,12 +527,14 @@ def teams_check(
     by channel, and which channels that reading holds — the ones a cohort can be given.
 
     The members are the ones `/members` lists, read only when there is a channel to hold
-    them against.
+    them against — in one semester when `term` is said. Read across every semester, a
+    student who moved from L1 to L2 in Semester 2 was still an L1 member and showed as
+    missing from "L1 Students".
     """
     try:
         cohort = database.get_cohort(cohort_id)
         channels = [channel for channel in cohort["teamsChannels"] if channel.strip()]
-        members = database.list_members(cohort_id) if channels else []
+        members = database.list_members(cohort_id, term) if channels else []
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
     reading = rosters.latest()
@@ -701,6 +705,8 @@ def add_scope(
         raise _missing(exc, "cohort") from exc
     except DuplicateLabel as exc:
         raise _duplicate(exc, "block") from exc
+    except SharedSetTaken as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.patch("/scopes/{scope_id}")
@@ -721,7 +727,42 @@ def update_scope(
         raise _missing(exc, "block") from exc
     except DuplicateLabel as exc:
         raise _duplicate(exc, "block") from exc
+    except SharedSetTaken as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return {"saved": True}
+
+
+class CarryInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    term_id: str = Field(alias="termId", min_length=1, max_length=200)
+    #: Bring the exemptions of students still held there. A reason is a judgement made again.
+    exemptions: bool = True
+
+
+@router.get("/scopes/{scope_id}/carry-preview")
+def carry_preview(scope_id: str, termId: str, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:  # noqa: N803
+    """The exemptions carrying the set into `termId` would bring, by reason, and how many stay behind."""
+    try:
+        return database.carry_preview(scope_id, termId)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+
+
+@router.post("/scopes/{scope_id}/carry", status_code=status.HTTP_201_CREATED)
+def carry_scope(
+    scope_id: str, body: CarryInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """The set made again in another semester — its courses, groups and, when asked, its
+    exemptions; not its CRNs or placements. Semester 2's LANG from Semester 1's."""
+    try:
+        return database.carry_scope(scope_id, body.term_id, exemptions=body.exemptions)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+    except DuplicateLabel as exc:
+        raise _duplicate(exc, "block in that semester") from exc
+    except (SharedSetTaken, InvalidCohortMove) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.delete("/scopes/{scope_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -1133,6 +1174,28 @@ def set_dismissal(
             by_name=coordinator_directory.name_for(email, getattr(staff, "name", "") or "") if email else "",
         )
     }
+
+
+class MoveDismissalsInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_term_id: str = Field(alias="fromTermId", min_length=1, max_length=200)
+    to_term_id: str = Field(alias="toTermId", min_length=1, max_length=200)
+
+
+@router.post("/warning-dismissals/move-semester")
+def move_dismissals(
+    body: MoveDismissalsInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, int]:
+    """Refile one semester's dismissals under another semester's id, keeping who made each.
+
+    For an administrator: it rewrites decisions every coordinator made, once, when a
+    semester has moved to a new id.
+    """
+    staff = getattr(request.state, "staff_user", None)
+    if not getattr(staff, "is_admin", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an administrator can move dismissals.")
+    return {"moved": database.move_dismissals(body.from_term_id, body.to_term_id)}
 
 
 @router.get("/exemptions")
