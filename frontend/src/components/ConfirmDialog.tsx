@@ -23,12 +23,17 @@ type ConfirmDialogProps = {
    * the run again.
    */
   busy?: boolean;
+  /**
+   * Red is kept for what cannot be undone. A consequential choice that deletes nothing (such
+   * as who writes the course learning outcomes) confirms in the primary blue instead.
+   */
+  tone?: "danger" | "primary";
   onConfirm: () => void;
   onClose: () => void;
 };
 
 /** Shared, accessible confirmation surface for destructive in-app actions. */
-export function ConfirmDialog({ open, title, description, confirmLabel, confirmPhrase, busy, onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, description, confirmLabel, confirmPhrase, busy, tone = "danger", onConfirm, onClose }: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
   const [typed, setTyped] = useState("");
@@ -68,7 +73,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, confirmP
         ) : null}
         <div className="mt-5 flex justify-end gap-3">
           <button type="button" onClick={onClose} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc]">Cancel</button>
-          <button type="button" disabled={!ready || busy} onClick={onConfirm} className="rounded-md bg-[#a6292f] px-3 py-2 text-sm font-semibold text-white hover:bg-[#8f1f25] disabled:bg-[#d6a5a8]">{busy ? "Working…" : confirmLabel}</button>
+          <button type="button" disabled={!ready || busy} onClick={onConfirm} className={`rounded-md px-3 py-2 text-sm font-semibold text-white ${tone === "primary" ? "bg-[#1f4e79] hover:bg-[#173e61] disabled:bg-[#9ba8b5]" : "bg-[#a6292f] hover:bg-[#8f1f25] disabled:bg-[#d6a5a8]"}`}>{busy ? "Working…" : confirmLabel}</button>
         </div>
       </section>
     </div>,

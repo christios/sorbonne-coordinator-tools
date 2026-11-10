@@ -83,6 +83,7 @@ export function OutcomeModePanel({ canChange }: { canChange: boolean }) {
         title={chosen?.mode === "hod" ? "Hand the course learning outcomes to the Head of Department?" : "Let teachers write their own course learning outcomes?"}
         description="Every syllabus switches at once. Nothing is deleted: the other set of outcomes is kept and comes back if you switch again. But the outcomes picked on each graded activity were picked from the set in use, so teachers will need to pick them again."
         confirmLabel={save.isPending ? "Saving…" : "Switch"}
+        tone="primary"
         onClose={() => setPending(null)}
         onConfirm={() => pending && save.mutate(pending)}
       />
