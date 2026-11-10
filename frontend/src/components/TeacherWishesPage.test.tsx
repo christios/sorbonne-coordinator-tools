@@ -87,3 +87,31 @@ describe("closing the wishes window", () => {
     expect(screen.queryByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeNull();
   });
 });
+
+describe("invitations and the deadline, on the list", () => {
+  it("says how far an invitation got, and offers a new link, withdrawing it, and reopening after the deadline", async () => {
+    const reopen = vi.spyOn(wishes, "reopenFor").mockResolvedValue({ open: true, deadline: "2020-01-10", reopenedUntil: "2099-01-01" });
+    vi.spyOn(wishes, "fetchWishSemester").mockResolvedValue({
+      ...SEMESTER,
+      collection: { ...SEMESTER.collection!, deadline: "2020-01-10" },
+      teachers: SEMESTER.teachers.map((row) =>
+        row.teacherId === "t-jad"
+          ? {
+              ...row,
+              invitation: { email: "jad@gmail.com", createdAt: "2026-11-10T09:00:00Z", createdBy: "", openedAt: "2026-11-10T10:00:00Z", signedInAt: "" },
+            }
+          : row,
+      ),
+    });
+    page();
+    expect(await screen.findByText(/^Opened /)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Make a new invitation for Jad Tarsissi" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Withdraw Jad Tarsissi's invitation" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Invite Valerie Le Guyon" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Reopen Jad Tarsissi's answer" }));
+    fireEvent.change(screen.getByLabelText("Until"), { target: { value: "2099-01-01" } });
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+    await waitFor(() => expect(reopen).toHaveBeenCalledWith("262720", "t-jad", "2099-01-01"));
+  });
+});

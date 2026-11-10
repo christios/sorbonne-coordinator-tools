@@ -3,6 +3,8 @@ import { CalendarHeart, Settings } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { InviteDialog } from "@/components/InviteDialog";
+import { useStaffUser } from "@/components/useStaffUser";
 import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
@@ -13,14 +15,18 @@ import {
   COLLECTION_DEFAULTS,
   DAY_SHORT,
   cantHours,
+  closeAgain,
   fetchWishSemester,
   openCollection,
+  reopenFor,
   saveWishes,
+  withdrawInvitation,
   type CollectionInput,
   type WishCollection,
   type WishTeacher,
   type WishesInput,
 } from "@/services/teacherWishes";
+import { isoToday } from "@/services/weekSchedule";
 
 const field = "w-full rounded-md border border-[#cbd5e1] px-2.5 py-1.5 text-sm";
 const label = "text-xs font-semibold text-[#344054]";
@@ -185,6 +191,26 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   };
 
   const refresh = () => client.invalidateQueries({ queryKey: ["wishes", term] });
+  const me = useStaffUser();
+  // Inviting a teacher, withdrawing an invitation, and reopening one teacher after the deadline.
+  const [inviting, setInviting] = useState<WishTeacher | null>(null);
+  const [withdrawing, setWithdrawing] = useState<WishTeacher | null>(null);
+  const [reopening, setReopening] = useState<{ row: WishTeacher; until: string } | null>(null);
+  const withdraw = useMutation({
+    mutationFn: (row: WishTeacher) => withdrawInvitation(term, row.teacherId),
+    onSuccess: async () => {
+      await refresh();
+      setWithdrawing(null);
+    },
+  });
+  const reopen = useMutation({
+    mutationFn: ({ row, until }: { row: WishTeacher; until: string }) => reopenFor(term, row.teacherId, until),
+    onSuccess: async () => {
+      await refresh();
+      setReopening(null);
+    },
+  });
+  const closeFor = useMutation({ mutationFn: (row: WishTeacher) => closeAgain(term, row.teacherId), onSuccess: refresh });
   const open = useMutation({
     mutationFn: (input: CollectionInput) => openCollection(term, input),
     onSuccess: async () => {
@@ -211,14 +237,26 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const submitted = teachers.filter((row) => row.wishes?.status === "submitted").length;
   const drafts = teachers.filter((row) => row.wishes?.status === "draft").length;
   const semesterName = semester?.name ?? "this semester";
+  // Past the deadline, a teacher answering for themselves needs reopening; coordinators never do.
+  const today = isoToday();
+  const closed = Boolean(collection?.deadline && today > collection.deadline);
+  /** A week from today, or from the deadline if that is later: where a reopening starts. */
+  const aWeekOn = () => {
+    const at = new Date(`${today}T00:00:00`);
+    at.setDate(at.getDate() + 7);
+    return at.toISOString().slice(0, 10);
+  };
 
   const tip = (
     <InfoTip label="How timetable wishes work" title="Timetable wishes">
-      <TipDo>Open the collection for a semester, then see who has answered, and answer for anyone who sent theirs by email.</TipDo>
+      <TipDo>Open the collection for a semester, invite the teachers who answer themselves, and fill in for anyone who sent theirs by email.</TipDo>
       <TipPoint step={1}>
         Press <TipButton icon={Settings}>Open the collection</TipButton>: a deadline, a message, the week&rsquo;s hours.
       </TipPoint>
-      <TipPoint step={2}>Teachers answer: their week painted, limits, dates away, what matters most.</TipPoint>
+      <TipPoint step={2}>
+        Press <TipButton look="link">Invite</TipButton> on a teacher&rsquo;s row: their link goes out in an email from your own
+        mailbox, and they sign in with that Google account to give their own wishes until the deadline.
+      </TipPoint>
       <TipPoint step={3}>
         On <TipPage name="Semester plan" />, a class that breaks a wish is flagged, and its teacher&rsquo;s week is shaded while you move it.
       </TipPoint>
@@ -294,6 +332,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                   <th className="px-3 py-2 font-semibold">Musts</th>
                   <th className="px-3 py-2 font-semibold">Can&rsquo;t teach</th>
                   <th className="px-3 py-2 font-semibold">Last change</th>
+                  <th className="px-3 py-2 font-semibold">Invitation</th>
                   <th className="px-4 py-2" />
                 </tr>
               </thead>
@@ -307,6 +346,19 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                       <td className="px-4 py-2 font-semibold text-[#344054]">{row.name}</td>
                       <td className="px-3 py-2">
                         <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${status.tone}`}>{status.words}</span>
+                        {closed && row.reopenedUntil ? (
+                          <span className="ml-2 whitespace-nowrap text-xs text-[#2e7d55]">
+                            reopened until {dated(row.reopenedUntil)}
+                            <button
+                              type="button"
+                              onClick={() => closeFor.mutate(row)}
+                              aria-label={`Close ${row.name}'s answer again`}
+                              className="ml-1 font-semibold text-[#667085] hover:underline"
+                            >
+                              Close
+                            </button>
+                          </span>
+                        ) : null}
                       </td>
                       <td className="px-3 py-2 tabular-nums text-[#667085]">{row.wishes ? `${musts} of ${collection.mustQuota}` : ""}</td>
                       <td className={`px-3 py-2 tabular-nums ${cant > collection.cantCap ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}>
@@ -316,11 +368,26 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                         {row.wishes ? (
                           <>
                             {dated(row.wishes.updatedAt)}
-                            {row.wishes.source === "coordinator" && row.wishes.updatedBy ? ` · entered by ${row.wishes.updatedBy}` : ""}
+                            {row.wishes.source === "coordinator" && row.wishes.updatedBy
+                              ? ` · entered by ${row.wishes.updatedBy}`
+                              : row.wishes.source === "invitation"
+                                ? " · by the teacher"
+                                : ""}
                           </>
                         ) : null}
                       </td>
-                      <td className="px-4 py-2 text-right">
+                      <td className="whitespace-nowrap px-3 py-2 text-xs text-[#667085]">
+                        {row.invitation ? (
+                          <span title={`${row.invitation.email}${row.invitation.createdBy ? ` · made by ${row.invitation.createdBy}` : ""}`}>
+                            {row.invitation.signedInAt
+                              ? `Signed in ${dated(row.invitation.signedInAt)}`
+                              : row.invitation.openedAt
+                                ? `Opened ${dated(row.invitation.openedAt)}`
+                                : `Invited ${dated(row.invitation.createdAt)}`}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
                         <button
                           type="button"
                           onClick={() => {
@@ -329,17 +396,52 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                             setAnswering({ row, editing: !row.wishes });
                           }}
                           aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s wishes`}
-                          className="text-xs font-semibold text-[#1f4e79] hover:underline"
+                          className="font-semibold text-[#1f4e79] hover:underline"
                         >
                           {row.wishes ? "Open" : "Fill in"}
                         </button>
+                        <span className="mx-1.5 text-[#d0d5dd]">·</span>
+                        <button
+                          type="button"
+                          onClick={() => setInviting(row)}
+                          aria-label={`${row.invitation ? "Make a new invitation for" : "Invite"} ${row.name}`}
+                          className="font-semibold text-[#1f4e79] hover:underline"
+                        >
+                          {row.invitation ? "New link" : "Invite"}
+                        </button>
+                        {row.invitation ? (
+                          <>
+                            <span className="mx-1.5 text-[#d0d5dd]">·</span>
+                            <button
+                              type="button"
+                              onClick={() => setWithdrawing(row)}
+                              aria-label={`Withdraw ${row.name}'s invitation`}
+                              className="font-semibold text-[#667085] hover:text-[#a6292f] hover:underline"
+                            >
+                              Withdraw
+                            </button>
+                          </>
+                        ) : null}
+                        {closed && !row.reopenedUntil ? (
+                          <>
+                            <span className="mx-1.5 text-[#d0d5dd]">·</span>
+                            <button
+                              type="button"
+                              onClick={() => setReopening({ row, until: aWeekOn() })}
+                              aria-label={`Reopen ${row.name}'s answer`}
+                              className="font-semibold text-[#1f4e79] hover:underline"
+                            >
+                              Reopen
+                            </button>
+                          </>
+                        ) : null}
                       </td>
                     </tr>
                   );
                 })}
                 {!teachers.length ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-sm text-[#667085]">
+                    <td colSpan={7} className="px-4 py-6 text-center text-sm text-[#667085]">
                       No teacher is active in {semesterName} yet. Add them on Active teachers.
                     </td>
                   </tr>
@@ -407,6 +509,69 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
               }}
             />
           ) : null}
+        </Modal>
+      ) : null}
+      {inviting && collection ? (
+        <InviteDialog
+          term={term}
+          semesterName={semesterName}
+          teacher={inviting}
+          collection={collection}
+          sender={me?.name ?? ""}
+          onClose={() => setInviting(null)}
+          onInvited={() => void refresh()}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={Boolean(withdrawing)}
+        title="Withdraw the invitation?"
+        description={
+          withdrawing
+            ? `${withdrawing.name}'s link stops working at once. Anything they have answered stays, and you can invite them again.`
+            : ""
+        }
+        confirmLabel="Withdraw"
+        busy={withdraw.isPending}
+        onConfirm={() => withdrawing && withdraw.mutate(withdrawing)}
+        onClose={() => setWithdrawing(null)}
+      />
+      {reopening ? (
+        <Modal
+          open
+          title={`Reopen ${reopening.row.name}'s answer`}
+          description={`The deadline has passed. ${reopening.row.name} may change their answer themselves until the day you choose.`}
+          onClose={() => setReopening(null)}
+          footer={
+            <div className="flex items-center justify-end gap-3">
+              {reopen.isError ? (
+                <span role="alert" className="mr-auto text-sm text-[#a6292f]">
+                  {(reopen.error as Error).message}
+                </span>
+              ) : null}
+              <button type="button" onClick={() => setReopening(null)} className="text-sm font-semibold text-[#667085]">
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={!reopening.until || reopen.isPending}
+                onClick={() => reopen.mutate(reopening)}
+                className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+              >
+                {reopen.isPending ? "Reopening…" : "Reopen"}
+              </button>
+            </div>
+          }
+        >
+          <label className="block max-w-xs">
+            <span className={label}>Until</span>
+            <input
+              type="date"
+              value={reopening.until}
+              min={today}
+              onChange={(event) => setReopening({ ...reopening, until: event.target.value })}
+              className={`mt-1 ${field}`}
+            />
+          </label>
         </Modal>
       ) : null}
       <ConfirmDialog

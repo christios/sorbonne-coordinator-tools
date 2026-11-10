@@ -114,6 +114,11 @@ def reading_classes(request: Request) -> bool:
     return bool(key) and compare_digest(key, given)
 
 
+#: The invited teacher's door (see api/wish_invite). Its router is the whole of its check:
+#: a link's code and the invitee's own session. A staff session opens nothing there.
+INVITE_PREFIX = "/api/v1/invite/wishes/"
+
+
 def is_public(path: str) -> bool:
     """The static app shell is public; the API and the handbook are not."""
     if path in PUBLIC_PATHS:
@@ -122,7 +127,7 @@ def is_public(path: str) -> bool:
 
 
 class StaffAuthGate(BaseHTTPMiddleware):
-    async def dispatch(self, request: Request, call_next):  # noqa: PLR0911 - one answer per door
+    async def dispatch(self, request: Request, call_next):  # noqa: PLR0911, PLR0912 - one answer per door
         if request.method == "OPTIONS" or is_public(request.url.path):
             return await call_next(request)
 
@@ -152,6 +157,9 @@ class StaffAuthGate(BaseHTTPMiddleware):
                     "closed. Set GOOGLE_AUTH_CLIENT_ID, COORDINATOR_ACCESS_EMAILS and SESSION_SECRET."
                 },
             )
+
+        if request.url.path.startswith(INVITE_PREFIX):
+            return await call_next(request)
 
         cookie = request.cookies.get(SESSION_COOKIE)
         authorization = request.headers.get("authorization")

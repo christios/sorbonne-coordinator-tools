@@ -3,6 +3,7 @@ import { Outlet, RouterProvider, createRootRoute, createRoute, createRouter } fr
 import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 
+import { InvitedWishesPage } from "@/components/InvitedWishesPage";
 import { GatedApp } from "@/routes/GatedApp";
 import { QUERY_DEFAULTS } from "@/services/queryDefaults";
 import { installSearchEscape } from "@/services/searchEscape";
@@ -20,8 +21,20 @@ const indexRoute = createRoute({
   path: "/",
   component: GatedApp,
 });
+/*
+ * An invited teacher's link: their own timetable wishes, outside the staff's sign-in gate —
+ * it has a sign-in of its own, with the Google account the invitation was sent to.
+ */
+const invitedWishesRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/wishes/$code",
+  component: function InvitedWishes() {
+    const { code } = invitedWishesRoute.useParams();
+    return <InvitedWishesPage code={code} />;
+  },
+});
 const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute]),
+  routeTree: rootRoute.addChildren([indexRoute, invitedWishesRoute]),
   defaultPreload: "intent",
 });
 

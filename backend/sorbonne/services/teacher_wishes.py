@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import text
@@ -57,6 +57,20 @@ class NoCollection(LookupError):
 
 class UnknownTeacher(LookupError):
     pass
+
+
+class ClosedForAnswers(PermissionError):
+    """A teacher answering after the deadline, with nobody having reopened it for them."""
+
+
+#: The deadline is a day in Abu Dhabi: it closes when that day ends there.
+ABU_DHABI = timezone(timedelta(hours=4))
+#: How an answer came: a coordinator for the teacher, or the teacher through a door of theirs.
+COORDINATOR = "coordinator"
+
+
+def _today() -> str:
+    return datetime.now(ABU_DHABI).date().isoformat()
 
 
 def _now() -> str:
@@ -234,6 +248,17 @@ def _collection(row: Any) -> dict[str, Any]:
     }
 
 
+def _invitation(row: Any) -> dict[str, Any]:
+    """An invitation as the coordinator sees it: never its link, which only its hash is kept of."""
+    return {
+        "email": row["email"],
+        "createdAt": row["created_at"],
+        "createdBy": name_for(row["created_by"]) if row["created_by"] else "",
+        "openedAt": row["opened_at"],
+        "signedInAt": row["signed_in_at"],
+    }
+
+
 def _answer(row: Any) -> dict[str, Any]:
     cells = json.loads(row["cells"] or "[]")
     limits = json.loads(row["limits"] or "{}")
@@ -303,6 +328,80 @@ class WishStore:
             )
             return _collection(self._collection_row(connection, term))
 
+    # ------------------------------------------------------------------ when teachers may answer
+
+    def _window(self, connection: Any, term: str, teacher_id: str, collection: dict[str, Any] | None) -> dict[str, Any]:
+        """Whether a teacher may answer now: until the deadline, or until a coordinator's
+        reopening for them. A collection with no deadline stays open."""
+        until = (
+            connection.execute(
+                text("SELECT until FROM wish_reopenings WHERE term_code = :term AND teacher_id = :id"),
+                {"term": term, "id": teacher_id},
+            ).scalar()
+            or ""
+        )
+        deadline = collection["deadline"] if collection else ""
+        today = _today()
+        open_ = bool(collection) and (not deadline or today <= deadline or bool(until and today <= until))
+        return {"open": open_, "deadline": deadline, "reopenedUntil": until}
+
+    def window(self, term_code: str, teacher_id: str) -> dict[str, Any]:
+        term = _term(term_code)
+        with self.engine.connect() as connection:
+            row = self._collection_row(connection, term)
+            return self._window(connection, term, teacher_id, _collection(row) if row else None)
+
+    def reopen(self, term_code: str, teacher_id: str, until: str, actor: str = "") -> dict[str, Any]:
+        """Let one teacher change their answer after the deadline, until a day."""
+        term = _term(term_code)
+        try:
+            date.fromisoformat(until)
+        except ValueError as exc:
+            raise InvalidWishes("Reopen until a date: 2027-01-17.") from exc
+        with self.engine.begin() as connection:
+            known = connection.execute(text("SELECT 1 FROM active_teachers WHERE id = :id"), {"id": teacher_id})
+            if known.first() is None:
+                raise UnknownTeacher(teacher_id)
+            connection.execute(
+                text("""INSERT INTO wish_reopenings (term_code, teacher_id, until, reopened_at, reopened_by)
+                        VALUES (:term, :id, :until, :at, :by)
+                        ON CONFLICT (term_code, teacher_id) DO UPDATE SET until = excluded.until,
+                            reopened_at = excluded.reopened_at, reopened_by = excluded.reopened_by"""),
+                {"term": term, "id": teacher_id, "until": until, "at": _now(), "by": actor},
+            )
+            row = self._collection_row(connection, term)
+            return self._window(connection, term, teacher_id, _collection(row) if row else None)
+
+    def close_again(self, term_code: str, teacher_id: str) -> None:
+        term = _term(term_code)
+        with self.engine.begin() as connection:
+            connection.execute(
+                text("DELETE FROM wish_reopenings WHERE term_code = :term AND teacher_id = :id"),
+                {"term": term, "id": teacher_id},
+            )
+
+    def previous(self, term_code: str, teacher_id: str) -> dict[str, Any] | None:
+        """The teacher's latest answer for another semester, to start this one from: their
+        week, limits, ranks, comments, needs and note — not their dates away, which were that
+        semester's."""
+        term = _term(term_code)
+        with self.engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text("""SELECT w.*, coalesce(nullif(p.name, ''), '') AS semester_name
+                            FROM teacher_wishes w LEFT JOIN plan_terms p ON p.term_code = w.term_code
+                            WHERE w.teacher_id = :id AND w.term_code <> :term
+                            ORDER BY w.updated_at DESC LIMIT 1"""),
+                    {"term": term, "id": teacher_id},
+                )
+                .mappings()
+                .first()
+            )
+        if row is None:
+            return None
+        answer = _answer(row)
+        return {"termCode": row["term_code"], "semesterName": row["semester_name"], "wishes": {**answer, "away": []}}
+
     # ------------------------------------------------------------------ the answers
 
     def semester(self, term_code: str) -> dict[str, Any]:
@@ -335,6 +434,21 @@ class WishStore:
                     text("SELECT * FROM teacher_wishes WHERE term_code = :term"), {"term": term}
                 ).mappings()
             }
+            # The invitation that stands for each teacher: the latest not withdrawn.
+            invitations = {
+                invitation["teacher_id"]: invitation
+                for invitation in connection.execute(
+                    text("""SELECT * FROM wish_invitations WHERE term_code = :term AND withdrawn_at = ''
+                            ORDER BY created_at"""),
+                    {"term": term},
+                ).mappings()
+            }
+            reopened = {
+                each["teacher_id"]: each["until"]
+                for each in connection.execute(
+                    text("SELECT teacher_id, until FROM wish_reopenings WHERE term_code = :term"), {"term": term}
+                ).mappings()
+            }
         return {
             "collection": _collection(row) if row else None,
             "teachers": [
@@ -343,15 +457,22 @@ class WishStore:
                     "name": teacher["name"],
                     "email": teacher["email"] or "",
                     "wishes": _answer(answers[teacher["id"]]) if teacher["id"] in answers else None,
+                    "invitation": _invitation(invitations[teacher["id"]]) if teacher["id"] in invitations else None,
+                    "reopenedUntil": reopened.get(teacher["id"], ""),
                 }
                 for teacher in teachers
             ],
         }
 
     def save(
-        self, term_code: str, teacher_id: str, given: dict[str, Any], actor: str = "", source: str = "coordinator"
+        self, term_code: str, teacher_id: str, given: dict[str, Any], actor: str = "", source: str = COORDINATOR
     ) -> dict[str, Any]:
-        """Keep a teacher's answer for a semester, as a draft or submitted."""
+        """Keep a teacher's answer for a semester, as a draft or submitted.
+
+        A coordinator may answer for a teacher at any time. A teacher answering for themselves
+        (`source` is their door: "invitation", and later "requests") may until the deadline,
+        or until the day a coordinator reopened it for them.
+        """
         term = _term(term_code)
         with self.engine.begin() as connection:
             row = self._collection_row(connection, term)
@@ -360,6 +481,8 @@ class WishStore:
             known = connection.execute(text("SELECT 1 FROM active_teachers WHERE id = :id"), {"id": teacher_id}).first()
             if known is None:
                 raise UnknownTeacher(teacher_id)
+            if source != COORDINATOR and not self._window(connection, term, teacher_id, _collection(row))["open"]:
+                raise ClosedForAnswers(term)
             values = _answer_input(given, _collection(row))
             previous = connection.execute(
                 text("SELECT submitted_at FROM teacher_wishes WHERE term_code = :term AND teacher_id = :id"),

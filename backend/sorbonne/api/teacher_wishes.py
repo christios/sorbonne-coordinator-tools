@@ -1,8 +1,9 @@
 """Timetable wishes: a semester's collection, and each teacher's answer to it.
 
 Read and edited by anybody signed in, as the plan is: the coordinators open a semester's
-collection and answer for a teacher who sent theirs by email. Teachers answering for
-themselves (the SCEN Requests app, an invitation) come through their own doors later.
+collection and answer for a teacher who sent theirs by email, invite a teacher to answer
+for themselves, and reopen one teacher's answer after the deadline. The invited teacher
+comes in through a door of their own (api/wish_invite); the SCEN Requests app will too.
 """
 
 from __future__ import annotations
@@ -15,12 +16,17 @@ from pydantic import BaseModel, Field
 from sorbonne.config import config
 from sorbonne.services.engine import engine_for
 from sorbonne.services.teacher_wishes import InvalidWishes, NoCollection, UnknownTeacher, WishStore
+from sorbonne.services.wish_invitations import InvitationStore
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
 
 
 def get_wishes() -> WishStore:
     return WishStore(engine_for(config.database_url))
+
+
+def get_invitations() -> InvitationStore:
+    return InvitationStore(engine_for(config.database_url))
 
 
 def _actor(request: Request) -> str:
@@ -102,6 +108,62 @@ def save(
     try:
         return wishes.save(term, teacher_id, given, _actor(request))
     except (InvalidWishes, NoCollection, UnknownTeacher) as exc:
+        raise _refused(exc) from exc
+
+
+class InvitationInput(BaseModel):
+    email: str = Field(min_length=3, max_length=254)
+
+
+class ReopenInput(BaseModel):
+    until: str = Field(min_length=10, max_length=10)
+
+
+@router.post("/{term}/{teacher_id}/invitation", status_code=status.HTTP_201_CREATED)
+def invite(
+    term: str,
+    teacher_id: str,
+    body: InvitationInput,
+    request: Request,
+    invitations: InvitationStore = Depends(get_invitations),
+) -> dict[str, Any]:
+    """Invite a teacher to give their wishes themselves. The link's code is in this answer and
+    nowhere else: the page puts it in the email at once. Inviting again withdraws the old link."""
+    try:
+        code, record = invitations.invite(term, teacher_id, body.email, _actor(request))
+    except (InvalidWishes, NoCollection, UnknownTeacher) as exc:
+        if isinstance(exc, UnknownTeacher):
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND, detail="Only a teacher on this semester's Active teachers can be invited."
+            ) from exc
+        raise _refused(exc) from exc
+    return {"code": code, "invitation": record}
+
+
+@router.delete("/{term}/{teacher_id}/invitation", status_code=status.HTTP_204_NO_CONTENT)
+def withdraw(term: str, teacher_id: str, invitations: InvitationStore = Depends(get_invitations)) -> None:
+    try:
+        invitations.withdraw(term, teacher_id)
+    except InvalidWishes as exc:
+        raise _refused(exc) from exc
+
+
+@router.put("/{term}/{teacher_id}/reopen")
+def reopen(
+    term: str, teacher_id: str, body: ReopenInput, request: Request, wishes: WishStore = Depends(get_wishes)
+) -> dict[str, Any]:
+    """Let one teacher change their answer after the deadline, until a day."""
+    try:
+        return wishes.reopen(term, teacher_id, body.until, _actor(request))
+    except (InvalidWishes, UnknownTeacher) as exc:
+        raise _refused(exc) from exc
+
+
+@router.delete("/{term}/{teacher_id}/reopen", status_code=status.HTTP_204_NO_CONTENT)
+def close_again(term: str, teacher_id: str, wishes: WishStore = Depends(get_wishes)) -> None:
+    try:
+        wishes.close_again(term, teacher_id)
+    except InvalidWishes as exc:
         raise _refused(exc) from exc
 
 

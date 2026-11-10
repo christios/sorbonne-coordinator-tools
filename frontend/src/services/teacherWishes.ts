@@ -76,7 +76,21 @@ export type Wishes = {
   updatedBy: string;
 };
 
-export type WishTeacher = { teacherId: string; name: string; email: string; wishes: Wishes | null };
+/** A teacher's invitation to answer for themselves: never its link, which only the email holds. */
+export type WishInvitation = { email: string; createdAt: string; createdBy: string; openedAt: string; signedInAt: string };
+
+export type WishTeacher = {
+  teacherId: string;
+  name: string;
+  email: string;
+  wishes: Wishes | null;
+  invitation?: WishInvitation | null;
+  /** The day a coordinator let this teacher answer until, past the deadline; "" if not. */
+  reopenedUntil?: string;
+};
+
+/** Whether a teacher may still answer for themselves: until the deadline, or a reopening. */
+export type AnswerWindow = { open: boolean; deadline: string; reopenedUntil: string };
 export type WishSemester = { collection: WishCollection | null; teachers: WishTeacher[] };
 
 export type WishesInput = Pick<Wishes, "cells" | "limits" | "away" | "needs" | "note" | "levels" | "comments" | "overCapReason"> & {
@@ -129,6 +143,30 @@ export async function saveWishes(termCode: string, teacherId: string, input: Wis
     await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}`, json("PUT", input)),
   );
 }
+
+/** Invite a teacher to answer for themselves. The link's code comes back once, here. */
+export async function inviteTeacher(termCode: string, teacherId: string, email: string): Promise<{ code: string; invitation: WishInvitation }> {
+  return answer(
+    await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/invitation`, json("POST", { email })),
+  );
+}
+
+export async function withdrawInvitation(termCode: string, teacherId: string): Promise<void> {
+  return answer(
+    await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/invitation`, { method: "DELETE" }),
+  );
+}
+
+export async function reopenFor(termCode: string, teacherId: string, until: string): Promise<AnswerWindow> {
+  return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/reopen`, json("PUT", { until })));
+}
+
+export async function closeAgain(termCode: string, teacherId: string): Promise<void> {
+  return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/reopen`, { method: "DELETE" }));
+}
+
+/** The link a teacher opens: this site's own address, and the code. */
+export const invitationLink = (code: string) => `${window.location.origin}/wishes/${code}`;
 
 export async function forgetWishes(termCode: string, teacherId: string): Promise<void> {
   return answer(

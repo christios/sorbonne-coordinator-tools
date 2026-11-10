@@ -16,8 +16,13 @@ function Level({ must }: { must: boolean }) {
   );
 }
 
-/** Who gave an answer and when: the teacher themself, or a coordinator for them. */
-export function answeredBy(name: string, wishes: Wishes): string {
+/** Who gave an answer and when: the teacher themself, or a coordinator for them. To the teacher, only when. */
+export function answeredBy(name: string, wishes: Wishes, voice: "they" | "you" = "they"): string {
+  if (voice === "you") {
+    return wishes.status === "submitted"
+      ? `Submitted${wishes.submittedAt ? ` ${when(wishes.submittedAt)}` : ""}`
+      : `A draft, saved${wishes.updatedAt ? ` ${when(wishes.updatedAt)}` : ""}`;
+  }
   const by = wishes.source === "coordinator" ? `by ${wishes.updatedBy || "a coordinator"} for ${name}` : `by ${name}`;
   return wishes.status === "submitted"
     ? `Submitted ${by}${wishes.submittedAt ? `, ${when(wishes.submittedAt)}` : ""}`
@@ -34,11 +39,16 @@ export function WishesSummary({
   collection,
   wishes,
   onEdit,
+  editLabel = "Edit their answer",
+  voice = "they",
 }: {
   name: string;
   collection: WishCollection;
   wishes: Wishes;
-  onEdit: () => void;
+  /** Left out where the answer can no longer be changed. */
+  onEdit?: () => void;
+  editLabel?: string;
+  voice?: "they" | "you";
 }) {
   const lines = wishLines(wishes.cells, wishes.limits);
   const levelOf = (key: string) => wishes.levels[key] ?? "would";
@@ -51,10 +61,10 @@ export function WishesSummary({
 
   return (
     <div className="grid gap-5">
-      <p className="text-sm text-[#667085]">{answeredBy(name, wishes)}</p>
+      <p className="text-sm text-[#667085]">{answeredBy(name, wishes, voice)}</p>
 
       <section className="grid gap-2" aria-label="Their week">
-        <h3 className="text-sm font-semibold text-[#171717]">Their week</h3>
+        <h3 className="text-sm font-semibold text-[#171717]">{voice === "you" ? "Your" : "Their"} week</h3>
         {wishes.cells.length ? (
           <>
             <table className="w-full table-fixed border-separate border-spacing-x-0.5 border-spacing-y-0 text-[11px]" aria-label="The week as painted">
@@ -170,11 +180,13 @@ export function WishesSummary({
         </section>
       ) : null}
 
-      <div className="border-t border-[#eef1f5] pt-3">
-        <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
-          <Pencil size={14} aria-hidden="true" /> Edit their answer
-        </button>
-      </div>
+      {onEdit ? (
+        <div className="border-t border-[#eef1f5] pt-3">
+          <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
+            <Pencil size={14} aria-hidden="true" /> {editLabel}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

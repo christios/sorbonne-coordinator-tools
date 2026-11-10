@@ -68,7 +68,12 @@ def test_every_api_route_refuses_an_anonymous_caller(
     # Two ways to be refused, because one caller is not a person: the Part-Time Timesheets
     # app carries the department's key, and telling a Power Automate flow to sign in would
     # be a sentence nobody reading its run history could act on.
-    assert response.json()["detail"] in {"Sign in to continue.", "That key is not this department's."}
+    # The invited teacher's door refuses in its own words: a link that is not an invitation.
+    assert response.json()["detail"] in {
+        "Sign in to continue.",
+        "That key is not this department's.",
+        "This invitation link is not valid any more. Ask the coordinator who sent it for a new one.",
+    }
 
 
 def test_the_handbook_is_behind_sign_in_too(client: TestClient, configured: None):

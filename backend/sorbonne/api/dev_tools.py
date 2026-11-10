@@ -14,8 +14,18 @@ from __future__ import annotations
 from typing import Any
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Response, status
 from pydantic import BaseModel, Field
+
+from sorbonne.config import config
+from sorbonne.services.engine import engine_for
+from sorbonne.services.wish_invitations import (
+    INVITEE_COOKIE,
+    INVITEE_PATH,
+    InvitationStore,
+    NotInvited,
+    issue_invitee_session,
+)
 
 router = APIRouter(prefix="/dev", tags=["dev"])
 
@@ -37,6 +47,29 @@ class CopyInput(BaseModel):
 
     source: str = Field(default="", max_length=200)
     dryRun: bool = Field(default=False)  # noqa: N815 - the wire name
+
+
+class InviteeInput(BaseModel):
+    code: str = Field(min_length=1, max_length=128)
+
+
+@router.post("/wish-invitee-session")
+def wish_invitee_session(body: InviteeInput, response: Response) -> dict[str, str]:
+    """Open an invitation's page as its teacher, without their Google account: for looking
+    at the teacher's side on this machine. Mounted only with a local database, like the rest."""
+    try:
+        found = InvitationStore(engine_for(config.database_url)).for_code(body.code)
+    except NotInvited as exc:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No such invitation.") from exc
+    response.set_cookie(
+        INVITEE_COOKIE,
+        issue_invitee_session(found["id"], found["email"]),
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path=INVITEE_PATH,
+    )
+    return {"email": found["email"]}
 
 
 @router.post("/copy-from-production")

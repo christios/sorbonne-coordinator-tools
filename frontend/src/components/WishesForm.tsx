@@ -141,9 +141,12 @@ export function LevelToggle({
   );
 }
 
+/** Who the form speaks to: a coordinator about a teacher, or the teacher themself. */
+export type Voice = "they" | "you";
+
 /** "One wish: the whole block, on Tuesday and Thursday." What a choice in the pop-over reaches. */
-function reach(line: WishLine): string {
-  if (line.kind === "prefer") return "One wish: every hour they would rather teach, all of it.";
+function reach(line: WishLine, voice: Voice): string {
+  if (line.kind === "prefer") return `One wish: every hour ${voice === "you" ? "you" : "they"} would rather teach, all of it.`;
   if (line.kind !== "cant") return "";
   const days = line.days.map((day) => DAY_NAMES[day]);
   const said = days.length > 1 ? `${days.slice(0, -1).join(", ")} and ${days[days.length - 1]}` : days[0];
@@ -197,6 +200,7 @@ export function WishesForm({
   error,
   notice,
   noticeTone = "info",
+  voice = "they",
   onSave,
   onCancel,
   onDirtyChange,
@@ -209,6 +213,8 @@ export function WishesForm({
   notice?: ReactNode;
   /** A warning for changing somebody's answer; information for answering for them. */
   noticeTone?: "info" | "warning";
+  /** "they" for a coordinator answering about a teacher; "you" on the teacher's own page. */
+  voice?: Voice;
   onSave: (input: WishesInput) => void;
   onCancel?: () => void;
   /** Told whenever the form comes to differ from what it opened with, or stops differing. */
@@ -476,7 +482,7 @@ export function WishesForm({
 
       {/* -------------------------------------------------------------- their week */}
       <div>
-        <p className={heading}>1 · Their week</p>
+        <p className={heading}>1 · {voice === "you" ? "Your" : "Their"} week</p>
         <p className={hint}>
           Choose a colour and paint across the hours; hours left white are fine. When you let go, the block opens to say how
           much it matters. Click a painted block to change it.
@@ -657,7 +663,7 @@ export function WishesForm({
               <div className="flex items-start justify-between gap-2">
                 <div className="grid gap-0.5">
                   <p className="text-sm font-semibold text-[#171717]">{describeLine(openLine)}</p>
-                  <p className="text-xs text-[#667085]">{reach(openLine)}</p>
+                  <p className="text-xs text-[#667085]">{reach(openLine, voice)}</p>
                 </div>
                 <button
                   type="button"
@@ -751,7 +757,7 @@ export function WishesForm({
 
       {/* -------------------------------------------------------------- limits */}
       <div className={section}>
-        <p className={heading}>2 · Limits on their week</p>
+        <p className={heading}>2 · Limits on {voice === "you" ? "your" : "their"} week</p>
         <p className={hint}>Only those that matter. Each one set is a wish of its own: a Must or a Would like.</p>
         <div className="mt-2 grid gap-4">
           {limitBlock("maxDays", "Most days on campus", counts(1, Math.max(1, collection.days.length - 1), "day"))}
@@ -759,7 +765,7 @@ export function WishesForm({
           {limitBlock("maxInRow", "Most hours in a row", counts(1, 8, "hour"))}
           {limitBlock(
             "freeDay",
-            "A day they'd like free",
+            voice === "you" ? "A day you'd like free" : "A day they'd like free",
             collection.days.map((day) => ({ value: String(day), label: DAY_NAMES[day] })),
           )}
         </div>

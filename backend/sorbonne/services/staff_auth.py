@@ -76,8 +76,9 @@ def require_configured() -> None:
         raise AuthNotConfigured
 
 
-def verify_google_credential(credential: str) -> StaffUser:
-    """Check a Google ID token and the staff list. Raises, never returns a guess."""
+def verify_google_identity(credential: str) -> tuple[str, str]:
+    """Who a Google ID token says signed in — their verified address and name — and nothing
+    about what they may do. Raises, never returns a guess."""
     require_configured()
     try:
         claims = id_token.verify_oauth2_token(credential, Request(), config.google_auth_client_id)
@@ -88,12 +89,17 @@ def verify_google_credential(credential: str) -> StaffUser:
         raise SignInRejected("That Google sign-in could not be verified.")
     if claims.get("email_verified") is not True:
         raise SignInRejected("That Google account has no verified e-mail address.")
-
     email = str(claims.get("email", "")).strip().casefold()
+    return email, str(claims.get("name") or email)
+
+
+def verify_google_credential(credential: str) -> StaffUser:
+    """Check a Google ID token and the staff list. Raises, never returns a guess."""
+    email, name = verify_google_identity(credential)
     access = admission(email)
     if access is None:
         raise SignInRejected("That account is not on the staff list for this application.")
-    return StaffUser(email=email, name=str(claims.get("name") or email), is_admin=access.is_admin)
+    return StaffUser(email=email, name=name, is_admin=access.is_admin)
 
 
 def _sign(payload: bytes) -> str:

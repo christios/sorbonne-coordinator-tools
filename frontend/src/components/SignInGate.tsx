@@ -137,7 +137,8 @@ export function SignInGate({ children }: { children: ReactNode }) {
   );
 }
 
-function GoogleButton({
+/** Google's own sign-in button, for the staff's front door and an invited teacher's. */
+export function GoogleButton({
   clientId,
   onCredential,
 }: {
