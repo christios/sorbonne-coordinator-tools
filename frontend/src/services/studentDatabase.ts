@@ -589,9 +589,16 @@ export function moveScope(scopeId: string, by: -1 | 1): Promise<void> {
 /** What carrying a set into another semester made there. */
 export type CarriedSet = { scopeId: string; courses: number; groups: number; exemptions: number };
 
-/** The set made again in another semester: courses, groups and exemptions — not CRNs or placements. */
-export function carryScope(scopeId: string, termId: string): Promise<CarriedSet> {
-  return send<CarriedSet>(`${BASE}/scopes/${scopeId}/carry`, "POST", { termId });
+/** The exemptions carrying a set would bring, by reason, and how many stay behind. */
+export type CarryPreview = { exemptions: number; reasons: { reason: string; count: number }[]; stayBehind: number };
+
+export function fetchCarryPreview(scopeId: string, termId: string): Promise<CarryPreview> {
+  return request<CarryPreview>(`${BASE}/scopes/${scopeId}/carry-preview?termId=${encodeURIComponent(termId)}`);
+}
+
+/** The set made again in another semester: courses, groups and — when asked — exemptions; not CRNs or placements. */
+export function carryScope(scopeId: string, termId: string, exemptions = true): Promise<CarriedSet> {
+  return send<CarriedSet>(`${BASE}/scopes/${scopeId}/carry`, "POST", { termId, exemptions });
 }
 
 export function deleteScope(scopeId: string): Promise<void> {

@@ -1,11 +1,11 @@
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { CalendarArrowUp, Check, Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { useSemesterShown } from "@/services/semesterYears";
-import { carryScope, type CarriedSet } from "@/services/studentDatabase";
+import { carryScope, fetchCarryPreview, type CarriedSet } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 
 /**
@@ -13,9 +13,11 @@ import type { TimetableTerm } from "@/services/timetables";
  *
  * Semester 2 needed its own LANG — until it had one, every Semester 2 French registration
  * read as an unapproved elective — and its 26 French exemptions had to be typed again by
- * hand. This carries the set's courses, groups, sub-rows and the exemptions of students
- * still held there. Not its CRNs, which are the other semester's sections, nor anybody's
- * placement: a group in another semester is placed afresh.
+ * hand. This carries the set's courses, groups and sub-rows, and — ticked, as it starts —
+ * the exemptions of students still held there, counted by reason first: "LEA track" likely
+ * holds next semester and "Repeater" may not, so whether to bring them is the
+ * coordinator's call. Not its CRNs, which are the other semester's sections, nor
+ * anybody's placement: a group in another semester is placed afresh.
  */
 export function CarrySet({
   scope,
@@ -36,7 +38,18 @@ export function CarrySet({
     const shown = shownOf(term);
     return [shown.label, shown.year].filter(Boolean).join(" ");
   };
-  const carry = useMutation<CarriedSet, Error>({ mutationFn: () => carryScope(scope.id, termId) });
+  const preview = useQuery({
+    queryKey: ["carry-preview", scope.id, termId],
+    queryFn: () => fetchCarryPreview(scope.id, termId),
+    enabled: open && Boolean(termId),
+    retry: false,
+  });
+  const [bringExemptions, setBringExemptions] = useState(true);
+  const carry = useMutation<CarriedSet, Error>({ mutationFn: () => carryScope(scope.id, termId, bringExemptions) });
+  const counted = preview.data;
+  const reasons = (counted?.reasons ?? [])
+    .map((entry) => `${entry.count} ${entry.reason || "with no reason"}`)
+    .join(", ");
   const done = carry.data;
 
   if (!others.length) return null;
@@ -46,6 +59,7 @@ export function CarrySet({
         type="button"
         onClick={() => {
           carry.reset();
+          setBringExemptions(true);
           setTermId(others.length === 1 ? others[0].id : "");
           setOpen(true);
         }}
@@ -58,7 +72,7 @@ export function CarrySet({
       <Modal
         open={open}
         title={`Carry ${scope.code} into another semester`}
-        description="Its courses, its groups with their seats and sub-rows, and the students who don't take one of its courses, where they are still in that semester."
+        description="Its courses, and its groups with their seats and sub-rows — and, if you choose, who doesn't take one of its courses."
         onClose={() => setOpen(false)}
         footer={
           <div className="flex items-center justify-end gap-3">
@@ -98,6 +112,35 @@ export function CarrySet({
             placeholder="Which semester…"
             options={others.map((term) => ({ value: term.id, ...shownOf(term) }))}
           />
+          {into && counted ? (
+            counted.exemptions ? (
+              <label className="flex items-start gap-2 rounded-md border border-[#e4e8ef] px-3 py-2 text-sm text-[#344054]">
+                <input
+                  type="checkbox"
+                  checked={bringExemptions}
+                  disabled={Boolean(done)}
+                  onChange={(event) => setBringExemptions(event.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  <span className="font-semibold">
+                    Bring the {counted.exemptions} exemption{counted.exemptions === 1 ? "" : "s"} too
+                  </span>
+                  <span className="block text-xs text-[#667085]">
+                    {reasons}. Each still holds in {nameOf(into)}? Untick to enter them afresh, or clear one later on the
+                    student&apos;s record.
+                  </span>
+                  {counted.stayBehind ? (
+                    <span className="block text-xs text-[#98a2b3]">
+                      {counted.stayBehind} more stay behind: those students are in no cohort in {nameOf(into)}.
+                    </span>
+                  ) : null}
+                </span>
+              </label>
+            ) : (
+              <p className="text-xs text-[#667085]">Nobody is exempt from its courses, so there are no exemptions to bring.</p>
+            )
+          ) : null}
           <p className="text-xs text-[#667085]">
             Not its CRNs, which are the other semester&apos;s sections, nor anybody&apos;s group: students are placed
             there afresh. Give it CRNs and place its students in that semester.

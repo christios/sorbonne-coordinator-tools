@@ -562,6 +562,34 @@ def test_a_history_line_says_the_semester_it_was_made_in(database: StudentDataba
     assert ("removed", spring) in lines, "and the spring's TD with it"
 
 
+def test_carrying_a_set_counts_its_exemptions_by_reason_and_may_leave_them(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """The dialog shows what would come — 21 LEA track, 4 Repeater — and the carry brings them
+    only when asked. The L1 student, in no cohort in the spring, stays behind either way."""
+    fys, _l1, fys_student, l1_student, _autumn, spring = two_semesters_of_fys
+    with database.engine.connect() as connection:
+        lang = connection.execute(
+            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": fys["id"]}
+        ).scalar()
+    course = database.add_course(lang, code="SCEN-101", name="French")
+    database.set_exemption(student_id=fys_student, course_id=course, reason="LEA track")
+    database.set_exemption(student_id=l1_student, course_id=course, reason="Repeater")
+
+    preview = database.carry_preview(lang, spring)
+    carried = database.carry_scope(lang, spring, exemptions=False)
+
+    assert preview == {"exemptions": 1, "reasons": [{"reason": "LEA track", "count": 1}], "stayBehind": 1}
+    assert carried["exemptions"] == 0
+    with database.engine.connect() as connection:
+        held = connection.execute(
+            text("""SELECT count(*) FROM course_exemptions e JOIN scope_courses c ON c.id = e.course_id
+                    WHERE c.scope_id = :id"""),
+            {"id": carried["scopeId"]},
+        ).scalar()
+    assert held == 0
+
+
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:
     database.replace_discrepancy_rules([])
 

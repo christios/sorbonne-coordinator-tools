@@ -78,6 +78,14 @@ _HELD_TERMS = """SELECT term_id FROM cohort_members WHERE cohort_id = :id AND te
                         WHERE a.cohort_id = :id AND s.term_id <> :term"""
 
 
+def _held_there(open_to_all: bool) -> str:
+    """SQL: the exempt student `e` is held in semester `:term` — by the set's cohort
+    (`:cohort`), or by any cohort for a set open to every cohort."""
+    return "SELECT 1 FROM cohort_members m WHERE m.student_id = e.student_id AND m.term_id = :term" + (
+        "" if open_to_all else " AND m.cohort_id = :cohort"
+    )
+
+
 class CohortSpansSemesters(ValueError):
     """A whole cohort asked to go while it still holds more than one semester, said in words."""
 
@@ -2496,7 +2504,46 @@ class StudentDatabase:
             connection.execute(text("DELETE FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
             self._touch(connection, cohort_id)
 
-    def carry_scope(self, scope_id: str, to_term: str) -> dict[str, Any]:  # noqa: C901, PLR0912 - a pass per table
+    def carry_preview(self, scope_id: str, to_term: str) -> dict[str, Any]:
+        """The exemptions carrying a set would bring, counted by reason, before anybody asks.
+
+        A reason is a judgement — "LEA track" likely holds next semester, "Repeater" may
+        not — so the carry asks whether to bring them, and shows what it would bring. Those
+        of students in no cohort that semester stay behind, and are counted apart.
+        """
+        target = _text(to_term)
+        with self.engine.connect() as connection:
+            source = (
+                connection.execute(
+                    text("SELECT cohort_id, open_to_all FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
+                )
+                .mappings()
+                .first()
+            )
+            if source is None:
+                raise ScopeNotFound(scope_id)
+            rows = connection.execute(
+                text(f"""SELECT e.reason, EXISTS ({_held_there(bool(source["open_to_all"]))}) AS held
+                         FROM course_exemptions e JOIN scope_courses c ON c.id = e.course_id
+                         WHERE c.scope_id = :id"""),  # noqa: S608 - fixed clauses
+                {"id": scope_id, "term": target, "cohort": source["cohort_id"]},
+            ).all()
+        reasons: dict[str, int] = {}
+        for reason, held in rows:
+            if held:
+                reasons[_text(reason)] = reasons.get(_text(reason), 0) + 1
+        return {
+            "exemptions": sum(reasons.values()),
+            "reasons": [
+                {"reason": reason, "count": count}
+                for reason, count in sorted(reasons.items(), key=lambda item: -item[1])
+            ],
+            "stayBehind": sum(1 for _, held in rows if not held),
+        }
+
+    def carry_scope(  # noqa: C901, PLR0912 - a pass per table
+        self, scope_id: str, to_term: str, *, exemptions: bool = True
+    ) -> dict[str, Any]:
         """A set made again in another semester, the way it stands: Semester 1's LANG as
         Semester 2's.
 
@@ -2622,15 +2669,12 @@ class StudentDatabase:
                             "position": position,
                         },
                     )
-            # Who does not take a course of it, where they are still held that semester: by
-            # the cohort, or — a set open to every cohort — by any cohort.
-            held_there = (
-                "SELECT 1 FROM cohort_members m WHERE m.student_id = e.student_id AND m.term_id = :term"
-                + ("" if source["open_to_all"] else " AND m.cohort_id = :cohort")
-            )
-            exemptions = 0
-            for old_id, new_id in courses.items():
-                exemptions += connection.execute(
+            # Who does not take a course of it, where they are still held that semester — when
+            # asked: a reason is a judgement the coordinator makes again, or not.
+            held_there = _held_there(bool(source["open_to_all"]))
+            carried = 0
+            for old_id, new_id in courses.items() if exemptions else ():
+                carried += connection.execute(
                     text(f"""INSERT INTO course_exemptions (student_id, course_id, reason, created_at)
                              SELECT e.student_id, :made, e.reason, :now FROM course_exemptions e
                              WHERE e.course_id = :id AND EXISTS ({held_there})
@@ -2638,7 +2682,7 @@ class StudentDatabase:
                     {"made": new_id, "id": old_id, "now": _now(), "term": target, "cohort": cohort_id},
                 ).rowcount
             self._touch(connection, cohort_id)
-        return {"scopeId": made, "courses": len(courses), "groups": len(groups), "exemptions": exemptions}
+        return {"scopeId": made, "courses": len(courses), "groups": len(groups), "exemptions": carried}
 
     def add_course(  # noqa: PLR0913 - one argument per column of the course being made
         self, scope_id: str, *, code: str, name: str = "", component: str = ""
