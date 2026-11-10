@@ -483,21 +483,28 @@ def test_only_an_administrator_moves_a_semester_into_coordinator_tools(client, h
 
 def test_a_class_names_its_teacher_by_record_when_one_was_chosen(client: TestClient, groups: Groups):
     """What a teacher's wishes follow: the Active teachers record, not a name that may be spelled twice."""
-    groups.change("DELETE FROM active_teachers WHERE id = 'plan-test-lama'")
+    groups.change("DELETE FROM active_teachers WHERE id IN ('plan-test-lama', 'plan-test-omar')")
     groups.change(
-        "INSERT INTO active_teachers (id, full_name, added_at) VALUES ('plan-test-lama', 'Lama Tarsissi', 'x')"
+        """INSERT INTO active_teachers (id, full_name, added_at)
+           VALUES ('plan-test-lama', 'Lama Tarsissi', 'x'), ('plan-test-omar', 'Omar ElDakkak', 'x')"""
     )
     assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
     lectures = groups.set(groups.cohort("L1-T"), "CM")
     analysis = groups.course(lectures, "math-160", "Analysis", "CM")
     groups.cell(groups.group(lectures, "1"), analysis, "30001", teacher_id="plan-test-lama")
     groups.cell(groups.group(lectures, "2"), analysis, "30002", teacher="Somebody Typed")
+    # The registrar's spelling beside the record of the same person.
+    groups.cell(groups.group(lectures, "3"), analysis, "30003", teacher="Omar El Dakkak", teacher_id="plan-test-omar")
+    # One person named, another's record chosen: the plan shows the name, so wishes follow it.
+    groups.cell(groups.group(lectures, "4"), analysis, "30004", teacher="Lama Tarsissi", teacher_id="plan-test-omar")
 
     sections = {each["crn"]: each for each in client.get(f"{AT}/{TERM}").json()["sections"]}
     assert (sections["30001"]["teacherName"], sections["30001"]["teacherId"]) == ("Lama Tarsissi", "plan-test-lama")
-    # Typed on the row but never chosen from Active teachers: a name, nobody's record.
+    # Typed on the row, and nobody in Active teachers goes by it: a name, nobody's record.
     assert (sections["30002"]["teacherName"], sections["30002"]["teacherId"]) == ("Somebody Typed", "")
-    groups.change("DELETE FROM active_teachers WHERE id = 'plan-test-lama'")
+    assert (sections["30003"]["teacherName"], sections["30003"]["teacherId"]) == ("Omar El Dakkak", "plan-test-omar")
+    assert (sections["30004"]["teacherName"], sections["30004"]["teacherId"]) == ("Lama Tarsissi", "plan-test-lama")
+    groups.change("DELETE FROM active_teachers WHERE id IN ('plan-test-lama', 'plan-test-omar')")
 
 
 def test_a_period_binding_everybody_is_kept_beside_the_holidays(client: TestClient):

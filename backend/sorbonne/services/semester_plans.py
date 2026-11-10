@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -114,6 +115,28 @@ def _now() -> str:
 
 def _words(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+def _loose(name: object) -> str:
+    """A name as people spell it either way: "Safaa El Sayed" and "Safaa Elsayed" are one."""
+    bare = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", bare.lower())
+
+
+def _record_of(named: str, chosen: str, teachers: dict[str, str]) -> str:
+    """The Active teachers record of the teacher a section names, or "".
+
+    A section can hold both a name, as the registrar's list spells it, and a record chosen
+    from Active teachers; the plan shows the name. Wishes follow the record, so the record is
+    kept only when it is the person named, and otherwise found by that name, when exactly
+    one Active teacher goes by it.
+    """
+    if not named:
+        return chosen if chosen in teachers else ""
+    if chosen in teachers and _loose(teachers[chosen]) == _loose(named):
+        return chosen
+    found = [teacher_id for teacher_id, name in teachers.items() if name and _loose(name) == _loose(named)]
+    return found[0] if len(found) == 1 else ""
 
 
 def _short(value: object, label: str) -> str:
@@ -343,9 +366,9 @@ def _class_of(  # noqa: PLR0913 - the set, group, course, sub-row and cell a cla
     named = _words((cell or {}).get("teacher"))
     chosen = (cell or {}).get("teacher_id") or ""
     teacher = named or teachers.get(chosen, "")
-    # Who teaches it as a record, not a name: the one chosen on the section, else the course's
-    # when the section names nobody. A name typed but not chosen from Active teachers is no one's.
-    teacher_id = chosen if chosen in teachers else ("" if named else (course["teacher_id"] or ""))
+    # Who teaches it as a record, not a name: the person the section names, else the course's
+    # when the section names nobody.
+    teacher_id = _record_of(named, chosen, teachers) if named or chosen in teachers else (course["teacher_id"] or "")
     duration = str((cell or {}).get("duration") or course["duration"] or "").strip()
     major_id = major["id"] if major else ""
     label = f"{scope['code']} {group['label']}".strip()
