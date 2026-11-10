@@ -3251,6 +3251,40 @@ def test_leaving_semester_1_last_keeps_a_courses_crns_of_semester_2(client: Test
     assert [row["id"] for row in client.get(f"{BASE}/active-courses").json()["courses"]] == [held["id"]]
 
 
+def test_a_crn_number_in_both_semesters_is_two_sections(client: TestClient, database: StudentDatabase):
+    """The registrar reuses CRN numbers: 23304 is French in Semester 1 and MATH-114 in
+    Semester 2. A Semester 1 card using it says nothing about Semester 2's 23304, and a
+    Semester 2 card is registered only by Semester 2's register."""
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    client.put(f"{BASE}/term-links/spring-1", json={"portalTermCode": SPRING})
+    cohort = database.create_cohort(name="Foundation Year", term="2026-27")
+    for term_id, code, crn in ((HUB_TERM, "FREN-101", "23304"), ("spring-1", "MATH-114", "23305")):
+        scope = database.add_scope(cohort["id"], code="TD", name="Tutorials", term_id=term_id)
+        course_id = database.add_course(scope, code=code)
+        group = database.add_group(scope, label="1")
+        database.set_cell(group_id=group, course_id=course_id, crn=crn, part=1)
+    client.post(
+        f"{BASE}/active-crns",
+        json={
+            "crns": [
+                {"termCode": TERM, "crn": "23304", "courseCode": "FREN-101"},
+                {"termCode": SPRING, "crn": "23304", "courseCode": "MATH-114"},
+                # Registered in Semester 1 only: Semester 2's card under 23305 is not.
+                {"termCode": TERM, "crn": "23305", "courseCode": "FREN-101"},
+            ]
+        },
+    )
+
+    on_cards = {
+        (row["termCode"], row["crn"]): row["usedBy"] for row in client.get(f"{BASE}/active-crns").json()["crns"]
+    }
+    assert on_cards == {(TERM, "23304"): 1, (SPRING, "23304"): 0, (TERM, "23305"): 0}
+    spring = client.get(f"{BASE}/register-check", params={"term": SPRING}).json()
+    assert [row["crn"] for row in spring["unregistered"]] == ["23305"]
+    # Semester 2's Meets column is not blind to Semester 1's sections.
+    assert client.get(f"{BASE}/terms/{SPRING}/section-days").json()["blind"] == ["23305"]
+
+
 def test_pulling_one_semester_says_nothing_about_another_semesters_courses(client: TestClient):
     made = make_filter(client, "courses")
     at = f"{BASE}/filters/{made['id']}/sync/courses"
