@@ -2450,6 +2450,150 @@ class StudentDatabase:
             connection.execute(text("DELETE FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
             self._touch(connection, cohort_id)
 
+    def carry_scope(self, scope_id: str, to_term: str) -> dict[str, Any]:  # noqa: C901, PLR0912 - a pass per table
+        """A set made again in another semester, the way it stands: Semester 1's LANG as
+        Semester 2's.
+
+        Its courses, with what each asks of the timetable; its groups, with their seats,
+        sub-rows, firsts and the groups each goes with or runs beside; and the students who
+        do not take one of its courses, where they are still held in that semester — 26
+        French exemptions had to be typed again by hand. Not its CRNs, which are the other
+        semester's sections, nor its placements: a group in Semester 2 is placed afresh.
+        Nor a teacher a course had chosen: who teaches is the semester's question.
+        """
+        target = _text(to_term)
+        with self.engine.begin() as connection:
+            source = (
+                connection.execute(text("SELECT * FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
+                .mappings()
+                .first()
+            )
+            if source is None:
+                raise ScopeNotFound(scope_id)
+            if not target or target == (source["term_id"] or ""):
+                raise InvalidCohortMove("Carry the set into another semester than its own.")
+            cohort_id = source["cohort_id"]
+            if self._scope_id(connection, cohort_id, source["code"], target):
+                raise DuplicateLabel(source["code"])
+            self._shared_set_free(connection, code=source["code"], term_id=target, open_to_all=source["open_to_all"])
+            # A set inside another is inside that set's own counterpart there, if it has one.
+            parent = ""
+            if source["kind"] == "nested" and source["parent_scope_id"]:
+                parent_code = connection.execute(
+                    text("SELECT code FROM cohort_scopes WHERE id = :id"), {"id": source["parent_scope_id"]}
+                ).scalar()
+                parent = (self._scope_id(connection, cohort_id, parent_code, target) if parent_code else None) or ""
+            made = str(uuid4())
+            connection.execute(
+                text("""INSERT INTO cohort_scopes
+                            (id, cohort_id, code, name, note, term_id, kind, parent_scope_id, open_to_all,
+                             tab, group_column, group_column_index, position)
+                        SELECT :made, cohort_id, code, name, note, :term, :kind, :parent, open_to_all,
+                               tab, group_column, group_column_index,
+                               (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes WHERE cohort_id = :cohort)
+                        FROM cohort_scopes WHERE id = :id"""),
+                {
+                    "made": made,
+                    "term": target,
+                    "kind": source["kind"] if source["kind"] != "nested" or parent else "shared",
+                    "parent": parent,
+                    "cohort": cohort_id,
+                    "id": scope_id,
+                },
+            )
+            courses: dict[str, str] = {}
+            for (course_id,) in connection.execute(
+                text("SELECT id FROM scope_courses WHERE scope_id = :id ORDER BY position"), {"id": scope_id}
+            ):
+                courses[course_id] = str(uuid4())
+                connection.execute(
+                    text("""INSERT INTO scope_courses
+                                (id, scope_id, code, name, component, position, teacher_id, hours,
+                                 sessions_per_week, duration, weeks, room_pref, day_pref, time_pref,
+                                 constraints, comments, anticipated)
+                            SELECT :made, :scope, code, name, component, position, '', hours,
+                                   sessions_per_week, duration, weeks, room_pref, day_pref, time_pref,
+                                   constraints, comments, anticipated
+                            FROM scope_courses WHERE id = :id"""),
+                    {"made": courses[course_id], "scope": made, "id": course_id},
+                )
+            groups_held = (
+                connection.execute(
+                    text("SELECT * FROM scope_groups WHERE scope_id = :id ORDER BY position"), {"id": scope_id}
+                )
+                .mappings()
+                .all()
+            )
+            groups = {row["id"]: str(uuid4()) for row in groups_held}
+            # The groups a nested group goes with are its parent set's, found there by label.
+            parent_groups: dict[str, str] = {}
+            if parent:
+                theirs = dict(
+                    connection.execute(
+                        text("SELECT label, id FROM scope_groups WHERE scope_id = :id"), {"id": parent}
+                    ).all()
+                )
+                for old_id, label in connection.execute(
+                    text("SELECT id, label FROM scope_groups WHERE scope_id = :id"), {"id": source["parent_scope_id"]}
+                ):
+                    if label in theirs:
+                        parent_groups[old_id] = theirs[label]
+            for row in groups_held:
+                went_with = _ids(row["parent_group_ids"]) or [each for each in [row["parent_group_id"]] if each]
+                parents = [parent_groups[each] for each in went_with if each in parent_groups]
+                beside = [groups[each] for each in _ids(row["parallel_with"]) if each in groups]
+                connection.execute(
+                    text("""INSERT INTO scope_groups
+                                (id, scope_id, label, capacity, note, position, parent_group_id,
+                                 parallel_with, parent_group_ids, first_for)
+                            VALUES (:id, :scope, :label, :capacity, :note, :position, :parent,
+                                    :beside, :parents, :first_for)"""),
+                    {
+                        "id": groups[row["id"]],
+                        "scope": made,
+                        "label": row["label"],
+                        "capacity": row["capacity"],
+                        "note": row["note"],
+                        "position": row["position"],
+                        "parent": parents[0] if parents else "",
+                        "beside": json.dumps(beside),
+                        "parents": json.dumps(parents),
+                        "first_for": row["first_for"] or "",
+                    },
+                )
+                for program, seats, position in connection.execute(
+                    text("SELECT program, seats, position FROM group_majors WHERE group_id = :id ORDER BY position"),
+                    {"id": row["id"]},
+                ).all():
+                    connection.execute(
+                        text("""INSERT INTO group_majors (id, group_id, program, seats, position)
+                                VALUES (:id, :group, :program, :seats, :position)"""),
+                        {
+                            "id": str(uuid4()),
+                            "group": groups[row["id"]],
+                            "program": program,
+                            "seats": seats,
+                            "position": position,
+                        },
+                    )
+            # Who does not take a course of it, where they are still held that semester: by
+            # the cohort, or — a set open to every cohort — by any cohort.
+            held_there = (
+                "SELECT 1 FROM cohort_members m WHERE m.student_id = e.student_id AND m.term_id = :term"
+                + ("" if source["open_to_all"] else " AND m.cohort_id = :cohort")
+            )
+            exemptions = 0
+            for old_id, new_id in courses.items():
+                exemptions += connection.execute(
+                    text(f"""INSERT INTO course_exemptions (student_id, course_id, reason, created_at)
+                             SELECT e.student_id, :made, e.reason, :now FROM course_exemptions e
+                             WHERE e.course_id = :id AND EXISTS ({held_there})
+                             ON CONFLICT (student_id, course_id) DO NOTHING"""),  # noqa: S608 - fixed clauses
+                    {"made": new_id, "id": old_id, "now": _now(), "term": target, "cohort": cohort_id},
+                ).rowcount
+            self._touch(connection, cohort_id)
+        return {"scopeId": made, "courses": len(courses), "groups": len(groups), "exemptions": exemptions}
+
     def add_course(  # noqa: PLR0913 - one argument per column of the course being made
         self, scope_id: str, *, code: str, name: str = "", component: str = ""
     ) -> str:

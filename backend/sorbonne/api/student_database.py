@@ -732,6 +732,22 @@ def update_scope(
     return {"saved": True}
 
 
+@router.post("/scopes/{scope_id}/carry", status_code=status.HTTP_201_CREATED)
+def carry_scope(
+    scope_id: str, body: SemesterInput, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """The set made again in another semester — its courses, groups and exemptions, not its
+    CRNs or placements. Semester 2's LANG from Semester 1's."""
+    try:
+        return database.carry_scope(scope_id, body.term_id)
+    except ScopeNotFound as exc:
+        raise _missing(exc, "block") from exc
+    except DuplicateLabel as exc:
+        raise _duplicate(exc, "block in that semester") from exc
+    except (SharedSetTaken, InvalidCohortMove) as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+
 @router.delete("/scopes/{scope_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_scope(scope_id: str, database: StudentDatabase = Depends(get_database)) -> None:
     try:

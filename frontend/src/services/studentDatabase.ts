@@ -586,6 +586,14 @@ export function moveScope(scopeId: string, by: -1 | 1): Promise<void> {
   return send<void>(`${BASE}/scopes/${scopeId}/move`, "POST", { by });
 }
 
+/** What carrying a set into another semester made there. */
+export type CarriedSet = { scopeId: string; courses: number; groups: number; exemptions: number };
+
+/** The set made again in another semester: courses, groups and exemptions — not CRNs or placements. */
+export function carryScope(scopeId: string, termId: string): Promise<CarriedSet> {
+  return send<CarriedSet>(`${BASE}/scopes/${scopeId}/carry`, "POST", { termId });
+}
+
 export function deleteScope(scopeId: string): Promise<void> {
   return request<void>(`${BASE}/scopes/${scopeId}`, { method: "DELETE" });
 }

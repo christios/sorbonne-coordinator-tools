@@ -496,6 +496,60 @@ def test_a_semester_holds_one_set_open_to_every_cohort_under_a_code(
     database.add_scope(l1["id"], code="LANG", term_id=spring, open_to_all=True)
 
 
+def test_a_set_is_carried_into_another_semester_with_its_groups_and_exemptions(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """The autumn's LANG made again in the spring: its course, its group with its sub-row,
+    and the exemption of a student still held there — not its CRN, nor anybody's placement.
+    The L1 student is in no cohort in the spring, so their exemption stays behind."""
+    fys, _l1, fys_student, l1_student, autumn, spring = two_semesters_of_fys
+    with database.engine.connect() as connection:
+        lang, french = connection.execute(
+            text("""SELECT s.id, g.id FROM cohort_scopes s JOIN scope_groups g ON g.scope_id = s.id
+                    WHERE s.cohort_id = :id AND s.code = 'LANG'"""),
+            {"id": fys["id"]},
+        ).one()
+    course = database.add_course(lang, code="FREN-101", name="French")
+    database.set_cell(group_id=french, course_id=course, crn="23304", part=1)
+    database.add_major(french, program="MATH - Mathematics", seats=12)
+    database.set_exemption(student_id=fys_student, course_id=course, reason="Native speaker")
+    database.set_exemption(student_id=l1_student, course_id=course, reason="Native speaker")
+
+    carried = database.carry_scope(lang, spring)
+
+    assert (carried["courses"], carried["groups"], carried["exemptions"]) == (1, 1, 1)
+    with database.engine.connect() as connection:
+        made = connection.execute(
+            text("SELECT term_id, open_to_all FROM cohort_scopes WHERE id = :id"), {"id": carried["scopeId"]}
+        ).one()
+        cells = connection.execute(
+            text("""SELECT count(*) FROM group_crns c JOIN scope_groups g ON g.id = c.group_id
+                    WHERE g.scope_id = :id"""),
+            {"id": carried["scopeId"]},
+        ).scalar()
+        placed = connection.execute(
+            text("SELECT count(*) FROM group_assignments WHERE scope_id = :id"), {"id": carried["scopeId"]}
+        ).scalar()
+        seats = connection.execute(
+            text("""SELECT m.program, m.seats FROM group_majors m JOIN scope_groups g ON g.id = m.group_id
+                    WHERE g.scope_id = :id"""),
+            {"id": carried["scopeId"]},
+        ).all()
+        exempt = connection.execute(
+            text("""SELECT e.student_id, e.reason FROM course_exemptions e JOIN scope_courses c ON c.id = e.course_id
+                    WHERE c.scope_id = :id"""),
+            {"id": carried["scopeId"]},
+        ).all()
+    assert (made.term_id, made.open_to_all, cells, placed) == (spring, True, 0, 0)
+    assert seats == [("MATH - Mathematics", 12)]
+    assert exempt == [(fys_student, "Native speaker")]
+    # Once there, it is not carried twice; nor into the semester it is from.
+    with pytest.raises(DuplicateLabel):
+        database.carry_scope(lang, spring)
+    with pytest.raises(InvalidCohortMove):
+        database.carry_scope(lang, autumn)
+
+
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:
     database.replace_discrepancy_rules([])
 

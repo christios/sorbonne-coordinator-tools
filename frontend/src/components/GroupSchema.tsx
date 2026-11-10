@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CohortMenu } from "@/components/CohortMenu";
+import { CarrySet } from "@/components/CarrySet";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -38,7 +39,7 @@ import {
   updateGroup,
   updateScope,
 } from "@/services/studentDatabase";
-import { fetchTimetableTerms } from "@/services/timetables";
+import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 import { useSemesterShown } from "@/services/semesterYears";
 
 
@@ -490,6 +491,12 @@ export function GroupSchema({
                 activeCourses={(active.data ?? []).map((course) => ({ code: course.courseCode, title: course.title }))}
                 programmes={vocabulary}
                 pulled={pulled}
+                semesters={terms.data ?? []}
+                onCarried={(semesterId, scopeId) => {
+                  refresh();
+                  setTermId(semesterId);
+                  setChosenId(scopeId);
+                }}
                 onChanged={refresh}
                 onRemoved={() => {
                   setChosenId("");
@@ -586,6 +593,8 @@ function SetEditor({
   activeCourses,
   programmes,
   pulled,
+  semesters,
+  onCarried,
   onChanged,
   onRemoved,
 }: {
@@ -599,6 +608,9 @@ function SetEditor({
   programmes: string[];
   /** Whether those are the synced students' majors, the whole list, or only the schema's. */
   pulled: boolean;
+  /** Every semester, for carrying the set into another. */
+  semesters: TimetableTerm[];
+  onCarried: (termId: string, scopeId: string) => void;
   onChanged: () => void;
   onRemoved: () => void;
 }) {
@@ -678,6 +690,7 @@ function SetEditor({
           <span className="ml-auto text-xs tabular-nums text-[#98a2b3]">
             {reading.groups} group{reading.groups === 1 ? "" : "s"} · {reading.placed} placed
           </span>
+          <CarrySet scope={scope} semesters={semesters} onCarried={onCarried} />
           <button
             type="button"
             onClick={() => setRemoving(true)}
