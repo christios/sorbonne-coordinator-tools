@@ -1,6 +1,6 @@
 # Spec: Syllabus Builder — November 2026 feedback round
 
-Status: **draft for Christian's review** (10 Nov 2026). Branch `feat/syllabus-feedback-nov-2026`, worktree `~/Documents/sorbonne-syllabus-feedback`, cut from `origin/main` @ 5ef2fe1.
+Status: **approved by Christian** (10 Nov 2026), including the proposed defaults; open questions 1–4 still to be answered. Branch `feat/syllabus-feedback-nov-2026`, worktree `~/Documents/sorbonne-syllabus-feedback`, cut from `origin/main` @ 5ef2fe1.
 
 ## Objective
 
@@ -318,7 +318,7 @@ cd frontend && npm test && npm run lint && npm run build
 2. **The new name** for "Pre-class learning activities".
 3. **Session free text after conversion.** Converted syllabi may still have free text in a session's old "Assessments" or "Deadline" field. Proposed: show it on that session as "Earlier note" with a Remove button, keep exporting it until removed, and list it in the completeness panel.
 4. **The required-fields checklist**, delivered in phase 0 for ticking.
-5. **The proposed defaults** to confirm or change:
+5. **The proposed defaults** were confirmed by Christian on 10 Nov 2026:
    - a graded card always has a week, and the date is optional;
    - automatic ordering, with no dragging;
    - the AI catalogue fixed at the template's five;
