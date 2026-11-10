@@ -63,6 +63,12 @@ def test_a_new_syllabus_lists_what_it_still_needs_section_by_section_in_screen_o
     assert "Add the course's graded activities." in messages(missing)
 
 
+def test_a_new_syllabus_still_untitled_is_asked_for_its_course_title() -> None:
+    assert messages(missing_for_submission({**SCEN, "courseTitle": "Untitled syllabus"}, complete_scen_content())) == [
+        "Give the course title."
+    ]
+
+
 def test_the_weights_of_the_graded_activities_must_add_up_to_100() -> None:
     content = complete_scen_content()
     content["schedule"][2]["weight"] = "50"

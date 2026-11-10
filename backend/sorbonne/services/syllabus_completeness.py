@@ -33,6 +33,8 @@ FYS_FEWEST_CLOS = 4
 FYS_MOST_CLOS = 6
 QUOTED_LENGTH = 50
 QUOTED_NAMES = 3
+# What the library calls a new syllabus until its course is chosen (frontend: UNTITLED_SYLLABUS).
+UNTITLED_SYLLABUS = "Untitled syllabus"
 HOD_HAS_NOT_WRITTEN = "The Head of Department has not written this course's learning outcomes yet."
 
 Missing = list[dict[str, str]]
@@ -117,7 +119,8 @@ def _identification(missing: Missing, syllabus: dict[str, Any], content: dict[st
         ("courseTitle", "course title"),
         ("academicYear", "academic year"),
     ):
-        if not _text(syllabus.get(key)):
+        # A new syllabus is "Untitled syllabus" until its course is chosen (10 Nov 2026).
+        if _text(syllabus.get(key)) in ("", UNTITLED_SYLLABUS):
             _add(missing, "identification", f"Give the {label}.")
     if not _text(identification.get("degreeLevelAndSemester")):
         _add(missing, "identification", "Give the degree level and semester.")

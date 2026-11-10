@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { StaffContext } from "@/components/useStaffUser";
@@ -90,12 +90,11 @@ describe("SyllabusLibrary", () => {
     await waitFor(() => expect(onRename).toHaveBeenCalledWith("syllabus-1", "Climate Action"));
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Syllabus title for Climate Policy" })).toBeNull());
 
+    // Duplicate asks only the year of the copy, the one after the original's to begin with.
     fireEvent.click(screen.getByRole("button", { name: "Duplicate Climate Policy" }));
-    expect(screen.getByText("Start a syllabus")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Duplicate and edit" })).toBeTruthy();
-    // Carrying a syllabus over offers advice on the template, one hover away rather than on the page.
-    expect(screen.getByRole("button", { name: "Which template to choose" })).toBeTruthy();
-    expect(screen.queryByText(/Choose a mapped template/)).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Duplicate Climate Policy" });
+    expect(within(dialog).getByRole("combobox", { name: "Academic year of the copy" }).textContent).toContain("2027-2028");
+    expect(within(dialog).queryByRole("textbox")).toBeNull();
   });
 
   it("confirms deletion for empty folders and protects populated folders", () => {
@@ -245,9 +244,39 @@ describe("What a syllabus is doing, in the library", () => {
       />,
     );
 
+    // No form first: the syllabus is made at once and opens in the editor, where the course is chosen.
     fireEvent.click(screen.getByRole("button", { name: "New syllabus" }));
-    fireEvent.click(screen.getByRole("combobox", { name: "Syllabus template" }));
 
-    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["SCEN syllabus template (English)"]);
+    expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ courseTitle: "Untitled syllabus", courseCode: "", templateId: "scen-en-v1" }));
+    expect(onCreate.mock.calls[0][0].academicYear).toMatch(/^\d{4}-\d{4}$/);
+    expect(screen.queryByText("Start a syllabus")).toBeNull();
+  });
+
+  it("duplicates a syllabus for the year chosen, and nothing else asked", () => {
+    const onCreate = vi.fn();
+    render(
+      <SyllabusLibrary
+        syllabi={[{ id: "syllabus-1", seriesId: "series-1", folderId: null, templateId: "scen-en-v1", courseTitle: "Geometric Optics", courseCode: "PHYS-118", academicYear: "2026-2027", revision: 1, ownerEmail: null, visibility: "public", submittedAt: null, createdAt: "", updatedAt: "" }]}
+        folders={[]}
+        templates={[{ id: "scen-en-v1", name: "SCEN syllabus template (English)", description: "", documentPath: "/syllabi/templates/scen-en-v1/document", sections: [], offered: true }]}
+        isLoading={false}
+        isCreating={false}
+        isCreatingFolder={false}
+        deletingId={null}
+        deletingFolderId={null}
+        movingId={null}
+        onOpen={vi.fn()}
+        onCreate={onCreate}
+        onCreateFolder={vi.fn()}
+        onMove={vi.fn()}
+        onDelete={vi.fn()}
+        onDeleteFolder={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate Geometric Optics" }));
+    fireEvent.click(screen.getByRole("button", { name: "Duplicate" }));
+
+    expect(onCreate).toHaveBeenCalledWith({ courseTitle: "Geometric Optics", courseCode: "PHYS-118", academicYear: "2027-2028", sourceSyllabusId: "syllabus-1", templateId: "scen-en-v1" });
   });
 });

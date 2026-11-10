@@ -1,9 +1,9 @@
-import { CalendarDays, ChevronRight, Copy, FileCode2, FilePlus2, FileText, Folder, FolderOpen, FolderPlus, Inbox, Loader2, Pencil, Settings2, Search, Trash2, UserRound } from "lucide-react";
+import { CalendarDays, ChevronRight, Copy, FileCode2, FilePlus2, Folder, FolderOpen, FolderPlus, Inbox, Loader2, Pencil, Settings2, Search, Trash2, UserRound } from "lucide-react";
 import { FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
 
-import { CreateFolderInput, CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, syllabusTemplateDocumentUrl } from "@/services/syllabi";
+import { CreateFolderInput, CreateSyllabusInput, SyllabusFolder, SyllabusSummary, SyllabusTemplate, UNTITLED_SYLLABUS, currentAcademicYear, followingAcademicYear } from "@/services/syllabi";
+import { ModalDialog } from "@/components/ModalDialog";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
-import { InfoTip } from "@/components/InfoTip";
 import { LibraryRecordTimestamps } from "@/components/LibraryRecordTimestamps";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
@@ -56,13 +56,10 @@ export function SyllabusLibrary({
   onDeleteFolder,
   onManageCatalogues = () => undefined,
 }: Props) {
-  const [showForm, setShowForm] = useState(false);
   const [showFolderForm, setShowFolderForm] = useState(false);
-  const [sourceId, setSourceId] = useState("");
-  const [templateId, setTemplateId] = useState("");
-  const [title, setTitle] = useState("");
-  const [code, setCode] = useState("");
-  const [year, setYear] = useState("2026-2027");
+  // Duplicate asks one thing: the academic year of the copy (Christian, 10 Nov 2026).
+  const [duplicateSource, setDuplicateSource] = useState<SyllabusSummary | null>(null);
+  const [duplicateYear, setDuplicateYear] = useState("");
   const [folderName, setFolderName] = useState("");
   const [activeFolder, setActiveFolder] = useState("all");
   const [folderQuery, setFolderQuery] = useState("");
@@ -78,9 +75,6 @@ export function SyllabusLibrary({
   const offeredTemplates = useMemo(() => templates.filter((template) => template.offered !== false), [templates]);
   const offeredTemplate = (id: string) => (offeredTemplates.some((template) => template.id === id) ? id : offeredTemplates[0]?.id ?? "");
 
-  useEffect(() => {
-    if (!templateId && offeredTemplates[0]) setTemplateId(offeredTemplates[0].id);
-  }, [templateId, offeredTemplates]);
 
   const visibleSyllabi = useMemo(
     () =>
@@ -108,7 +102,6 @@ export function SyllabusLibrary({
     return folderTree.filter(({ path }) => path.some((folder) => folder.name.toLocaleLowerCase().includes(query)));
   }, [folderQuery, folderTree]);
   const activeFolderLabel = activeFolder === "all" ? "All syllabi" : activeFolder === REVIEW ? "For review" : activeFolder === UNFILED ? "Unfiled" : folders.find((folder) => folder.id === activeFolder)?.name ?? "All syllabi";
-  const selectedTemplate = templates.find((template) => template.id === templateId);
   const selectedFolder = folders.find((folder) => folder.id === activeFolder);
   const unfiledCount = syllabi.filter((syllabus) => syllabus.folderId === null).length;
   const reviewCount = syllabi.filter((syllabus) => syllabus.submittedAt).length;
@@ -123,9 +116,23 @@ export function SyllabusLibrary({
     if (activeFolder === REVIEW && reviewCount === 0) setActiveFolder("all");
   }, [activeFolder, reviewCount]);
 
-  function submitSyllabus(event: FormEvent<HTMLFormElement>) {
+  // "New syllabus" opens the editor straight away (Christian, 10 Nov 2026): the course,
+  // and with it the title and code, is chosen in section 1, where it fills the rest.
+  function startSyllabus() {
+    onCreate({ courseTitle: UNTITLED_SYLLABUS, courseCode: "", academicYear: currentAcademicYear(), templateId: offeredTemplates[0]?.id });
+  }
+
+  function submitDuplicate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onCreate({ courseTitle: title.trim(), courseCode: code.trim(), academicYear: year.trim(), sourceSyllabusId: sourceId || undefined, templateId: templateId || undefined });
+    if (!duplicateSource || !duplicateYear) return;
+    onCreate({
+      courseTitle: duplicateSource.courseTitle,
+      courseCode: duplicateSource.courseCode,
+      academicYear: duplicateYear,
+      sourceSyllabusId: duplicateSource.id,
+      templateId: offeredTemplate(duplicateSource.templateId),
+    });
+    setDuplicateSource(null);
   }
 
   function submitFolder(event: FormEvent<HTMLFormElement>) {
@@ -138,11 +145,8 @@ export function SyllabusLibrary({
   }
 
   function startDuplicate(syllabus: SyllabusSummary) {
-    setSourceId(syllabus.id);
-    setTemplateId(offeredTemplate(syllabus.templateId));
-    setTitle(syllabus.courseTitle);
-    setCode(syllabus.courseCode);
-    setShowForm(true);
+    setDuplicateSource(syllabus);
+    setDuplicateYear(followingAcademicYear(syllabus.academicYear));
   }
 
   return (
@@ -158,7 +162,7 @@ export function SyllabusLibrary({
               the catalogue where they need it — in the syllabus, as the choices on offer. */}
           {curator ? <button type="button" onClick={onManageCatalogues} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><Settings2 size={17} aria-hidden="true" /> Manage catalogues</button> : null}
           <button type="button" onClick={() => setShowFolderForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md border border-[#b7bec8] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"><FolderPlus size={17} aria-hidden="true" /> New folder</button>
-          <button type="button" onClick={() => setShowForm((value) => !value)} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>
+          <button type="button" onClick={startSyllabus} disabled={isCreating} aria-busy={isCreating || undefined} className="inline-flex items-center justify-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#183f63] disabled:cursor-wait disabled:bg-[#9ba8b5]"><FilePlus2 size={17} aria-hidden="true" /> New syllabus</button>
         </div>
       </div>
 
@@ -171,17 +175,29 @@ export function SyllabusLibrary({
         </form>
       ) : null}
 
-      {showForm ? (
-        <form onSubmit={submitSyllabus} className="mt-6 grid gap-4 rounded-lg border border-[#cbd5e1] bg-white p-5 md:grid-cols-2">
-          <div className="md:col-span-2"><h3 className="text-base font-semibold text-[#171717]">Start a syllabus</h3></div>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Course title<input required value={title} onChange={(event) => setTitle(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Academic year<input required value={year} onChange={(event) => setYear(event.target.value)} placeholder="2026-2027" className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Course code <span className="font-normal text-[#667085]">(optional)</span><input value={code} onChange={(event) => setCode(event.target.value)} className="rounded-md border border-[#b7bec8] px-3 py-2 font-normal" /></label>
-          <label className="grid gap-1 text-sm font-medium text-[#344054]">Starting point<SelectMenu label="Starting point" value={sourceId} onChange={(nextSourceId) => { setSourceId(nextSourceId); const source = syllabi.find((syllabus) => syllabus.id === nextSourceId); if (source) { setTemplateId(offeredTemplate(source.templateId)); setTitle(source.courseTitle); setCode(source.courseCode); } }} placeholder="Blank syllabus" options={[{ value: "", label: "Blank syllabus" }, ...syllabi.map((syllabus) => ({ value: syllabus.id, label: `${syllabus.courseTitle} — ${syllabus.academicYear}` }))]} /></label>
-          <div className="grid gap-1 text-sm font-medium text-[#344054] md:col-span-2"><span className="flex items-center gap-1.5">Template{sourceId ? <InfoTip label="Which template to choose">Every course, Foundation Year included, uses the SCEN syllabus template.</InfoTip> : null}</span><SelectMenu label="Syllabus template" value={templateId} onChange={setTemplateId} placeholder="Choose a template" options={offeredTemplates.map((template) => ({ value: template.id, label: template.name }))} />{selectedTemplate ? <a href={syllabusTemplateDocumentUrl(selectedTemplate)} className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"><FileText size={16} aria-hidden="true" /> View Word template</a> : null}</div>
-          <div className="flex gap-3 md:col-span-2"><button disabled={isCreating} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreating ? <Loader2 className="animate-spin" size={16} /> : sourceId ? <Copy size={16} /> : <FilePlus2 size={16} />}{sourceId ? "Duplicate and edit" : "Create blank syllabus"}</button><button type="button" onClick={() => setShowForm(false)} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button></div>
+      <ModalDialog
+        open={Boolean(duplicateSource)}
+        title={duplicateSource ? `Duplicate ${duplicateSource.courseTitle}` : "Duplicate"}
+        description="The copy is yours and private, and opens in the editor. Everything else carries over; change it there."
+        onClose={() => setDuplicateSource(null)}
+        widthClassName="max-w-md"
+      >
+        <form onSubmit={submitDuplicate} className="grid gap-4">
+          <label className="grid gap-1 text-sm font-medium text-[#344054]">
+            For the academic year
+            <SelectMenu
+              label="Academic year of the copy"
+              value={duplicateYear}
+              onChange={setDuplicateYear}
+              options={duplicateYears(duplicateSource?.academicYear ?? "").map((option) => ({ value: option, label: option }))}
+            />
+          </label>
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={() => setDuplicateSource(null)} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button>
+            <button disabled={isCreating || !duplicateYear} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isCreating ? <Loader2 className="animate-spin" size={16} /> : <Copy size={16} />}Duplicate</button>
+          </div>
         </form>
-      ) : null}
+      </ModalDialog>
 
       <div className="mt-6 grid gap-5 lg:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="rounded-lg border border-[#d9dee7] bg-white p-2 lg:h-fit">
@@ -294,4 +310,10 @@ function DeleteDialog({ syllabus, isDeleting, onCancel, onDelete }: { syllabus: 
 
 function DeleteFolderDialog({ folder, isDeleting, onCancel, onDelete }: { folder: SyllabusFolder; isDeleting: boolean; onCancel: () => void; onDelete: () => void }) {
   return <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#101828]/35 p-4"><section role="alertdialog" aria-modal="true" aria-labelledby="delete-folder-title" className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl"><h3 id="delete-folder-title" className="text-lg font-semibold text-[#171717]">Delete folder?</h3><p className="mt-2 text-sm leading-6 text-[#667085]">“{folder.name}” is empty and will be permanently removed. Syllabi must be moved out of a folder before it can be deleted.</p><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onCancel} disabled={isDeleting} className="rounded-md border border-[#b7bec8] px-4 py-2 text-sm font-semibold text-[#344054]">Cancel</button><button type="button" onClick={onDelete} disabled={isDeleting} className="rounded-md bg-[#b4232d] px-4 py-2 text-sm font-semibold text-white hover:bg-[#912018] disabled:bg-[#d0a1a5]">{isDeleting ? "Deleting…" : "Delete folder"}</button></div></section></div>;
+}
+
+/** The years a copy may be for: the one after the original's first, then the original's own, this year and next. */
+function duplicateYears(sourceYear: string): string[] {
+  const now = currentAcademicYear();
+  return Array.from(new Set([followingAcademicYear(sourceYear), sourceYear, now, followingAcademicYear(now)].filter((year) => /^\d{4}-\d{4}$/.test(year))));
 }

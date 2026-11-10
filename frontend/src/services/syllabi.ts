@@ -98,6 +98,24 @@ export type SyllabusComparisonRow = {
   operations?: WordDiffOperation[];
 };
 
+/**
+ * What a new syllabus is called until its course is chosen. Since November 2026 "New syllabus"
+ * opens the editor straight away, and choosing the course in section 1 names it.
+ */
+export const UNTITLED_SYLLABUS = "Untitled syllabus";
+
+/** "2026-2027": the academic year a day falls in; August opens it. */
+export function currentAcademicYear(today: Date = new Date()): string {
+  const first = today.getMonth() >= 7 ? today.getFullYear() : today.getFullYear() - 1;
+  return `${first}-${first + 1}`;
+}
+
+/** "2027-2028" after "2026-2027"; anything not written as two years comes back as it was. */
+export function followingAcademicYear(year: string): string {
+  const match = /^(\d{4})-(\d{4})$/.exec(year.trim());
+  return match ? `${Number(match[1]) + 1}-${Number(match[2]) + 1}` : year;
+}
+
 export type CreateSyllabusInput = {
   courseTitle: string;
   courseCode: string;
