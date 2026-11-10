@@ -286,7 +286,7 @@ export function WishesForm({
   // and where its pop-over sits.
   const [open, setOpen] = useState<{ key: string; left: number; top: number; cell: HTMLElement } | null>(null);
   // The cell the pointer rests on, for its bubble and its block lit up; and a stroke under way.
-  const [resting, setResting] = useState<{ day: number; time: number } | null>(null);
+  const [resting, setResting] = useState<{ day: number; time: number; box: { left: number; top: number; width: number; height: number } } | null>(null);
   const [stroking, setStroking] = useState(false);
   // A block to open once the stroke that painted it, or the click on it, has been drawn.
   const [toOpen, setToOpen] = useState<Spot | null>(null);
@@ -614,6 +614,39 @@ export function WishesForm({
   // On a single week, the day away open or rested on lights up.
   const litDate = week ? openDate || (resting ? dateOf(resting.day) : "") : "";
   const yours = voice === "you" ? "your" : "their";
+  // What the bubble says, for the cell the pointer rests on: its painted block, or its time away.
+  const restingLine = !week && resting ? lineAt(resting.day, resting.time) : null;
+  const restingDate = week && resting ? dateOf(resting.day) : "";
+  const restingAway = restingDate
+    ? away.find(
+        (entry) =>
+          entry.from <= restingDate &&
+          restingDate <= entry.to &&
+          (entry.start ?? 0) < resting!.time + fineness &&
+          resting!.time < (entry.end ?? 24),
+      )
+    : undefined;
+  const bubbleTitle = restingAway ? `Away · ${awayWords(restingAway)}` : restingLine ? describeLine(restingLine) : undefined;
+  const restingComment = restingLine ? comments[restingLine.key] : "";
+  const bubble = restingAway ? (
+    <>
+      {restingAway.reason ? <span className="mb-1.5 block">&ldquo;{restingAway.reason}&rdquo;</span> : null}
+      <TipDo>Click to say why, or remove</TipDo>
+    </>
+  ) : restingLine ? (
+    <>
+      <span className="mb-1.5 block">
+        <b className="font-semibold text-[#344054]">{levelOf(restingLine.key) === "must" ? "Must" : "Would like"}</b>
+        {restingComment ? <> · &ldquo;{restingComment}&rdquo;</> : null}
+      </span>
+      <TipDo>Click to set Must / Would like, comment or remove</TipDo>
+      {restingLine.kind === "cant" && restingLine.days.length > 1 ? (
+        <span className="block text-[#667085]">
+          The whole block, on {restingLine.days.map((each) => DAY_SHORT[each]).join(" and ")}: one preference.
+        </span>
+      ) : null}
+    </>
+  ) : null;
 
   return (
     <div className="space-y-4">
@@ -827,12 +860,8 @@ export function WishesForm({
                           : !same
                             ? "partly painted"
                             : `${painted[0].kind === "cant" ? "can't teach" : "would rather"}, ${painted[0].level === "must" ? "a Must" : "a Would like"}`;
-                      const comment = line ? comments[line.key] : "";
                       // What the cell holds, to open: a painted block, or on a single week, a day away.
                       const holds = week ? awayHere : Boolean(line);
-                      const awayEntry = awayHere
-                        ? away.find((entry) => entry.from <= date && date <= entry.to && (entry.start ?? 0) <= time && time < (entry.end ?? 24))
-                        : undefined;
                       const button = (
                         <button
                           type="button"
@@ -855,7 +884,14 @@ export function WishesForm({
                           onPointerEnter={(event) => {
                             const held = stroke.current;
                             if (!held) {
-                              setResting({ day, time });
+                              // Where the cell sits in the grid, for the one bubble to open beside it.
+                              const at = event.currentTarget.getBoundingClientRect();
+                              const frame = gridBox.current?.getBoundingClientRect();
+                              setResting({
+                                day,
+                                time,
+                                box: { left: at.left - (frame?.left ?? 0), top: at.top - (frame?.top ?? 0), width: at.width, height: at.height },
+                              });
                               return;
                             }
                             held.waiting = false;
@@ -899,37 +935,7 @@ export function WishesForm({
                       );
                       return (
                         <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
-                          <Tip
-                            open={holds && !stroking && !open && resting?.day === day && resting.time === time}
-                            side="right"
-                            wide={false}
-                            title={week ? (awayEntry ? `Away · ${awayWords(awayEntry)}` : undefined) : line ? describeLine(line) : undefined}
-                            content={
-                              week ? (
-                                awayEntry ? (
-                                  <>
-                                    {awayEntry.reason ? <span className="mb-1.5 block">&ldquo;{awayEntry.reason}&rdquo;</span> : null}
-                                    <TipDo>Click to say why, or remove</TipDo>
-                                  </>
-                                ) : null
-                              ) : line ? (
-                                <>
-                                  <span className="mb-1.5 block">
-                                    <b className="font-semibold text-[#344054]">{levelOf(line.key) === "must" ? "Must" : "Would like"}</b>
-                                    {comment ? <> · &ldquo;{comment}&rdquo;</> : null}
-                                  </span>
-                                  <TipDo>Click to set Must / Would like, comment or remove</TipDo>
-                                  {line.kind === "cant" && line.days.length > 1 ? (
-                                    <span className="block text-[#667085]">
-                                      The whole block, on {line.days.map((each) => DAY_SHORT[each]).join(" and ")}: one preference.
-                                    </span>
-                                  ) : null}
-                                </>
-                              ) : null
-                            }
-                          >
-                            {button}
-                          </Tip>
+                          {button}
                         </td>
                       );
                     })}
@@ -938,6 +944,15 @@ export function WishesForm({
               </tbody>
             </table>
           </div>
+          {/*
+           * One bubble for the whole grid, beside the cell the pointer rests on: a bubble on
+           * every cell made a week of quarter hours slow to draw, and only one is ever open.
+           */}
+          {resting ? (
+            <Tip open={Boolean(restingLine || restingAway) && !stroking && !open} side="right" wide={false} title={bubbleTitle} content={bubble}>
+              <span aria-hidden="true" className="pointer-events-none absolute" style={resting.box} />
+            </Tip>
+          ) : null}
           {open && openLine ? (
             <div
               ref={popover}
