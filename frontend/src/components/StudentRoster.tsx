@@ -213,14 +213,15 @@ export function StudentRoster({
     [terms.data],
   );
   /*
-   * Which portal term the registrar's weekdays are asked for.
+   * Which portal term the registrar's weekdays are asked for: the semester on screen's.
    *
-   * The first linked one, because the Meets column is about the semester being worked on
-   * and every roster page here shows one. `retry: false`: an unlinked deployment must not
-   * spend the table's first render retrying a question that has no answer.
+   * It was the first linked one, so on Semester 2 the Meets column read Semester 1's
+   * weekdays. A table with no semester, or one linked to no term, still asks the first.
+   * `retry: false`: an unlinked deployment must not spend the table's first render
+   * retrying a question that has no answer.
    */
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
-  const portalTerm = Object.values(links.data ?? {}).find(Boolean) ?? "";
+  const portalTerm = (termId && links.data?.[termId]) || Object.values(links.data ?? {}).find(Boolean) || "";
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
