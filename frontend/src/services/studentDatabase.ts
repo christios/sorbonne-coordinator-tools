@@ -486,8 +486,10 @@ export type TeamsCheck = {
   channels: TeamsChannelCheck[];
 };
 
-export function fetchTeamsCheck(cohortId: string): Promise<TeamsCheck> {
-  return request<TeamsCheck>(`${BASE}/cohorts/${cohortId}/teams-check`);
+/** Which of a cohort's members Teams did not list, in one semester when `termId` is said. */
+export function fetchTeamsCheck(cohortId: string, termId = ""): Promise<TeamsCheck> {
+  const term = termId ? `?term=${encodeURIComponent(termId)}` : "";
+  return request<TeamsCheck>(`${BASE}/cohorts/${cohortId}/teams-check${term}`);
 }
 
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {

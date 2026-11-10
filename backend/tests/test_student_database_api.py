@@ -1813,6 +1813,27 @@ def test_each_channel_says_which_members_the_reading_does_not_list_there(
     assert scen["missing"] == [{"studentId": "A00021503", "address": "a00021503@sorbonne.ae"}]
 
 
+def test_the_teams_check_asks_about_the_members_of_one_semester(
+    client: TestClient, cohort_id: str, view_id: str, rosters: TeamRosterStore
+):
+    """A student who is in the cohort in Semester 1 and moved on in Semester 2 is no member
+    there: read across every semester, they showed as missing from the channel."""
+    sync(client, view_id, STUDENTS)
+    move = "/api/v1/student-database/students/cohort"
+    client.post(move, json={"studentIds": STUDENTS[:2], "cohortId": cohort_id, "termId": "autumn"})
+    client.post(move, json={"studentIds": STUDENTS[:1], "cohortId": cohort_id, "termId": "spring"})
+    name_channels(client, cohort_id, "FYS Students")
+    rosters.record(channels={"FYS Students": ["a00021503@sorbonne.ae"]})
+
+    def missing(term: str) -> list[str]:
+        response = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/teams-check", params={"term": term})
+        assert response.status_code == status.HTTP_200_OK, response.text
+        return [entry["studentId"] for entry in response.json()["channels"][0]["missing"]]
+
+    assert missing("autumn") == ["A00021505"]
+    assert missing("spring") == []
+
+
 def test_the_channel_is_found_whatever_its_case_and_spacing(
     client: TestClient, cohort_id: str, view_id: str, rosters: TeamRosterStore
 ):

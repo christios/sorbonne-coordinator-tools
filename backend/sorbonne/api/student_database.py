@@ -518,6 +518,7 @@ def list_members(
 @router.get("/cohorts/{cohort_id}/teams-check")
 def teams_check(
     cohort_id: str,
+    term: str | None = None,
     database: StudentDatabase = Depends(get_database),
     rosters: TeamRosterStore = Depends(get_rosters),
 ) -> dict[str, Any]:
@@ -525,12 +526,14 @@ def teams_check(
     by channel, and which channels that reading holds — the ones a cohort can be given.
 
     The members are the ones `/members` lists, read only when there is a channel to hold
-    them against.
+    them against — in one semester when `term` is said. Read across every semester, a
+    student who moved from L1 to L2 in Semester 2 was still an L1 member and showed as
+    missing from "L1 Students".
     """
     try:
         cohort = database.get_cohort(cohort_id)
         channels = [channel for channel in cohort["teamsChannels"] if channel.strip()]
-        members = database.list_members(cohort_id) if channels else []
+        members = database.list_members(cohort_id, term) if channels else []
     except CohortNotFound as exc:
         raise _missing(exc, "cohort") from exc
     reading = rosters.latest()

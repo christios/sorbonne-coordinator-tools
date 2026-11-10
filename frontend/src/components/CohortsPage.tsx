@@ -573,8 +573,9 @@ export function CohortsPage({
    */
   const teamsChecks = useQueries({
     queries: cohorts.map((cohort) => ({
-      queryKey: ["teams-check", cohort.id],
-      queryFn: () => fetchTeamsCheck(cohort.id),
+      // The semester on screen's members: one who moved to L2 in Semester 2 is no L1 member there.
+      queryKey: ["teams-check", cohort.id, semester?.id ?? ""],
+      queryFn: () => fetchTeamsCheck(cohort.id, semester?.id ?? ""),
       enabled: Boolean(cohort.teamsChannels?.length),
       retry: false,
     })),
