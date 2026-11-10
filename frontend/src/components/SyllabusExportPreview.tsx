@@ -2,6 +2,8 @@ import { useQuery } from "@tanstack/react-query";
 
 import { API_BASE_URL, apiFetch } from "@/services/http";
 import { previewProjection } from "@/services/syllabusProjection";
+import { OTHER_AI_OPTION, activityAiPolicy, aiOption, templatePermittedUse } from "@/services/aiPolicy";
+import { gradedActivities } from "@/services/syllabusContent";
 
 type Resolved = { courseTitle: string; courseCode: string; academicYear: string; content: Record<string, unknown>; sections: string[] };
 
@@ -127,8 +129,9 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
       </Block>
 
       <Block heading="9.3. AI Policy">
+        {/* Ticked as the document ticks them: every option a graded activity applies. */}
         <Rows rows={[
-          ["Course-level policy", text(assessment.aiPolicy)],
+          ...projection.aiOptions.map(([option]): [string, string] => [`☒ ${option}`, aiOptionDetails(option, assessment, gradedActivities(content))]),
           ["Additional instructions regarding AI", text(assessment.aiInstructions)],
         ]} />
       </Block>
@@ -223,4 +226,26 @@ function rows(...values: unknown[]): Array<Record<string, unknown>> {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
+}
+
+/** What the document writes beside a ticked AI option: the details that option asks for. */
+function aiOptionDetails(option: string, assessment: Record<string, unknown>, activities: Array<Record<string, unknown>>): string {
+  if (option === "AI Prohibited") {
+    const mechanism = text(assessment.aiVerificationMechanism);
+    return mechanism ? `Verification mechanism used by the instructor: ${mechanism}` : "";
+  }
+  if (option === "AI Permitted as a Support Tool") {
+    const uses = Array.isArray(assessment.aiAllowedUses) ? assessment.aiAllowedUses.filter((use): use is string => typeof use === "string").map(templatePermittedUse) : [];
+    const other = Array.isArray(assessment.aiOtherUses)
+      ? assessment.aiOtherUses.map((item) => text(record(item).text)).filter(Boolean)
+      : [text(assessment.aiOtherUse)].filter(Boolean);
+    return [...uses, ...other.map((use) => `Other: ${use}`)].join("\n");
+  }
+  if (option === OTHER_AI_OPTION) {
+    return activities
+      .filter((activity) => aiOption(activityAiPolicy(activity, assessment).label) === OTHER_AI_OPTION && text(activity.aiOtherText))
+      .map((activity) => `${text(activity.name) || text(activity.type) || "Activity"}: ${text(activity.aiOtherText)}`)
+      .join("\n");
+  }
+  return "";
 }

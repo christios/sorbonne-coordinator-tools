@@ -218,6 +218,78 @@ def test_the_document_has_one_rubric_table_per_rubric_and_no_blank_ones(tmp_path
         assert [table.cell(0, 0).text for table in _rubric_tables(Document(output))] == expected
 
 
+def _ai_rows(document) -> dict[str, str]:
+    """Section 9.3's table, option by option: what the label cell and the description say."""
+    table = document.tables[10]
+    return {row.cells[0].text.replace("☒", "").strip(): row.cells[0].text + "|" + row.cells[-1].text for row in table.rows[1:]}
+
+
+def test_each_graded_activity_applies_its_own_ai_option_and_section_9_3_ticks_every_one_in_use(tmp_path) -> None:
+    """November 2026 review: the AI policy is chosen per graded activity, from the template's five."""
+    syllabus = {
+        "courseTitle": "Optics",
+        "content": {
+            "assessment": {
+                "items": [
+                    {"id": "a1", "name": "Midterm", "aiPolicyId": "ai-policy-1", "aiPolicy": "AI Prohibited"},
+                    {"id": "a2", "name": "Project", "aiPolicy": "AI Permitted as a Support Tool"},
+                    {
+                        "id": "a3",
+                        "name": "Essay",
+                        "aiPolicy": "Other (Specify)",
+                        "aiOtherText": "Translation tools for sources only",
+                    },
+                ],
+                "aiVerificationMechanism": "Oral follow-up",
+                # Written before the template's wording was used: still ticks the right box.
+                "aiAllowedUses": ["Language editing", "Structuring or organising ideas"],
+            }
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    rows = _ai_rows(document)
+    assert rows["AI Prohibited"].startswith("☒")
+    assert "Oral follow-up" in rows["AI Prohibited"]
+    assert rows["AI Permitted as a Support Tool"].startswith("☒")
+    assert "☒ Language editing (grammar, spelling, style, and readability)" in rows["AI Permitted as a Support Tool"]
+    assert "☒ Structuring or organizing ideas" in rows["AI Permitted as a Support Tool"]
+    assert "☐ Brainstorming" in rows["AI Permitted as a Support Tool"]
+    assert not rows["Restricted AI Use"].startswith("☒")
+    assert not rows["AI Required"].startswith("☒")
+    assert rows["Other (Specify)"].startswith("☒")
+    assert "Essay: Translation tools for sources only" in rows["Other (Specify)"]
+    summary = [row.cells[4].text for row in document.tables[9].rows[1:4]]
+    assert summary == ["AI Prohibited", "AI Permitted as a Support Tool", "Other: Translation tools for sources only"]
+
+
+def test_an_activity_without_its_own_ai_option_applies_the_course_policy_an_older_syllabus_set(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Optics",
+        "content": {"assessment": {"aiPolicy": "AI Permitted as a Support Tool", "items": [{"id": "a1", "name": "Quiz"}]}},
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    assert document.tables[9].rows[1].cells[4].text == "AI Permitted as a Support Tool"
+    assert _ai_rows(document)["AI Permitted as a Support Tool"].startswith("☒")
+    assert not _ai_rows(document)["AI Prohibited"].startswith("☒")
+
+
+def test_nothing_is_ticked_when_no_activity_has_an_ai_option(tmp_path) -> None:
+    syllabus = {"courseTitle": "Optics", "content": {"assessment": {"items": [{"id": "a1", "name": "Quiz"}]}}}
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    assert not [label for label, cells in _ai_rows(Document(output)).items() if cells.startswith("☒")]
+
+
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:
     syllabus = {
         "courseTitle": "Environmental Policy",

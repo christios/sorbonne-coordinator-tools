@@ -27,6 +27,9 @@ def document_projection(document: DocumentType) -> dict[str, list[list[str]]]:
         "schedule": _body(tables[7], header_rows=1),
         "bibliography": _labelled(tables[8], value_column=1),
         "assessments": _body(tables[9], header_rows=1),
+        # The AI options section 9.3 ticks: one per option a graded activity applies.
+        "aiOptions": [[_cell(tables[10], row, 0).removeprefix("☒").strip()] for row in range(1, len(tables[10].rows))
+                      if _cell(tables[10], row, 0).startswith("☒")],
         # As many rubric tables as the course has kinds of graded activity, none spare.
         "rubrics": _rubrics([table for table in tables[11:] if _cell(table, 0, 0).startswith("Assessment type:")]),
     }

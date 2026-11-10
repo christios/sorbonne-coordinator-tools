@@ -14,7 +14,16 @@ from docx.shared import Inches
 from docx.table import _Cell, Table
 
 from sorbonne.services import rich_text
-from sorbonne.services.syllabus_content import graded_activities
+from sorbonne.services.syllabus_content import (
+    AI_OPTIONS,
+    OTHER_AI_OPTION,
+    activity_ai_policy,
+    ai_option,
+    ai_options_in_use,
+    ai_policy_summary,
+    graded_activities,
+    template_permitted_use,
+)
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID, get_template
 
 
@@ -394,12 +403,12 @@ def _fill_assessment(
             _text(source.get("name")) or _text(source.get("type")),
             _percentage(source.get("weight")),
             aligned_clos,
-            _text(source.get("aiPolicy")) or _text(source.get("ai")),
+            ai_policy_summary(source, assessment) if source else "",
         ]
         for cell, value in zip(row.cells, values, strict=True):
             _set_cell_text(cell, value)
 
-    _fill_ai_policy(document.tables[10], assessment)
+    _fill_ai_policy(document.tables[10], assessment, items)
     _set_paragraph_after(
         document,
         "Additional Instructions regarding AI where its use is permitted or required",
@@ -416,38 +425,43 @@ def _clo_numbers_from_text(value: str) -> str:
     return ", ".join(dict.fromkeys(number.replace("  ", " ") for number in numbers))
 
 
-def _fill_ai_policy(table: Table, assessment: dict[str, Any]) -> None:
-    policy = _text(assessment.get("aiPolicy")) or "AI Prohibited"
-    selected_index = {
-        "AI Prohibited": 1,
-        "AI Permitted as a Support Tool": 2,
-        "Restricted AI Use": 3,
-        "AI Required": 4,
-        "Other (Specify)": 5,
-    }.get(policy)
-    if selected_index is not None:
-        _set_cell_text(table.cell(selected_index, 0), f"☒ {policy}")
-
-    if policy == "AI Prohibited":
-        cell = table.cell(1, 1)
-        additional = _text(assessment.get("aiVerificationMechanism"))
-        _set_cell_text(
-            cell,
-            _mark_first_checkbox(cell.text)
-            + (f"\n\nVerification mechanism used by the instructor: {additional}" if additional else ""),
-        )
-    elif policy == "AI Permitted as a Support Tool":
-        cell = table.cell(2, 1)
-        allowed = {item for item in assessment.get("aiAllowedUses", []) if isinstance(item, str)}
-        description = cell.text
-        for use in allowed:
-            description = description.replace(f"☐ {use}", f"☒ {use}")
-        other_uses = _list_or_legacy(assessment, "aiOtherUses", "aiOtherUse")
-        if other_uses:
-            description = description.replace("☐ Other (please specify):", f"☒ Other (please specify): {other_uses}")
-        _set_cell_text(cell, description)
-    elif policy == "Other (Specify)":
-        _set_cell_text(table.cell(5, 1), _text(assessment.get("aiCustomPolicy")))
+def _fill_ai_policy(table: Table, assessment: dict[str, Any], activities: list[dict[str, Any]]) -> None:
+    """Tick every option of the template's AI table that a graded activity applies, with its details."""
+    in_use = ai_options_in_use(activities, assessment)
+    for row_index, option in enumerate(AI_OPTIONS, start=1):
+        if option not in in_use:
+            continue
+        _set_cell_text(table.cell(row_index, 0), f"☒ {option}")
+        cell = table.cell(row_index, 1)
+        if option == "AI Prohibited":
+            additional = _text(assessment.get("aiVerificationMechanism"))
+            _set_cell_text(
+                cell,
+                _mark_first_checkbox(cell.text)
+                + (f"\n\nVerification mechanism used by the instructor: {additional}" if additional else ""),
+            )
+        elif option == "AI Permitted as a Support Tool":
+            allowed = {
+                template_permitted_use(item) for item in assessment.get("aiAllowedUses", []) if isinstance(item, str)
+            }
+            description = cell.text
+            for use in allowed:
+                description = description.replace(f"☐ {use}", f"☒ {use}")
+            other_uses = _list_or_legacy(assessment, "aiOtherUses", "aiOtherUse")
+            if other_uses:
+                description = description.replace(
+                    "☐ Other (please specify):", f"☒ Other (please specify): {other_uses}"
+                )
+            _set_cell_text(cell, description)
+        elif option == OTHER_AI_OPTION:
+            written = [
+                f"{_text(activity.get('name')) or _text(activity.get('type')) or 'Activity'}: "
+                f"{_text(activity.get('aiOtherText'))}"
+                for activity in activities
+                if ai_option(activity_ai_policy(activity, assessment)) == OTHER_AI_OPTION
+                and _text(activity.get("aiOtherText"))
+            ]
+            _set_cell_text(cell, "\n".join(written) or _text(assessment.get("aiCustomPolicy")))
 
 
 def _fill_rubrics(document: Document, rubrics: list[dict[str, Any]]) -> None:

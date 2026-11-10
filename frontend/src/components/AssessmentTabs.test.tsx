@@ -4,12 +4,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AssessmentTabs } from "./AssessmentTabs";
 import { FieldHistoryProvider } from "./FieldHistory";
-import { AssessmentItemsEditor } from "./StructuredEntryEditors";
+import { AssessmentAiPolicyEditor, AssessmentItemsEditor } from "./StructuredEntryEditors";
 
 describe("AssessmentTabs", () => {
   it("shows one focused assessment editor at a time", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={queryClient}><AssessmentTabs value={{ aiPolicy: "AI Permitted as a Support Tool", aiOtherUse: "Use a transcription tool" }} outcomes={[]} onChange={vi.fn()} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} /></QueryClientProvider>);
+    render(<QueryClientProvider client={queryClient}><AssessmentTabs value={{ items: [{ id: "a1", name: "Project", aiPolicy: "AI Permitted as a Support Tool" }], aiOtherUse: "Use a transcription tool" }} outcomes={[]} onChange={vi.fn()} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} /></QueryClientProvider>);
 
     expect(screen.getByText("Summary of graded learning activities")).toBeTruthy();
     expect(screen.queryByText(/One rubric per assessment type/)).toBeNull();
@@ -19,7 +19,10 @@ describe("AssessmentTabs", () => {
     expect(screen.queryByText("Summary of graded learning activities")).toBeNull();
 
     fireEvent.click(screen.getByRole("tab", { name: "AI policy" }));
-    expect(screen.getByText("Course-level policy")).toBeTruthy();
+    // No course-wide choice any more: the option the activity applies is shown, open.
+    expect(screen.queryByText("Course-level policy")).toBeNull();
+    expect(screen.getByRole("article", { name: "AI Permitted as a Support Tool" })).toBeTruthy();
+    expect(screen.getByText("Applied by Project")).toBeTruthy();
     expect(screen.getByText("Other permitted uses")).toBeTruthy();
     expect(screen.getByLabelText("Other permitted use 1")).toHaveProperty("value", "Use a transcription tool");
     expect(screen.getByRole("button", { name: "Add permitted use" })).toBeTruthy();
@@ -83,5 +86,50 @@ describe("Choosing an assessment type", () => {
     const written = calls[calls.length - 1][0].items[0];
     expect(written.assessmentTypeId).toBe("assessment-type-1");
     expect(written.type).toBe("Written test");
+  });
+
+  it("shows one open section per AI option the graded activities apply, in the template's order", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><AssessmentAiPolicyEditor
+      value={{ items: [
+        { id: "a1", name: "Essay", aiPolicy: "Other (Specify)", aiOtherText: "Translation tools for sources only" },
+        { id: "a2", name: "Midterm", aiPolicy: "AI Prohibited" },
+        { id: "a3", name: "Quiz", aiPolicy: "AI Prohibited" },
+      ] }}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    const sections = screen.getAllByRole("article").map((section) => section.getAttribute("aria-label"));
+    expect(sections).toEqual(["AI Prohibited", "Other (Specify)"]);
+    expect(screen.getByText("Applied by Midterm, Quiz")).toBeTruthy();
+    expect(screen.getByLabelText("Verification mechanism")).toBeTruthy();
+    expect(screen.getByText("Translation tools for sources only")).toBeTruthy();
+  });
+
+  it("says what to do when no graded activity has an AI policy yet", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><AssessmentAiPolicyEditor value={{ items: [{ id: "a1", name: "Quiz" }] }} onChange={vi.fn()} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} /></QueryClientProvider>);
+
+    expect(screen.queryAllByRole("article")).toHaveLength(0);
+    expect(screen.getByText(/Choose an AI policy for each graded activity/)).toBeTruthy();
+  });
+
+  it("asks an activity under Other (Specify) to describe its policy, and shows an older course policy as the default", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><AssessmentItemsEditor
+      value={{ aiPolicy: "AI Prohibited", items: [{ id: "a1", name: "Essay", aiPolicy: "Other (Specify)" }, { id: "a2", name: "Quiz" }] }}
+      outcomes={[]}
+      onChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    // Both cards open, as new unfinished activities do.
+    expect(screen.getByLabelText("Describe the AI policy for this activity")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Assessment 2 AI policy" }).textContent).toContain("From the course: AI Prohibited");
   });
 });

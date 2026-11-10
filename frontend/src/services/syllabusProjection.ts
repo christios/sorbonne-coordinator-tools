@@ -1,4 +1,5 @@
 import { richTextToPlain } from "@/services/richText";
+import { aiOptionsInUse, aiPolicySummary } from "@/services/aiPolicy";
 import { gradedActivities } from "@/services/syllabusContent";
 /**
  * What a syllabus says, section by section, independent of how it is drawn.
@@ -66,8 +67,9 @@ export function previewProjection(syllabus: Syllabus): Projection {
       text(item.name) || text(item.type),
       percentage(item.weight),
       cloNumbers(item, clos),
-      text(item.aiPolicy) || text(item.ai),
+      aiPolicySummary(item, assessment),
     ]),
+    aiOptions: aiOptionsInUse(gradedActivities(content), assessment).map((option) => [option]),
     rubrics: rows(assessment.rubrics).flatMap((rubric) =>
       rows(rubric.criteria).map((criterion) => [
         text(rubric.assignment),

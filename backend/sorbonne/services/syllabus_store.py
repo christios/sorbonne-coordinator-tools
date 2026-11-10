@@ -406,7 +406,7 @@ def default_content() -> dict[str, Any]:
         "teachingApproach": {"methods": "", "engagement": "", "feedback": ""},
         "assessment": {
             "items": [],
-            "aiPolicy": "AI Prohibited",
+            # No course-wide AI policy: each graded activity chooses its own (November 2026).
             "aiInstructions": "",
             "methodologies": "",
             "rubrics": [],
