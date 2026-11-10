@@ -11,6 +11,7 @@ import {
   InviteRefused,
   fetchInvitation,
   fetchInviteeForm,
+  openAsInviteeHere,
   saveInviteeAnswer,
   signInInvitee,
   signOutInvitee,
@@ -131,6 +132,16 @@ export function InvitedWishesPage({ code }: { code: string }) {
           </p>
         )}
         {signIn.isPending ? <p className="mt-3 text-center text-sm text-[#667085]">Signing you in…</p> : null}
+        {import.meta.env.DEV ? (
+          // The local copy only: Google's sign-in does not finish on a developer's address.
+          <button
+            type="button"
+            onClick={() => void openAsInviteeHere(code).then(() => invitation.refetch())}
+            className="mx-auto mt-4 block rounded-md border border-dashed border-[#d99b1c] px-3 py-1.5 text-xs font-semibold text-[#8a6116]"
+          >
+            Open as this teacher (local copy only)
+          </button>
+        ) : null}
         {signIn.isError ? (
           <p role="alert" className="mt-3 text-center text-sm text-[#a6292f]">
             {(signIn.error as Error).message}

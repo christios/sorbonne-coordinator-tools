@@ -88,3 +88,19 @@ export async function saveInviteeAnswer(code: string, input: WishesInput): Promi
     "That could not be saved. Try again in a moment.",
   );
 }
+
+/**
+ * On a developer's own machine only: be the invited teacher without their Google account, to
+ * look at their side. The server answers it only with a local database; the button calling it
+ * is built only into the local copy.
+ */
+export async function openAsInviteeHere(code: string): Promise<void> {
+  return answer(
+    await apiFetch(`${API_BASE_URL}/api/v1/dev/wish-invitee-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    }),
+    "Only the local copy can do that.",
+  );
+}
