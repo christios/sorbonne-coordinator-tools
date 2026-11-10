@@ -111,6 +111,34 @@ describe("SyllabusCatalogues", () => {
     vi.mocked(listCatalogueEntries).mockResolvedValue([]);
   });
 
+  it("keeps the AI policies to the template's five, in its order, editable but never added or retired", async () => {
+    const policy = (id: string, label: string, templateRow: number, extra: Record<string, unknown> = {}) => ({ id, category: "ai-policies" as const, parentId: null, label, payload: { description: `${label} wording`, templateRow, ...extra }, sortOrder: templateRow, isRetired: false, retiredAt: null, revision: 2, createdAt: "2026-08-31T00:00:00Z", updatedAt: "2026-08-31T00:00:00Z" });
+    vi.mocked(listCatalogueEntries).mockResolvedValue([
+      policy("ai-policy-5", "Other (Specify)", 5),
+      policy("ai-policy-2", "AI Permitted as a Support Tool", 2, { permittedUses: ["Brainstorming or generating initial ideas"] }),
+      policy("ai-policy-1", "AI Prohibited", 1),
+    ]);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SyllabusCatalogues onBack={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "AI policies" }));
+    await screen.findByText("Other (Specify)");
+    expect(screen.queryByRole("button", { name: /New AI policy/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Retire / })).toBeNull();
+    const titles = screen.getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent);
+    expect(titles).toEqual(["AI Prohibited", "AI Permitted as a Support Tool", "Other (Specify)"]);
+
+    fireEvent.click(screen.getByText("AI Permitted as a Support Tool"));
+    fireEvent.click(await screen.findByRole("button", { name: "+ Add permitted use" }));
+    fireEvent.change(screen.getByLabelText("Permitted use 2"), { target: { value: "Translating sources" } });
+    fireEvent.submit(screen.getByLabelText("Permitted use 2").closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(updateCatalogueEntry).toHaveBeenCalledWith("ai-policies", "ai-policy-2", expect.objectContaining({
+      label: "AI Permitted as a Support Tool",
+      payload: expect.objectContaining({ templateRow: 2, permittedUses: ["Brainstorming or generating initial ideas", "Translating sources"] }),
+    })));
+    vi.mocked(listCatalogueEntries).mockResolvedValue([]);
+  });
+
   it("wraps long catalogue labels inside their cards", async () => {
     const longName = "Bachelor in Physics – Concentration in Quantum Technologies";
     vi.mocked(listCatalogueEntries).mockResolvedValueOnce([

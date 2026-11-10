@@ -58,7 +58,7 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
     {activeSection === "teaching-presets" ? <TeachingPresetsCatalogue /> : null}
     {activeSection === "curriculum-mapping" ? <CurriculumMappingCatalogue /> : null}
     {activeSection === "assessment" ? <AssessmentCatalogue /> : null}
-    {activeSection === "ai-policies" ? <SimpleCatalogue category="ai-policies" title="AI policies" description="The policies a graded activity may apply. Courses choose from these; they do not write their own." createLabel="New AI policy" /> : null}
+    {activeSection === "ai-policies" ? <AiPolicyCatalogue /> : null}
     {activeSection === "bibliography" ? <BibliographyCatalogue /> : null}
   </SectionEditorShell>;
 }
@@ -271,9 +271,50 @@ function CompetencyEditForm({ category, entry, onCancel, onSaved }: { category: 
   return <CompetencyForm category={category} entry={entry} entries={data.data ?? []} onCancel={onCancel} onSaved={onSaved} />;
 }
 
-function SimpleCatalogue({ category, title, description, createLabel }: { category: CatalogueCategory; title: string; description: string; createLabel: string }) {
-  const [showCreate, setShowCreate] = useState(false); const data = useCatalogue(category);
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />{showCreate ? <SimpleEntryForm category={category} fieldLabel="Name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} /></div>;
+/**
+ * The Provost's template prints exactly five AI options in section 9.3, each on its own row,
+ * and every graded activity applies one of them (November 2026 review). So the list is fixed:
+ * the wording and, for the support-tool option, the uses a course may tick can be edited,
+ * but nothing is added or retired that the document could not print.
+ */
+function AiPolicyCatalogue() {
+  const data = useCatalogue("ai-policies");
+  const entries = [...(data.data ?? [])].filter((entry) => !entry.isRetired).sort((left, right) => templateRowOf(left) - templateRowOf(right));
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="AI policies" description="The five options of the syllabus template's AI policy table. Every graded activity applies one; the syllabus shows each option in use with this wording." /><CatalogueEntries category="ai-policies" entries={entries} isLoading={data.isLoading} fixed renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{templateRowOf(entry) < Number.MAX_SAFE_INTEGER ? `Row ${templateRowOf(entry)} of the template's AI policy table` : "Not one of the template's rows"}{permittedUsesOf(entry).length ? ` · ${permittedUsesOf(entry).length} permitted uses` : ""}</p>} /></div>;
+}
+
+function templateRowOf(entry: CatalogueEntry): number {
+  return typeof entry.payload.templateRow === "number" ? entry.payload.templateRow : Number.MAX_SAFE_INTEGER;
+}
+
+function permittedUsesOf(entry?: CatalogueEntry): string[] {
+  return Array.isArray(entry?.payload.permittedUses) ? (entry.payload.permittedUses as unknown[]).filter((use): use is string => typeof use === "string") : [];
+}
+
+function AiPolicyForm({ entry, onCancel, onSaved }: { entry: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+  const client = useQueryClient();
+  const [wording, setWording] = useState(stringValue(entry.payload.description) || stringValue(entry.payload.details));
+  const offersUses = Array.isArray(entry.payload.permittedUses);
+  const [uses, setUses] = useState<string[]>(permittedUsesOf(entry));
+  const save = useMutation({
+    mutationFn: () => {
+      const { details: legacyDetails, ...payload } = entry.payload;
+      void legacyDetails;
+      return updateCatalogueEntry("ai-policies", entry.id, {
+        label: entry.label,
+        payload: { ...payload, description: wording.trim(), ...(offersUses ? { permittedUses: uses.map((use) => use.trim()).filter(Boolean) } : {}) },
+        parentId: entry.parentId,
+        sortOrder: entry.sortOrder,
+        expectedRevision: entry.revision,
+      });
+    },
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "ai-policies"] }); onSaved(); },
+  });
+  return <form onSubmit={(event) => { event.preventDefault(); save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+    <Field label="Policy wording"><AutoResizeTextarea minRows={3} value={wording} onChange={(event) => setWording(event.target.value)} className={textareaClass} /></Field>
+    {offersUses ? <fieldset className="grid gap-2"><legend className="text-sm font-medium text-[#344054]">Uses a course may tick</legend>{uses.map((use, index) => <div key={index} className="flex items-center gap-2"><input aria-label={`Permitted use ${index + 1}`} value={use} onChange={(event) => setUses((current) => current.map((item, position) => position === index ? event.target.value : item))} className={`${inputClass} min-w-0 flex-1`} /><button type="button" onClick={() => setUses((current) => current.filter((_, position) => position !== index))} aria-label={`Remove permitted use ${index + 1}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div>)}<button type="button" onClick={() => setUses((current) => [...current, ""])} className="justify-self-start text-sm font-semibold text-[#1f4e79] hover:underline">+ Add permitted use</button></fieldset> : null}
+    <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel="Save changes" />
+  </form>;
 }
 
 /** The next code in a catalogue's own series, so a maintainer never types one. */
@@ -327,27 +368,12 @@ function CompetencyForm({ category, entry, entries, onCancel, onSaved }: { categ
   </form>;
 }
 
-// AI policies were seeded from the Provost's template with their wording under
-// `description` (migration 0048); every other simple catalogue keeps `details`.
-function detailsKeyFor(category: CatalogueCategory): "description" | "details" {
-  return category === "ai-policies" ? "description" : "details";
-}
-
 function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { category: CatalogueCategory; entry?: CatalogueEntry; fieldLabel: string; onCancel: () => void; onSaved: () => void }) {
-  const key = detailsKeyFor(category);
-  const client = useQueryClient(); const [label, setLabel] = useState(entry?.label ?? ""); const [details, setDetails] = useState(stringValue(entry?.payload[key]) || stringValue(entry?.payload.details));
-  const payload = (): Record<string, unknown> => {
-    const current = { ...(entry?.payload ?? {}) };
-    if (!details.trim()) return current;
-    // Writing the wording where it belongs retires any copy left under the legacy key.
-    if (key === "description") delete current.details;
-    return { ...current, [key]: details.trim() };
-  };
-  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: payload(), parentId: entry?.parentId, sortOrder: entry?.sortOrder }; return entry ? updateCatalogueEntry(category, entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry(category, input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label={key === "description" ? "Policy wording" : "Supporting details"} hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
+  const client = useQueryClient(); const [label, setLabel] = useState(entry?.label ?? ""); const [details, setDetails] = useState(stringValue(entry?.payload.details)); const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: details.trim() ? { ...entry?.payload, details: details.trim() } : entry?.payload ?? {}, parentId: entry?.parentId, sortOrder: entry?.sortOrder }; return entry ? updateCatalogueEntry(category, entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry(category, input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); } });
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Supporting details" hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
 }
 
-function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect, selectOnly = false }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void; selectOnly?: boolean }) {
+function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect, selectOnly = false, fixed = false }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void; selectOnly?: boolean; /** Entries the department cannot retire, only edit. */ fixed?: boolean }) {
   const [retireCandidate, setRetireCandidate] = useState<CatalogueEntry | null>(null);
   const [editing, setEditing] = useState<CatalogueEntry | null>(null);
   const [editingDirty, setEditingDirty] = useState(false);
@@ -384,13 +410,13 @@ function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDet
     const toggleEditing = () => requestEditingAction(isEditing ? { type: "close" } : { type: "open", entry });
     const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white hover:border-[#1f4e79] hover:bg-[#f7fafd]";
     return <article key={entry.id} className={`relative min-w-0 max-w-full rounded-lg border p-4 ${isEditing ? "overflow-hidden" : ""} ${cardClass}`}>
-      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}{selectOnly ? null : <button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button>}<button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
+      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}{selectOnly ? null : <button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button>}{fixed ? null : <button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button>}</div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
     </article>;
   })}</div><ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /><ConfirmDialog open={Boolean(pendingEditingAction)} title="Discard unsaved changes?" description="This card has changes that have not been saved. Discard them and close the card?" confirmLabel="Discard changes" onClose={() => setPendingEditingAction(null)} onConfirm={confirmDiscard} /></>;
 }
 
 function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "ai-policies" ? <AiPolicyForm entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
   return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 

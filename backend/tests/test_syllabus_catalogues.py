@@ -237,3 +237,22 @@ def test_a_catalogue_rubric_and_a_hand_written_one_can_sit_side_by_side() -> Non
     rubrics = store.resolve_rubrics(content)["assessment"]["rubrics"]
 
     assert [rubric["assignment"] for rubric in rubrics] == [quiz["label"], "Lab report"]
+
+
+def test_the_ai_policies_are_the_templates_five_each_tied_to_its_row() -> None:
+    """Migration 0088: every graded activity applies one of the Provost's five AI options."""
+    policies = sorted(
+        (item for item in make_store().list("ai-policies") if item["id"].startswith("ai-policy-")),
+        key=lambda item: item["payload"]["templateRow"],
+    )
+
+    assert [(item["label"], item["payload"]["templateRow"]) for item in policies] == [
+        ("AI Prohibited", 1),
+        ("AI Permitted as a Support Tool", 2),
+        ("Restricted AI Use", 3),
+        ("AI Required", 4),
+        ("Other (Specify)", 5),
+    ]
+    support = policies[1]["payload"]
+    assert "Language editing (grammar, spelling, style, and readability)" in support["permittedUses"]
+    assert support["description"].startswith("Students may use generative artificial intelligence")
