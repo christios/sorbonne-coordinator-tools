@@ -92,3 +92,16 @@ function objectEntries<T extends { id: string; legacyText?: string }>(value: unk
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
+
+/**
+ * The stored content parts one screen section edits, in the order the document prints
+ * them. Description and delivery became one section in November 2026 while keeping
+ * their own keys, so history and older syllabi are unaffected.
+ */
+export function sectionParts(
+  sections: Array<{ id: string; parts?: string[] }>,
+  active: string,
+): string[] {
+  const section = sections.find((item) => item.id === active);
+  return section?.parts?.length ? section.parts : [active];
+}

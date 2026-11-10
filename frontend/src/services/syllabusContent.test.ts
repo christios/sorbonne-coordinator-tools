@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bibliographyEntries, deliveryPercentageError, ploDisplayLabel, rubricEntries } from "./syllabusContent";
+import { bibliographyEntries, deliveryPercentageError, ploDisplayLabel, rubricEntries, sectionParts } from "./syllabusContent";
 
 describe("bibliographyEntries", () => {
   it("preserves a legacy free-text bibliography as one editable entry", () => {
@@ -35,5 +35,21 @@ describe("ploDisplayLabel", () => {
   it("uses the PLO position as the automatic code and strips legacy prefixes", () => {
     expect(ploDisplayLabel({ id: "plo-1", code: "Old code", outcome: "PLO 1. Explain climate policy." }, 0))
       .toBe("PLO 1: Explain climate policy.");
+  });
+});
+
+describe("sectionParts", () => {
+  const sections = [
+    { id: "description", label: "3. Course description and delivery", parts: ["description", "delivery"] },
+    { id: "schedule", label: "5. Course schedule" },
+  ];
+
+  it("edits every part of a merged section, in document order", () => {
+    expect(sectionParts(sections, "description")).toEqual(["description", "delivery"]);
+  });
+
+  it("treats a section without parts as editing itself", () => {
+    expect(sectionParts(sections, "schedule")).toEqual(["schedule"]);
+    expect(sectionParts(sections, "unknown")).toEqual(["unknown"]);
   });
 });

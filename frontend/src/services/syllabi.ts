@@ -61,7 +61,8 @@ export type SyllabusTemplate = {
   name: string;
   description: string;
   documentPath: string;
-  sections: Array<{ id: string; label: string }>;
+  /** `parts` are the stored content keys a screen section edits, in document order. */
+  sections: Array<{ id: string; label: string; parts?: string[] }>;
 };
 
 export type SyllabusChange = {

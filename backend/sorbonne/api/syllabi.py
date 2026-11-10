@@ -126,7 +126,10 @@ def list_syllabus_templates() -> dict[str, list[dict[str, Any]]]:
                 "name": template.name,
                 "description": template.description,
                 "documentPath": f"/syllabi/templates/{template.id}/document",
-                "sections": [{"id": section.id, "label": section.label} for section in template.sections],
+                "sections": [
+                    {"id": section.id, "label": section.label, "parts": list(section.content_parts)}
+                    for section in template.sections
+                ],
             }
             for template in list_templates()
         ]

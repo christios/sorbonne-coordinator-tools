@@ -63,6 +63,7 @@ import {
 } from "@/components/StructuredEntryEditors";
 import {
   deliveryPercentageError,
+  sectionParts,
 } from "@/services/syllabusContent";
 import {
   CatalogueEntry,
@@ -363,13 +364,20 @@ export function SyllabusEditor({
             </>
           }
         >
-          <SectionForm
-            active={active}
-            draft={draft}
-            editContent={editContent}
-            editMetadata={editMetadata}
-            onOpenHistory={setHistoryField}
-          />
+          {/* A section can edit more than one part of the stored content (description
+              and delivery are one section since November 2026); each part keeps its key. */}
+          <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
+            {sectionParts(template.sections, active).map((part) => (
+              <SectionForm
+                key={part}
+                active={part}
+                draft={draft}
+                editContent={editContent}
+                editMetadata={editMetadata}
+                onOpenHistory={setHistoryField}
+              />
+            ))}
+          </div>
           <FieldHistorySidebar
             field={historyField}
             onClose={() => setHistoryField(null)}
