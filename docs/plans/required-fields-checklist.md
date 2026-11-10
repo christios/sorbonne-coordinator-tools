@@ -17,7 +17,6 @@ and made four more fields required: academic rank, CLO competencies, session det
 - [x] Degree level and semester: Printed in the identification table.
 - [x] Programme: Already required on screen since this round. It decides which PLOs a CLO can be aligned to.
 - [x] Number of ECTS: Printed in the identification table.
-- [x] Contact hours (lectures, tutorials, workshops, seminars, laboratory, other) (at least one type): A course with no hours at all is unfinished.
 - [ ] Prerequisites: Many courses have none.
 - [ ] Co-requisites: Most courses have none.
 - [ ] Equipment: Most courses need none.
@@ -51,7 +50,8 @@ and made four more fields required: academic rank, CLO competencies, session det
 - [x] At least one session
 - [x] Topic of each session
 - [x] Week of each session: The week is what orders the schedule and places graded activities.
-- [x] Session type (CM, TD, TP): Always set: new sessions start as CM.
+- [x] Length in hours of each session: Since 10 Nov 2026 the contact hours (lectures, tutorials, workshops, seminars, laboratory, other) are these lengths added up by session type; section 1 has no hour boxes.
+- [x] Session type (CM, TD, TP, Workshop, Seminar, Other): Always set: new sessions start as CM. Decides which contact-hour row the session counts in.
 - [x] Session details
 - [ ] Pre-class learning activities (name to be decided)
 - [x] Earlier notes moved into graded activities or cleared (converted syllabi): Text from the old Assessments and Deadline columns, kept for the teacher to deal with.
