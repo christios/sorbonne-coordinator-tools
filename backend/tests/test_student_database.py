@@ -328,6 +328,26 @@ def test_rolling_over_carries_a_cohorts_students_into_the_next_semester(database
     assert again["added"] == 1
 
 
+def test_saving_a_cohorts_settings_after_a_roll_over_keeps_the_new_term(database: StudentDatabase) -> None:
+    """The settings dialog sent back the terms it had opened with, without 262720: on 9 Nov
+    2026 all four rolled-over cohorts listed 262710 alone. A term it holds students in stays."""
+    student = f"R{uuid4().hex[:8].upper()}"
+    _hold(database, student)
+    autumn, spring = (f"{season}-{uuid4().hex[:6]}" for season in ("autumn", "spring"))
+    with database.engine.begin() as connection:
+        connection.execute(
+            text("INSERT INTO term_links (term_id, portal_term_code) VALUES (:t, '262720')"), {"t": spring}
+        )
+    l1 = database.create_cohort(name="L1", term="2026-27", terms=["262710"])
+    database.set_cohort([student], l1["id"], term_id=autumn)
+    database.roll_over(l1["id"], autumn, spring)
+
+    database.update_cohort(l1["id"], name="L1", term="2026-27", notes="", terms=["262710"])
+
+    assert database.get_cohort(l1["id"])["terms"] == ["262710", "262720"]
+    assert next(c for c in database.list_cohorts() if c["id"] == l1["id"])["terms"] == ["262710", "262720"]
+
+
 def test_a_cohort_is_not_rolled_over_into_the_semester_it_is_from(database: StudentDatabase) -> None:
     l1 = database.create_cohort(name="L1")
     with pytest.raises(InvalidCohortMove):

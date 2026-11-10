@@ -262,7 +262,10 @@ class StudentDatabase:
                                 (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
-                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code ORDER BY t.portal_term_code), '[]')
+                                 FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
+                                 WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c ORDER BY c.name""")
                 )
                 .mappings()
@@ -280,7 +283,10 @@ class StudentDatabase:
                                 (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
-                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code ORDER BY t.portal_term_code), '[]')
+                                 FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
+                                 WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c WHERE c.id = :id"""),
                     {"id": cohort_id},
                 )
@@ -1159,7 +1165,10 @@ class StudentDatabase:
                                 (SELECT coalesce(json_object_agg(x.term_id, x.n), '{}')
                                  FROM (SELECT m.term_id, count(*) AS n FROM cohort_members m
                                        WHERE m.cohort_id = c.id GROUP BY m.term_id) x) AS member_counts,
-                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count
+                                (SELECT count(*) FROM cohort_scopes s WHERE s.cohort_id = c.id) AS scope_count,
+                                (SELECT coalesce(json_agg(DISTINCT t.portal_term_code ORDER BY t.portal_term_code), '[]')
+                                 FROM cohort_members m JOIN term_links t ON t.term_id = m.term_id
+                                 WHERE m.cohort_id = c.id AND t.portal_term_code <> '') AS held_codes
                             FROM student_cohorts c ORDER BY c.name""")
                 )
                 .mappings()
@@ -3312,6 +3321,13 @@ def _rule(row) -> dict[str, Any]:
     }
 
 
+def _held_terms(row) -> list[str]:
+    saved = json.loads(row["term_codes"] or "[]")
+    held = row.get("held_codes")
+    held = json.loads(held) if isinstance(held, str) else (held or [])
+    return [*saved, *(code for code in held if code not in saved)]
+
+
 def _cohort(row) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -3320,7 +3336,11 @@ def _cohort(row) -> dict[str, Any]:
         "notes": row["notes"],
         # What the cohort expects, as the portal codes it: the majors and terms it spans.
         "majors": json.loads(row["major_codes"] or "[]"),
-        "terms": json.loads(row["term_codes"] or "[]"),
+        # Saved, and every term it holds students in. Rolling over adds the new term to the
+        # saved list, and the settings dialog's Save used to write back the list it had
+        # opened with: all four cohorts rolled into Semester 2 on 9 Nov 2026 still listed
+        # 262710 alone, and the checks that walk these terms never looked at Semester 2.
+        "terms": _held_terms(row),
         "yearLevel": row["year_level"] or "",
         # What its sheet is called in the timetable workbook, and the number that sheet
         # gives its first semester — S3 for Licence 2, because the numbering runs across

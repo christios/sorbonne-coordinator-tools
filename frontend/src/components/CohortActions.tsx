@@ -126,6 +126,8 @@ export function CohortActions({
   const [term, setTerm] = useState(cohort.term);
   const [majors, setMajors] = useState<string[]>(cohort.majors);
   const [terms, setTerms] = useState<string[]>(cohort.terms);
+  // What the field opened with, so Save keeps a term that joined since — a roll-over's.
+  const [openedTerms, setOpenedTerms] = useState<string[]>(cohort.terms);
   const [yearLevel, setYearLevel] = useState(cohort.yearLevel);
   const [workbookTab, setWorkbookTab] = useState(cohort.workbookTab);
   const [firstSemester, setFirstSemester] = useState(String(cohort.firstSemester || ""));
@@ -176,7 +178,8 @@ export function CohortActions({
         term: term.trim(),
         notes: cohort.notes,
         majors,
-        terms,
+        // The field as edited, plus any term the cohort gained while the dialog was open.
+        terms: [...terms, ...cohort.terms.filter((code) => !openedTerms.includes(code) && !terms.includes(code))],
         yearLevel: yearLevel.trim(),
         workbookTab: workbookTab.trim(),
         firstSemester: Number(firstSemester) || 0,
@@ -267,6 +270,7 @@ export function CohortActions({
             setTerm(cohort.term);
             setMajors(cohort.majors);
             setTerms(cohort.terms);
+            setOpenedTerms(cohort.terms);
             setYearLevel(cohort.yearLevel);
             setWorkbookTab(cohort.workbookTab);
             setFirstSemester(String(cohort.firstSemester || ""));
@@ -357,6 +361,10 @@ export function CohortActions({
         {tab === "rollover" ? (
           <RollOverTab
             cohort={cohort}
+            onRolled={(code) => {
+              setTerms((current) => (current.includes(code) ? current : [...current, code]));
+              setOpenedTerms((current) => (current.includes(code) ? current : [...current, code]));
+            }}
             onDone={
               onRolledOver
                 ? (semesterId, cohortId) => {
