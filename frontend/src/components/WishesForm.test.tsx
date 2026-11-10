@@ -313,7 +313,11 @@ describe("the guided tour", () => {
     expect(within(step("Paint the week")).getByText("Can't teach").closest("span")?.className).toContain("rounded-full");
 
     stroke("Tuesday", "14:00", "15:00");
-    // Painted: the block does not open by itself, while the tour is to teach opening it.
+    // Painted: the block does not open by itself, while the tour is to teach opening it — nor
+    // when clicked, before the step that teaches it.
+    expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
+    tap("Tuesday", "14:00");
+    fireEvent.click(cell("Tuesday", "15:00"), { detail: 0 });
     expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
     next("Paint the week");
 

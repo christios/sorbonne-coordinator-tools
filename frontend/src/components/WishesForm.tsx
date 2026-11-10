@@ -386,6 +386,8 @@ export function WishesForm({
   // And clicking it opens it a moment later, once the tour has said so: the block clicked, and
   // whether the pop-over came from it (it grows out of the block).
   const clickOpensLater = useRef(false);
+  // And before that, on the step about painting, a click on a block opens nothing yet.
+  const noOpenYet = useRef(false);
   const [tourClicked, setTourClicked] = useState<Spot | null>(null);
   const [popFromTour, setPopFromTour] = useState(false);
   const root = useRef<HTMLDivElement>(null);
@@ -580,6 +582,7 @@ export function WishesForm({
   const showTap = tourStepId === "open" && !open && !tourClicked && painted;
   quietPaint.current = tourStepId === "paint" || tourStepId === "open";
   clickOpensLater.current = tourStepId === "open";
+  noOpenYet.current = tourStepId === "paint";
   useLayoutEffect(() => {
     if (!showDemo && !showTap) {
       setDemo(null);
@@ -630,7 +633,9 @@ export function WishesForm({
       stroke.current = null;
       setStroking(false);
       if (held && !held.waiting && held.with_ !== "erase" && held.with_ !== "away") lastStroke.current = { day: held.last.day, time: held.last.time };
-      // A block clicked while the tour teaches it: it opens once the tour has said "nicely done".
+      // A block clicked before the tour teaches it opens nothing; clicked while it does, it opens
+      // once the tour has said so.
+      if (held?.waiting && noOpenYet.current) return;
       if (held?.waiting && clickOpensLater.current) {
         setTourClicked(held.last);
         return;
@@ -1367,6 +1372,7 @@ export function WishesForm({
                           onClick={(event) => {
                             // Enter or Space on a cell: the pointer acts on press, the keyboard here.
                             if (event.detail !== 0) return;
+                            if (holds && noOpenYet.current) return;
                             if (holds && clickOpensLater.current) setTourClicked({ day, time, cell: event.currentTarget });
                             else if (holds) openAt({ day, time, cell: event.currentTarget });
                             else paint(here, here, brushNow);
@@ -1455,7 +1461,14 @@ export function WishesForm({
            * every cell made a week of quarter hours slow to draw, and only one is ever open.
            */}
           {resting ? (
-            <Tip open={Boolean(restingLine || restingAway) && !stroking && !open} side="right" wide={false} title={bubbleTitle} content={bubble}>
+            <Tip
+              // Not on the tour's painting step: the bubble says to click, which comes next.
+              open={Boolean(restingLine || restingAway) && !stroking && !open && tourStepId !== "paint"}
+              side="right"
+              wide={false}
+              title={bubbleTitle}
+              content={bubble}
+            >
               <span aria-hidden="true" className="pointer-events-none absolute" style={resting.box} />
             </Tip>
           ) : null}
