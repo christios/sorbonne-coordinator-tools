@@ -89,6 +89,8 @@ def test_the_health_check_and_sign_in_screen_stay_reachable(client: TestClient, 
 def test_the_static_app_shell_is_public_so_the_sign_in_screen_can_load():
     assert is_public("/")
     assert is_public("/syllabus")
+    # An invited teacher's link opens the app, which then asks for their own sign-in.
+    assert is_public("/preferences/abc123")
     assert is_public("/assets/index-abc123.js")
     assert not is_public("/api/v1/syllabi")
     assert not is_public("/handbook/")
@@ -147,3 +149,13 @@ def test_a_cors_preflight_still_works_so_the_browser_sees_the_real_answer(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_an_invited_teachers_link_opens_the_app(tmp_path, monkeypatch):
+    """The page a teacher's emailed link names is the app itself, not a 404."""
+    (tmp_path / "frontend-dist").mkdir()
+    (tmp_path / "frontend-dist" / "index.html").write_text("<!doctype html><div id=app></div>")
+    monkeypatch.chdir(tmp_path)
+    page = TestClient(app).get("/preferences/abc123")
+    assert page.status_code == status.HTTP_200_OK
+    assert "id=app" in page.text

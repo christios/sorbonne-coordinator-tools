@@ -141,6 +141,13 @@ async def timetables_frontend() -> FileResponse:
     return frontend_entrypoint()
 
 
+@app.get("/preferences/{code}", include_in_schema=False)
+async def invited_teacher_frontend(code: str) -> FileResponse:
+    """An invited teacher's emailed link: the app, which reads the code from the address."""
+    del code
+    return frontend_entrypoint()
+
+
 @app.get("/privacy", include_in_schema=False)
 async def privacy_policy() -> FileResponse:
     return FileResponse(LEGAL_PAGES / "privacy.html")
