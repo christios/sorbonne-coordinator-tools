@@ -1159,6 +1159,28 @@ def set_dismissal(
     }
 
 
+class MoveDismissalsInput(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_term_id: str = Field(alias="fromTermId", min_length=1, max_length=200)
+    to_term_id: str = Field(alias="toTermId", min_length=1, max_length=200)
+
+
+@router.post("/warning-dismissals/move-semester")
+def move_dismissals(
+    body: MoveDismissalsInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, int]:
+    """Refile one semester's dismissals under another semester's id, keeping who made each.
+
+    For an administrator: it rewrites decisions every coordinator made, once, when a
+    semester has moved to a new id.
+    """
+    staff = getattr(request.state, "staff_user", None)
+    if not getattr(staff, "is_admin", False):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only an administrator can move dismissals.")
+    return {"moved": database.move_dismissals(body.from_term_id, body.to_term_id)}
+
+
 @router.get("/exemptions")
 def list_every_exemption(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
     """Every student's exemptions, for the Students table's "Exempt from" column."""

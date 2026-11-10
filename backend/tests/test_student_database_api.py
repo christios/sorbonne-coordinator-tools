@@ -1440,6 +1440,41 @@ def test_a_warning_can_be_brought_back_for_everybody(client: TestClient):
     )
 
 
+def test_a_semesters_dismissals_move_to_its_new_id_keeping_who_made_them(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Semester 1 moved from the Student Hub's id to plan:262710 and 27 "not placed in LANG"
+    dismissals stayed under the old one, so the warnings came back as though unseen."""
+    old, new = "hub-s1", "plan:262710"
+    key = f"group|A001|{old}|LANG"
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": key, "dismissed": True})
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": True})
+    held = client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]
+    [before] = [row for row in held if row["key"] == key]
+
+    moved = client.post(
+        "/api/v1/student-database/warning-dismissals/move-semester", json={"fromTermId": old, "toTermId": new}
+    )
+
+    assert moved.json() == {"moved": 1}
+    listed = {
+        row["key"]: row for row in client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]
+    }
+    assert sorted(listed) == sorted([f"group|A001|{new}|LANG", WARNING_KEY])
+    after = listed[f"group|A001|{new}|LANG"]
+    assert (after["byEmail"], after["at"]) == (before["byEmail"], before["at"])
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
+    )
+    refused = client.post(
+        "/api/v1/student-database/warning-dismissals/move-semester", json={"fromTermId": new, "toTermId": old}
+    )
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+
+
 def test_the_first_decision_stands_when_two_people_dismiss_the_same_warning(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):

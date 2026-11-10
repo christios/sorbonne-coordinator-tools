@@ -2051,6 +2051,48 @@ class StudentDatabase:
             )
         return _dismissal(held)
 
+    def move_dismissals(self, from_term: str, to_term: str) -> int:
+        """Refile the dismissals made under one semester's id under another's, keeping who
+        made each and when.
+
+        A warning about a semester carries the semester's id in its key. Semester 1 moved
+        from the Student Hub's id to `plan:262710` on 9 Nov 2026, and 27 dismissals — "not
+        placed in LANG", decided by two coordinators — stayed under the old id, so the
+        warnings came back as though nobody had looked. A dismissal already held under the
+        new key is left as it is, and the old one goes.
+        """
+        source, target = _text(from_term), _text(to_term)
+        if not source or not target or source == target:
+            return 0
+        moved = 0
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT key, dismissed_by_email, dismissed_by_name, dismissed_at
+                            FROM warning_dismissals WHERE key LIKE :named"""),
+                    {"named": f"%{source}%"},
+                )
+                .mappings()
+                .all()
+            )
+            for row in rows:
+                parts = row["key"].split("|")
+                if source not in parts:
+                    continue
+                key = "|".join(target if part == source else part for part in parts)
+                moved += connection.execute(
+                    text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                            VALUES (:key, :email, :name, :at) ON CONFLICT (key) DO NOTHING"""),
+                    {
+                        "key": key,
+                        "email": row["dismissed_by_email"],
+                        "name": row["dismissed_by_name"],
+                        "at": row["dismissed_at"],
+                    },
+                ).rowcount
+                connection.execute(text("DELETE FROM warning_dismissals WHERE key = :key"), {"key": row["key"]})
+        return moved
+
     def restore_warning(self, key: str) -> None:
         """Bring a warning back for everybody. Restoring one nobody dismissed is no error."""
         with self.engine.begin() as connection:
