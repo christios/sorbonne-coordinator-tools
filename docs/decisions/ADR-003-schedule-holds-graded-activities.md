@@ -37,7 +37,7 @@ The November 2026 feedback round on the Syllabus Builder (spec: `docs/specs/syll
 
 **One department-wide outcome mode** (`syllabus_outcome_mode`, migration 0092), set by a Syllabus builder administrator in Settings:
 - **Teacher mode**: teachers write the CLOs. A CLO can only be aligned to the PLOs the matrix expects of the course, and each of those PLOs must be aligned at least once.
-- **Head of Department mode**: the Head of Department writes each course's CLOs, with their PLOs and competencies, in the curriculum mapping. Every syllabus of the course shows them read-only.
+- **Head of Department mode**: the Head of Department writes each course's CLOs, with their PLOs, in the curriculum mapping. Every syllabus of the course shows them read-only. The SCEN competencies each CLO develops are always the teacher's (Christian, 10 Nov 2026): the syllabus keeps them in `learningOutcomes.cloCompetencies` (competency ids by CLO id).
   - They are resolved live at display and export time (`resolve_outcomes`), like People links.
   - The CLOs a teacher wrote stay stored and untouched, for the day the switch goes back.
   - Graded activities pick the Head of Department's CLOs by id (`catalogueCloIds`).

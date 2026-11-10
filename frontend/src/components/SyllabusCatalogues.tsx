@@ -647,11 +647,6 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
   const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
   const [selected, setSelected] = useState<string[]>(initial);
   const [clos, setClos] = useState<MappedClo[]>(mappedClos(entry));
-  const competencies = useQuery({ queryKey: ["syllabus-catalogues", "competencies", "mapping"], queryFn: () => listCatalogueEntries("competencies") });
-  const competencyOptions = (competencies.data ?? []).filter((item) => !item.isRetired).map((item) => {
-    const code = stringValue(item.payload.code) || item.label;
-    return { value: item.id, label: stringValue(item.payload.outcome) || code, badge: code, badgePlacement: "leading" as const };
-  });
   const save = useMutation({
     mutationFn: () => {
       // A CLO keeps only the PLOs still expected of the course; empty outcomes are dropped.
@@ -712,7 +707,7 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
       onChange={(next) => setSelected(next.split("\n").filter(Boolean))}
       options={options}
     />
-    <MappedCloEditor clos={clos} onChange={setClos} expected={options.filter((option) => selected.includes(option.value))} competencies={competencyOptions} />
+    <MappedCloEditor clos={clos} onChange={setClos} expected={options.filter((option) => selected.includes(option.value))} />
     <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to the map"} />
   </form>;
 }
@@ -742,7 +737,7 @@ function mappedClos(entry?: CatalogueEntry): MappedClo[] {
  */
 type ChipOption = { value: string; label: string; badge?: string; badgePlacement?: "leading" };
 
-function MappedCloEditor({ clos, onChange, expected, competencies }: { clos: MappedClo[]; onChange: (clos: MappedClo[]) => void; expected: ChipOption[]; competencies: ChipOption[] }) {
+function MappedCloEditor({ clos, onChange, expected }: { clos: MappedClo[]; onChange: (clos: MappedClo[]) => void; expected: ChipOption[] }) {
   const update = (id: string, change: Partial<MappedClo>) => onChange(clos.map((clo) => (clo.id === id ? { ...clo, ...change } : clo)));
   const aligned = new Set(clos.flatMap((clo) => clo.ploIds));
   const unaligned = clos.length ? expected.filter((option) => !aligned.has(option.value)) : [];
@@ -752,7 +747,7 @@ function MappedCloEditor({ clos, onChange, expected, competencies }: { clos: Map
         Course learning outcomes
         <InfoTip label="When these are used">When Settings → Department says the Head of Department writes the course learning outcomes, every syllabus of this course shows these and cannot change them.</InfoTip>
       </p>
-      <p className="mt-1 text-sm text-[#667085]">Each aligned to the expected programme outcomes above.</p>
+      <p className="mt-1 text-sm text-[#667085]">Each aligned to the expected programme outcomes above. The SCEN competencies each develops are chosen by the course&apos;s teacher, in the syllabus.</p>
     </div>
     {clos.map((clo, index) => <article key={clo.id} className="grid gap-3 rounded-md border border-[#d9dee7] bg-white p-3">
       <div className="flex items-start justify-between gap-3">
@@ -765,15 +760,6 @@ function MappedCloEditor({ clos, onChange, expected, competencies }: { clos: Map
         value={clo.ploIds.join("\n")}
         onChange={(next) => update(clo.id, { ploIds: next.split("\n").filter(Boolean) })}
         options={expected}
-      /> : null}
-      {competencies.length ? <PloAlignmentField
-        label="SCEN graduate competencies"
-        pickerLabel={`Add a competency CLO ${index + 1} develops`}
-        emptyText="No competencies yet."
-        addText="Add competency"
-        value={clo.skillIds.join("\n")}
-        onChange={(next) => update(clo.id, { skillIds: next.split("\n").filter(Boolean) })}
-        options={competencies}
       /> : null}
     </article>)}
     {unaligned.length ? <p role="status" className="rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">Every expected PLO must be aligned to at least one course outcome. Still to align: {unaligned.map((option) => option.badge ?? option.label).join(", ")}.</p> : null}

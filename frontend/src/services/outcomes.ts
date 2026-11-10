@@ -59,8 +59,11 @@ function coded(entry: CatalogueEntry): string {
  * The course's outcomes as the Head of Department wrote them in the curriculum mapping, in the
  * shape a syllabus keeps its own — what every syllabus of the course shows, read-only, when the
  * Head of Department writes the outcomes. The backend's resolve_outcomes says the same.
+ *
+ * The competencies each develops are the teacher's in either mode (Christian, 10 Nov 2026):
+ * `picks` is the syllabus's `learningOutcomes.cloCompetencies`, competency ids by CLO id.
  */
-export function catalogueCloRows(entry: CatalogueEntry | undefined, plos: CatalogueEntry[], competencies: CatalogueEntry[]): CatalogueCloRow[] {
+export function catalogueCloRows(entry: CatalogueEntry | undefined, plos: CatalogueEntry[], competencies: CatalogueEntry[], picks: Record<string, unknown> = {}): CatalogueCloRow[] {
   const written = entry?.payload.clos;
   if (!Array.isArray(written)) return [];
   const ploById = new Map(plos.map((plo) => [plo.id, plo]));
@@ -70,9 +73,11 @@ export function catalogueCloRows(entry: CatalogueEntry | undefined, plos: Catalo
     const clo = item as Record<string, unknown>;
     const ids = (key: string) => (Array.isArray(clo[key]) ? (clo[key] as unknown[]).map(String) : []);
     const ploIds = ids("ploIds").filter((id) => ploById.has(id));
-    const skillIds = ids("skillIds").filter((id) => competencyById.has(id));
+    const id = typeof clo.id === "string" ? clo.id : "";
+    const picked = picks[id];
+    const skillIds = (Array.isArray(picked) ? picked.map(String) : []).filter((skill) => competencyById.has(skill));
     return [{
-      id: typeof clo.id === "string" ? clo.id : "",
+      id,
       clo: typeof clo.clo === "string" ? clo.clo : "",
       plo: ploIds.map((id) => coded(ploById.get(id) as CatalogueEntry)).join("\n"),
       ploIds: ploIds.join("\n"),

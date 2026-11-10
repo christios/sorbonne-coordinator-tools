@@ -317,7 +317,11 @@ def test_in_head_of_department_mode_a_syllabus_shows_its_courses_outcomes_from_t
     )
     content = {
         "identification": {"catalogueProgrammeId": programme["id"]},
-        "learningOutcomes": {"clos": [{"id": "teacher-clo", "clo": "The teacher's own."}]},
+        "learningOutcomes": {
+            "clos": [{"id": "teacher-clo", "clo": "The teacher's own."}],
+            # The competencies are the teacher's in either mode (Christian, 10 Nov 2026).
+            "cloCompetencies": {"hod-clo-1": [competency["id"]]},
+        },
         "assessment": {"items": [{"id": "a1", "cloIds": ["teacher-clo"], "catalogueCloIds": ["hod-clo-1"]}]},
     }
 
@@ -336,6 +340,10 @@ def test_in_head_of_department_mode_a_syllabus_shows_its_courses_outcomes_from_t
         }
     ]
     assert hod["assessment"]["items"][0]["cloIds"] == ["hod-clo-1"]
+    # Competencies the Head of Department once set in the mapping no longer count.
+    content["learningOutcomes"]["cloCompetencies"] = {}
+    unpicked = store.resolve_outcomes(content, course_code="PHYS-118", mode="hod")
+    assert unpicked["learningOutcomes"]["clos"][0]["skillIds"] == ""
     # The teacher's outcomes are kept for the day the department switches back.
     assert content["learningOutcomes"]["clos"][0]["id"] == "teacher-clo"
     assert teacher is content

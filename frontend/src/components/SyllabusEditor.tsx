@@ -628,7 +628,9 @@ function SectionForm({
   // Head-of-Department mode they are the curriculum mapping's, shown read-only.
   const outcomeMode = useOutcomeMode();
   const mappingEntry = mappingEntryFor(curriculumMap.data ?? [], draft.courseCode);
-  const hodClos = catalogueCloRows(mappingEntry, cataloguePlos.data ?? [], scenCompetencies.data ?? []);
+  // The Head of Department's outcomes, with the competencies this syllabus's teacher chose.
+  const competencyPicks = sectionFrom(sectionFrom(content.learningOutcomes).cloCompetencies);
+  const hodClos = catalogueCloRows(mappingEntry, cataloguePlos.data ?? [], scenCompetencies.data ?? [], competencyPicks);
   // The outcomes a graded activity can say it assesses, wherever it is edited.
   const courseOutcomes: Row[] =
     outcomeMode === "hod" ? hodClos : ((sectionFrom(content.learningOutcomes).clos as Row[]) ?? []);
@@ -1171,7 +1173,18 @@ function LearningOutcomesEditor({
   /** Set in Head-of-Department mode: the course's outcomes from the curriculum mapping, read-only. */
   headOfDepartmentClos?: CatalogueCloRow[];
 }) {
-  if (headOfDepartmentClos) return <HeadOfDepartmentOutcomes clos={headOfDepartmentClos} graduateCompetencies={graduateCompetencies} scenCompetencies={scenCompetencies} plos={alignablePlos(cataloguePlos, mappingEntry)} />;
+  if (headOfDepartmentClos) {
+    const picks = sectionFrom(section.cloCompetencies);
+    return (
+      <HeadOfDepartmentOutcomes
+        clos={headOfDepartmentClos}
+        graduateCompetencies={graduateCompetencies}
+        scenCompetencies={scenCompetencies}
+        plos={alignablePlos(cataloguePlos, mappingEntry)}
+        onCompetenciesChange={(cloId, skillIds) => onChange({ ...section, cloCompetencies: { ...picks, [cloId]: skillIds } })}
+      />
+    );
+  }
   /*
    * The code is shown as a pill and the outcome read beside it, but the value stored on the
    * syllabus stays "code: outcome" — that string is what the document says and what a
@@ -1311,8 +1324,13 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
  * and every syllabus of the course shows them as they are. The teacher's own outcomes stay
  * stored, and come back if the department hands the outcomes to teachers again.
  */
-function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies, plos }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[]; /** Given, the outcomes show as the read-only alignment matrix. */ plos?: CatalogueEntry[] }) {
+function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies, plos, onCompetenciesChange }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[]; /** Given, the outcomes show as the read-only alignment matrix. */ plos?: CatalogueEntry[]; /** The teacher still chooses each CLO's competencies (Christian, 10 Nov 2026). */ onCompetenciesChange?: (cloId: string, skillIds: string[]) => void }) {
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
+  const competencyOptions = scenCompetencies.filter((entry) => !entry.isRetired).map((entry) => {
+    const code = stringify(entry.payload.code) || entry.label;
+    const outcome = stringify(entry.payload.outcome);
+    return { value: outcome ? `${code}: ${outcome}` : entry.label, label: outcome || entry.label, badge: code, catalogueId: entry.id };
+  });
   const matrixPlos: MatrixPlo[] = (plos ?? []).map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
@@ -1328,11 +1346,11 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
         </InfoTip>
       </h3>
       <p role="note" className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
-        Set by the Head of Department in the catalogue. They appear here, in the preview and in the document as written there.
+        The outcomes and their PLOs are set by the Head of Department in the catalogue, and appear here, in the preview and in the document as written there. The competencies each one develops are yours to choose.
       </p>
       {clos.length && plos ? (
         <div className="mt-5 min-w-0">
-          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencyOptions={[]} graduateText={(skills) => suadCompetencyText(skills, scenCompetencies, graduateById)} />
+          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencyOptions={competencyOptions} graduateText={(skills) => suadCompetencyText(skills, scenCompetencies, graduateById)} onCompetenciesChange={onCompetenciesChange} />
         </div>
       ) : clos.length ? (
         <ol className="mt-5 grid gap-3">

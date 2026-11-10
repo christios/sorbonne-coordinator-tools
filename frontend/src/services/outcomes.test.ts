@@ -42,9 +42,11 @@ describe("the Head of Department's outcomes, as a syllabus shows them", () => {
     const competencies = [entry("c-1", "competencies", "C1", { code: "C1", outcome: "Reason." })];
     const mapped = entry("map", "curriculum-mapping", "PHYS-118", { clos: [{ id: "hod-1", clo: "Trace rays.", ploIds: ["plo-1", "gone"], skillIds: ["c-1"] }] });
 
-    expect(catalogueCloRows(mapped, programmePlos, competencies)).toEqual([
+    // The competencies are the teacher's, picked in the syllabus; the mapping's own are ignored.
+    expect(catalogueCloRows(mapped, programmePlos, competencies, { "hod-1": ["c-1"] })).toEqual([
       { id: "hod-1", clo: "Trace rays.", plo: "PLO 1: Model.", ploIds: "plo-1", skills: "C1: Reason.", skillIds: "c-1" },
     ]);
+    expect(catalogueCloRows(mapped, programmePlos, competencies)[0]).toMatchObject({ skills: "", skillIds: "" });
     expect(catalogueCloRows(undefined, programmePlos, competencies)).toEqual([]);
   });
 });

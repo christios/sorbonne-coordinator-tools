@@ -42,7 +42,7 @@ and made four more fields required: academic rank, CLO competencies, session det
 - [x] At least one CLO, each one written (Teacher mode)
 - [x] Each CLO aligned to at least one PLO (Teacher mode, when the programme has PLOs): Only the PLOs the curriculum mapping expects of the course are offered. The Foundation Year programme has none, so its courses are not asked.
 - [x] Every PLO the curriculum mapping expects is aligned at least once (Teacher mode, when the mapping lists the course): Your rule from this round.
-- [x] SCEN graduate competencies of each CLO (Teacher mode)
+- [x] SCEN graduate competencies of each CLO (either mode: always chosen by the teacher, 10 Nov 2026)
 - [x] The Head of Department has written the course's CLOs (Head of Department mode): The teacher cannot submit until the course has its CLOs in the curriculum mapping.
 
 ### 5. Course schedule: sessions

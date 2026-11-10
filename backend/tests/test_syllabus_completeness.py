@@ -213,6 +213,12 @@ def test_in_head_of_department_mode_a_teacher_is_not_asked_for_outcomes_they_can
 
     assert missing_for_submission(SCEN, content, outcome_mode="hod", expected_plos={"plo-3": "PLO 3"}) == []
 
+    # The competencies stay the teacher's to choose (Christian, 10 Nov 2026).
+    content["learningOutcomes"]["clos"][0]["skillIds"] = ""
+    assert messages(missing_for_submission(SCEN, content, outcome_mode="hod")) == [
+        "Choose the SCEN graduate competencies CLO 1 develops."
+    ]
+
     content["learningOutcomes"]["clos"] = []
     assert messages(missing_for_submission(SCEN, content, outcome_mode="hod")) == [
         "The Head of Department has not written this course's learning outcomes yet."

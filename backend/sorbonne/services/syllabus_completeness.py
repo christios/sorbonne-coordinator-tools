@@ -188,6 +188,10 @@ def _outcomes(
     if outcome_mode == "hod":
         if not clos:
             _add(missing, "learningOutcomes", HOD_HAS_NOT_WRITTEN)
+        # The Head of Department writes the CLOs; the competencies are still the teacher's.
+        for position, clo in enumerate(clos, start=1):
+            if not _ids(clo.get("skillIds")):
+                _add(missing, "learningOutcomes", f"Choose the SCEN graduate competencies CLO {position} develops.")
         return
     if not clos:
         _add(missing, "learningOutcomes", "Write at least one course learning outcome.")

@@ -300,11 +300,13 @@ class SyllabusCatalogueStore:
     ) -> dict[str, Any]:
         """When the Head of Department writes the outcomes, the course's come from the catalogue.
 
-        November 2026 review: in that mode a course's CLOs, their aligned PLOs and their SCEN
-        competencies are written once in the curriculum mapping and every syllabus of the
-        course shows them; the graded activities assess them by the ids they picked
-        (`catalogueCloIds`). The CLOs a teacher wrote stay stored, untouched, for the day the
-        department switches back. In teacher mode nothing changes.
+        November 2026 review: in that mode a course's CLOs and their aligned PLOs are written
+        once in the curriculum mapping and every syllabus of the course shows them; the graded
+        activities assess them by the ids they picked (`catalogueCloIds`). The SCEN
+        competencies each CLO develops are always the teacher's (Christian, 10 Nov 2026): the
+        syllabus keeps them in `learningOutcomes.cloCompetencies`, competency ids by catalogue
+        CLO id. The CLOs a teacher wrote stay stored, untouched, for the day the department
+        switches back. In teacher mode nothing changes.
         """
         if mode != "hod":
             return content
@@ -341,11 +343,14 @@ class SyllabusCatalogueStore:
             else {}
         )
         competencies = {item["id"]: item for item in self.list("competencies", include_retired=True)} if written else {}
+        picks = _record(_record(resolved.get("learningOutcomes")).get("cloCompetencies"))
         rows = []
         for item in written if isinstance(written, list) else []:
             clo = _record(item)
             plo_ids = [str(plo_id) for plo_id in clo.get("ploIds") or [] if str(plo_id) in plos]
-            skill_ids = [str(skill_id) for skill_id in clo.get("skillIds") or [] if str(skill_id) in competencies]
+            chosen = picks.get(_text(clo.get("id")))
+            chosen = chosen if isinstance(chosen, list) else []
+            skill_ids = [str(skill_id) for skill_id in chosen if str(skill_id) in competencies]
             rows.append(
                 {
                     "id": _text(clo.get("id")),

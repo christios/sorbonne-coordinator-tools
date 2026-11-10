@@ -17,8 +17,13 @@ type Props = {
   competencyOptions: CompetencyOption[];
   /** The SUAD graduate competencies that follow from a CLO's SCEN competencies, one per line. */
   graduateText: (skills: string) => string;
-  /** Left out in Head-of-Department mode: the matrix is then read, not edited. */
+  /** Left out in Head-of-Department mode: the outcomes and their PLOs are then read, not edited. */
   onChange?: (rows: CloRow[]) => void;
+  /**
+   * The competencies on their own, for Head-of-Department mode: they are the teacher's in
+   * either mode (Christian, 10 Nov 2026). Given the CLO's id and its competency ids.
+   */
+  onCompetenciesChange?: (cloId: string, skillIds: string[]) => void;
   history?: { onOpenHistory: (field: HistoryField) => void };
 };
 
@@ -46,7 +51,7 @@ const ACTIONS_CELL = "row-span-2 [grid-column:calc(var(--plos)_+_2)] @5xl:row-sp
  * It stores what the list of cards did, so the document and the checks read it unchanged:
  * each CLO's `ploIds` and `plo` ("code: outcome", one per line), `skillIds` and `skills`.
  */
-export function OutcomeAlignmentMatrix({ rows, plos, competencyOptions, graduateText, onChange, history }: Props) {
+export function OutcomeAlignmentMatrix({ rows, plos, competencyOptions, graduateText, onChange, onCompetenciesChange, history }: Props) {
   const editable = Boolean(onChange);
   const save = (next: CloRow[]) => onChange?.(next);
   const update = (id: string, change: Partial<CloRow>) => save(rows.map((row) => (row.id === id ? ({ ...row, ...change } as CloRow) : row)));
@@ -132,10 +137,11 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencyOptions, graduate
                   value={row.skills ?? ""}
                   options={competencyOptions}
                   graduate={graduateText(row.skills ?? "")}
-                  onChange={editable ? (skills) => update(row.id, {
-                    skills,
-                    skillIds: lines(skills).map((label) => competencyOptions.find((option) => option.value === label)?.catalogueId).filter(Boolean).join("\n"),
-                  }) : undefined}
+                  onChange={editable || onCompetenciesChange ? (skills) => {
+                    const skillIds = lines(skills).map((label) => competencyOptions.find((option) => option.value === label)?.catalogueId).filter((id): id is string => Boolean(id));
+                    if (editable) update(row.id, { skills, skillIds: skillIds.join("\n") });
+                    else onCompetenciesChange?.(row.id, skillIds);
+                  } : undefined}
                 />
               </div>
 

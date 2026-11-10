@@ -54,4 +54,21 @@ describe("the CLO–PLO alignment matrix", () => {
     expect(screen.getByLabelText("CLO 1 aligned to PLO 1")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Add outcome" })).toBeNull();
   });
+
+  it("in Head-of-Department mode, leaves the teacher only the competencies to choose", async () => {
+    const onCompetenciesChange = vi.fn();
+    const client = new QueryClient();
+    const options = [{ value: "SCEN-C1: Applies knowledge.", label: "Applies knowledge.", badge: "SCEN-C1", catalogueId: "competency-1" }];
+    render(<QueryClientProvider client={client}><OutcomeAlignmentMatrix rows={ROWS} plos={PLOS} competencyOptions={options} graduateText={() => ""} onCompetenciesChange={onCompetenciesChange} /></QueryClientProvider>);
+
+    // The outcomes and their PLOs are the Head of Department's: no box, no tick, no add.
+    expect(screen.queryByRole("textbox", { name: /CLO 1/ })).toBeNull();
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add outcome" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Add a SCEN competency to CLO 1" }));
+    fireEvent.click(await screen.findByRole("option", { name: /Applies knowledge/ }));
+    // Stored by the Head of Department's CLO id, as competency ids.
+    expect(onCompetenciesChange).toHaveBeenCalledWith("c1", ["competency-1"]);
+  });
 });
