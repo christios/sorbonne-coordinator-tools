@@ -899,6 +899,8 @@ export function WishesForm({
       ),
       tryIt: open && openLine ? "Choose Must or Would like, write a comment if you like, then press Done." : painted ? "Click a painted block to open it again." : "Paint a few hours, then click them.",
       done: tourBase.sawOpen && !open,
+      // Done pressed: on to the next step by itself, after a beat to see it was done.
+      autoNext: 1000,
       target: () => (open ? popover.current : gridBox.current),
     },
     {

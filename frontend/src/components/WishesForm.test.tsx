@@ -334,7 +334,9 @@ describe("the guided tour", () => {
     expect((within(block).getByRole("button", { name: /Remove the whole block/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(block).getByRole("radio", { name: "Must" }));
     fireEvent.click(within(block).getByRole("button", { name: "Done" }));
-    next("How much it matters");
+    // Done pressed: no Next, the tour goes on by itself.
+    expect(within(step("How much it matters")).queryByRole("button", { name: "Next" })).toBeNull();
+    wait(1000);
 
     expect(step("Away on some dates?")).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Week by week" }));
