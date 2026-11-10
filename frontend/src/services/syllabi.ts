@@ -43,6 +43,18 @@ export function setSyllabusReview(id: string, submitted: boolean): Promise<Sylla
   });
 }
 
+/** Something the syllabus must still say before it can be submitted, and the section it is in. */
+export type MissingForReview = { section: string; message: string };
+export type SyllabusCompleteness = { complete: boolean; missing: MissingForReview[] };
+
+/**
+ * What the syllabus must still say before it can be submitted for review. The server keeps the
+ * rules (syllabus_completeness.py) and checks them again when the syllabus is submitted.
+ */
+export function getSyllabusCompleteness(id: string): Promise<SyllabusCompleteness> {
+  return request<SyllabusCompleteness>(`/syllabi/${id}/completeness`);
+}
+
 export type SyllabusFolder = {
   id: string;
   name: string;

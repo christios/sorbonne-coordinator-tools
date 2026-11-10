@@ -365,6 +365,38 @@ class SyllabusCatalogueStore:
             activity["clos"] = ""
         return resolved
 
+    def expected_plos(self, content: dict[str, Any], *, course_code: str) -> dict[str, str]:
+        """The current PLOs the curriculum mapping expects of the course: id to code, in its order.
+
+        The same list the editor offers a CLO (outcomes.ts, alignablePlos); empty when the
+        syllabus names no catalogue programme or the mapping does not list the course.
+        """
+        identification = _record(content.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        wanted = _course_key(course_code)
+        if not (programme_id and wanted):
+            return {}
+        entry = next(
+            (
+                item
+                for item in self.list("curriculum-mapping", parent_id=programme_id)
+                if _course_key(item.get("label")) == wanted
+            ),
+            None,
+        )
+        expected = _record(entry.get("payload")).get("ploIds") if entry else None
+        if not isinstance(expected, list):
+            return {}
+        current = {item["id"]: item for item in self.list("plos", parent_id=programme_id)}
+        return {
+            str(plo_id): _text(_record(current[str(plo_id)].get("payload")).get("code"))
+            or _text(current[str(plo_id)].get("label"))
+            for plo_id in expected
+            if str(plo_id) in current
+        }
+
     def resolve_competencies(self, content: dict[str, Any]) -> dict[str, Any]:
         """Fill each outcome's SUAD competencies from the SCEN ones it develops.
 

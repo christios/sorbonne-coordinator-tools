@@ -15,6 +15,7 @@ from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_PROGRA
 from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
 from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
+from sorbonne.services.syllabus_completeness import missing_for_submission
 from sorbonne.services.syllabus_content import convert_fys_to_schedule_cards, convert_to_schedule_cards
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
@@ -506,10 +507,12 @@ def set_syllabus_visibility(
 
 
 @router.patch("/{syllabus_id}/review")
-def set_syllabus_review(
+def set_syllabus_review(  # noqa: PLR0913 - the request, two stores, the mode, and who is asking
     syllabus_id: str,
     request: ReviewRequest,
     store: SyllabusStore = Depends(get_store),
+    catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
     user: StaffUser = Depends(current_user),
     curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
@@ -524,4 +527,40 @@ def set_syllabus_review(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the person writing a syllabus can put it up for review.",
         )
+    # Taking the request back is always allowed; asking needs a syllabus that says everything
+    # the template requires (November 2026 review). Saving and exporting a draft never do.
+    if request.submitted:
+        missing = _missing(catalogue_store, syllabus, outcome_mode.read()["mode"])
+        if missing:
+            count = len(missing)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"This syllabus is not ready for review: {count} thing{'s' if count != 1 else ''}"
+                " still to fill in.",
+            )
     return store.set_submitted(syllabus_id, request.submitted)
+
+
+@router.get("/{syllabus_id}/completeness")
+def read_syllabus_completeness(  # noqa: PLR0913 - the id, two stores, the mode, and who is asking
+    syllabus_id: str,
+    store: SyllabusStore = Depends(get_store),
+    catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
+    user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
+) -> dict[str, Any]:
+    """What the syllabus must still say before it can be submitted for review."""
+    syllabus = _readable(store, syllabus_id, user, curator=curator)
+    missing = _missing(catalogue_store, syllabus, outcome_mode.read()["mode"])
+    return {"complete": not missing, "missing": missing}
+
+
+def _missing(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], mode: str) -> list[dict[str, str]]:
+    content = _resolved_content(catalogue_store, syllabus, mode)
+    expected = (
+        catalogue_store.expected_plos(content, course_code=str(syllabus.get("courseCode") or ""))
+        if mode != "hod"
+        else {}
+    )
+    return missing_for_submission(syllabus, content, outcome_mode=mode, expected_plos=expected)

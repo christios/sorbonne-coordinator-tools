@@ -360,7 +360,7 @@ export function SyllabusEditor({
               >
                 <GitCompareArrows size={17} /> Compare years
               </button>
-              <SyllabusSharing syllabus={draft} />
+              <SyllabusSharing syllabus={draft} sections={template.sections} onOpenSection={setActive} />
               {exportState === "error" ? (
                 <span
                   role="alert"
