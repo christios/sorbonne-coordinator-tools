@@ -459,10 +459,20 @@ def classes_of(term: dict[str, Any], series: list[dict[str, Any]], sections: dic
 MOST_PERIODS = 20
 
 
-def _period(entry: dict[str, Any]) -> dict[str, Any]:
-    """A stretch of the semester binding everybody: Ramadan, 18 Feb to 19 Mar, no classes 15:00-19:00.
+SHORTEST_RULE, LONGEST_RULE = 15, 12 * 60
 
-    The weekdays it covers default to every day; the hours are those with no classes on them.
+
+def _period(entry: dict[str, Any]) -> dict[str, Any]:
+    """A stretch of the semester binding everybody: Ramadan, 18 Feb to 19 Mar.
+
+    The weekdays it covers default to every day. It carries any of four rules, each optional
+    but at least one, checked only for the classes dated inside it:
+
+        endsBy      the day ends by then: no class ends after it ("15:00")
+        longest     no class is longer, in minutes (90)
+        blockFrom   no classes between the two ("12:15"-"12:45", the prayer);
+        blockTo     a period from before the rules were four has only this one
+        dailyMax    no teacher teaches more in a day, in minutes (240)
     """
     label = _short(entry.get("label"), "period's name")
     if not label:
@@ -473,16 +483,38 @@ def _period(entry: dict[str, Any]) -> dict[str, Any]:
     days = sorted({int(day) for day in entry.get("days") or [1, 2, 3, 4, 5, 6, 7]})
     if any(day < MONDAY or day > SUNDAY for day in days):
         raise InvalidPlan("A period's days are 1 (Monday) to 7 (Sunday).")
+
+    ends_by = str(entry.get("endsBy") or "").strip()
+    if ends_by and not _TIME.match(ends_by):
+        raise InvalidPlan(f"{label}: say when the day ends, such as 15:00.")
     block_from, block_to = str(entry.get("blockFrom") or "").strip(), str(entry.get("blockTo") or "").strip()
-    if not _TIME.match(block_from) or not _TIME.match(block_to) or block_from >= block_to:
-        raise InvalidPlan(f"{label}: say the hours with no classes, from 15:00 to 19:00.")
+    blocked = block_from or block_to
+    if blocked and (not _TIME.match(block_from) or not _TIME.match(block_to) or block_from >= block_to):
+        raise InvalidPlan(f"{label}: say the hours with no classes, from 12:15 to 12:45.")
+
+    def minutes(name: str, words: str) -> int | None:
+        value = entry.get(name)
+        if value in (None, "", 0):
+            return None
+        number = int(value)
+        if not SHORTEST_RULE <= number <= LONGEST_RULE:
+            raise InvalidPlan(f"{label}: {words} is between 15 minutes and 12 hours.")
+        return number
+
+    longest = minutes("longest", "the longest class")
+    daily_max = minutes("dailyMax", "a teacher's most hours in a day")
+    if not (ends_by or block_from or longest or daily_max):
+        raise InvalidPlan(f"{label}: choose at least one rule, such as classes ending by 15:00.")
     return {
         "label": label,
         "from": start.isoformat(),
         "to": end.isoformat(),
         "days": days,
+        "endsBy": ends_by,
+        "longest": longest,
         "blockFrom": block_from,
         "blockTo": block_to,
+        "dailyMax": daily_max,
     }
 
 

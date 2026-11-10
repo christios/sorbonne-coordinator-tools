@@ -27,10 +27,28 @@ export type PlanSummary = {
 export type Holiday = { date: string; label: string };
 
 /**
- * A stretch of the semester binding everybody, beside the holidays: Ramadan, 8 Feb to 9 Mar,
- * no classes 15:00–19:00. Its days are the weekdays it covers, 1 being Monday.
+ * A stretch of the semester binding everybody, beside the holidays: Ramadan, 8 Feb to 9 Mar.
+ * Its days are the weekdays it covers, 1 being Monday. It carries any of four rules, each
+ * optional, checked only for the classes dated inside it:
+ *
+ *   endsBy               the day ends by then: no class ends after it ("15:00")
+ *   longest              no class longer, in minutes (90)
+ *   blockFrom, blockTo   no classes between them ("12:15"–"12:45", the prayer); "" when off
+ *   dailyMax             no teacher teaches more in a day, in minutes (240)
+ *
+ * A period from before there were four has only the hours with no classes.
  */
-export type Period = { label: string; from: string; to: string; days: number[]; blockFrom: string; blockTo: string };
+export type Period = {
+  label: string;
+  from: string;
+  to: string;
+  days: number[];
+  endsBy?: string;
+  longest?: number | null;
+  blockFrom: string;
+  blockTo: string;
+  dailyMax?: number | null;
+};
 
 /** Where a class sits on Groups & CRNs: a group of a set of a cohort. */
 export type Place = {

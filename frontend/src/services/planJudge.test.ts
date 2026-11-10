@@ -91,4 +91,21 @@ describe("what would go wrong if a class sat at a time", () => {
     });
     expect(judged.problems.map((problem) => problem.said)).toEqual(["Same room as PHYS-126 · CM (09:00–10:30)"]);
   });
+
+  it("is a period's rule broken, with why, for a class inside the period", () => {
+    const ramadan = { label: "Ramadan", from: "2027-01-11", to: "2027-02-10", days: [1, 2, 3, 4, 5], blockFrom: "", blockTo: "", longest: 90, dailyMax: 180 };
+    const judged = judgeSlot({ ...plan([tuesdayClass("chem", "08:00", "09:30")]), periods: [ramadan] }, [], {
+      sectionId: "td2",
+      weekday: 2,
+      startsAt: "10:00",
+      endsAt: "12:00",
+      room: "",
+      weeks: [1],
+    });
+    expect(judged.worst).toBe("must");
+    expect(judged.problems.map((problem) => problem.said)).toEqual([
+      "Everybody · Ramadan: longest class 1h30, this one is 2h",
+      "Everybody · Ramadan: at most 3h a day per teacher, Bilal Maaz has 3h30 on Tue",
+    ]);
+  });
 });

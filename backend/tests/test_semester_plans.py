@@ -512,7 +512,9 @@ def test_a_period_binding_everybody_is_kept_beside_the_holidays(client: TestClie
     ramadan = {"label": "Ramadan", "from": "2027-02-08", "to": "2027-03-09", "blockFrom": "15:00", "blockTo": "19:00"}
     settled = client.put(f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "periods": [ramadan]})
     assert settled.status_code == 200, settled.text
-    assert settled.json()["periods"] == [{**ramadan, "days": [1, 2, 3, 4, 5, 6, 7]}]
+    assert settled.json()["periods"] == [
+        {**ramadan, "days": [1, 2, 3, 4, 5, 6, 7], "endsBy": "", "longest": None, "dailyMax": None}
+    ]
     # A page that does not edit periods leaves them be.
     again = client.put(f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "weeks": 14}).json()
     assert [period["label"] for period in again["periods"]] == ["Ramadan"]
@@ -522,3 +524,22 @@ def test_a_period_binding_everybody_is_kept_beside_the_holidays(client: TestClie
         json={"name": "Semester 2 2026-27", "periods": [{**ramadan, "blockFrom": "19:00", "blockTo": "15:00"}]},
     )
     assert backwards.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+def test_a_period_carries_any_of_four_rules_but_at_least_one(client: TestClient):
+    assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
+    ramadan = {"label": "Ramadan", "from": "2027-02-08", "to": "2027-03-09", "days": [1, 2, 3, 4, 5]}
+    ruled = {**ramadan, "endsBy": "15:00", "longest": 90, "blockFrom": "12:15", "blockTo": "12:45", "dailyMax": 240}
+    settled = client.put(f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "periods": [ruled]})
+    assert settled.status_code == 200, settled.text
+    assert settled.json()["periods"] == [ruled]
+    # Only the day's end: the rest are off.
+    short = client.put(
+        f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "periods": [{**ramadan, "endsBy": "15:00"}]}
+    ).json()
+    off = {"longest": None, "blockFrom": "", "blockTo": "", "dailyMax": None}
+    assert short["periods"][0] == {**ramadan, "endsBy": "15:00", **off}
+    for wrong in ({}, {"longest": 5}, {"endsBy": "3pm"}, {"blockFrom": "12:15"}):
+        given = {"name": "Semester 2 2026-27", "periods": [{**ramadan, **wrong}]}
+        refused = client.put(f"{AT}/{TERM}/settings", json=given)
+        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, wrong

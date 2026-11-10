@@ -189,26 +189,43 @@ export function describeLine(line: WishLine): string {
   }
 }
 
-/** "Ramadan, 8 Feb–9 Mar: no classes 15:00–19:00". */
+/** "1h30", "3h", "45 min": a length, as the rules of a period say it. */
+export function lengthWords(minutes: number): string {
+  const hours = Math.floor(minutes / 60);
+  const rest = Math.round(minutes % 60);
+  return hours ? `${hours}h${rest ? String(rest).padStart(2, "0") : ""}` : `${rest} min`;
+}
+
+/** A period's rules in words: "classes end by 15:00", "longest class 1h30", … */
+export function periodRules(period: Period): string[] {
+  return [
+    period.endsBy ? `classes end by ${period.endsBy}` : "",
+    period.longest ? `longest class ${lengthWords(period.longest)}` : "",
+    period.blockFrom && period.blockTo ? `no classes ${period.blockFrom}–${period.blockTo}` : "",
+    period.dailyMax ? `at most ${lengthWords(period.dailyMax)} a day per teacher` : "",
+  ].filter(Boolean);
+}
+
+/** "Ramadan, 8 Feb–9 Mar: classes end by 15:00 · longest class 1h30, Mon–Fri". */
 export function periodWords(period: Period): string {
-  // The weekdays only when the period skips some: "Mon–Thu", rather than the whole week said.
+  // The weekdays only when the period skips some, rather than the whole week said.
   const days = period.days.length < 7 ? ` on ${period.days.map((day) => DAY_SHORT[day]).join(", ")}` : "";
-  return `${period.label}, ${dateWords(period.from, period.to)}: no classes ${period.blockFrom}–${period.blockTo}${days}`;
+  return `${period.label}, ${dateWords(period.from, period.to)}: ${periodRules(period).join(" · ")}${days}`;
 }
 
 /**
- * The stretches a semester's periods take out of a dated week's days, to shade on the grid
- * for everybody: `{"2027-02-09": [{from: "15:00", to: "19:00", label: "Ramadan"}]}`.
+ * What a period shades of a day it covers: the hours with no classes, and the hours after the
+ * day ends. The longest class and a teacher's hours in a day have no hours to shade; they
+ * only flag.
  */
-export function periodShading(periods: Period[], dates: { date: string; weekday: number }[]) {
-  const shaded: Record<string, { from: string; to: string; label: string }[]> = {};
-  for (const { date, weekday } of dates) {
-    for (const period of periods) {
-      if (date < period.from || date > period.to || !period.days.includes(weekday)) continue;
-      (shaded[date] ??= []).push({ from: period.blockFrom, to: period.blockTo, label: period.label });
-    }
-  }
-  return shaded;
+export function periodShades(period: Period, date: string, weekday: number): { from: string; to: string; title: string }[] {
+  if (date < period.from || date > period.to || !period.days.includes(weekday)) return [];
+  return [
+    ...(period.blockFrom && period.blockTo
+      ? [{ from: period.blockFrom, to: period.blockTo, title: `${period.label}: no classes ${period.blockFrom}–${period.blockTo}` }]
+      : []),
+    ...(period.endsBy ? [{ from: period.endsBy, to: "23:59", title: `${period.label}: classes end by ${period.endsBy}` }] : []),
+  ];
 }
 
 /**
@@ -299,6 +316,11 @@ export type Breach = {
   comment: string;
   /** What breaks it: "MATH-114 TD 2, Tue 15:00", or "3 days: Mon, Tue, Wed". */
   how: string;
+  /**
+   * A period's rule, said of each class it flags: "Ramadan: longest class 1h30, this one is
+   * 3h". The wish is the rule; this is why the class breaks it.
+   */
+  perClass?: Map<PlanClass, string>;
   week: number;
   classes: PlanClass[];
 };
@@ -326,6 +348,8 @@ export type WishCheck = {
 const minutes = (entry: { startsAt: string; endsAt: string }) => minutesOf(entry.endsAt) - minutesOf(entry.startsAt);
 const overlaps = (entry: { startsAt: string; endsAt: string }, from: number, to: number) =>
   minutesOf(entry.startsAt) < to * 60 && minutesOf(entry.endsAt) > from * 60;
+const overlapsClock = (entry: { startsAt: string; endsAt: string }, from: string, to: string) =>
+  minutesOf(entry.startsAt) < minutesOf(to) && minutesOf(entry.endsAt) > minutesOf(from);
 /** Two classes this close are one stretch of teaching, with no real break between them. */
 const BREAK_MINUTES = 15;
 
@@ -470,34 +494,72 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
   }
 
   /*
-   * The semester's periods bind everybody, answered or not: a class inside Ramadan's hours
-   * without classes breaks it whoever teaches it. Said as a Must, being the department's rule.
+   * The semester's periods bind everybody, answered or not: a class inside Ramadan that
+   * breaks one of its rules breaks it whoever teaches it. Said as a Must, being the
+   * department's rule, and each class flagged says why: "this one is 3h".
    */
   for (const period of plan.periods ?? []) {
-    const from = minutesOf(period.blockFrom);
-    const to = minutesOf(period.blockTo);
-    for (const entry of plan.classes) {
-      if (entry.meetsOn < period.from || entry.meetsOn > period.to || !period.days.includes(entry.weekday)) continue;
-      if (!(minutesOf(entry.startsAt) < to && minutesOf(entry.endsAt) > from)) continue;
-      const key = `period:${period.label}:${period.from}`;
+    const inside = plan.classes.filter(
+      (entry) => entry.meetsOn >= period.from && entry.meetsOn <= period.to && period.days.includes(entry.weekday),
+    );
+    const breakRule = (rule: string, wish: string, entry: PlanClass, why: string) => {
+      const key = `period:${period.label}:${period.from}:${rule}`;
       const how = label(sections.get(entry.sectionId), entry);
+      const said = `${period.label}: ${why}`;
       const same = breaches.find((each) => each.about === "period" && each.key === key && each.week === entry.week);
       if (same) {
-        same.classes.push(entry);
-        same.how = `${same.how}; ${how}`;
-      } else {
-        breaches.push({
-          about: "period",
-          teacherId: "",
-          teacherName: period.label,
-          key,
-          level: "must",
-          wish: periodWords(period),
-          comment: "",
-          how,
-          week: entry.week,
-          classes: [entry],
-        });
+        if (!same.classes.includes(entry)) {
+          same.classes.push(entry);
+          same.how = `${same.how}; ${how}`;
+        }
+        same.perClass?.set(entry, said);
+        return;
+      }
+      breaches.push({
+        about: "period",
+        teacherId: "",
+        teacherName: period.label,
+        key,
+        level: "must",
+        wish: `${period.label}: ${wish}`,
+        comment: "",
+        how,
+        week: entry.week,
+        classes: [entry],
+        perClass: new Map([[entry, said]]),
+      });
+    };
+    for (const entry of inside) {
+      if (period.endsBy && minutesOf(entry.endsAt) > minutesOf(period.endsBy)) {
+        breakRule("endsBy", `classes end by ${period.endsBy}`, entry, `classes end by ${period.endsBy}, this one ends ${entry.endsAt}`);
+      }
+      if (period.longest && minutes(entry) > period.longest) {
+        const rule = `longest class ${lengthWords(period.longest)}`;
+        breakRule("longest", rule, entry, `${rule}, this one is ${lengthWords(minutes(entry))}`);
+      }
+      if (period.blockFrom && period.blockTo && overlapsClock(entry, period.blockFrom, period.blockTo)) {
+        const rule = `no classes ${period.blockFrom}–${period.blockTo}`;
+        breakRule("block", rule, entry, `${rule}, this one is ${entry.startsAt}–${entry.endsAt}`);
+      }
+    }
+    if (period.dailyMax) {
+      // A teacher's day: every class of theirs on one date, whoever's section it is.
+      const days = new Map<string, PlanClass[]>();
+      for (const entry of inside) {
+        const section = sections.get(entry.sectionId);
+        const who = section?.teacherId || (entry.teacherName || section?.teacherName || "").trim().toLowerCase();
+        if (!who) continue;
+        days.set(`${who}|${entry.meetsOn}`, [...(days.get(`${who}|${entry.meetsOn}`) ?? []), entry]);
+      }
+      const rule = `at most ${lengthWords(period.dailyMax)} a day per teacher`;
+      for (const list of days.values()) {
+        const total = list.reduce((sum, entry) => sum + minutes(entry), 0);
+        if (total <= period.dailyMax) continue;
+        const first = list[0];
+        const name = first.teacherName || sections.get(first.sectionId)?.teacherName || "Their teacher";
+        for (const entry of list) {
+          breakRule("dailyMax", rule, entry, `${rule}, ${name} has ${lengthWords(total)} on ${DAY_SHORT[entry.weekday]}`);
+        }
       }
     }
   }
@@ -509,7 +571,7 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       if (breach.level === "must") flag.level = "must";
       const words =
         breach.about === "period"
-          ? `Everybody · ${breach.wish}`
+          ? `Everybody · ${breach.perClass?.get(entry) ?? breach.wish}`
           : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}${
               breach.comment ? ` — “${breach.comment}”` : ""
             }`;

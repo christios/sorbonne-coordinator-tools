@@ -60,7 +60,7 @@ import {
 } from "@/services/weekSchedule";
 import { fetchSemesterShortNames } from "@/services/portalLists";
 import { judgeSlot } from "@/services/planJudge";
-import { checkWishes, fetchWishSemester, periodWords, shadingOf } from "@/services/teacherWishes";
+import { checkWishes, fetchWishSemester, periodShades, shadingOf } from "@/services/teacherWishes";
 import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
@@ -533,10 +533,10 @@ export function SemesterPlan({
   const shading = (date: string): Shade[] => {
     const weekday = weekdayOf(date);
     const shades: Shade[] = [];
-    // The semester's periods bind everybody, so they are always there in their weeks.
+    // The semester's periods bind everybody, so they are always there in their weeks: the
+    // hours with no classes, and the hours after the day ends.
     for (const period of data.periods ?? []) {
-      if (date < period.from || date > period.to || !period.days.includes(weekday)) continue;
-      shades.push({ from: period.blockFrom, to: period.blockTo, tone: "period", title: periodWords(period) });
+      for (const stretch of periodShades(period, date, weekday)) shades.push({ ...stretch, tone: "period" });
     }
     if (focusRow?.wishes) {
       for (const stretch of focusShades[weekday] ?? []) {

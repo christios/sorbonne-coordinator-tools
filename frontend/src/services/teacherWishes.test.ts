@@ -167,6 +167,37 @@ describe("a plan read against the teachers' wishes", () => {
     expect(check.breaches.map((breach) => [breach.about, breach.teacherName, breach.level, breach.classes])).toEqual([
       ["period", "Ramadan", "must", [late]],
     ]);
-    expect(check.flags.get(late)?.said[0]).toMatch(/^Everybody · Ramadan, .*: no classes 15:00–19:00 on Mon, Tue, Wed, Thu, Fri$/);
+    expect(check.flags.get(late)?.said).toEqual(["Everybody · Ramadan: no classes 15:00–19:00, this one is 16:00–17:30"]);
+  });
+
+  it("checks each of a period's rules only for the classes inside it, and says why each class breaks one", () => {
+    const ramadan = {
+      label: "Ramadan", from: "2027-01-25", to: "2027-02-20", days: [1, 2, 3, 4, 5],
+      endsBy: "15:00", longest: 90, blockFrom: "12:15", blockTo: "12:45", dailyMax: 240,
+    };
+    const late = at("phys", 2, "14:00", "15:30");
+    const long = at("phys", 3, "08:00", "11:00");
+    const prayer = at("phys", 4, "11:30", "13:00");
+    // Bilal on Monday: three classes of 1h30, none too long, but 4h30 over the four a day.
+    const monday = [at("cm", 1, "08:00", "09:30"), at("td1", 1, "10:15", "11:45"), at("td2", 1, "13:00", "14:30")];
+    // After the period: none of it applies.
+    const after = { ...at("phys", 2, "16:00", "19:00"), meetsOn: "2027-02-23", week: 5 };
+    const check = checkWishes({ sections: SECTIONS, classes: [late, long, prayer, ...monday, after], periods: [ramadan] } as unknown as Plan, []);
+
+    expect(check.flags.get(late)?.said).toEqual(["Everybody · Ramadan: classes end by 15:00, this one ends 15:30"]);
+    expect(check.flags.get(long)?.said).toEqual(["Everybody · Ramadan: longest class 1h30, this one is 3h"]);
+    expect(check.flags.get(prayer)?.said).toEqual(["Everybody · Ramadan: no classes 12:15–12:45, this one is 11:30–13:00"]);
+    for (const entry of monday) {
+      expect(check.flags.get(entry)?.said).toEqual(["Everybody · Ramadan: at most 4h a day per teacher, Bilal Maaz has 4h30 on Mon"]);
+    }
+    expect(check.flags.get(after)).toBeUndefined();
+    expect(new Set(check.breaches.map((breach) => breach.wish))).toEqual(
+      new Set([
+        "Ramadan: classes end by 15:00",
+        "Ramadan: longest class 1h30",
+        "Ramadan: no classes 12:15–12:45",
+        "Ramadan: at most 4h a day per teacher",
+      ]),
+    );
   });
 });

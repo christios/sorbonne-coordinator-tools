@@ -21,7 +21,7 @@ import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portal
 import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import { fetchPayCycles, setPayCycle } from "@/services/teachers";
 import { judgeSlot } from "@/services/planJudge";
-import { describeLine, type WishTeacher } from "@/services/teacherWishes";
+import { describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
 import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
@@ -583,8 +583,33 @@ export function ScopeDialog({
   );
 }
 
-/** A new period: the working week, with no classes from three in the afternoon, as in Ramadan. */
-const NEW_PERIOD: Period = { label: "", from: "", to: "", days: [1, 2, 3, 4, 5], blockFrom: "15:00", blockTo: "19:00" };
+/** A new period: the working week, its day ending at three in the afternoon, as in Ramadan. */
+const NEW_PERIOD: Period = { label: "", from: "", to: "", days: [1, 2, 3, 4, 5], endsBy: "15:00", longest: null, blockFrom: "", blockTo: "", dailyMax: null };
+
+/** Lengths to choose from, every quarter of an hour: for the longest class, and a teacher's day. */
+const lengths = (from: number, to: number) =>
+  Array.from({ length: (to - from) / 15 + 1 }, (_, at) => from + at * 15).map((minutes) => ({
+    value: String(minutes),
+    label: lengthWords(minutes),
+  }));
+const LONGEST_CLASS = lengths(30, 240);
+const TEACHER_DAY = lengths(60, 600);
+
+/** A period's four rules, each ticked on with the value it starts at. */
+const RULES: { rule: "endsBy" | "longest" | "block" | "dailyMax"; label: string; on: Partial<Period>; off: Partial<Period> }[] = [
+  { rule: "endsBy", label: "Day ends by", on: { endsBy: "15:00" }, off: { endsBy: "" } },
+  { rule: "longest", label: "Longest class", on: { longest: 90 }, off: { longest: null } },
+  { rule: "block", label: "No classes between", on: { blockFrom: "12:15", blockTo: "12:45" }, off: { blockFrom: "", blockTo: "" } },
+  { rule: "dailyMax", label: "Most hours a day for a teacher", on: { dailyMax: 240 }, off: { dailyMax: null } },
+];
+const ruleOn = (period: Period, rule: (typeof RULES)[number]["rule"]) =>
+  rule === "endsBy"
+    ? Boolean(period.endsBy)
+    : rule === "longest"
+      ? Boolean(period.longest)
+      : rule === "block"
+        ? Boolean(period.blockFrom || period.blockTo)
+        : Boolean(period.dailyMax);
 
 /** The semester being planned: its name, Week 1, how many teaching weeks, its breaks, holidays and periods. */
 export function PlanSettingsDialog({
@@ -634,9 +659,11 @@ export function PlanSettingsDialog({
           ? "Its last day comes before its first."
           : !period.days.length
             ? "Choose at least one day."
-            : period.blockFrom >= period.blockTo
-              ? "Its hours end after they start."
-              : "";
+            : !RULES.some((each) => ruleOn(period, each.rule))
+              ? "Tick at least one rule."
+              : ruleOn(period, "block") && !(period.blockFrom && period.blockTo && period.blockFrom < period.blockTo)
+                ? "Its hours with no classes end after they start."
+                : "";
   const ready =
     draft.weekOne !== "" &&
     draft.weeks >= 1 &&
@@ -816,9 +843,55 @@ export function PlanSettingsDialog({
                     })}
                   </div>
                 </div>
-                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <TimeField label="No classes from" value={period.blockFrom} onChange={(blockFrom) => setPeriod(index, { blockFrom })} />
-                  <TimeField label="Until" value={period.blockTo} onChange={(blockTo) => setPeriod(index, { blockTo })} />
+                {/* Its rules: any of the four, each ticked on and given its value. */}
+                <div className="grid gap-2" role="group" aria-label="Its rules">
+                  <span className="text-sm font-medium text-[#344054]">Rules</span>
+                  {RULES.map((each) => {
+                    const on = ruleOn(period, each.rule);
+                    return (
+                      <div key={each.rule} className="grid gap-2 sm:grid-cols-[16rem_minmax(0,1fr)] sm:items-end">
+                        <label className="inline-flex items-center gap-2 text-sm text-[#344054] sm:min-h-10">
+                          <input
+                            type="checkbox"
+                            checked={on}
+                            onChange={(event) => setPeriod(index, event.target.checked ? each.on : each.off)}
+                            className="h-4 w-4 accent-[#1f4e79]"
+                          />
+                          {each.label}
+                        </label>
+                        {!on ? (
+                          <span />
+                        ) : each.rule === "endsBy" ? (
+                          <div className="max-w-[10rem]">
+                            <TimeField label="Ends by" value={period.endsBy ?? ""} onChange={(endsBy) => setPeriod(index, { endsBy })} />
+                          </div>
+                        ) : each.rule === "longest" ? (
+                          <div className="max-w-[10rem]">
+                            <SelectMenu
+                              label="Longest class"
+                              value={String(period.longest ?? "")}
+                              onChange={(value) => setPeriod(index, { longest: Number(value) })}
+                              options={LONGEST_CLASS}
+                            />
+                          </div>
+                        ) : each.rule === "block" ? (
+                          <div className="grid grid-cols-2 gap-2">
+                            <TimeField label="From" value={period.blockFrom} onChange={(blockFrom) => setPeriod(index, { blockFrom })} />
+                            <TimeField label="Until" value={period.blockTo} onChange={(blockTo) => setPeriod(index, { blockTo })} />
+                          </div>
+                        ) : (
+                          <div className="max-w-[10rem]">
+                            <SelectMenu
+                              label="Most hours a day for a teacher"
+                              value={String(period.dailyMax ?? "")}
+                              onChange={(value) => setPeriod(index, { dailyMax: Number(value) })}
+                              options={TEACHER_DAY}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
                 {problem ? <p className="text-xs text-[#a6292f]">{problem}</p> : null}
               </fieldset>
@@ -832,8 +905,8 @@ export function PlanSettingsDialog({
             <Plus size={15} /> Add a period
           </button>
           <span className="text-xs text-[#667085]">
-            Ramadan, an exam week: hours with no classes for everyone. They are shaded on the plan, and a class placed in
-            them is flagged.
+            Ramadan, an exam week: rules for everyone, checked for the classes inside the period. The hours with no
+            classes and the hours after the day ends are shaded on the plan; a class that breaks any rule is flagged.
           </span>
         </div>
         <div className="grid gap-1">

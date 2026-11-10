@@ -51,15 +51,18 @@ class Holiday(BaseModel):
 
 
 class Period(BaseModel):
-    """Ramadan, 18 Feb to 19 Mar: no classes 15:00-19:00, for everybody."""
+    """Ramadan, 18 Feb to 19 Mar, for everybody: any of its four rules, each optional."""
 
     model_config = {"populate_by_name": True}
     label: str = Field(max_length=160)
     start: str = Field(alias="from", max_length=10)
     end: str = Field(alias="to", max_length=10)
     days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5, 6, 7], max_length=7)
-    blockFrom: str = Field(max_length=5)
-    blockTo: str = Field(max_length=5)
+    endsBy: str = Field(default="", max_length=5)
+    longest: int | None = None
+    blockFrom: str = Field(default="", max_length=5)
+    blockTo: str = Field(default="", max_length=5)
+    dailyMax: int | None = None
 
 
 class SettingsInput(BaseModel):

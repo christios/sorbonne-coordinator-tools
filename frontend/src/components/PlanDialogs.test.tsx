@@ -221,14 +221,31 @@ describe("periods that bind everybody", () => {
     expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ periods: [] }));
   });
 
-  it("starts a new one as the working week from three, and saves nothing until it is named and dated", () => {
+  it("starts a new one as the working week ending at three, and saves nothing until it is named and dated", () => {
     settings(BARE);
     fireEvent.click(screen.getByRole("button", { name: "Add a period" }));
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText("Give it a name.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Friday" }).getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Saturday" }).getAttribute("aria-pressed")).toBe("false");
+    expect((screen.getByRole("checkbox", { name: "Day ends by" }) as HTMLInputElement).checked).toBe(true);
     fireEvent.change(screen.getByPlaceholderText("Ramadan"), { target: { value: "Ramadan" } });
     expect(screen.getByText("Give it a first and a last day.")).toBeTruthy();
+  });
+
+  it("takes any of its four rules, ticked, and asks for one at least", () => {
+    const onSave = settings({ ...BARE, periods: [{ ...ramadan, blockFrom: "", blockTo: "", endsBy: "15:00", longest: null, dailyMax: null }] });
+    fireEvent.click(screen.getByRole("checkbox", { name: "Day ends by" }));
+    expect(screen.getByText("Tick at least one rule.")).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Longest class" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "No classes between" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Most hours a day for a teacher" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onSave).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        periods: [expect.objectContaining({ endsBy: "", longest: 90, blockFrom: "12:15", blockTo: "12:45", dailyMax: 240 })],
+      }),
+    );
   });
 });

@@ -108,7 +108,7 @@ export function judgeSlot(plan: Plan, teachers: WishTeacher[] | undefined, candi
       level: breach.level,
       said:
         breach.about === "period"
-          ? `Everybody · ${breach.wish}`
+          ? `Everybody · ${breach.perClass?.get(ghosts.find((ghost) => breach.classes.includes(ghost)) as PlanClass) ?? breach.wish}`
           : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}${
               breach.comment ? ` — “${breach.comment}”` : ""
             }`,
