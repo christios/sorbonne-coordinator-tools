@@ -203,6 +203,7 @@ export function FormTour({
       />
       <div
         ref={card}
+        data-tour-card
         role="dialog"
         aria-modal="false"
         aria-label={`Guided tour: ${step.title}`}

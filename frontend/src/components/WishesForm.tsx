@@ -453,7 +453,10 @@ export function WishesForm({
   // A tour step starts from the form as it is, and from the view it is about.
   const entering = useRef<(id: string) => void>(() => {});
   entering.current = (id: string) => {
-    setTourBase({ painted: cells.size, away: awayAt.size, sawOpen: Boolean(open) });
+    // Only the steps about a pop-over keep one open: come back to an earlier step, and it is closed.
+    const keepsOpen = id === "matters" || id === "mark";
+    if (!keepsOpen) setOpen(null);
+    setTourBase({ painted: cells.size, away: awayAt.size, sawOpen: keepsOpen && Boolean(open) });
     if (id === "paint" || id === "away") {
       if (week) showWeek(null);
       if (brush === "erase") setBrush("cant");
@@ -487,6 +490,8 @@ export function WishesForm({
   useEffect(() => {
     if (!open) return;
     const elsewhere = (event: PointerEvent) => {
+      // A press on the tour's card is not one on the page: Back must not close what it is about.
+      if ((event.target as Element | null)?.closest?.("[data-tour-card]")) return;
       if (!popover.current?.contains(event.target as Node)) setOpen(null);
     };
     document.addEventListener("pointerdown", elsewhere, true);

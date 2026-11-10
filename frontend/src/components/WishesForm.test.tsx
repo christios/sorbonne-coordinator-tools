@@ -299,6 +299,33 @@ describe("the guided tour", () => {
     }
   });
 
+  it("goes back a step when asked, without the press on Back counting as the step done", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const settle = () =>
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+    const step = (title: string) => screen.getByRole("dialog", { name: `Guided tour: ${title}` });
+    try {
+      render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
+      fireEvent.click(screen.getByRole("button", { name: "Take the tour" }));
+      stroke("Tuesday", "14:00", "15:00");
+      settle();
+      // On "How much it matters", with the block open: pressing Back leaves the block open.
+      const back = within(step("How much it matters")).getByRole("button", { name: "Back" });
+      fireEvent.pointerDown(back);
+      expect(screen.getByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeTruthy();
+      settle();
+      fireEvent.click(within(step("How much it matters")).getByRole("button", { name: "Back" }));
+      // Back on the first step, waiting to be tried again: nothing moves on by itself.
+      settle();
+      expect(step("Paint the week").textContent).toContain("Drag down a few hours");
+      expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ends on Escape, and only the tour", () => {
     const onCancel = vi.fn();
     render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} onCancel={onCancel} />);
