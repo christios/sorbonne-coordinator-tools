@@ -68,6 +68,26 @@ export function rubricEntries(value: unknown): Rubric[] {
   return [...grouped.values()];
 }
 
+/** Content written since November 2026 keeps its graded activities in the schedule. */
+export const SCHEDULE_HOLDS_GRADED_ACTIVITIES = 2;
+
+export function schemaVersion(content: Record<string, unknown>): number {
+  return typeof content.schemaVersion === "number" ? content.schemaVersion : 1;
+}
+
+/**
+ * The syllabus's graded activities, wherever this syllabus keeps them: the schedule's graded
+ * cards (schemaVersion 2), or `assessment.items` on a syllabus written before. Every feature
+ * that needs them asks here (as the backend's graded_activities does), so the move happens once.
+ */
+export function gradedActivities(content: Record<string, unknown>): AssessmentEntry[] {
+  if (schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES) {
+    return objectEntries<AssessmentEntry>(content.schedule, "legacy-session").filter((card) => card.kind === "graded");
+  }
+  const assessment = isRecord(content.assessment) ? content.assessment : {};
+  return assessmentEntries(assessment.items);
+}
+
 export type RubricInUse = {
   id: string;
   label: string;
@@ -80,12 +100,13 @@ export type RubricInUse = {
  * older syllabus wrote by hand is kept only while an activity of that kind still exists.
  */
 export function rubricsInUse(
-  assessment: Record<string, unknown>,
+  activities: AssessmentEntry[],
+  writtenRubrics: unknown,
   assessmentTypes: Array<{ id: string; label: string; payload: Record<string, unknown> }>,
 ): RubricInUse[] {
   const used: string[] = [];
   const typed: string[] = [];
-  for (const entry of assessmentEntries(assessment.items)) {
+  for (const entry of activities) {
     const typeId = typeof entry.assessmentTypeId === "string" ? entry.assessmentTypeId : "";
     if (typeId) {
       if (!used.includes(typeId)) used.push(typeId);
@@ -100,7 +121,7 @@ export function rubricsInUse(
     const criteria = Array.isArray(type.payload.criteria) ? (type.payload.criteria as Array<Record<string, unknown>>) : [];
     return [{ id: type.id, label: type.label, criteria: criteria.map((item) => ({ name: text(item.name), inadequate: text(item.inadequate), meets: text(item.meets), exceeds: text(item.exceeds) })) }];
   });
-  const written = new Map(rubricEntries(assessment.rubrics).map((rubric) => [normalisedKind(rubric.assignment), rubric]));
+  const written = new Map(rubricEntries(writtenRubrics).map((rubric) => [normalisedKind(rubric.assignment), rubric]));
   const byHand = typed.flatMap((kind) => {
     const rubric = written.get(kind);
     return rubric ? [{ id: rubric.id, label: rubric.assignment ?? "", criteria: rubric.criteria.map((item) => ({ name: text(item.criterion), inadequate: text(item.inadequate), meets: text(item.meets), exceeds: text(item.exceeds) })) }] : [];

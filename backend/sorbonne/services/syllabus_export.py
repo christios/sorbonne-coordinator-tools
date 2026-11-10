@@ -14,6 +14,7 @@ from docx.shared import Inches
 from docx.table import _Cell, Table
 
 from sorbonne.services import rich_text
+from sorbonne.services.syllabus_content import graded_activities
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID, get_template
 
 
@@ -35,7 +36,12 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
     _fill_schedule(document.tables[7], _rows(content.get("schedule")))
     _fill_bibliography(document.tables[8], _record(content.get("bibliography")))
     _fill_teaching_approach(document, _record(content.get("teachingApproach")))
-    _fill_assessment(document, _record(content.get("assessment")), _record(content.get("learningOutcomes")))
+    _fill_assessment(
+        document,
+        _record(content.get("assessment")),
+        graded_activities(content),
+        _record(content.get("learningOutcomes")),
+    )
     for heading in template.removed_headings:
         _remove_section(document, heading)
 
@@ -362,9 +368,10 @@ def _fill_teaching_approach(document: Document, approach: dict[str, Any]) -> Non
     _set_paragraph_after(document, "8.3. Feedback and Academic Progress", _text(approach.get("feedback")))
 
 
-def _fill_assessment(document: Document, assessment: dict[str, Any], learning_outcomes: dict[str, Any]) -> None:
+def _fill_assessment(
+    document: Document, assessment: dict[str, Any], items: list[dict[str, Any]], learning_outcomes: dict[str, Any]
+) -> None:
     assessment_table = document.tables[9]
-    items = _rows(assessment.get("items"))
     _ensure_data_rows(assessment_table, header_rows=1, required_rows=max(14, len(items)))
     clo_numbers = {
         row.get("id"): f"CLO {position}" for position, row in enumerate(_rows(learning_outcomes.get("clos")), start=1)

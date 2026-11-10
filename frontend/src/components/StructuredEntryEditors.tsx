@@ -147,11 +147,11 @@ function otherPermittedUses(value: Record<string, unknown>): OtherPermittedUse[]
   return legacy.trim() ? [{ id: "legacy-other-use-0", text: legacy }] : [];
 }
 
-export function AssessmentGradingEditor({ value, assessmentTypes = [], ...history }: HistoryContext & { value: Record<string, unknown>; assessmentTypes?: CatalogueEntry[]; onChange?: (value: Record<string, unknown>) => void }) {
+export function AssessmentGradingEditor({ value, activities, assessmentTypes = [], ...history }: HistoryContext & { value: Record<string, unknown>; activities?: AssessmentEntry[]; assessmentTypes?: CatalogueEntry[]; onChange?: (value: Record<string, unknown>) => void }) {
   void history;
   // The rubrics follow from the graded activities, exactly as the document prints them, so
   // there is nothing to tick here and nothing that can disagree with section 9.1.
-  const shown = rubricsInUse(value, assessmentTypes);
+  const shown = rubricsInUse(activities ?? assessmentEntries(value.items), value.rubrics, assessmentTypes);
   return <section><div><h4 className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">Grading rubrics<InfoTip label="Where the rubrics come from">They are maintained in the catalogue and appear here automatically.</InfoTip></h4><p className="mt-1 text-sm text-[#667085]">One rubric per assessment type used in this course.</p></div>{shown.length ? <div className="mt-4 grid grid-cols-[minmax(0,1fr)] gap-4">{shown.map((rubric) => <RubricTable key={rubric.id} rubric={rubric} />)}</div> : <p className="mt-3 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">Choose an assessment type for each graded activity and its rubric will appear here.</p>}</section>;
 }
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { bibliographyEntries, deliveryPercentageError, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
+import { bibliographyEntries, deliveryPercentageError, gradedActivities, ploDisplayLabel, rubricEntries, rubricsInUse, sectionParts } from "./syllabusContent";
 
 describe("bibliographyEntries", () => {
   it("preserves a legacy free-text bibliography as one editable entry", () => {
@@ -62,12 +62,27 @@ describe("rubricsInUse", () => {
   ];
 
   it("shows one rubric per kind of graded activity, as the document prints them", () => {
-    const shown = rubricsInUse({ items: [{ id: "a1", assessmentTypeId: "type-quiz" }, { id: "a2", type: " lab REPORT " }], rubrics: written }, [quiz]);
+    const shown = rubricsInUse([{ id: "a1", assessmentTypeId: "type-quiz" }, { id: "a2", type: " lab REPORT " }], written, [quiz]);
     expect(shown.map((rubric) => rubric.label)).toEqual(["Quiz", "Lab report"]);
     expect(shown[0].criteria[0]).toEqual({ name: "Accuracy", inadequate: "Poor", meets: "Sound", exceeds: "Excellent" });
   });
 
   it("shows nothing when there is nothing graded, whatever was written before", () => {
-    expect(rubricsInUse({ items: [], rubrics: written }, [quiz])).toEqual([]);
+    expect(rubricsInUse([], written, [quiz])).toEqual([]);
+  });
+});
+
+describe("gradedActivities", () => {
+  it("reads the assessment list on a syllabus written before November 2026", () => {
+    expect(gradedActivities({ assessment: { items: [{ id: "a1", type: "Quiz" }] }, schedule: [{ id: "g1", kind: "graded" }] }))
+      .toEqual([{ id: "a1", type: "Quiz" }]);
+  });
+
+  it("reads the schedule's graded cards once the schedule holds them", () => {
+    expect(gradedActivities({
+      schemaVersion: 2,
+      assessment: { items: [{ id: "old" }] },
+      schedule: [{ id: "s1", topic: "Optics" }, { id: "g1", kind: "graded", type: "Quiz" }],
+    })).toEqual([{ id: "g1", kind: "graded", type: "Quiz" }]);
   });
 });

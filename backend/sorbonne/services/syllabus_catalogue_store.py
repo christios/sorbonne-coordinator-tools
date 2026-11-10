@@ -12,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import RowMapping
 
+from sorbonne.services.syllabus_content import graded_activities
 from sorbonne.services.engine import engine_for
 
 
@@ -363,7 +364,7 @@ class SyllabusCatalogueStore:
         assessment = _record(resolved.get("assessment"))
         used: list[str] = []
         typed: list[str] = []
-        for item in assessment.get("items") or []:
+        for item in graded_activities(resolved):
             type_id = _text(_record(item).get("assessmentTypeId"))
             if type_id:
                 if type_id not in used:

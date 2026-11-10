@@ -1,4 +1,5 @@
 import { richTextToPlain } from "@/services/richText";
+import { gradedActivities } from "@/services/syllabusContent";
 /**
  * What a syllabus says, section by section, independent of how it is drawn.
  *
@@ -60,7 +61,7 @@ export function previewProjection(syllabus: Syllabus): Projection {
       ["Websites", resources(bibliography.websites)],
       ["Journal Articles", resources(bibliography.journalArticles)],
     ]),
-    assessments: rows(assessment.items).map((item) => [
+    assessments: gradedActivities(content).map((item) => [
       byWeek ? text(item.week) : displayDate(item.date),
       text(item.name) || text(item.type),
       percentage(item.weight),
