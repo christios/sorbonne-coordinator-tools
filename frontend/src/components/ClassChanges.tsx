@@ -62,13 +62,20 @@ function saidIn(lost: number, gained: number): string {
   return said.join(", ");
 }
 
-export function ClassChangesBanner({ className = "" }: { className?: string }) {
+/**
+ * What the portal changed in our classes, for one semester.
+ *
+ * `term` is the semester the page is on, by its portal term. Without one the banner follows
+ * the newest semester swept, which it always did, so Semester 1's changes disappeared the
+ * moment Semester 2 was swept, even while Semester 1 was still being taught.
+ */
+export function ClassChangesBanner({ className = "", term = "" }: { className?: string; term?: string }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   // The history, for every section or for the one whose History was asked for.
   const [history, setHistory] = useState<{ crn?: string } | null>(null);
   const terms = useQuery({ queryKey: ["swept-terms"], queryFn: fetchSweptTerms, retry: false });
-  const termCode = terms.data?.[0] ?? "";
+  const termCode = term || (terms.data?.[0] ?? "");
   const changed = useQuery({
     queryKey: ["changed-classes", termCode],
     queryFn: () => fetchChangedClasses(termCode),

@@ -523,7 +523,7 @@ export function ActiveTeachers({
         * ones on this page, and a warning under a grid of two dozen rows is a warning
         * nobody scrolls to.
         */}
-      <ClassChangesBanner className="mb-3" />
+      <ClassChangesBanner className="mb-3" term={term} />
       {error ? (
         <p role="alert" className="mb-3 rounded-md border border-[#e5b7b9] bg-[#fdf3f3] px-4 py-3 text-sm text-[#a6292f]">{error}</p>
       ) : null}
