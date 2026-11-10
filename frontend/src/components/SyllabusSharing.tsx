@@ -36,11 +36,15 @@ export function SyllabusSharing({
   // There is nobody to submit a departmental syllabus on behalf of: whoever could read the
   // request is already the one reading it.
   const offersReview = decides && syllabus.visibility !== "public" && !shared;
+  const awaitingSubmission = offersReview && !syllabus.submittedAt;
+  // Whoever may write it sees what it still lacks, whatever its status (Christian, 10 Nov
+  // 2026): the same rule as the server's can_edit.
+  const canEdit = mine || (curator && (shared || syllabus.visibility === "public"));
   // Asked again whenever a save changes the syllabus: the list answers for the saved version.
   const completeness = useQuery({
     queryKey: ["syllabus-completeness", syllabus.id, syllabus.revision],
     queryFn: () => getSyllabusCompleteness(syllabus.id),
-    enabled: offersReview && !syllabus.submittedAt,
+    enabled: canEdit,
   });
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["syllabi"] });
@@ -59,11 +63,15 @@ export function SyllabusSharing({
   });
   const busy = publish.isPending || review.isPending;
 
-  if (!decides) return <SyllabusStatusPill syllabus={syllabus} />;
+  const missing = canEdit ? completeness.data?.missing ?? [] : [];
+  // Outside the review step the list only informs: nothing waits on it.
+  const checklist = missing.length && !awaitingSubmission ? (
+    <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} forReview={false} />
+  ) : null;
+  if (!decides) return <><SyllabusStatusPill syllabus={syllabus} />{checklist}</>;
 
   const button =
     "inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60";
-  const missing = completeness.data?.missing ?? [];
   return (
     <>
       <SyllabusStatusPill syllabus={syllabus} />
@@ -78,7 +86,8 @@ export function SyllabusSharing({
         {busy ? <Loader2 className="animate-spin" size={17} /> : syllabus.visibility === "public" ? <Lock size={17} /> : <Eye size={17} />}
         {syllabus.visibility === "public" ? "Make private" : "Publish"}
       </button>
-      {!offersReview ? null : !syllabus.submittedAt && missing.length ? (
+      {checklist}
+      {!offersReview ? null : awaitingSubmission && missing.length ? (
         <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} />
       ) : (
         <button

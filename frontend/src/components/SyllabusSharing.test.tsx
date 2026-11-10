@@ -62,12 +62,32 @@ describe("submitting a syllabus for review", () => {
     await vi.waitFor(() => expect(submit).toHaveBeenCalledWith("syl-1", true));
   });
 
-  it("always lets its author withdraw a request, without asking what is missing", async () => {
-    const asked = vi.spyOn(syllabi, "getSyllabusCompleteness");
+  it("always lets its author withdraw a request, whatever is missing", async () => {
+    vi.spyOn(syllabi, "getSyllabusCompleteness").mockResolvedValue({
+      complete: false,
+      missing: [{ section: "contacts", message: "Give the course instructor's email." }],
+    });
     show({ ...SYLLABUS, submittedAt: "2026-11-10T10:00:00Z" });
 
+    expect(await screen.findByRole("button", { name: "1 to fill in" })).toBeTruthy();
     expect((screen.getByRole("button", { name: /Withdraw from review/ }) as HTMLButtonElement).disabled).toBe(false);
-    expect(asked).not.toHaveBeenCalled();
+  });
+
+  it("tells whoever edits a published syllabus what it lacks, without blocking anything", async () => {
+    vi.spyOn(syllabi, "getSyllabusCompleteness").mockResolvedValue({
+      complete: false,
+      missing: [
+        { section: "contacts", message: "Give the course instructor's email." },
+        { section: "schedule", message: 'Give "Essay" a week.' },
+      ],
+    });
+    show({ ...SYLLABUS, visibility: "public" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "2 to fill in" }));
+
+    expect(screen.getByRole("heading", { name: "Still to fill in" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Submit for review/ })).toBeNull();
+    expect((screen.getByRole("button", { name: /Make private/ }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("shows why the server refused, if something went missing since the list was asked", async () => {
