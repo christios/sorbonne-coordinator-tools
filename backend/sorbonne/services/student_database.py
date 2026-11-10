@@ -106,6 +106,15 @@ class DuplicateLabel(Exception):
     """Two groups in one scope, or two scopes in one cohort, cannot share a name."""
 
 
+class SharedSetTaken(ValueError):
+    """A second set open to every cohort, under the same code in the same semester, said in words.
+
+    Every cohort's students are placed in a set open to every cohort, so two LANG sets in
+    one semester would split the languages between them, and each cohort's check would read
+    only the half its students happened to be filed under.
+    """
+
+
 class FilterNotFound(Exception):
     """Also raised for a view, which is what a saved filter became."""
 
@@ -2282,6 +2291,24 @@ class StudentDatabase:
             ).scalar()
         )
 
+    def _shared_set_free(
+        self, connection: Connection, *, code: str, term_id: str, open_to_all: bool, scope_id: str = ""
+    ) -> None:
+        """Refuse a set open to every cohort whose code another cohort's open set has that semester."""
+        if not open_to_all:
+            return
+        other = connection.execute(
+            text("""SELECT c.name FROM cohort_scopes s JOIN student_cohorts c ON c.id = s.cohort_id
+                    WHERE s.open_to_all AND s.term_id = :term AND upper(s.code) = upper(:code) AND s.id <> :id
+                    LIMIT 1"""),
+            {"term": _text(term_id), "code": _text(code), "id": scope_id},
+        ).scalar()
+        if other is not None:
+            raise SharedSetTaken(
+                f"{_text(code)} is already open to every cohort this semester, on {other}. "
+                "Add its groups there, so every cohort's students are in one set."
+            )
+
     def add_scope(  # noqa: PLR0913 - one argument per column of the block
         self,
         cohort_id: str,
@@ -2302,6 +2329,7 @@ class StudentDatabase:
         with self.engine.begin() as connection:
             if self._scope_id(connection, cohort_id, _text(code), _text(term_id)):
                 raise DuplicateLabel(code)
+            self._shared_set_free(connection, code=code, term_id=term_id, open_to_all=open_to_all)
             connection.execute(
                 text("""INSERT INTO cohort_scopes
                             (id, cohort_id, code, name, note, term_id, kind, parent_scope_id,
@@ -2351,6 +2379,10 @@ class StudentDatabase:
             )
             if standing and standing != scope_id:
                 raise DuplicateLabel(code)
+            if held:
+                self._shared_set_free(
+                    connection, code=code, term_id=held["term_id"] or "", open_to_all=open_to_all, scope_id=scope_id
+                )
             updated = connection.execute(
                 text("""UPDATE cohort_scopes SET code = :code, name = :name, note = :note,
                                                  kind = :kind, parent_scope_id = :parent,

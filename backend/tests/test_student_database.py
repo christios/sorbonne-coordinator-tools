@@ -14,6 +14,7 @@ from sorbonne.services.student_database import (
     InvalidCohortMove,
     InvalidRule,
     SavedSearch,
+    SharedSetTaken,
     StudentDatabase,
 )
 from tests.conftest import TEST_DATABASE_URL
@@ -478,6 +479,21 @@ def test_a_language_set_takes_only_students_held_in_its_own_semester(
     report = database.assign_many(scope_id=lang, student_ids=[newcomer, fys_student], group_id=french)
 
     assert report["skipped"] == [newcomer]
+
+
+def test_a_semester_holds_one_set_open_to_every_cohort_under_a_code(
+    database: StudentDatabase, two_semesters_of_fys
+) -> None:
+    """FYS holds the autumn's LANG, open to every cohort; L1 may not make a second one there,
+    which would split the languages between two sets. Its own LANG, or the spring's, is fine."""
+    _fys, l1, *_rest, autumn, spring = two_semesters_of_fys
+
+    with pytest.raises(SharedSetTaken, match="already open to every cohort this semester, on FYS"):
+        database.add_scope(l1["id"], code="lang", term_id=autumn, open_to_all=True)
+    own = database.add_scope(l1["id"], code="LANG", term_id=autumn)
+    with pytest.raises(SharedSetTaken):
+        database.update_scope(own, code="LANG", name="", note="", open_to_all=True)
+    database.add_scope(l1["id"], code="LANG", term_id=spring, open_to_all=True)
 
 
 def test_the_rules_are_kept_whole_and_in_order(database: StudentDatabase) -> None:

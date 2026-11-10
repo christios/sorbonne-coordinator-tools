@@ -38,6 +38,7 @@ from sorbonne.services.student_database import (
     InvalidRule,
     DuplicateFilterName,
     DuplicateLabel,
+    SharedSetTaken,
     FilterNotFound,
     GroupNotFound,
     InvalidFilter,
@@ -704,6 +705,8 @@ def add_scope(
         raise _missing(exc, "cohort") from exc
     except DuplicateLabel as exc:
         raise _duplicate(exc, "block") from exc
+    except SharedSetTaken as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
 
 @router.patch("/scopes/{scope_id}")
@@ -724,6 +727,8 @@ def update_scope(
         raise _missing(exc, "block") from exc
     except DuplicateLabel as exc:
         raise _duplicate(exc, "block") from exc
+    except SharedSetTaken as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return {"saved": True}
 
 
