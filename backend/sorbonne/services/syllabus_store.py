@@ -412,13 +412,8 @@ def default_content() -> dict[str, Any]:
             "rubrics": [],
             "lateSubmissionPolicy": "",
         },
-        "documentControl": {
-            "creationDate": "",
-            "departmentName": "SCEN",
-            "approvalDate": "",
-            "versionNumber": "",
-            "approver": "",
-        },
+        # No documentControl: the section was removed in the November 2026 review.
+        # Older syllabi keep theirs, untouched.
     }
 
 

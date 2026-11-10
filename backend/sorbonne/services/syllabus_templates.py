@@ -28,6 +28,10 @@ class SyllabusTemplate:
     description: str
     document_path: Path
     sections: tuple[TemplateSection, ...]
+    # Headings of the bundled document that the department no longer uses. The export
+    # takes them (and the table under each) out of every generated copy, so the
+    # Provost's file itself is never edited.
+    removed_headings: tuple[str, ...] = ()
 
 
 DEFAULT_TEMPLATE_ID = "scen-en-v1"
@@ -50,8 +54,9 @@ _TEMPLATES = {
             TemplateSection("bibliography", "7. Bibliography"),
             TemplateSection("teachingApproach", "8. Teaching approach"),
             TemplateSection("assessment", "9. Course assessment"),
-            TemplateSection("documentControl", "10. Document control"),
         ),
+        # Removed from the syllabus by the November 2026 review.
+        removed_headings=("DOCUMENT CONTROL",),
     ),
     FYS_TEMPLATE_ID: SyllabusTemplate(
         id=FYS_TEMPLATE_ID,

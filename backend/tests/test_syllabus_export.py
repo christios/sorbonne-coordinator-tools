@@ -170,7 +170,28 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
     assert "☒" in document.tables[10].cell(1, 1).text
     assert "Oral follow-up discussion" in document.tables[10].cell(1, 1).text
     assert document.tables[11].cell(0, 0).text == "Assessment type: Policy brief"
-    assert document.tables[13].cell(0, 1).text == "23/07/2026"
+
+
+def test_the_document_has_no_document_control_section_even_when_the_syllabus_kept_one(tmp_path) -> None:
+    """Document control was removed from the syllabus (Nov 2026 feedback).
+
+    Older syllabi still carry the values; they stay stored, but the document no
+    longer prints the heading or its table. The bundled template is not edited.
+    """
+    syllabus = {
+        "courseTitle": "Optics",
+        "courseCode": "PHYS-118",
+        "academicYear": "2026-2027",
+        "content": {"documentControl": {"creationDate": "2026-07-23", "approver": "Head of Department"}},
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    assert not [p for p in document.paragraphs if p.text.strip() == "DOCUMENT CONTROL"]
+    assert not [t for t in document.tables if "Document creation date" in t.cell(0, 0).text]
+    assert "DOCUMENT CONTROL" not in template_sections("scen-en-v1")
 
 
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:

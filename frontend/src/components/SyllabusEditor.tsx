@@ -550,7 +550,6 @@ function SectionForm({
       multiline={multiline}
       size={size}
       hint={hint}
-      isDate={isDateField(active, label)}
       history={history(label)}
     />
   );
@@ -912,53 +911,9 @@ function SectionForm({
         />
       </div>
     );
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-      <SyllabusSubsection title="Document details">
-        <FieldRow>
-          {text(
-            "Document creation date",
-            section.creationDate,
-            (value) => editContent(active, { ...section, creationDate: value }),
-            false,
-            "code",
-          )}
-          {text(
-            "Department name",
-            section.departmentName,
-            (value) => editContent(active, { ...section, departmentName: value }),
-            false,
-            "name",
-          )}
-          {text(
-            "Version number",
-            section.versionNumber,
-            (value) => editContent(active, { ...section, versionNumber: value }),
-            false,
-            "counter",
-          )}
-        </FieldRow>
-      </SyllabusSubsection>
-      <SyllabusSubsection title="Approval">
-        <FieldRow>
-          {text(
-            "Syllabus approval date",
-            section.approvalDate,
-            (value) => editContent(active, { ...section, approvalDate: value }),
-            false,
-            "code",
-          )}
-          {text(
-            "Name and status of approver",
-            section.approver,
-            (value) => editContent(active, { ...section, approver: value }),
-            false,
-            "name",
-          )}
-        </FieldRow>
-      </SyllabusSubsection>
-    </div>
-  );
+  // Document control was removed from the syllabus in the November 2026 review; any
+  // section without an editor of its own has nothing to show.
+  return null;
 }
 
 function Section({
@@ -1776,13 +1731,6 @@ function fieldPath(active: string, label: string) {
       "Assessment methodologies": "assessment.methodologies",
       "Late submission policy": "assessment.lateSubmissionPolicy",
     },
-    documentControl: {
-      "Document creation date": "documentControl.creationDate",
-      "Department name": "documentControl.departmentName",
-      "Syllabus approval date": "documentControl.approvalDate",
-      "Version number": "documentControl.versionNumber",
-      "Name and status of approver": "documentControl.approver",
-    },
   };
   if (
     active === "identification" &&
@@ -1804,12 +1752,6 @@ function fieldPath(active: string, label: string) {
     return `contacts.instructor.${label}`;
   }
   return fieldNames[active]?.[label] ?? `${active}.${label}`;
-}
-function isDateField(active: string, label: string) {
-  return (
-    active === "documentControl" &&
-    ["Document creation date", "Syllabus approval date"].includes(label)
-  );
 }
 function dateInputValue(value: string) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;

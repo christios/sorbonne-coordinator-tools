@@ -159,16 +159,6 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
       <Block heading="CLASSROOM ETIQUETTE">
         <p className="mt-2 text-sm text-[#667085]">Printed by the template, the same in every syllabus.</p>
       </Block>
-
-      <Block heading="DOCUMENT CONTROL">
-        <Rows rows={[
-          ["Document creation date", text(record(content.documentControl).creationDate)],
-          ["Department name", text(record(content.documentControl).department)],
-          ["Syllabus approval date", text(record(content.documentControl).approvalDate)],
-          ["Version number", text(record(content.documentControl).version)],
-          ["Name and status of the approver", text(record(content.documentControl).approver)],
-        ]} />
-      </Block>
     </article>
   );
 }
@@ -178,7 +168,7 @@ export const RENDERED = [
   "COURSE IDENTIFICATION", "ACADEMIC CONTACTS", "2.1.", "2.2.", "COURSE DESCRIPTION", "COURSE DELIVERY",
   "LEARNING OUTCOMES", "5.1.", "5.2.", "COURSE SCHEDULE", "SUPPLEMENTAL BIBLIOGRAPHICAL RESOURCES",
   "TEACHING AND LEARNING APPROACH", "8.1.", "8.2.", "8.3.", "COURSE ASSESSMENT", "9.1.", "9.2.", "9.3.",
-  "9.4.", "9.5.", "9.6.", "INTEGRITY POLICY", "CLASSROOM ETIQUETTE", "DOCUMENT CONTROL",
+  "9.4.", "9.5.", "9.6.", "INTEGRITY POLICY", "CLASSROOM ETIQUETTE",
 ];
 
 const GRADE_EQUIVALENCE =

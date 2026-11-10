@@ -9,6 +9,7 @@ import re
 from typing import Any, Callable
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Inches
 from docx.table import _Cell, Table
 
@@ -35,7 +36,8 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
     _fill_bibliography(document.tables[8], _record(content.get("bibliography")))
     _fill_teaching_approach(document, _record(content.get("teachingApproach")))
     _fill_assessment(document, _record(content.get("assessment")), _record(content.get("learningOutcomes")))
-    _fill_document_control(document.tables[-1], _record(content.get("documentControl")))
+    for heading in template.removed_headings:
+        _remove_section(document, heading)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(output_path)
@@ -136,7 +138,8 @@ def template_sections(template_id: str) -> list[str]:
         # list paragraphs. Case is not a reliable signal: one of them ends "(if any)".
         if re.match(r"^\d+\.\d*\.?\s+\S", text) or paragraph.style.name in {"List Paragraph", "Footer"}:
             headings.append(text)
-    return headings
+    removed = set(get_template(template_id).removed_headings)
+    return [heading for heading in headings if heading not in removed]
 
 
 def _fill_identification(table: Table, syllabus: dict[str, Any], identification: dict[str, Any]) -> None:
@@ -466,16 +469,21 @@ def _fill_rubrics(document: Document, rubrics: list[dict[str, Any]]) -> None:
                 _set_cell_text(cell, _text(value))
 
 
-def _fill_document_control(table: Table, control: dict[str, Any]) -> None:
-    values = [
-        _display_date(control.get("creationDate")),
-        _text(control.get("departmentName")),
-        _display_date(control.get("approvalDate")),
-        _text(control.get("versionNumber")),
-        _text(control.get("approver")),
-    ]
-    for index, value in enumerate(values):
-        _set_cell_text(table.cell(index, 1), value)
+def _remove_section(document: Document, heading: str) -> None:
+    """Drop a heading the department no longer uses, with the table under it.
+
+    The bundled template stays the Provost's file; the section is taken out of each
+    generated copy instead. Stored values for it are left alone, so older syllabi keep
+    them.
+    """
+    for paragraph in document.paragraphs:
+        if paragraph.text.strip() != heading:
+            continue
+        following = paragraph._p.getnext()
+        if following is not None and following.tag == qn("w:tbl"):
+            following.getparent().remove(following)
+        paragraph._p.getparent().remove(paragraph._p)
+        return
 
 
 def _ensure_data_rows(table: Table, *, header_rows: int, required_rows: int) -> None:
