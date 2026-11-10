@@ -20,14 +20,16 @@ import {
   createCatalogueEntry,
   importPeopleFromPortal,
   listCatalogueEntries,
+  rankOptions,
   retireCatalogueEntry,
   updateCatalogueEntry,
 } from "@/services/syllabusCatalogues";
 
-type CatalogueSection = "people" | "programmes" | "curriculum-mapping" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
+type CatalogueSection = "people" | "academic-ranks" | "programmes" | "curriculum-mapping" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
 
 const sections = [
   { id: "people", label: "People" },
+  { id: "academic-ranks", label: "Academic ranks" },
   { id: "programmes", label: "Programmes & PLOs" },
   { id: "competencies", label: "SCEN competencies" },
   { id: "graduate-competencies", label: "SUAD graduate competencies" },
@@ -52,6 +54,7 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
     onSectionChange={(id) => setActiveSection(id as CatalogueSection)}
   >
     {activeSection === "people" ? <PeopleCatalogue /> : null}
+    {activeSection === "academic-ranks" ? <AcademicRanksCatalogue /> : null}
     {activeSection === "programmes" ? <ProgrammesCatalogue /> : null}
     {activeSection === "competencies" ? <CompetenciesCatalogue /> : null}
     {activeSection === "graduate-competencies" ? <CompetencyCatalogue category="graduate-competencies" title="SUAD graduate competencies" description="The institution's graduate competencies. Each SCEN competency points at the ones it develops." createLabel="New graduate competency" /> : null}
@@ -74,6 +77,16 @@ function CatalogueHeader({ title, description, subtitle, action }: { title: stri
 
 function useCatalogue(category: CatalogueCategory, query = "", parentId?: string) {
   return useQuery({ queryKey: ["syllabus-catalogues", category, query, parentId ?? ""], queryFn: () => listCatalogueEntries(category, { query, parentId, includeRetired: true, limit: 200 }) });
+}
+
+/** The ranks a person's "Academic rank / status" is chosen from, here and in a syllabus. */
+function AcademicRanksCatalogue() {
+  const [showCreate, setShowCreate] = useState(false);
+  const ranks = useCatalogue("academic-ranks");
+  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Academic ranks" description="The ranks and statuses a person can hold. A person's rank in People, and an instructor's in a syllabus, is chosen from this list once it has entries; until then it is typed." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={16} /> Add rank</button>} />
+    {showCreate ? <SimpleEntryForm category="academic-ranks" fieldLabel="Rank or status" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
+    <CatalogueEntries category="academic-ranks" entries={ranks.data ?? []} isLoading={ranks.isLoading} />
+  </div>;
 }
 
 function PeopleCatalogue() {
@@ -117,6 +130,9 @@ function PersonForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCa
   const payload = entry?.payload ?? {};
   const [label, setLabel] = useState(entry?.label ?? "");
   const [rank, setRank] = useState(stringValue(payload.academicRank));
+  // Chosen from the department's ranks once it has listed some; typed until then.
+  const ranks = useCatalogue("academic-ranks");
+  const rankChoices = (ranks.data ?? []).some((item) => !item.isRetired) ? rankOptions(ranks.data ?? [], rank) : [];
   const [email, setEmail] = useState(stringValue(payload.email));
   const [phone, setPhone] = useState(stringValue(payload.phone));
   const [affiliations, setAffiliations] = useState(stringValue(payload.affiliations));
@@ -131,7 +147,7 @@ function PersonForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCa
     onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "people"] }); onSaved(); },
   });
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (label.trim()) save.mutate(); }
-  return <form onSubmit={submit} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4 md:grid-cols-2"><Field label="Full name"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Academic rank / status"><input value={rank} onChange={(event) => setRank(event.target.value)} className={inputClass} /></Field><Field label="Email"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field label="Phone"><input value={phone} onChange={(event) => setPhone(event.target.value)} className={inputClass} /></Field><Field label="Affiliations" hint="separated by commas"><input value={affiliations} onChange={(event) => setAffiliations(event.target.value)} className={inputClass} /></Field><Field label="Office hours and location"><input value={officeHours} onChange={(event) => setOfficeHours(event.target.value)} className={inputClass} /></Field><div className="flex flex-wrap gap-4 md:col-span-2"><CheckBox label="Available as instructor" checked={isInstructor} onChange={setIsInstructor} /><CheckBox label="Available as academic coordinator" checked={isCoordinator} onChange={setIsCoordinator} /></div><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save person" : "Add person"} /></form>;
+  return <form onSubmit={submit} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4 md:grid-cols-2"><Field label="Full name"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Academic rank / status">{rankChoices.length ? <SelectMenu label="Academic rank / status" value={rank} onChange={setRank} wrap placeholder="Choose a rank" options={rankChoices} /> : <input value={rank} onChange={(event) => setRank(event.target.value)} className={inputClass} />}</Field><Field label="Email"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field label="Phone"><input value={phone} onChange={(event) => setPhone(event.target.value)} className={inputClass} /></Field><Field label="Affiliations" hint="separated by commas"><input value={affiliations} onChange={(event) => setAffiliations(event.target.value)} className={inputClass} /></Field><Field label="Office hours and location"><input value={officeHours} onChange={(event) => setOfficeHours(event.target.value)} className={inputClass} /></Field><div className="flex flex-wrap gap-4 md:col-span-2"><CheckBox label="Available as instructor" checked={isInstructor} onChange={setIsInstructor} /><CheckBox label="Available as academic coordinator" checked={isCoordinator} onChange={setIsCoordinator} /></div><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save person" : "Add person"} /></form>;
 }
 
 /**
@@ -416,7 +432,7 @@ function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDet
 }
 
 function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "ai-policies" ? <AiPolicyForm entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "ai-policies" ? <AiPolicyForm entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : category === "academic-ranks" ? "Rank or status" : "Name"} onCancel={onClose} onSaved={onClose} />;
   return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 

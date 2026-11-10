@@ -5,13 +5,15 @@ review is refused while anything is missing. Drafts are never blocked: a teacher
 and export an incomplete syllabus. Each item names the screen section it belongs to, so
 the editor can take the teacher there.
 
-PROPOSED: these are the rules put to Christian on 10 Nov 2026 in the required-fields
-checklist (docs/plans/required-fields-checklist.md). Changing one after he ticks the list is
-a change to this file and its tests.
+CONFIRMED: Christian reviewed the required-fields checklist on 10 Nov 2026
+(docs/plans/required-fields-checklist.md). Over the proposal he made required the
+instructor's academic rank, each CLO's SCEN competencies, and each session's details and
+type. Changing a rule is a change to this file, that list and the tests.
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from sorbonne.services.syllabus_content import (
@@ -54,6 +56,11 @@ def _ids(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if str(item).strip()]
     return [line for line in _text(value).split("\n") if line.strip()]
+
+
+def _plain(value: Any) -> str:
+    """Rich text with its tags and spacing taken out: empty when nothing was written."""
+    return " ".join(re.sub(r"<[^>]*>", " ", _text(value)).replace("&nbsp;", " ").split())
 
 
 def _number(value: Any) -> float | None:
@@ -130,6 +137,26 @@ def _contacts(missing: Missing, content: dict[str, Any]) -> None:
         _add(missing, "contacts", "Name the course instructor.")
     if not (from_directory or _text(first.get("Email"))):
         _add(missing, "contacts", "Give the course instructor's email.")
+    # Ticked required by Christian, 10 Nov 2026. Someone chosen from People brings the
+    # directory's rank, resolved onto `contacts.instructor`; a teacher cannot type it there.
+    resolved = _record(contacts.get("instructor"))
+    rank = next(
+        (
+            _text(record.get(key))
+            for record in (first, resolved)
+            for key in ("Academic rank / status", "Academic Rank / Status")
+            if _text(record.get(key))
+        ),
+        "",
+    )
+    if not rank:
+        _add(
+            missing,
+            "contacts",
+            "Ask an administrator to add the course instructor's academic rank in People."
+            if from_directory
+            else "Give the course instructor's academic rank / status.",
+        )
     coordinator = contacts.get("administrativeContact")
     named = _record(coordinator)
     if not (_text(named.get("personId")) or _text(named.get("name")) or _text(coordinator)):
@@ -167,9 +194,13 @@ def _outcomes(
     for position, clo in enumerate(clos, start=1):
         if not _text(clo.get("clo")):
             _add(missing, "learningOutcomes", f"Write CLO {position}.")
-        elif programme_has_plos and not _ids(clo.get("ploIds")):
+            continue
+        if programme_has_plos and not _ids(clo.get("ploIds")):
             # A Foundation Year course's programme has no PLOs: nothing to align to.
             _add(missing, "learningOutcomes", f"Align CLO {position} to a programme learning outcome.")
+        # Ticked required by Christian, 10 Nov 2026.
+        if not (_ids(clo.get("skillIds")) or _text(clo.get("skills"))):
+            _add(missing, "learningOutcomes", f"Choose the SCEN graduate competencies CLO {position} develops.")
     aligned = {plo for clo in clos for plo in _ids(clo.get("ploIds"))}
     unaligned = [code for plo_id, code in expected_plos.items() if plo_id not in aligned]
     if unaligned:
@@ -208,6 +239,12 @@ def _sessions(missing: Missing, content: dict[str, Any], *, flag_earlier_notes: 
     ]
     if unplaced:
         _add(missing, "schedule", f"Give {_count(len(unplaced), 'session')} a week: {_some(unplaced)}.")
+    # Ticked required by Christian, 10 Nov 2026. The details are rich text: an emptied box
+    # still holds its tags. The session type needs no rule: a card without one shows, and
+    # prints, the default CM.
+    undetailed = [_short(_text(row.get("topic"))) or "untitled" for row in sessions if not _plain(row.get("details"))]
+    if undetailed:
+        _add(missing, "schedule", f"Describe {_count(len(undetailed), 'session')} in its details: {_some(undetailed)}.")
     if flag_earlier_notes:
         noted = [
             _short(_text(row.get("topic"))) or "untitled"

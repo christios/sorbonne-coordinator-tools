@@ -486,6 +486,10 @@ function SectionForm({
   onOpenSection?: (section: string) => void;
 }) {
   const content = draft.content as Record<string, unknown>;
+  const ranks = useQuery({
+    queryKey: ["syllabus-catalogues", "academic-ranks", "editor"],
+    queryFn: () => listCatalogueEntries("academic-ranks"),
+  });
   const people = useQuery({
     queryKey: ["syllabus-catalogues", "people", "editor"],
     // The directory now holds everyone teaching, not the handful somebody typed: ask for all of them.
@@ -859,7 +863,8 @@ function SectionForm({
         revision={draft.revision}
         onOpenHistory={onOpenHistory}
         people={people.data ?? []}
-          courseTeachers={courseTeachers}
+        ranks={ranks.data ?? []}
+        courseTeachers={courseTeachers}
       />
     );
   if (active === "description")

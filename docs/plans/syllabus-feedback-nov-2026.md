@@ -230,7 +230,7 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 
 ## Task list
 
-- [x] 0.1 Required-fields checklist for Christian — docs/plans/required-fields-checklist.md, tickable page https://claude.ai/artifact/L5Fxpvnvc5BkYwiacCEp3G (49 rows, 33 proposed required, one list for all courses); awaiting his ticks
+- [x] 0.1 Required-fields checklist for Christian — docs/plans/required-fields-checklist.md, tickable page https://claude.ai/artifact/L5Fxpvnvc5BkYwiacCEp3G (49 rows, one list for all courses); reviewed by Christian 10 Nov: 37 required, he added academic rank, CLO competencies, session details and session type
 - [x] 0.2 Production syllabi copy for rehearsal — `./dev.sh rehearse <backup folder>` (10 Nov: production had 2 syllabi; both converted, re-run found nothing)
 - [x] 0.3 ADR-003 draft — docs/decisions/ADR-003, Proposed until the Release D go-ahead
 - [x] A1 AI catalogue form shows the wording
@@ -262,7 +262,7 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 - [ ] Checkpoint D (rehearsal 1), then the go-ahead for Release D
 - [ ] E1–E4 Conversion: rehearsal 2, production dry run, backup and go-ahead, run and smoke check
 - [ ] E5 Remove the route (next release)
-- [ ] F1 Required markers and completeness panel (OQ4) — panel built ("N to fill in before review"); markers and final rules wait for the ticked list
+- [ ] F1 Required markers and completeness panel (OQ4) — panel built ("N to fill in before review") and rules final (his ticks applied); red * markers on each required field not added yet
 - [x] F2 Submission gate — server refuses an incomplete syllabus; withdraw, save and export never blocked
 - [ ] Checkpoint F, then the go-ahead for Release F
 
@@ -278,3 +278,4 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 | Release D is large | B1's accessor and the C work land first, so D swaps a source instead of rebuilding features. |
 | Other sessions in the repo | An isolated worktree and databases (`./dev.sh`), and commits only on this branch. |
 | Deadline | Releases A–C are small and independent. The Spring 2027 drafting date (not yet given) decides whether F ships before or after D/E. |
+- [x] Academic ranks list in Manage catalogues; rank is a drop-down in People and in a syllabus's typed instructor (Christian's note on the checklist, 10 Nov)

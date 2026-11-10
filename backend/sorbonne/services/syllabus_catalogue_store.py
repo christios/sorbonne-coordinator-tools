@@ -28,6 +28,8 @@ CATALOGUE_CATEGORIES = frozenset(
         "teaching-presets",
         "assessment-types",
         "bibliography-types",
+        # The ranks a person's "Academic rank / status" is chosen from (Christian, 10 Nov 2026).
+        "academic-ranks",
     }
 )
 

@@ -121,7 +121,7 @@ def test_sessions_are_listed_once_per_kind_of_gap_naming_the_first_few_by_their_
     content = complete_scen_content()
     long_topic = "Chapter 3: Imaging\n- Recap\n- Combination of two lenses and a great deal more besides"
     content["schedule"][:1] = [
-        {"id": f"s{number}", "topic": topic, "date": ""}
+        {"id": f"s{number}", "topic": topic, "date": "", "details": "<p>Read the chapter.</p>"}
         for number, topic in enumerate(["Rays", long_topic, "", "Mirrors", "Prisms"], start=1)
     ]
 
@@ -156,6 +156,31 @@ def test_every_plo_the_curriculum_mapping_expects_must_be_aligned_in_teacher_mod
     assert messages(missing_for_submission(SCEN, complete_scen_content(), expected_plos=expected)) == [
         "Align a course learning outcome to PLO 3: the curriculum mapping expects it."
     ]
+
+
+def test_what_christian_ticked_required_on_10_november() -> None:
+    content = complete_scen_content()
+    del content["contacts"]["instructor"]["Academic rank / status"]
+    content["learningOutcomes"]["clos"][0]["skillIds"] = []
+    content["schedule"][0]["details"] = "<p><br></p>"
+
+    assert messages(missing_for_submission(SCEN, content)) == [
+        "Give the course instructor's academic rank / status.",
+        "Choose the SCEN graduate competencies CLO 1 develops.",
+        'Describe 1 session in its details: "Reflection".',
+    ]
+
+
+def test_a_directory_instructor_without_a_rank_is_for_an_administrator_to_fix() -> None:
+    content = complete_scen_content()
+    content["contacts"]["instructor"] = {"personId": "person-1", "Name": "A Professor", "Email": "p@sorbonne.ae"}
+
+    assert messages(missing_for_submission(SCEN, content)) == [
+        "Ask an administrator to add the course instructor's academic rank in People."
+    ]
+
+    content["contacts"]["instructor"]["Academic rank / status"] = "Professor"
+    assert missing_for_submission(SCEN, content) == []
 
 
 def test_a_course_whose_programme_has_no_plos_is_not_asked_to_align_its_clos() -> None:

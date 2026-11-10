@@ -1,10 +1,10 @@
-# Required fields checklist (proposed, 10 Nov 2026)
+# Required fields checklist (confirmed by Christian, 10 Nov 2026)
 
 What a syllabus must say before it can be submitted for review. Every course, Foundation Year
 included, uses the SCEN syllabus template since 10 Nov 2026, so there is one list. "Required" rows are what
 `backend/sorbonne/services/syllabus_completeness.py` checks; "optional" rows are never checked.
-Saving and exporting a draft are never blocked. Christian ticks the online copy of this list;
-his choices are applied here and in the rules.
+Saving and exporting a draft are never blocked. Christian reviewed the online copy on 10 Nov 2026
+and made four more fields required: academic rank, CLO competencies, session details and session type.
 
 ## All courses
 
@@ -26,7 +26,7 @@ his choices are applied here and in the rules.
 
 - [x] Instructor's name (typed, or chosen from People) (first instructor): Students need to know who teaches the course.
 - [x] Instructor's email (first instructor): Students need a way to reach the instructor.
-- [ ] Academic rank / status: Comes from People when the instructor is chosen there.
+- [x] Academic rank / status (first instructor): Comes from People when the instructor is chosen there. Christian: it should be a drop-down from the catalogue.
 - [ ] Affiliations
 - [ ] Office hours and location: Could be required; many teachers set them only once the timetable is out.
 - [ ] More instructors
@@ -43,7 +43,7 @@ his choices are applied here and in the rules.
 - [x] At least one CLO, each one written (Teacher mode)
 - [x] Each CLO aligned to at least one PLO (Teacher mode, when the programme has PLOs): Only the PLOs the curriculum mapping expects of the course are offered. The Foundation Year programme has none, so its courses are not asked.
 - [x] Every PLO the curriculum mapping expects is aligned at least once (Teacher mode, when the mapping lists the course): Your rule from this round.
-- [ ] SCEN graduate competencies of each CLO (Teacher mode)
+- [x] SCEN graduate competencies of each CLO (Teacher mode)
 - [x] The Head of Department has written the course's CLOs (Head of Department mode): The teacher cannot submit until the course has its CLOs in the curriculum mapping.
 
 ### 5. Course schedule: sessions
@@ -51,8 +51,8 @@ his choices are applied here and in the rules.
 - [x] At least one session
 - [x] Topic of each session
 - [x] Week of each session: The week is what orders the schedule and places graded activities.
-- [ ] Session type (CM, TD, TP): Always set: new sessions start as CM.
-- [ ] Session details
+- [x] Session type (CM, TD, TP): Always set: new sessions start as CM.
+- [x] Session details
 - [ ] Pre-class learning activities (name to be decided)
 - [x] Earlier notes moved into graded activities or cleared (converted syllabi): Text from the old Assessments and Deadline columns, kept for the teacher to deal with.
 

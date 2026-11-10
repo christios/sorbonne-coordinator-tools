@@ -59,6 +59,14 @@ def test_creates_lists_and_retires_a_person_without_removing_it_from_history() -
     assert store.get("people", person["id"])["isRetired"] is True
 
 
+def test_the_department_lists_the_academic_ranks_a_person_is_given() -> None:
+    """Christian, 10 Nov 2026: a rank is chosen from a list kept in the catalogue."""
+    store = make_store()
+    rank = store.create("academic-ranks", label=f"Associate Professor {uuid4()}", payload={})
+
+    assert any(item["id"] == rank["id"] for item in store.list("academic-ranks"))
+
+
 def test_rejects_stale_catalogue_updates() -> None:
     store = make_store()
     programme = store.create("programmes", label=f"Programme {uuid4()}", payload={})

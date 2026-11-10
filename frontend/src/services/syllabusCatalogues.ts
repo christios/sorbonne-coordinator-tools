@@ -9,7 +9,8 @@ export type CatalogueCategory =
   | "curriculum-mapping"
   | "teaching-presets"
   | "assessment-types"
-  | "bibliography-types";
+  | "bibliography-types"
+  | "academic-ranks";
 
 export type CatalogueEntry = {
   id: string;
@@ -90,4 +91,14 @@ export type PeopleImportResult = { added: string[]; updated: string[]; unchanged
 /** Copy everyone Students and Timetables lists as teaching into the People directory. */
 export function importPeopleFromPortal(): Promise<PeopleImportResult> {
   return request<PeopleImportResult>("/syllabus-catalogues/people/import-from-portal", { method: "POST" });
+}
+
+/**
+ * What a rank drop-down offers: the department's current ranks, in their order, plus the
+ * value already stored when it is no longer one of them, so choosing never loses it.
+ */
+export function rankOptions(ranks: CatalogueEntry[], current: string): Array<{ value: string; label: string }> {
+  const options = ranks.filter((rank) => !rank.isRetired).map((rank) => ({ value: rank.label, label: rank.label }));
+  const kept = current.trim();
+  return kept && !options.some((option) => option.value === kept) ? [...options, { value: kept, label: `${kept} (not in the list)` }] : options;
 }

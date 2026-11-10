@@ -62,4 +62,24 @@ describe("AcademicContactsEditor", () => {
 
     expect(screen.getByLabelText("Academic coordinator name")).toHaveProperty("value", "Christian Khairallah");
   });
+  it("has the instructor's rank chosen from the department's list once it has one", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const ranks: CatalogueEntry[] = ["Professor", "Lecturer"].map((label) => ({
+      id: label, category: "academic-ranks", parentId: null, label, payload: {}, sortOrder: 0, isRetired: false, retiredAt: null, revision: 1, createdAt: "", updatedAt: "",
+    }));
+    const onChange = vi.fn();
+    render(<QueryClientProvider client={queryClient}><AcademicContactsEditor
+      value={{ instructor: { Name: "A Professor" } }}
+      ranks={ranks}
+      onChange={onChange}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Instructor 1 academic rank" }));
+    fireEvent.click(screen.getByRole("option", { name: "Lecturer" }));
+
+    expect(onChange.mock.calls[onChange.mock.calls.length - 1][0].instructors[0]["Academic rank / status"]).toBe("Lecturer");
+  });
 });

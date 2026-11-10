@@ -11,14 +11,17 @@ _SCEN: dict[str, Any] = {
         "contactHours": {"Lectures": "30", "Tutorials": "15"},
     },
     "contacts": {
-        "instructor": {"Name": "A Professor", "Email": "professor@sorbonne.ae"},
+        "instructor": {"Name": "A Professor", "Academic rank / status": "Lecturer", "Email": "professor@sorbonne.ae"},
         "administrativeContact": {"name": "A Coordinator", "contactDetails": "coordinator@sorbonne.ae"},
     },
     "description": {"overview": "Light as rays."},
     "delivery": {"mode": "Blended Learning Delivery", "faceToFacePercent": "80", "onlinePercent": "20"},
-    "learningOutcomes": {"plos": [], "clos": [{"id": "clo-1", "clo": "Trace rays.", "ploIds": ["plo-1"]}]},
+    "learningOutcomes": {
+        "plos": [],
+        "clos": [{"id": "clo-1", "clo": "Trace rays.", "ploIds": ["plo-1"], "skillIds": ["competency-1"]}],
+    },
     "schedule": [
-        {"id": "session-1", "week": "1", "topic": "Reflection"},
+        {"id": "session-1", "week": "1", "topic": "Reflection", "details": "<p>Plane mirrors.</p>"},
         {
             "id": "essay",
             "kind": "graded",
@@ -61,7 +64,7 @@ _FYS: dict[str, Any] = {
     "teachingMethodologies": {"methods": {"Lectures": {"selected": True, "hours": "30"}}},
     "assessment": {},
     "schedule": [
-        {"id": "session-1", "week": "1", "topic": "Forces"},
+        {"id": "session-1", "week": "1", "topic": "Forces", "details": "<p>Newton's laws.</p>"},
         {
             "id": "quiz",
             "kind": "graded",
