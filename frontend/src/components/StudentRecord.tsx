@@ -168,11 +168,20 @@ export function StudentRecord({
    * the Students table, which reads them straight from the server, showed it. It also
    * left the registration check below judging them against half their groups.
    */
+  /*
+   * And the semester's own, when the page that opened the record is on one: their cohort is
+   * that semester's, and a student who moved from L1 to L2 for Semester 2 was read against
+   * L2's Semester 1 sets, which they were never in.
+   */
   const catalogue = useQuery({
-    queryKey: ["catalogue", cohortId, ""],
-    queryFn: () => fetchCatalogue(cohortId, undefined),
+    queryKey: ["catalogue", cohortId, semester],
+    queryFn: () => fetchCatalogue(cohortId, semester || undefined),
     enabled: open && Boolean(cohortId),
   });
+  // Their registrations of that semester's portal term, for the same reason; every term's
+  // when the record is not about one semester, or its semester is linked to no term.
+  const semesterTerm = (semester && links.data?.[semester]) || "";
+  const theirRegistrations = (registrations.data ?? []).filter((entry) => !semesterTerm || entry.termCode === semesterTerm);
   const assignments = useQuery({
     queryKey: ["assignments", cohortId],
     queryFn: () => fetchAssignments(cohortId),
@@ -241,7 +250,7 @@ export function StudentRecord({
   // Their groups, set by set, and the CRNs each comes to — see services/personTimetable.
   const placements = placementsOf(catalogue.data?.scopes ?? [], held, onSubRow);
   const client = useQueryClient();
-  const registered = new Set((registrations.data ?? []).filter((r) => r.status === "in_portal").map((r) => r.crn));
+  const registered = new Set(theirRegistrations.filter((r) => r.status === "in_portal").map((r) => r.crn));
   /*
    * Which of their group's courses this student does not take.
    *
@@ -422,7 +431,7 @@ export function StudentRecord({
    * used to have to be assembled by eye from a list of groups on one side of the page and
    * a list of courses on the other, with the warnings folded in among the courses.
    */
-  const lines = reconcile(placements, registrations.data ?? []);
+  const lines = reconcile(placements, theirRegistrations);
   // What the portal has them in that no group of theirs gives them.
   const notOurs = lines.filter((line) => !line.ours && line.portal);
   /*
@@ -445,7 +454,7 @@ export function StudentRecord({
    * Who teaches a CRN, as the portal has it: from their own registration in it, else from
    * the register's list of CRNs — a section they are not registered in still has a teacher.
    */
-  const portalTeacherOf = new Map((registrations.data ?? []).map((entry) => [entry.crn, entry.teacherName ?? ""]));
+  const portalTeacherOf = new Map(theirRegistrations.map((entry) => [entry.crn, entry.teacherName ?? ""]));
   const portalTeacher = (crn: string) => portalTeacherOf.get(crn) || inRegister(crn)?.teacherName || "";
   /*
    * An elective's approval sits on its own row, not in a second list under the table: the
@@ -587,7 +596,7 @@ export function StudentRecord({
     placements,
     excused,
     links: links.data ?? {},
-    registrations: registrations.data ?? [],
+    registrations: theirRegistrations,
   });
 
   return (
@@ -1080,7 +1089,7 @@ export function StudentRecord({
               </ul>
             ) : null}
             {approve.error ? <p className="mt-2 text-xs text-[#a6292f]">{(approve.error as Error).message}</p> : null}
-            {!mismatches.length && cohortId && check.data && (registrations.data ?? []).length ? (
+            {!mismatches.length && cohortId && check.data && theirRegistrations.length ? (
               seenByTheCheck ? (
                 <p className="mt-3 inline-flex items-center gap-1.5 text-sm text-[#2f6b3d]">
                   <Check size={14} aria-hidden="true" /> Registrations agree with the groups.
