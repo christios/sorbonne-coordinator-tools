@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
@@ -45,8 +46,8 @@ OWN = ("weekday", "startsAt", "endsAt", "room", "teacherName")
 # What a class takes from Groups & CRNs each time the plan is opened: the plain fields, and
 # the ones kept as JSON.
 _FOLLOWED = (
-    "crn", "course_code", "title", "component", "group_label", "teacher_name", "hours", "hours_said", "duration",
-    "comments", "position",
+    "crn", "course_code", "title", "component", "group_label", "teacher_name", "teacher_id", "hours", "hours_said",
+    "duration", "comments", "position",
 )
 _JSON = ("programmes", "cells", "places")
 _TIME = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
@@ -114,6 +115,28 @@ def _now() -> str:
 
 def _words(value: object) -> str:
     return " ".join(str(value or "").split())
+
+
+def _loose(name: object) -> str:
+    """A name as people spell it either way: "Safaa El Sayed" and "Safaa Elsayed" are one."""
+    bare = unicodedata.normalize("NFKD", str(name or "")).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]", "", bare.lower())
+
+
+def _record_of(named: str, chosen: str, teachers: dict[str, str]) -> str:
+    """The Active teachers record of the teacher a section names, or "".
+
+    A section can hold both a name, as the registrar's list spells it, and a record chosen
+    from Active teachers; the plan shows the name. Wishes follow the record, so the record is
+    kept only when it is the person named, and otherwise found by that name, when exactly
+    one Active teacher goes by it.
+    """
+    if not named:
+        return chosen if chosen in teachers else ""
+    if chosen in teachers and _loose(teachers[chosen]) == _loose(named):
+        return chosen
+    found = [teacher_id for teacher_id, name in teachers.items() if name and _loose(name) == _loose(named)]
+    return found[0] if len(found) == 1 else ""
 
 
 def _short(value: object, label: str) -> str:
@@ -218,6 +241,8 @@ def _section(row: Any, names: dict[str, str]) -> dict[str, Any]:
         "programmes": json.loads(row["programmes"] or "[]"),
         "groupLabel": row["group_label"],
         "teacherName": row["teacher_name"],
+        # Their Active teachers record, when the class names one: what their wishes are filed by.
+        "teacherId": row["teacher_id"],
         "hours": row["hours"],
         "hoursSaid": row["hours_said"],
         "duration": row["duration"],
@@ -338,7 +363,12 @@ def _class_of(  # noqa: PLR0913 - the set, group, course, sub-row and cell a cla
     """One class: a group (or one sub-row of it) taught a course, by one part of its section."""
     asked = cell if cell is not None else course
     hours_said = str((cell or {}).get("hours") or course["hours"] or "").strip()
-    teacher = _words((cell or {}).get("teacher")) or teachers.get((cell or {}).get("teacher_id") or "", "")
+    named = _words((cell or {}).get("teacher"))
+    chosen = (cell or {}).get("teacher_id") or ""
+    teacher = named or teachers.get(chosen, "")
+    # Who teaches it as a record, not a name: the person the section names, else the course's
+    # when the section names nobody.
+    teacher_id = _record_of(named, chosen, teachers) if named or chosen in teachers else (course["teacher_id"] or "")
     duration = str((cell or {}).get("duration") or course["duration"] or "").strip()
     major_id = major["id"] if major else ""
     label = f"{scope['code']} {group['label']}".strip()
@@ -349,6 +379,7 @@ def _class_of(  # noqa: PLR0913 - the set, group, course, sub-row and cell a cla
         "component": _words(course["component"]) or scope["code"],
         "group_label": f"{label} {major['program']}" if major else label,
         "teacher_name": teacher or teachers.get(course["teacher_id"] or "", ""),
+        "teacher_id": teacher_id if teacher_id in teachers else "",
         "hours": _number(hours_said),
         "hours_said": hours_said,
         "duration": duration,
@@ -423,6 +454,68 @@ def classes_of(term: dict[str, Any], series: list[dict[str, Any]], sections: dic
                 classes.append(entry)
     classes.sort(key=lambda entry: (entry["meetsOn"], entry["startsAt"], entry["sectionId"]))
     return classes, skipped
+
+
+MOST_PERIODS = 20
+
+
+SHORTEST_RULE, LONGEST_RULE = 15, 12 * 60
+
+
+def _period(entry: dict[str, Any]) -> dict[str, Any]:
+    """A stretch of the semester binding everybody: Ramadan, 18 Feb to 19 Mar.
+
+    The weekdays it covers default to every day. It carries any of four rules, each optional
+    but at least one, checked only for the classes dated inside it:
+
+        endsBy      the day ends by then: no class ends after it ("15:00")
+        longest     no class is longer, in minutes (90)
+        blockFrom   no classes between the two ("12:15"-"12:45", the prayer);
+        blockTo     a period from before the rules were four has only this one
+        dailyMax    no teacher teaches more in a day, in minutes (240)
+    """
+    label = _short(entry.get("label"), "period's name")
+    if not label:
+        raise InvalidPlan("A period has a name, such as Ramadan.")
+    start, end = _iso_day(entry.get("from"), "A period's first day"), _iso_day(entry.get("to"), "A period's last day")
+    if end < start:
+        raise InvalidPlan(f"{label} ends on or after the day it starts.")
+    days = sorted({int(day) for day in entry.get("days") or [1, 2, 3, 4, 5, 6, 7]})
+    if any(day < MONDAY or day > SUNDAY for day in days):
+        raise InvalidPlan("A period's days are 1 (Monday) to 7 (Sunday).")
+
+    ends_by = str(entry.get("endsBy") or "").strip()
+    if ends_by and not _TIME.match(ends_by):
+        raise InvalidPlan(f"{label}: say when the day ends, such as 15:00.")
+    block_from, block_to = str(entry.get("blockFrom") or "").strip(), str(entry.get("blockTo") or "").strip()
+    blocked = block_from or block_to
+    if blocked and (not _TIME.match(block_from) or not _TIME.match(block_to) or block_from >= block_to):
+        raise InvalidPlan(f"{label}: say the hours with no classes, from 12:15 to 12:45.")
+
+    def minutes(name: str, words: str) -> int | None:
+        value = entry.get(name)
+        if value in (None, "", 0):
+            return None
+        number = int(value)
+        if not SHORTEST_RULE <= number <= LONGEST_RULE:
+            raise InvalidPlan(f"{label}: {words} is between 15 minutes and 12 hours.")
+        return number
+
+    longest = minutes("longest", "the longest class")
+    daily_max = minutes("dailyMax", "a teacher's most hours in a day")
+    if not (ends_by or block_from or longest or daily_max):
+        raise InvalidPlan(f"{label}: choose at least one rule, such as classes ending by 15:00.")
+    return {
+        "label": label,
+        "from": start.isoformat(),
+        "to": end.isoformat(),
+        "days": days,
+        "endsBy": ends_by,
+        "longest": longest,
+        "blockFrom": block_from,
+        "blockTo": block_to,
+        "dailyMax": daily_max,
+    }
 
 
 class PlanStore:
@@ -547,6 +640,8 @@ class PlanStore:
             "weeks": row["weeks"],
             "without": json.loads(row["without"] or "[]"),
             "holidays": json.loads(row["holidays"] or "[]"),
+            # Stretches binding everybody, beside the holidays: Ramadan, when classes end early.
+            "periods": json.loads(row["periods"] or "[]"),
             "updatedAt": row["updated_at"],
             "updatedBy": row["updated_by"],
         }
@@ -594,8 +689,13 @@ class PlanStore:
         for entry in fields.get("holidays") or []:
             day = _iso_day(entry.get("date"), "A holiday").isoformat()
             holidays[day] = _short(entry.get("label"), "holiday's name")
+        given_periods = fields.get("periods")
+        periods = None if given_periods is None else [_period(entry) for entry in given_periods[:MOST_PERIODS]]
         with self.engine.begin() as connection:
-            self._term(connection, term_code)
+            term = self._term(connection, term_code)
+            if periods is None:
+                # Settings saved by a page that says nothing of periods keep the ones there are.
+                periods = term["periods"]
             longest = connection.execute(
                 text("SELECT weeks FROM plan_series WHERE term_code = :term"), {"term": term_code}
             ).scalars()
@@ -607,7 +707,8 @@ class PlanStore:
                 )
             connection.execute(
                 text("""UPDATE plan_terms SET name = :name, week_one = :week_one, weeks = :weeks,
-                            without = :without, holidays = :holidays, updated_at = :at, updated_by = :by
+                            without = :without, holidays = :holidays, periods = :periods, updated_at = :at,
+                            updated_by = :by
                         WHERE term_code = :term"""),
                 {
                     "term": term_code,
@@ -616,6 +717,7 @@ class PlanStore:
                     "weeks": weeks,
                     "without": json.dumps(without),
                     "holidays": json.dumps([{"date": day, "label": label} for day, label in sorted(holidays.items())]),
+                    "periods": json.dumps(periods),
                     "at": _now(),
                     "by": actor,
                 },
@@ -704,11 +806,11 @@ class PlanStore:
             if row is None:
                 connection.execute(
                     text("""INSERT INTO plan_sections (id, term_code, crn, course_code, title, component, programmes,
-                                group_label, teacher_name, hours, hours_said, duration, comments, position, cells,
-                                places, updated_at)
+                                group_label, teacher_name, teacher_id, hours, hours_said, duration, comments, position,
+                                cells, places, updated_at)
                             VALUES (:id, :term, :crn, :course_code, :title, :component, :programmes, :group_label,
-                                :teacher_name, :hours, :hours_said, :duration, :comments, :position, :cells, :places,
-                                :at)"""),
+                                :teacher_name, :teacher_id, :hours, :hours_said, :duration, :comments, :position,
+                                :cells, :places, :at)"""),
                     {**values, "id": str(uuid.uuid4())},
                 )
                 continue
@@ -721,7 +823,8 @@ class PlanStore:
                 connection.execute(
                     text("""UPDATE plan_sections SET crn = :crn, course_code = :course_code, title = :title,
                                 component = :component, programmes = :programmes, group_label = :group_label,
-                                teacher_name = :teacher_name, hours = :hours, hours_said = :hours_said,
+                                teacher_name = :teacher_name, teacher_id = :teacher_id, hours = :hours,
+                                hours_said = :hours_said,
                                 duration = :duration, comments = :comments, position = :position, cells = :cells,
                                 places = :places, gone_at = '', updated_at = :at
                             WHERE id = :id"""),

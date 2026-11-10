@@ -18,6 +18,7 @@ from sorbonne.api.programme_codes import router as programme_codes_router
 from sorbonne.api.exemption_reasons import router as exemption_reasons_router
 from sorbonne.api.rooms import router as rooms_router
 from sorbonne.api.semester_plans import router as semester_plans_router
+from sorbonne.api.teacher_wishes import router as teacher_wishes_router
 from sorbonne.api.term_weeks import router as term_weeks_router
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.portal import router as portal_router
@@ -35,6 +36,8 @@ from sorbonne.api.teacher_documents import router as teacher_documents_router
 from sorbonne.api.timetables import router as timetables_router
 from sorbonne.api.users import router as users_router
 from sorbonne.api.workflow import router as workflow_router
+from sorbonne.api.connector import router as connector_router
+from sorbonne.api.mcp import router as mcp_router
 from sorbonne.config import config
 from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
@@ -93,10 +96,14 @@ app.include_router(programme_codes_router, prefix="/api/v1")
 app.include_router(exemption_reasons_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(semester_plans_router, prefix="/api/v1")
+app.include_router(teacher_wishes_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
 app.include_router(department_roles_router, prefix="/api/v1")
 app.include_router(pay_rates_router, prefix="/api/v1")
 app.include_router(requests_app_router, prefix="/api/v1")
+# Claude's custom connector, at the addresses OAuth and MCP expect rather than under /api.
+app.include_router(connector_router)
+app.include_router(mcp_router)
 
 # Developer conveniences, mounted ONLY when the database is on this machine — so in
 # production they are a 404 rather than a guarded 403. A guard inside a mounted route is

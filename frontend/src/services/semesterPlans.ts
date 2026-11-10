@@ -26,6 +26,30 @@ export type PlanSummary = {
 
 export type Holiday = { date: string; label: string };
 
+/**
+ * A stretch of the semester binding everybody, beside the holidays: Ramadan, 8 Feb to 9 Mar.
+ * Its days are the weekdays it covers, 1 being Monday. It carries any of four rules, each
+ * optional, checked only for the classes dated inside it:
+ *
+ *   endsBy               the day ends by then: no class ends after it ("15:00")
+ *   longest              no class longer, in minutes (90)
+ *   blockFrom, blockTo   no classes between them ("12:15"–"12:45", the prayer); "" when off
+ *   dailyMax             no teacher teaches more in a day, in minutes (240)
+ *
+ * A period from before there were four has only the hours with no classes.
+ */
+export type Period = {
+  label: string;
+  from: string;
+  to: string;
+  days: number[];
+  endsBy?: string;
+  longest?: number | null;
+  blockFrom: string;
+  blockTo: string;
+  dailyMax?: number | null;
+};
+
 /** Where a class sits on Groups & CRNs: a group of a set of a cohort. */
 export type Place = {
   cohortId: string;
@@ -71,6 +95,11 @@ export type PlanSection = {
   /** "G1", "GA"; empty where the whole programme attends. */
   groupLabel: string;
   teacherName: string;
+  /**
+   * Their Active teachers record, when the section chose one: what their timetable wishes are
+   * filed by. Empty for a name typed on the row and never chosen.
+   */
+  teacherId?: string;
   /** The hours asked for, where the request gives a number. */
   hours: number | null;
   /** The hours as the request wrote them: "60CM". */
@@ -130,6 +159,8 @@ export type Plan = {
   /** The Mondays of the weeks without classes. */
   without: string[];
   holidays: Holiday[];
+  /** Absent from a server older than the periods. */
+  periods?: Period[];
   updatedAt: string;
   updatedBy: string;
   sections: PlanSection[];
@@ -139,7 +170,7 @@ export type Plan = {
   skipped: (PlanClass & { holiday: string })[];
 };
 
-export type PlanSettings = Pick<Plan, "name" | "weekOne" | "weeks" | "without" | "holidays">;
+export type PlanSettings = Pick<Plan, "name" | "weekOne" | "weeks" | "without" | "holidays" | "periods">;
 
 export type Scope = "one" | "following" | "all";
 

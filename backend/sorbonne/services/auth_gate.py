@@ -21,6 +21,7 @@ from starlette.responses import JSONResponse
 
 from sorbonne.config import config
 from sorbonne.services.api_tokens import ApiTokenStore
+from sorbonne.services.connector_auth import ACCESS_PREFIX, MCP_PATH, ConnectorStore, resource_metadata_url
 from sorbonne.services.staff_auth import SESSION_COOKIE, is_configured, read_session, user_for_request
 
 @lru_cache(maxsize=1)
@@ -35,12 +36,23 @@ def token_user(token: str):
     return _tokens().user_for(token)
 
 
-# Everything a signed-out browser is allowed to reach.
-#: All a read-only token may ask. OPTIONS never reaches the check: the gate lets it by.
+@lru_cache(maxsize=1)
+def _connectors() -> ConnectorStore:
+    return ConnectorStore(config.database_url)
+
+
+def connector_user(token: str):
+    """Who a Claude connector's key speaks for, if anyone. Always read-only. A seam too."""
+    return _connectors().user_for(token)
+
+
+#: All a read-only token may ask. OPTIONS never reaches the check: the gate lets it by. The
+#: connector is the one POST it may make: every tool there only reads, through this gate.
 READ_METHODS = frozenset({"GET", "HEAD"})
 
+# Everything a signed-out browser is allowed to reach.
 PUBLIC_PATHS = frozenset({"/healthcheck", "/api/v1/auth/config", "/api/v1/auth/session"})
-PROTECTED_PREFIXES = ("/api/", "/handbook")
+PROTECTED_PREFIXES = ("/api/", "/handbook", MCP_PATH)
 
 #: Where the Part-Time Timesheets app posts an approved sheet, and the header it proves
 #: itself with. Not public: it is authenticated, by a shared key rather than by a person.
@@ -147,14 +159,20 @@ class StaffAuthGate(BaseHTTPMiddleware):
         # How the caller proved who they are, because a token may not mint another.
         kind = "cookie"
         if user is None and authorization and authorization.lower().startswith("bearer "):
-            user = token_user(authorization.split(" ", 1)[1].strip())
+            bearer = authorization.split(" ", 1)[1].strip()
+            user = connector_user(bearer) if bearer.startswith(ACCESS_PREFIX) else token_user(bearer)
             kind = "token"
         if user is None:
             user, kind = user_for_request(cookie, authorization), "google"
+        connector = request.url.path.rstrip("/") == MCP_PATH
         if user is None:
-            return JSONResponse(status_code=401, content={"detail": "Sign in to continue."})
+            # The pointer is how Claude finds where to sign in, and how it knows to renew.
+            challenge = {"WWW-Authenticate": f'Bearer resource_metadata="{resource_metadata_url(request)}"'}
+            return JSONResponse(
+                status_code=401, content={"detail": "Sign in to continue."}, headers=challenge if connector else None
+            )
         # Here rather than on each route, so a route added tomorrow is covered too.
-        if kind == "token" and user.read_only and request.method not in READ_METHODS:
+        if kind == "token" and user.read_only and request.method not in READ_METHODS and not connector:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "This token is read-only: it can read, and change nothing."},

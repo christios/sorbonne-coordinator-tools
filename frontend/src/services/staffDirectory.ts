@@ -115,6 +115,34 @@ export async function createApiToken(input: {
   return (await response.json()) as { token: string; record: ApiToken };
 }
 
+/**
+ * Claude, connected to read as somebody. Claude holds and renews the key itself, so the
+ * list is all there is to see of it: whose, since when, last used, and the way to end it.
+ */
+export type ClaudeConnection = {
+  id: string;
+  clientName: string;
+  email: string;
+  createdAt: string;
+  lastUsedAt: string;
+  revokedAt: string;
+  /** When it lapses unless Claude renews it first, which it does while it is in use. */
+  expiresAt: string;
+};
+
+export async function fetchClaudeConnections(): Promise<{ connectorUrl: string; connections: ClaudeConnection[] }> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/connections`);
+  if (!response.ok) throw new Error(await readError(response));
+  return (await response.json()) as { connectorUrl: string; connections: ClaudeConnection[] };
+}
+
+export async function disconnectClaude(connectionId: string): Promise<void> {
+  const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/connections/${encodeURIComponent(connectionId)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) throw new Error(await readError(response));
+}
+
 export async function revokeApiToken(tokenId: string): Promise<void> {
   const response = await apiFetch(`${API_BASE_URL}/api/v1/auth/tokens/${encodeURIComponent(tokenId)}`, {
     method: "DELETE",
