@@ -207,7 +207,7 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 - **E4 Run and smoke check (S).**
   - Run the conversion. Check it twice: the counts must match the dry run, and a re-run must change nothing.
   - Open, preview and export three syllabi from different folders.
-- **E5 Remove the route (S).** This goes in the next release, on its own go-ahead. Add an AGENTS.md dated note.
+- **E5 Remove the route (S).** This goes in the next release, on its own go-ahead, together with `scripts/rehearse_syllabus_conversion.py` and `./dev.sh rehearse`. Add an AGENTS.md dated note.
 
 ## Release F: required fields (after OQ4)
 
@@ -228,40 +228,40 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 
 ## Task list
 
-- [ ] 0.1 Required-fields checklist for Christian
-- [ ] 0.2 Production syllabi copy for rehearsal
-- [ ] 0.3 ADR-003 draft
-- [ ] A1 AI catalogue form shows the wording
-- [ ] A2 Preview journal articles
-- [ ] A3 Remove Document control
-- [ ] A4 Merge 3+4 and renumber (both templates)
-- [ ] A5 Programme required
-- [ ] A6 Coordinator drop-down
+- [x] 0.1 Required-fields checklist for Christian — docs/plans/required-fields-checklist.md, tickable page https://claude.ai/artifact/L5Fxpvnvc5BkYwiacCEp3G (83 rows, 54 proposed required); awaiting his ticks
+- [x] 0.2 Production syllabi copy for rehearsal — `./dev.sh rehearse <backup folder>` (10 Nov: production had 2 syllabi; both converted, re-run found nothing)
+- [x] 0.3 ADR-003 draft — docs/decisions/ADR-003, Proposed until the Release D go-ahead
+- [x] A1 AI catalogue form shows the wording
+- [x] A2 Preview journal articles
+- [x] A3 Remove Document control
+- [x] A4 Merge 3+4 and renumber (both templates)
+- [x] A5 Programme required
+- [x] A6 Coordinator drop-down
 - [ ] A7 Pre-class rename (OQ2)
-- [ ] A8 Faithful rubrics
+- [x] A8 Faithful rubrics
 - [ ] Checkpoint A, then the go-ahead for Release A
-- [ ] B1 `gradedActivities` accessor
-- [ ] B2 AI catalogue: the template's five
-- [ ] B3 Per-activity AI, tab sections, 9.3
+- [x] B1 `gradedActivities` accessor
+- [x] B2 AI catalogue: the template's five
+- [x] B3 Per-activity AI, tab sections, 9.3
 - [ ] B4 Aude's options (OQ1)
 - [ ] Checkpoint B, then the go-ahead for Release B
-- [ ] C1 PLOs restricted to the matrix
-- [ ] C2 Outcome-mode switch
-- [ ] C3 CLOs in curriculum mapping
-- [ ] C4 HoD mode in the syllabus
-- [ ] C5 Foundation Year CLOs under the switch
+- [x] C1 PLOs restricted to the matrix
+- [x] C2 Outcome-mode switch
+- [x] C3 CLOs in curriculum mapping
+- [x] C4 HoD mode in the syllabus
+- [x] C5 Foundation Year CLOs under the switch
 - [ ] Checkpoint C, then the go-ahead for Release C
-- [ ] D1 v2 content and readers
-- [ ] D2 SCEN schedule cards
-- [ ] D3 Course assessment tab on v2
-- [ ] D4 Word §6 placement and preview
-- [ ] D5 Foundation Year on cards
-- [ ] D6 Temporary conversion route
+- [x] D1 v2 content and readers
+- [x] D2 SCEN schedule cards
+- [x] D3 Course assessment tab on v2
+- [x] D4 Word §6 placement and preview
+- [x] D5 Foundation Year on cards
+- [x] D6 Temporary conversion route
 - [ ] Checkpoint D (rehearsal 1), then the go-ahead for Release D
 - [ ] E1–E4 Conversion: rehearsal 2, production dry run, backup and go-ahead, run and smoke check
 - [ ] E5 Remove the route (next release)
-- [ ] F1 Required markers and completeness panel (OQ4)
-- [ ] F2 Submission gate
+- [ ] F1 Required markers and completeness panel (OQ4) — panel built ("N to fill in before review"); markers and final rules wait for the ticked list
+- [x] F2 Submission gate — server refuses an incomplete syllabus; withdraw, save and export never blocked
 - [ ] Checkpoint F, then the go-ahead for Release F
 
 ## Risks
