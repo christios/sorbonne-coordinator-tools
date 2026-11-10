@@ -15,7 +15,7 @@ from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_PROGRA
 from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
 from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
-from sorbonne.services.syllabus_content import convert_to_schedule_cards
+from sorbonne.services.syllabus_content import convert_fys_to_schedule_cards, convert_to_schedule_cards
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
     FolderNameConflict,
@@ -372,7 +372,7 @@ def convert_syllabi_to_schedule_cards(
     store: SyllabusStore = Depends(get_store),
     user: StaffUser = Depends(current_user),
 ) -> dict[str, Any]:
-    """TEMPORARY (November 2026): move every bachelor syllabus's graded activities into its schedule.
+    """TEMPORARY (November 2026): move every syllabus's graded activities into its schedule.
 
     Christian approved converting every existing syllabus at once. This is how that one run
     is made: a platform administrator calls it with `dryRun` first and reads the report,
@@ -386,10 +386,10 @@ def convert_syllabi_to_schedule_cards(
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a platform administrator can run this.")
     results: list[dict[str, Any]] = []
     for summary in store.list():
-        if summary["templateId"] != DEFAULT_TEMPLATE_ID:
-            continue
         syllabus = store.get(summary["id"])
-        converted, report = convert_to_schedule_cards(syllabus["content"])
+        foundation_year = summary["templateId"] == FYS_TEMPLATE_ID
+        convert = convert_fys_to_schedule_cards if foundation_year else convert_to_schedule_cards
+        converted, report = convert(syllabus["content"])
         if converted is syllabus["content"]:
             continue
         outcome = "would convert" if body.dryRun else "converted"

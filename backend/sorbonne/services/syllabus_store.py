@@ -12,7 +12,11 @@ from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.exc import IntegrityError
 
-from sorbonne.services.syllabus_content import SCHEDULE_HOLDS_GRADED_ACTIVITIES, convert_to_schedule_cards
+from sorbonne.services.syllabus_content import (
+    SCHEDULE_HOLDS_GRADED_ACTIVITIES,
+    convert_fys_to_schedule_cards,
+    convert_to_schedule_cards,
+)
 from sorbonne.services.engine import engine_for
 from sorbonne.services.syllabus_templates import (
     DEFAULT_TEMPLATE_ID,
@@ -431,9 +435,10 @@ def _initial_content(template_id: str, source: dict[str, Any] | None) -> dict[st
         # A copy of a syllabus written before November 2026 starts in the new shape, its
         # graded activities in the schedule; the source itself is left as it is.
         copied = deepcopy(source["content"])
-        return convert_to_schedule_cards(copied)[0] if template_id == DEFAULT_TEMPLATE_ID else copied
+        convert = convert_to_schedule_cards if template_id == DEFAULT_TEMPLATE_ID else convert_fys_to_schedule_cards
+        return convert(copied)[0]
     if source["templateId"] == DEFAULT_TEMPLATE_ID and template_id == FYS_TEMPLATE_ID:
-        return convert_scen_to_fys(source["content"])
+        return convert_fys_to_schedule_cards(convert_scen_to_fys(source["content"]))[0]
     raise TemplateComparisonNotMapped
 
 

@@ -530,3 +530,39 @@ def test_a_session_written_before_formatting_existed_still_reads_as_written(tmp_
     cell = Document(str(output)).tables[7].rows[1].cells[2]
 
     assert [p.text for p in cell.paragraphs if p.text] == ["Ray tracing", "Week 1", "Two-hour session"]
+
+
+def test_a_foundation_year_syllabus_fills_its_tables_from_its_graded_cards(tmp_path) -> None:
+    """November 2026: Foundation Year graded activities are schedule cards too; each names its row."""
+    syllabus = {
+        "courseTitle": "Pre-Calculus",
+        "templateId": "fys-2025-26",
+        "content": {
+            "schemaVersion": 2,
+            "schedule": [
+                {"id": "s1", "week": "1", "sessionType": "CM", "topic": "Functions"},
+                {"id": "q1", "kind": "graded", "week": "1", "date": "2026-09-10", "name": "Quiz 1",
+                 "component": "continuous:In class assignment", "description": "Quiz on functions",
+                 "weight": "10", "cloNumbers": ["1"]},
+                {"id": "q2", "kind": "graded", "week": "4", "name": "Quiz 2",
+                 "component": "continuous:In class assignment", "description": "Quiz on limits",
+                 "weight": "10", "cloNumbers": ["1", "2"]},
+                {"id": "f1", "kind": "graded", "week": "15", "name": "Final exam", "component": "final",
+                 "description": "Written exam", "weight": "50", "cloNumbers": ["1", "2", "3"]},
+            ],
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    continuous = document.tables[9].rows[1].cells
+    assert [cell.text for cell in continuous] == [
+        "In class assignment", "Quiz on functions\nQuiz on limits", "CLO 1, CLO 2", "20%",
+    ]
+    assert [cell.text for cell in document.tables[10].rows[1].cells] == ["Written exam", "CLO 1, CLO 2, CLO 3", "50%"]
+    schedule = document.tables[12]
+    # The form's second header row stays a header.
+    assert schedule.rows[1].cells[3].text.startswith("Description")
+    assert [cell.text for cell in schedule.rows[2].cells] == ["1", "CM 1", "Functions", "Quiz 1", "10/09/2026"]

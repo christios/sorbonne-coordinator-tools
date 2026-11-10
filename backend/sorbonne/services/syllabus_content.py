@@ -211,3 +211,110 @@ def document_schedule(content: dict[str, Any]) -> list[dict[str, Any]]:
         home["assessments"] = _lines(home.get("assessments"), name)
         home["deadline"] = _lines(home.get("deadline"), when)
     return sorted(printed, key=_week_order)
+
+
+# The Foundation Year form's assessment tables (November 2026: filled from graded cards).
+# A card's `component` names its row: "continuous:<row>", "final", or "laboratory:<row>".
+FYS_CONTINUOUS_ROWS = ("In class assignment", "In class presentation", "Report / homework assignment", "Other")
+FYS_LABORATORY_ROWS = ("Report / homework assignment", "Lab exam")
+
+
+def fys_component_rows(activities: list[dict[str, Any]]) -> dict[str, list[dict[str, str]]]:
+    """The Foundation Year assessment tables as the form prints them, from its graded cards.
+
+    Continuous and laboratory tables have one row per component the form lists; the cards of
+    one component share its row (descriptions one per line, outcomes once each, weights
+    added up). The final assessment has a row per card.
+    """
+
+    def joined(cards: list[dict[str, Any]]) -> dict[str, str]:
+        weights = [float(card["weight"]) for card in cards if _is_number(card.get("weight"))]
+        total = sum(weights)
+        clos: list[str] = []
+        for card in cards:
+            for clo in _clo_numbers(card):
+                if clo not in clos:
+                    clos.append(clo)
+        return {
+            "description": _lines(*(str(card.get("description") or card.get("name") or "") for card in cards)),
+            "clos": ", ".join(clos),
+            "weight": (f"{total:g}%" if weights else ""),
+        }
+
+    by_component: dict[str, list[dict[str, Any]]] = {}
+    for card in activities:
+        by_component.setdefault(str(card.get("component") or ""), []).append(card)
+    return {
+        "continuous": [
+            {"component": row, **joined(by_component.get(f"continuous:{row}", []))} for row in FYS_CONTINUOUS_ROWS
+        ],
+        "final": [joined([card]) for card in by_component.get("final", [])],
+        "laboratory": [
+            {"component": row, **joined(by_component.get(f"laboratory:{row}", []))} for row in FYS_LABORATORY_ROWS
+        ],
+    }
+
+
+def _is_number(value: Any) -> bool:
+    try:
+        float(str(value).strip())
+    except ValueError:
+        return False
+    return bool(str(value).strip())
+
+
+def _clo_numbers(card: dict[str, Any]) -> list[str]:
+    """A Foundation Year card names its outcomes by number ("1", "3"), as its form does."""
+    numbers = card.get("cloNumbers")
+    return [f"CLO {number}" for number in numbers] if isinstance(numbers, list) else []
+
+
+def convert_fys_to_schedule_cards(content: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Give a Foundation Year syllabus the same shape: graded activities as schedule cards.
+
+    Rows its assessment tables already had (a syllabus copied from a bachelor one) become
+    cards, matched to the form's component rows. Text typed into the old free-text boxes
+    cannot be split into cards; it is kept, untouched, and shown to the teacher to move
+    across — the free-text schedule under `earlierSchedule`, the rest where it was.
+    """
+    report: dict[str, Any] = {"gradedActivities": 0, "withoutWeek": [], "inheritedAiPolicy": 0, "earlierNotes": 0}
+    if schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES:
+        return content, report
+    converted = deepcopy(content)
+    schedule = converted.get("schedule")
+    if isinstance(schedule, dict):
+        converted["earlierSchedule"] = schedule
+        report["earlierNotes"] += 1 if _has_text(schedule.get("scheduleText")) else 0
+        schedule = []
+    sessions = [row for row in (schedule or []) if isinstance(row, dict)]
+    assessment = converted.get("assessment") if isinstance(converted.get("assessment"), dict) else {}
+    report["earlierNotes"] += sum(
+        1 for key in ("continuousText", "finalText", "laboratoryText") if _has_text(assessment.get(key))
+    )
+    cards = []
+    for table, rows in (("continuous", FYS_CONTINUOUS_ROWS), ("final", ()), ("laboratory", FYS_LABORATORY_ROWS)):
+        for item in assessment.get(table) or []:
+            if not isinstance(item, dict):
+                continue
+            named = str(item.get("component") or "").strip().casefold()
+            fallback = "Other" if table == "continuous" else rows[0] if rows else ""
+            row = next((row for row in rows if row.casefold() == named), fallback)
+            component = table if table == "final" else f"{table}:{row}"
+            cards.append(
+                {
+                    "id": str(item.get("id") or f"{table}-{len(cards) + 1}"),
+                    "kind": "graded",
+                    "week": "",
+                    "date": "",
+                    "component": component,
+                    "name": str(item.get("description") or "").strip(),
+                    "description": str(item.get("description") or "").strip(),
+                    "weight": str(item.get("weight") or "").strip().rstrip("%"),
+                    "earlierClos": str(item.get("clos") or "").strip(),
+                }
+            )
+            report["withoutWeek"].append(cards[-1]["name"] or component)
+    report["gradedActivities"] = len(cards)
+    converted["schedule"] = [*sessions, *cards]
+    converted["schemaVersion"] = SCHEDULE_HOLDS_GRADED_ACTIVITIES
+    return converted, report

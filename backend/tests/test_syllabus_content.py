@@ -125,3 +125,29 @@ def test_a_graded_activity_prints_with_the_last_session_of_its_week_or_on_a_row_
     assert rows[1]["deadline"] == "10/09/2026"
     assert (rows[2]["topic"], rows[2]["assessments"], rows[2]["deadline"]) == ("Midterm", "Midterm", "17/09/2026")
     assert rows[4]["topic"] == "Final"
+
+
+from sorbonne.services.syllabus_content import convert_fys_to_schedule_cards  # noqa: E402
+
+
+def test_a_foundation_year_syllabus_gets_cards_from_the_rows_it_had_and_keeps_its_free_text() -> None:
+    before = {
+        "schedule": {"scheduleText": "Week 1: functions"},
+        "assessment": {
+            "continuous": [{"id": "c1", "component": "In class presentation", "description": "Talk", "weight": "15"}],
+            "final": [{"id": "f1", "description": "Exam", "weight": "50%"}],
+            "laboratory": [],
+            "finalText": "Two hours, closed book.",
+        },
+    }
+
+    after, report = convert_fys_to_schedule_cards(before)
+
+    assert after["schemaVersion"] == 2
+    assert after["earlierSchedule"] == {"scheduleText": "Week 1: functions"}
+    assert [(card["component"], card["description"], card["weight"]) for card in after["schedule"]] == [
+        ("continuous:In class presentation", "Talk", "15"),
+        ("final", "Exam", "50"),
+    ]
+    assert after["assessment"]["finalText"] == "Two hours, closed book."
+    assert report["gradedActivities"] == 2 and report["earlierNotes"] == 2

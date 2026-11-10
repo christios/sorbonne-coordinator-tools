@@ -15,6 +15,7 @@ from docx.table import _Cell, Table
 
 from sorbonne.services import rich_text
 from sorbonne.services.syllabus_content import (
+    SCHEDULE_HOLDS_GRADED_ACTIVITIES,
     AI_OPTIONS,
     OTHER_AI_OPTION,
     activity_ai_policy,
@@ -23,7 +24,9 @@ from sorbonne.services.syllabus_content import (
     ai_options_in_use,
     ai_policy_summary,
     document_schedule,
+    fys_component_rows,
     graded_activities,
+    schema_version,
     template_permitted_use,
 )
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID, get_template
@@ -118,19 +121,42 @@ def _fill_fys(document: Document, syllabus: dict[str, Any], content: dict[str, A
         entry = _record(methods.get(key))
         _set_cell_text(document.tables[8].cell(3, index), "X" if entry.get("selected") else "")
         _set_cell_text(document.tables[8].cell(4, index), _text(entry.get("hours")))
-    _fill_fys_assessments(document, _record(content.get("assessment")))
-    for index, row in enumerate(document.tables[12].rows[1:]):
-        source = _rows(content.get("schedule"))[index] if index < len(_rows(content.get("schedule"))) else {}
-        for cell, key in zip(
-            row.cells, ("week", "session", "topic", "assessmentDescription", "assessmentDate"), strict=True
-        ):
-            _set_cell_text(cell, _text(source.get(key)))
+    converted = schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES
+    _fill_fys_assessments(
+        document,
+        fys_component_rows(graded_activities(content)) if converted else _record(content.get("assessment")),
+    )
+    # Week, session, topic, the assessment's description and its date. A converted syllabus
+    # prints its schedule as the bachelors do (document_schedule); an older one, its rows.
+    if converted:
+        lines = [
+            [_text(row.get("week")), _text(row.get("session")), _text(row.get("topic")),
+             _text(row.get("assessments")), _text(row.get("deadline"))]
+            for row in document_schedule(content)
+        ]
+    else:
+        lines = [
+            [_text(row.get(key)) for key in ("week", "session", "topic", "assessmentDescription", "assessmentDate")]
+            for row in _rows(content.get("schedule"))
+        ]
+    table = document.tables[12]
+    # The form's two header rows come first; it used to write the first session over the second.
+    _ensure_data_rows(table, header_rows=2, required_rows=max(14, len(lines)))
+    for index, row in enumerate(table.rows[2:]):
+        for cell, value in zip(row.cells, lines[index] if index < len(lines) else [""] * 5, strict=True):
+            _set_cell_text(cell, value)
 
 
 def _fill_fys_assessments(document: Document, assessment: dict[str, Any]) -> None:
     final_assessment_table_index = 10
     for table_index, key in ((9, "continuous"), (final_assessment_table_index, "final"), (11, "laboratory")):
-        items = _rows(assessment.get(key))
+        # The form's own words for its catch-all row.
+        items = [
+            {**item, "component": "Other (specify):"} if item.get("component") == "Other" else item
+            for item in _rows(assessment.get(key))
+        ]
+        if table_index == final_assessment_table_index:
+            _ensure_data_rows(document.tables[table_index], header_rows=1, required_rows=len(items))
         for index, row in enumerate(document.tables[table_index].rows[1:]):
             source = items[index] if index < len(items) else {}
             values = [

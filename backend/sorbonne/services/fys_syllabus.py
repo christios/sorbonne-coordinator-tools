@@ -54,6 +54,8 @@ def default_fys_content() -> dict[str, Any]:
             "laboratoryText": "",
         },
         "schedule": [],
+        # Graded activities live in the teaching schedule (November 2026 review).
+        "schemaVersion": 2,
     }
 
 
