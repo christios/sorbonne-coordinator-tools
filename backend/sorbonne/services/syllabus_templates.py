@@ -44,6 +44,8 @@ class SyllabusTemplate:
 
 DEFAULT_TEMPLATE_ID = "scen-en-v1"
 FYS_TEMPLATE_ID = "fys-2025-26"
+# The catalogue programme a Foundation Year course is mapped under; it has no PLOs.
+FYS_PROGRAMME_TITLE = "Foundation Year in Sciences"
 _ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "assets"
 
 _TEMPLATES = {

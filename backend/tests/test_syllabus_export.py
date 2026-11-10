@@ -221,7 +221,10 @@ def test_the_document_has_one_rubric_table_per_rubric_and_no_blank_ones(tmp_path
 def _ai_rows(document) -> dict[str, str]:
     """Section 9.3's table, option by option: what the label cell and the description say."""
     table = document.tables[10]
-    return {row.cells[0].text.replace("☒", "").strip(): row.cells[0].text + "|" + row.cells[-1].text for row in table.rows[1:]}
+    return {
+        row.cells[0].text.replace("☒", "").strip(): row.cells[0].text + "|" + row.cells[-1].text
+        for row in table.rows[1:]
+    }
 
 
 def test_each_graded_activity_applies_its_own_ai_option_and_section_9_3_ticks_every_one_in_use(tmp_path) -> None:
@@ -269,7 +272,9 @@ def test_each_graded_activity_applies_its_own_ai_option_and_section_9_3_ticks_ev
 def test_an_activity_without_its_own_ai_option_applies_the_course_policy_an_older_syllabus_set(tmp_path) -> None:
     syllabus = {
         "courseTitle": "Optics",
-        "content": {"assessment": {"aiPolicy": "AI Permitted as a Support Tool", "items": [{"id": "a1", "name": "Quiz"}]}},
+        "content": {
+            "assessment": {"aiPolicy": "AI Permitted as a Support Tool", "items": [{"id": "a1", "name": "Quiz"}]}
+        },
     }
     output = tmp_path / "syllabus.docx"
 
@@ -288,6 +293,21 @@ def test_nothing_is_ticked_when_no_activity_has_an_ai_option(tmp_path) -> None:
     build_syllabus_docx(syllabus, output)
 
     assert not [label for label, cells in _ai_rows(Document(output)).items() if cells.startswith("☒")]
+
+
+def test_a_foundation_year_syllabus_prints_the_outcomes_its_editor_writes_one_per_line(tmp_path) -> None:
+    """The Foundation Year editor keeps outcomes as lines of text; the CLO table used to come out empty."""
+    syllabus = {
+        "courseTitle": "Pre-Calculus",
+        "templateId": "fys-2025-26",
+        "content": {"learningOutcomes": {"clos": [], "closText": "Solve equations.\n\nSketch functions."}},
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[4]
+    assert [row.cells[1].text for row in table.rows[1:3]] == ["Solve equations.", "Sketch functions."]
 
 
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:

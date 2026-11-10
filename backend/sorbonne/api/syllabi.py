@@ -11,7 +11,7 @@ from sorbonne.services.account_access import AccountAccess, account_access, admi
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
 from sorbonne.services.syllabus_visibility import VISIBILITIES, can_edit, can_view
-from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID
+from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_PROGRAMME_TITLE, FYS_TEMPLATE_ID
 from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
 from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
@@ -387,7 +387,10 @@ def _resolved_content(
     competencies are worked out from whichever outcomes the syllabus ends up with.
     """
     content = catalogue_store.resolve_outcomes(
-        syllabus["content"], course_code=str(syllabus.get("courseCode") or ""), mode=outcome_mode
+        syllabus["content"],
+        course_code=str(syllabus.get("courseCode") or ""),
+        mode=outcome_mode,
+        programme_title=FYS_PROGRAMME_TITLE if syllabus.get("templateId") == FYS_TEMPLATE_ID else "",
     )
     for resolve in (
         catalogue_store.resolve_people,

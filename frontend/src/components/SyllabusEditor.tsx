@@ -486,10 +486,19 @@ function SectionForm({
     queryFn: () => listCatalogueEntries("programmes"),
   });
   const identification = sectionFrom(content.identification);
-  const catalogueProgrammeId = stringify(
-    identification.cataloguePloProgrammeId ||
-      identification.catalogueProgrammeId,
-  );
+  // A Foundation Year syllabus names no programme: its courses are mapped under the
+  // catalogue programme of that name (it has no PLOs).
+  const foundationYearProgrammeId =
+    draft.templateId === "fys-2025-26"
+      ? (programmes.data ?? []).find(
+          (programme) => programme.label.trim().toLocaleLowerCase() === FOUNDATION_YEAR_PROGRAMME.toLocaleLowerCase(),
+        )?.id ?? ""
+      : "";
+  const catalogueProgrammeId =
+    stringify(
+      identification.cataloguePloProgrammeId ||
+        identification.catalogueProgrammeId,
+    ) || foundationYearProgrammeId;
   const cataloguePlos = useQuery({
     queryKey: ["syllabus-catalogues", "plos", catalogueProgrammeId],
     queryFn: () =>
@@ -673,6 +682,8 @@ function SectionForm({
           )}
         </Section>
       );
+    if (active === "learningOutcomes" && outcomeMode === "hod")
+      return <HeadOfDepartmentOutcomes clos={hodClos} scenCompetencies={scenCompetencies.data ?? []} graduateCompetencies={graduateCompetencies.data ?? []} />;
     if (active === "learningOutcomes")
       return (
         <Section title="Course learning outcomes">
@@ -1845,6 +1856,9 @@ function record(value: unknown): Record<string, unknown> {
     ? (value as Record<string, unknown>)
     : {};
 }
+/** The catalogue programme Foundation Year courses are mapped under (FYS_PROGRAMME_TITLE on the server). */
+const FOUNDATION_YEAR_PROGRAMME = "Foundation Year in Sciences";
+
 function sectionFrom(value: unknown): Record<string, unknown> {
   return record(value);
 }

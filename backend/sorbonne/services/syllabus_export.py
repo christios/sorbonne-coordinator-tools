@@ -86,9 +86,14 @@ def _fill_fys(document: Document, syllabus: dict[str, Any], content: dict[str, A
     _set_cell_text(document.tables[1].cell(4, 1), "\n".join(_text(item.get("email")) for item in staff))
     _fill_delivery(document.tables[2], _record(content.get("delivery")))
     _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
-    clos = _rows(_record(content.get("learningOutcomes")).get("clos"))
+    outcomes = _record(content.get("learningOutcomes"))
+    # The Foundation Year editor writes one outcome per line; outcomes that came as rows (a
+    # converted bachelor syllabus, or the Head of Department's) are read as rows.
+    clos = [_text(row.get("outcome")) or _text(row.get("clo")) for row in _rows(outcomes.get("clos"))] or [
+        line.strip() for line in _text(outcomes.get("closText")).splitlines() if line.strip()
+    ]
     for index, row in enumerate(document.tables[4].rows[1:]):
-        _set_cell_text(row.cells[1], _text(clos[index].get("outcome")) if index < len(clos) else "")
+        _set_cell_text(row.cells[1], clos[index] if index < len(clos) else "")
     materials = _record(content.get("requiredMaterials"))
     _set_cell_text(document.tables[5].cell(0, 0), _text(materials.get("textbooks")))
     _fill_bibliography(document.tables[6], materials)

@@ -286,6 +286,7 @@ def test_in_head_of_department_mode_a_syllabus_shows_its_courses_outcomes_from_t
         {
             "id": "hod-clo-1",
             "clo": "Trace rays.",
+            "outcome": "Trace rays.",
             "plo": "PLO 1: Model.",
             "ploIds": plo["id"],
             "skills": "C1: Reason.",
@@ -309,3 +310,23 @@ def test_in_head_of_department_mode_a_course_the_mapping_has_no_outcomes_for_sho
     )
 
     assert resolved["learningOutcomes"]["clos"] == []
+
+
+def test_a_foundation_year_syllabus_finds_its_outcomes_under_the_programme_of_that_name() -> None:
+    store = make_store()
+    programme = store.create("programmes", label="Foundation Year in Sciences", payload={})
+    store.create(
+        "curriculum-mapping",
+        label="MATH 001",
+        parent_id=programme["id"],
+        payload={"ploIds": [], "clos": [{"id": "fy-1", "clo": "Solve linear equations.", "ploIds": []}]},
+    )
+
+    resolved = store.resolve_outcomes(
+        {"learningOutcomes": {"closText": "The teacher's own"}},
+        course_code="MATH-001",
+        mode="hod",
+        programme_title="Foundation Year in Sciences",
+    )
+
+    assert [clo["outcome"] for clo in resolved["learningOutcomes"]["clos"]] == ["Solve linear equations."]

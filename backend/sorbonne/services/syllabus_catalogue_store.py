@@ -293,7 +293,9 @@ class SyllabusCatalogueStore:
         resolved["learningOutcomes"] = outcomes
         return resolved
 
-    def resolve_outcomes(self, content: dict[str, Any], *, course_code: str, mode: str) -> dict[str, Any]:
+    def resolve_outcomes(
+        self, content: dict[str, Any], *, course_code: str, mode: str, programme_title: str = ""
+    ) -> dict[str, Any]:
         """When the Head of Department writes the outcomes, the course's come from the catalogue.
 
         November 2026 review: in that mode a course's CLOs, their aligned PLOs and their SCEN
@@ -309,6 +311,18 @@ class SyllabusCatalogueStore:
         programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
             identification.get("catalogueProgrammeId")
         )
+        if not programme_id and programme_title:
+            # A Foundation Year syllabus names no programme: its courses are mapped under the
+            # catalogue programme of that name, which has no PLOs.
+            wanted_title = " ".join(programme_title.split()).casefold()
+            programme_id = next(
+                (
+                    item["id"]
+                    for item in self.list("programmes")
+                    if " ".join(_text(item.get("label")).split()).casefold() == wanted_title
+                ),
+                "",
+            )
         wanted = _course_key(course_code)
         entry = next(
             (
@@ -334,6 +348,8 @@ class SyllabusCatalogueStore:
                 {
                     "id": _text(clo.get("id")),
                     "clo": _text(clo.get("clo")),
+                    # The Foundation Year form reads a course outcome as "outcome".
+                    "outcome": _text(clo.get("clo")),
                     "plo": "\n".join(_coded(plos[plo_id]) for plo_id in plo_ids),
                     "ploIds": "\n".join(plo_ids),
                     "skills": "\n".join(_coded(competencies[skill_id]) for skill_id in skill_ids),
