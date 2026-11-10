@@ -6,6 +6,7 @@ import { ChecksPanel } from "@/components/ChecksPanel";
 import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
 import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
 import { HeadOfDepartmentPanel } from "@/components/HeadOfDepartmentPanel";
+import { OutcomeModePanel } from "@/components/OutcomeModePanel";
 import { PayRatesPanel } from "@/components/PayRatesPanel";
 import { ThisBrowser } from "@/components/ThisBrowser";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -189,6 +190,13 @@ function AppDepartment() {
           opens in. Lectures (CM), tutorials and practicals (TD/TP), and other work each go on a sheet of their own.
         </PageHeading>
         <PayRatesPanel canChange={Boolean(user?.isAdmin)} />
+      </div>
+      <div className="mt-8">
+        <PageHeading title="Who writes course learning outcomes" about="What this switch changes">
+          Every syllabus follows it. Teachers can write their own course learning outcomes, or the Head of
+          Department writes each course&apos;s once in the catalogue for every syllabus to show.
+        </PageHeading>
+        <OutcomeModePanel canChange={Boolean(user?.isAdmin || user?.apps?.syllabus === "admin")} />
       </div>
     </section>
   );
