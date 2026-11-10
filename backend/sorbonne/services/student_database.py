@@ -2337,8 +2337,11 @@ class StudentDatabase:
     def _shared_set_free(
         self, connection: Connection, *, code: str, term_id: str, open_to_all: bool, scope_id: str = ""
     ) -> None:
-        """Refuse a set open to every cohort whose code another cohort's open set has that semester."""
-        if not open_to_all:
+        """Refuse a set open to every cohort whose code another cohort's open set has that semester.
+
+        A set with no semester is in none, so it has nothing to clash with.
+        """
+        if not open_to_all or not _text(term_id):
             return
         other = connection.execute(
             text("""SELECT c.name FROM cohort_scopes s JOIN student_cohorts c ON c.id = s.cohort_id
