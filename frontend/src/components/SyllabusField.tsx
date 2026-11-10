@@ -14,6 +14,8 @@ type Props = {
   source?: string;
   /** How much room the value needs. A ceiling, not a fixed width. */
   size?: FieldSize;
+  /** Marks the field as one a syllabus cannot be submitted without. */
+  required?: boolean;
   className?: string;
 };
 
@@ -23,10 +25,10 @@ type Props = {
  * Deliberately not a `<label>`: a dropdown is a button, and wrapping it would mean one click
  * on the label both opened the menu and opened the field's information.
  */
-export function SyllabusField({ label, children, fieldKey, hint, source, size = "full", className = "" }: Props) {
+export function SyllabusField({ label, children, fieldKey, hint, source, size = "full", required = false, className = "" }: Props) {
   return (
     <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}>
-      <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={fieldKey} hint={hint} source={source}>
+      <FormFieldLabel className="sm:whitespace-nowrap" fieldKey={fieldKey} hint={hint} source={source} required={required}>
         {label}
       </FormFieldLabel>
       <div className="w-full">{children}</div>

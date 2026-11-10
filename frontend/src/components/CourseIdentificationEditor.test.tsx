@@ -92,4 +92,46 @@ describe("Course details taken from the other app", () => {
     expect(screen.getByRole("combobox", { name: "Academic year" }).textContent).toContain("2024-2025");
     expect(screen.getByRole("combobox", { name: "Degree level and semester" }).textContent).toContain("L1-S1");
   });
+
+  it("asks for the programme as a required choice, with no local-outcomes way out", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{}}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      programmes={[{ value: "programme-physics", label: "Bachelor in Physics" }]}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    // The label's row reads "Programme" followed by the required star, with no "(optional)".
+    const field = screen.getByRole("combobox", { name: "Programme" }).closest("div.grid");
+    expect(field?.textContent).toMatch(/^Programme\s*\*/);
+    expect(field?.textContent).not.toContain("optional");
+    expect(screen.queryByText("Use local programme learning outcomes")).toBeNull();
+    // With a programme catalogue and nothing typed before, there is no free-text box.
+    expect(screen.queryByLabelText("Programme title")).toBeNull();
+  });
+
+  it("keeps an older syllabus's typed programme title readable", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{ programmeTitle: "Bachelor in Physics" }}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      programmes={[{ value: "programme-physics", label: "Bachelor in Physics" }]}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    expect(screen.getByLabelText("Programme title")).toHaveProperty("value", "Bachelor in Physics");
+  });
 });
