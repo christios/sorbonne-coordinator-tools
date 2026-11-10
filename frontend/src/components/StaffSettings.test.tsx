@@ -210,3 +210,41 @@ describe("naming an owner", () => {
     expect(screen.queryByRole("button", { name: `Remove ${ADMIN.email}` })).toBeNull();
   });
 });
+
+describe("tokens for scripts", () => {
+  const TOKEN: directory.ApiToken = {
+    id: "t1",
+    name: "Dashboard",
+    prefix: "scen_abcdefg",
+    email: ADMIN.email,
+    createdAt: "2026-11-10T09:00:00+00:00",
+    expiresAt: "2099-01-01T00:00:00+00:00",
+    lastUsedAt: "",
+    revokedAt: "",
+    readOnly: true,
+  };
+
+  it("makes a read-only token unless asked for one that can change things, and says which each is", async () => {
+    window.history.replaceState(null, "", "#/settings/tokens");
+    vi.spyOn(directory, "fetchApiTokens").mockResolvedValue([TOKEN, { ...TOKEN, id: "t2", name: "Data load", readOnly: false }]);
+    const create = vi.spyOn(directory, "createApiToken").mockResolvedValue({ token: "scen_secret", record: TOKEN });
+    renderSettings();
+
+    // The list says what each can do.
+    const dashboard = (await screen.findByText("Dashboard")).closest("tr") as HTMLElement;
+    expect(dashboard.textContent).toContain("Read only");
+    expect((screen.getByText("Data load").closest("tr") as HTMLElement).textContent).toContain("Read and change");
+
+    // A program that only reads should not hold the means to change anything.
+    expect((screen.getByLabelText("What the token can do") as HTMLSelectElement).value).toBe("read");
+    fireEvent.change(screen.getByLabelText("Token name"), { target: { value: "Dashboard" } });
+    fireEvent.click(screen.getByRole("button", { name: "Make a token" }));
+    await waitFor(() => expect(create).toHaveBeenCalledWith({ name: "Dashboard", days: 90, readOnly: true }));
+    expect((await screen.findByText(/anyone holding it can read what you can read/)).textContent).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Token name"), { target: { value: "Data load" } });
+    fireEvent.change(screen.getByLabelText("What the token can do"), { target: { value: "change" } });
+    fireEvent.click(screen.getByRole("button", { name: "Make a token" }));
+    await waitFor(() => expect(create).toHaveBeenLastCalledWith({ name: "Data load", days: 90, readOnly: false }));
+  });
+});

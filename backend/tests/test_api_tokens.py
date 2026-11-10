@@ -158,3 +158,45 @@ def test_a_token_cannot_mint_another(
         assert bare.delete(f"{TOKENS}/{made['record']['id']}", headers=headers).status_code == status.HTTP_403_FORBIDDEN
         # It can still do the work it was made for.
         assert bare.get("/api/v1/student-database/cohorts", headers=headers).status_code == status.HTTP_200_OK
+
+
+def test_a_read_only_token_reads_and_changes_nothing(
+    client: TestClient, store: ApiTokenStore, signed_in, staff_directory: dict[str, Access]
+):
+    staff_directory["coordinator@sorbonne.ae"] = Access(is_admin=False)
+    signed_in("coordinator@sorbonne.ae")
+    made = client.post(TOKENS, json={"name": "Dashboard", "readOnly": True})
+
+    assert made.status_code == status.HTTP_201_CREATED, made.text
+    assert made.json()["record"]["readOnly"] is True
+    assert [row["readOnly"] for row in client.get(TOKENS).json()["tokens"]] == [True]
+
+    with TestClient(app) as bare:
+        headers = {"Authorization": f"Bearer {made.json()['token']}"}
+        # Everything its maker may read...
+        assert bare.get("/api/v1/student-database/cohorts", headers=headers).status_code == status.HTTP_200_OK
+        # ...and nothing that changes a thing, whichever route it is: the gate answers first.
+        for method, path in [
+            ("POST", "/api/v1/student-database/cohorts"),
+            ("PUT", "/api/v1/student-database/cohorts/any"),
+            ("PATCH", "/api/v1/rooms/any"),
+            ("DELETE", "/api/v1/rooms/any"),
+        ]:
+            refused = bare.request(method, path, json={}, headers=headers)
+            assert refused.status_code == status.HTTP_403_FORBIDDEN, (method, path, refused.text)
+            assert "read-only" in refused.json()["detail"]
+
+
+def test_a_token_reads_and_writes_unless_it_is_made_read_only(
+    client: TestClient, signed_in, staff_directory: dict[str, Access]
+):
+    staff_directory["coordinator@sorbonne.ae"] = Access(is_admin=False)
+    signed_in("coordinator@sorbonne.ae")
+    made = client.post(TOKENS, json={"name": "Data load"}).json()
+
+    assert made["record"]["readOnly"] is False
+    with TestClient(app) as bare:
+        headers = {"Authorization": f"Bearer {made['token']}"}
+        # Past the gate: whatever the route makes of an empty body, it is not the gate refusing.
+        reached = bare.post("/api/v1/student-database/cohorts", json={}, headers=headers)
+        assert reached.status_code != status.HTTP_403_FORBIDDEN, reached.text
