@@ -688,6 +688,8 @@ export function ActiveTeachers({
             exportTeacherTimetables(
               client,
               (active.data ?? []).filter((row) => selected.has(row.id)).map((row) => ({ id: row.id, fullName: row.fullName })),
+              // The semester on screen's classes, not both semesters' on one week.
+              term,
             )
           }
         />

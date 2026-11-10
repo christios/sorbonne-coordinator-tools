@@ -452,8 +452,10 @@ export function placeStudents(
  * happens to hold that set. Anything asking "who is in this cohort" has to ask the records,
  * not the placements.
  */
-export async function fetchMemberIds(cohortId: string): Promise<Set<string>> {
-  const payload = await request<{ members: { studentId: string }[] }>(`${BASE}/cohorts/${cohortId}/members`);
+/** A cohort's students — in one semester when `termId` is said, else in any. */
+export async function fetchMemberIds(cohortId: string, termId = ""): Promise<Set<string>> {
+  const term = termId ? `?term=${encodeURIComponent(termId)}` : "";
+  const payload = await request<{ members: { studentId: string }[] }>(`${BASE}/cohorts/${cohortId}/members${term}`);
   return new Set(payload.members.map((member) => member.studentId));
 }
 

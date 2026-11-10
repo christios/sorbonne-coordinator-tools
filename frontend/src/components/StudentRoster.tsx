@@ -740,6 +740,8 @@ export function StudentRoster({
                 cohortId: row.cohortId,
                 cohortName: cohorts.find((candidate) => candidate.id === row.cohortId)?.name,
               })),
+            // The semester on screen's classes, not both semesters' on one week.
+            (termId && links.data?.[termId]) || "",
           )
         }
       />
