@@ -193,6 +193,13 @@ All changes are **additive**. Legacy shapes stay readable and exportable (AGENTS
   - **Submit for review** is blocked until it's complete. Export stays possible for drafts, labelled "draft — incomplete".
 
 ### G. Conversion of existing syllabi (Christian chose "convert all now")
+- [ ] **Who runs it:** Claude runs it from the terminal with Christian's API token; Christian does nothing beyond the go-ahead.
+  - It is a route rather than an Alembic data migration because:
+    - there is no direct production database access from this machine;
+    - a migration runs on boot, with no dry run against real data;
+    - a failed migration stops the new version from starting;
+    - a migration would run on every database.
+  - The route is **temporary** and is removed in the release after the production run.
 - [ ] An admin-only `POST /api/v1/syllabi/convert-v2`.
   - It has a `dryRun` flag and returns a per-syllabus report: cards created, items without a week, AI policies inferred, and leftover session texts.
   - It is idempotent: v2 syllabi are skipped.
