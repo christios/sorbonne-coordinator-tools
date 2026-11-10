@@ -9,6 +9,7 @@ policy — asks here, so the switch from one place to the other happens once.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 SCHEDULE_HOLDS_GRADED_ACTIVITIES = 2
@@ -58,30 +59,84 @@ def ai_option(label: Any) -> str:
     return next((option for option in AI_OPTIONS if option.casefold() == wanted), "")
 
 
-def activity_ai_policy(activity: dict[str, Any], assessment: dict[str, Any]) -> str:
-    """The AI option an activity applies: its own, or the one course-level policy older syllabi set."""
-    own = activity.get("aiPolicy") or activity.get("ai")
-    if isinstance(own, str) and own.strip():
-        return own.strip()
-    course = assessment.get("aiPolicy")
+def course_ai_fallback(content: dict[str, Any]) -> str:
+    """The one course-wide AI policy a syllabus written before November 2026 set.
+
+    Until such a syllabus is converted, an activity without an option of its own applies it.
+    Converting gives each activity that policy as its own, so a converted syllabus has none
+    to fall back on — the old value stays stored only so the conversion can be undone.
+    """
+    if schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES:
+        return ""
+    assessment = content.get("assessment")
+    course = assessment.get("aiPolicy") if isinstance(assessment, dict) else None
     return course.strip() if isinstance(course, str) else ""
 
 
-def ai_policy_summary(activity: dict[str, Any], assessment: dict[str, Any]) -> str:
+def activity_ai_policy(activity: dict[str, Any], fallback: str = "") -> str:
+    """The AI option an activity applies: its own, or the course-wide one an older syllabus set."""
+    own = activity.get("aiPolicy") or activity.get("ai")
+    if isinstance(own, str) and own.strip():
+        return own.strip()
+    return fallback
+
+
+def ai_policy_summary(activity: dict[str, Any], fallback: str = "") -> str:
     """What the 9.1 summary prints in the activity's "Applicable AI policy" column."""
-    policy = activity_ai_policy(activity, assessment)
+    policy = activity_ai_policy(activity, fallback)
     if ai_option(policy) == OTHER_AI_OPTION:
         written = activity.get("aiOtherText")
         return f"Other: {written.strip()}" if isinstance(written, str) and written.strip() else policy
     return policy
 
 
-def ai_options_in_use(activities: list[dict[str, Any]], assessment: dict[str, Any]) -> list[str]:
+def ai_options_in_use(activities: list[dict[str, Any]], fallback: str = "") -> list[str]:
     """The template options at least one graded activity applies, in the template's order."""
-    used = {ai_option(activity_ai_policy(activity, assessment)) for activity in activities}
+    used = {ai_option(activity_ai_policy(activity, fallback)) for activity in activities}
     return [option for option in AI_OPTIONS if option in used]
 
 
 def template_permitted_use(use: str) -> str:
     """A permitted use as the template words it."""
     return _LEGACY_PERMITTED_USES.get(" ".join(use.split()).casefold(), use)
+
+
+def _has_text(value: Any) -> bool:
+    return isinstance(value, str) and bool(value.strip())
+
+
+def convert_to_schedule_cards(content: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Move a syllabus's graded activities into its course schedule (November 2026 review).
+
+    Each item of `assessment.items` becomes a graded card in `schedule`, with the same id —
+    so its field history follows it — and every field it had. An activity that relied on
+    the course-wide AI policy gets that policy as its own. Nothing is taken away: the old
+    list, the course-wide policy and each session's old deadline and assessment notes stay
+    stored, so the change can be undone by going back to the previous code. A syllabus
+    already converted is returned as it is.
+
+    Returns the new content and what changed, for the report a dry run shows.
+    """
+    report: dict[str, Any] = {"gradedActivities": 0, "withoutWeek": [], "inheritedAiPolicy": 0, "earlierNotes": 0}
+    if schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES:
+        return content, report
+    converted = deepcopy(content)
+    fallback = course_ai_fallback(content)
+    schedule = [row for row in (converted.get("schedule") or []) if isinstance(row, dict)]
+    report["earlierNotes"] = sum(
+        1 for row in schedule if _has_text(row.get("assessments")) or _has_text(row.get("deadline"))
+    )
+    cards = []
+    for position, item in enumerate(graded_activities(content), start=1):
+        card = {**deepcopy(item), "kind": "graded"}
+        if not _has_text(card.get("aiPolicy")) and not _has_text(card.get("ai")) and fallback:
+            card["aiPolicy"] = card["ai"] = fallback
+            report["inheritedAiPolicy"] += 1
+        if not _has_text(str(card.get("week") or "")):
+            name = card.get("name") or card.get("type") or f"Activity {position}"
+            report["withoutWeek"].append(str(name).strip())
+        cards.append(card)
+    report["gradedActivities"] = len(cards)
+    converted["schedule"] = [*schedule, *cards]
+    converted["schemaVersion"] = SCHEDULE_HOLDS_GRADED_ACTIVITIES
+    return converted, report

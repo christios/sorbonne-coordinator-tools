@@ -6,6 +6,8 @@ import re
 from typing import Any
 from uuid import uuid4
 
+from sorbonne.services.syllabus_content import graded_activities
+
 INSTRUCTOR_AVAILABILITY_FIELD = (
     "Office Hours and Location Students are kindly asked to observe these office hours "
     "or to make an appointment for a different time"
@@ -99,7 +101,9 @@ def convert_scen_to_fys(content: dict[str, Any]) -> dict[str, Any]:
         {key: bibliography.get(key, []) for key in ("books", "websites", "journalArticles")}
     )
     target["schedule"] = [
-        {"id": str(uuid4()), "topic": text(row.get("topic"))} for row in rows(content.get("schedule"))
+        {"id": str(uuid4()), "topic": text(row.get("topic"))}
+        for row in rows(content.get("schedule"))
+        if row.get("kind") != "graded"
     ]
     target["assessment"]["continuous"] = [
         {
@@ -108,7 +112,7 @@ def convert_scen_to_fys(content: dict[str, Any]) -> dict[str, Any]:
             "weight": text(row.get("weight")),
             "clos": text(row.get("clos")),
         }
-        for row in rows(record(content.get("assessment")).get("items"))
+        for row in graded_activities(content)
     ]
     return target
 

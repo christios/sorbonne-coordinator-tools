@@ -392,3 +392,61 @@ def test_compares_text_with_word_level_insert_delete_and_substitute_operations()
     change = store.compare(first["id"], second["id"])["changes"][0]
 
     assert {operation["type"] for operation in change["operations"]} >= {"insert", "delete", "substitute"}
+
+
+def test_a_new_syllabus_keeps_its_graded_activities_in_the_schedule() -> None:
+    created = make_store().create(course_title="Optics", course_code="PHYS-118", academic_year="2026-2027")
+
+    assert created["content"]["schemaVersion"] == 2
+
+
+def test_a_copy_of_an_older_syllabus_moves_its_graded_activities_into_the_schedule_and_the_source_stays() -> None:
+    store = make_store()
+    first = store.create(course_title="Optics", course_code="PHYS-118", academic_year="2025-2026")
+    older = store.update(
+        first["id"],
+        expected_revision=first["revision"],
+        content={
+            "schedule": [{"id": "s1", "week": "1", "topic": "Rays"}],
+            "assessment": {"items": [{"id": "a1", "name": "Quiz", "week": "1"}]},
+        },
+    )
+
+    copy = store.create(
+        course_title="Optics", course_code="PHYS-118", academic_year="2026-2027", source_syllabus_id=older["id"]
+    )
+
+    assert copy["content"]["schemaVersion"] == 2
+    assert [card.get("kind") for card in copy["content"]["schedule"]] == [None, "graded"]
+    assert "schemaVersion" not in store.get(older["id"])["content"]
+
+
+def test_a_graded_activity_moved_into_the_schedule_keeps_the_history_it_had_on_the_assessment_list() -> None:
+    store = make_store()
+    first = store.create(course_title="Optics", course_code="PHYS-118", academic_year="2025-2026")
+    on_the_list = store.update(
+        first["id"],
+        expected_revision=first["revision"],
+        content={"schemaVersion": 1, "assessment": {"items": [{"id": "a1", "name": "Quiz"}]}},
+    )
+    renamed = store.update(
+        first["id"],
+        expected_revision=on_the_list["revision"],
+        content={"schemaVersion": 1, "assessment": {"items": [{"id": "a1", "name": "Quiz 1"}]}},
+    )
+    store.update(
+        first["id"],
+        expected_revision=renamed["revision"],
+        content={
+            "schemaVersion": 2,
+            "assessment": {"items": [{"id": "a1", "name": "Quiz 1"}]},
+            "schedule": [{"id": "a1", "kind": "graded", "name": "First quiz"}],
+        },
+    )
+
+    history = store.field_history(first["id"], "schedule[a1].name")
+
+    # Edits made moments apart read as one change; either way, the card's history now
+    # reaches back to the name the activity had on the assessment list.
+    assert history[-1]["previousValue"] == "Quiz"
+    assert history[0]["newValue"] == "First quiz"

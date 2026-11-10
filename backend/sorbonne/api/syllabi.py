@@ -337,6 +337,10 @@ def compare_syllabi(
             ".teachingPresetIds",
             ".assessmentTypeId",
             ".ploIds",
+            ".kind",
+            ".aiPolicyId",
+            ".catalogueCloIds",
+            ".schemaVersion",
         )
         comparison["changes"] = [
             change for change in comparison["changes"] if not change["path"].endswith(internal_paths)

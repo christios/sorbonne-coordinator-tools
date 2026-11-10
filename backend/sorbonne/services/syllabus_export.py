@@ -18,6 +18,7 @@ from sorbonne.services.syllabus_content import (
     AI_OPTIONS,
     OTHER_AI_OPTION,
     activity_ai_policy,
+    course_ai_fallback,
     ai_option,
     ai_options_in_use,
     ai_policy_summary,
@@ -50,6 +51,7 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
         _record(content.get("assessment")),
         graded_activities(content),
         _record(content.get("learningOutcomes")),
+        course_ai_fallback(content),
     )
     for heading in template.removed_headings:
         _remove_section(document, heading)
@@ -382,8 +384,12 @@ def _fill_teaching_approach(document: Document, approach: dict[str, Any]) -> Non
     _set_paragraph_after(document, "8.3. Feedback and Academic Progress", _text(approach.get("feedback")))
 
 
-def _fill_assessment(
-    document: Document, assessment: dict[str, Any], items: list[dict[str, Any]], learning_outcomes: dict[str, Any]
+def _fill_assessment(  # noqa: PLR0913 - the document, its three sources, and the old course-wide AI policy
+    document: Document,
+    assessment: dict[str, Any],
+    items: list[dict[str, Any]],
+    learning_outcomes: dict[str, Any],
+    ai_fallback: str = "",
 ) -> None:
     assessment_table = document.tables[9]
     _ensure_data_rows(assessment_table, header_rows=1, required_rows=max(14, len(items)))
@@ -408,12 +414,12 @@ def _fill_assessment(
             _text(source.get("name")) or _text(source.get("type")),
             _percentage(source.get("weight")),
             aligned_clos,
-            ai_policy_summary(source, assessment) if source else "",
+            ai_policy_summary(source, ai_fallback) if source else "",
         ]
         for cell, value in zip(row.cells, values, strict=True):
             _set_cell_text(cell, value)
 
-    _fill_ai_policy(document.tables[10], assessment, items)
+    _fill_ai_policy(document.tables[10], assessment, items, ai_fallback)
     _set_paragraph_after(
         document,
         "Additional Instructions regarding AI where its use is permitted or required",
@@ -430,9 +436,11 @@ def _clo_numbers_from_text(value: str) -> str:
     return ", ".join(dict.fromkeys(number.replace("  ", " ") for number in numbers))
 
 
-def _fill_ai_policy(table: Table, assessment: dict[str, Any], activities: list[dict[str, Any]]) -> None:
+def _fill_ai_policy(
+    table: Table, assessment: dict[str, Any], activities: list[dict[str, Any]], ai_fallback: str = ""
+) -> None:
     """Tick every option of the template's AI table that a graded activity applies, with its details."""
-    in_use = ai_options_in_use(activities, assessment)
+    in_use = ai_options_in_use(activities, ai_fallback)
     for row_index, option in enumerate(AI_OPTIONS, start=1):
         if option not in in_use:
             continue
@@ -463,7 +471,7 @@ def _fill_ai_policy(table: Table, assessment: dict[str, Any], activities: list[d
                 f"{_text(activity.get('name')) or _text(activity.get('type')) or 'Activity'}: "
                 f"{_text(activity.get('aiOtherText'))}"
                 for activity in activities
-                if ai_option(activity_ai_policy(activity, assessment)) == OTHER_AI_OPTION
+                if ai_option(activity_ai_policy(activity, ai_fallback)) == OTHER_AI_OPTION
                 and _text(activity.get("aiOtherText"))
             ]
             _set_cell_text(cell, "\n".join(written) or _text(assessment.get("aiCustomPolicy")))
