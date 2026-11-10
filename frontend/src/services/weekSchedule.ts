@@ -55,6 +55,12 @@ export type PlacedSession = Session & {
    * where it was dropped instead of jumping back until the question is answered.
    */
   tentative?: boolean;
+  /**
+   * A teacher's wish this class breaks, or a period binding everybody (Ramadan): red for a
+   * Must, amber for a Would like, with the words for the hover. Drawn as a flag in the box's
+   * corner, apart from the clash outline, so the two are never read as one another.
+   */
+  wish?: { level: "must" | "would"; said: string };
 };
 
 /** What the calendar prints about a CRN, and how it paints it. */

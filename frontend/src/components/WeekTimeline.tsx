@@ -1,3 +1,4 @@
+import { Flag } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ClassFacts } from "@/components/ClassFacts";
@@ -72,6 +73,8 @@ export type GridEditing = {
   /** A drag from elsewhere on the page, carrying data of this type, dropped on a day. */
   dropType?: string;
   onDrop?: (data: string, slot: GridSlot) => void;
+  /** A class picked up to move or stretch, from the press to the release: null once let go. */
+  onHold?: (session: PlacedSession | null) => void;
 };
 
 type Gesture =
@@ -145,6 +148,21 @@ type WeekTimelineProps = {
    * is handed up as a slot. Left out, the grid is the registrar's, and nothing on it moves.
    */
   editing?: GridEditing;
+  /**
+   * Stretches of a day to shade behind its classes, on a week with its days down the side:
+   * a teacher's hours they can't teach (red) or would rather (green), and a period binding
+   * everybody (amber, named) — Ramadan's hours without classes.
+   */
+  shading?: (date: string) => Shade[];
+};
+
+/** A stretch of one day shaded behind the classes, with what it is for the hover. */
+export type Shade = { from: string; to: string; tone: "cant" | "prefer" | "period"; title: string };
+
+const SHADES: Record<Shade["tone"], string> = {
+  cant: "bg-[#a6292f]/[0.12] border-x border-[#a6292f]/30",
+  prefer: "bg-[#2e7d55]/[0.12] border-x border-[#2e7d55]/30",
+  period: "bg-[#d99b1c]/[0.14] border-x border-[#d99b1c]/40",
 };
 
 /** One row of the grid: a day, or a room, and the classes on it. */
@@ -188,6 +206,7 @@ export function WeekTimeline({
   registeredOf,
   squeeze,
   editing: editingGiven,
+  shading,
 }: WeekTimelineProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
@@ -520,6 +539,11 @@ export function WeekTimeline({
     return gesture.date === date ? { start: gesture.start, end: gesture.start + length } : null;
   };
   const moving = gesture && gesture.kind !== "draw" && gesture.moved ? gesture.session : null;
+  // Said from the press, before it has moved: the plan shades where the class may go as it is picked up.
+  const held = gesture && gesture.kind !== "draw" ? gesture.session : null;
+  useEffect(() => {
+    said.current?.onHold?.(held);
+  }, [held]);
   const openUnlessDragged = (picked: PlacedSession) => {
     if (dragged.current) {
       dragged.current = false;
@@ -675,6 +699,29 @@ export function WeekTimeline({
                   ) : null}
                 </div>
               ))}
+              {/* What this day's hours are to somebody: drawn behind the classes, never in their way. */}
+              {shading && !byRoom
+                ? shading(line.key).map((shade, at) => {
+                    const from = Math.max(startMinute, minutesOf(shade.from));
+                    const to = Math.min(endMinute, minutesOf(shade.to));
+                    if (to <= from) return null;
+                    return (
+                      <div
+                        key={`shade-${at}`}
+                        title={shade.title}
+                        data-shade={shade.tone}
+                        className={`pointer-events-none absolute inset-y-0 ${SHADES[shade.tone]}`}
+                        style={{ left: leftOf(from), width: (to - from) * perMinute }}
+                      >
+                        {shade.tone === "period" && (to - from) * perMinute > 60 ? (
+                          <span className="absolute inset-x-1 top-0.5 truncate text-[10px] font-semibold text-[#8a6116]">
+                            {shade.title}
+                          </span>
+                        ) : null}
+                      </div>
+                    );
+                  })
+                : null}
               {/*
                 * And a line under each stacked class, so a row can be followed across a
                 * wide week without drifting into the one above it.
@@ -813,6 +860,7 @@ function Class({
         covered ? `covered by ${covered.coverTeacherName}` : "",
         session.change?.note ?? "",
         session.clashes ? (session.clashSaid ?? clash) : "",
+        session.wish?.said ?? "",
       ].filter(Boolean),
     ),
   ].join(" · ");
@@ -894,6 +942,20 @@ function Class({
               {part}
             </span>
           ))}
+        </span>
+      ) : null}
+      {session.wish ? (
+        // A wish broken, in the corner: apart from the clash outline, so neither reads as the other.
+        <span
+          data-flag={session.wish.level}
+          className="pointer-events-none absolute right-0.5 top-0.5 flex items-center justify-center rounded-full bg-white p-[3px] shadow-sm ring-1 ring-black/5"
+        >
+          <Flag
+            size={11}
+            aria-hidden="true"
+            className={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}
+            fill="currentColor"
+          />
         </span>
       ) : null}
       {onStretch ? (

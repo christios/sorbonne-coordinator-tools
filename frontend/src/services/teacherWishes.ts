@@ -440,9 +440,10 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       if (breach.level === "must") flag.level = "must";
       const words =
         breach.about === "period"
-          ? `${breach.wish}`
+          ? `Everybody · ${breach.wish}`
           : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}`;
-      if (!flag.said.includes(words)) flag.said.push(words);
+      // What binds first, first: a Must or a period before a wish.
+      if (!flag.said.includes(words)) flag.said[breach.level === "must" ? "unshift" : "push"](words);
       flags.set(entry, flag);
     }
   }

@@ -136,6 +136,6 @@ describe("a plan read against the teachers' wishes", () => {
     expect(check.breaches.map((breach) => [breach.about, breach.teacherName, breach.level, breach.classes])).toEqual([
       ["period", "Ramadan", "must", [late]],
     ]);
-    expect(check.flags.get(late)?.said[0]).toMatch(/^Ramadan, .*: no classes 15:00–19:00 on Mon, Tue, Wed, Thu, Fri$/);
+    expect(check.flags.get(late)?.said[0]).toMatch(/^Everybody · Ramadan, .*: no classes 15:00–19:00 on Mon, Tue, Wed, Thu, Fri$/);
   });
 });

@@ -10,6 +10,7 @@ import {
   WEEKDAY_NAMES,
   weeksSaid,
   type Holiday,
+  type Period,
   type Plan,
   type PlanSection,
   type PlanSettings,
@@ -19,7 +20,8 @@ import {
 import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portalLists";
 import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import { fetchPayCycles, setPayCycle } from "@/services/teachers";
-import { formatDayAndMonth, toIsoDate, weekStartOf } from "@/services/weekSchedule";
+import { describeLine, type WishTeacher } from "@/services/teacherWishes";
+import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
   "w-full rounded-md border border-[#d0d5dd] bg-white px-3 py-2 text-sm text-[#171717] focus:border-[#1f4e79] focus:outline-none";
@@ -123,6 +125,67 @@ function sectionOption(section: PlanSection): SelectOption {
 }
 
 /**
+ * The wishes of the teacher of a class, beside the class: Musts first, and the ones the day
+ * and hours chosen in the dialog break, marked, so a time is chosen knowing them.
+ */
+function TeacherWishesNote({
+  teacher,
+  weekday,
+  startsAt,
+  endsAt,
+}: {
+  teacher: WishTeacher;
+  weekday: number;
+  startsAt: string;
+  endsAt: string;
+}) {
+  const wishes = teacher.wishes;
+  if (!wishes) {
+    return <p className="text-xs text-[#667085]">{teacher.name} hasn&rsquo;t given their wishes for this semester.</p>;
+  }
+  const start = minutesOf(startsAt);
+  const end = minutesOf(endsAt);
+  const lines = [...wishes.lines].sort((left, right) => Number(left.level !== "must") - Number(right.level !== "must"));
+  const brokenHere = (line: (typeof lines)[number]) =>
+    (line.kind === "cant" && line.days.includes(weekday) && start < line.to * 60 && end > line.from * 60) ||
+    (line.kind === "freeDay" && line.value === weekday);
+  return (
+    <div className="grid gap-1 rounded-md border border-[#e4e8ef] bg-[#f8fafc] px-3 py-2 text-xs">
+      <span className="font-semibold text-[#344054]">
+        {teacher.name}&rsquo;s wishes{wishes.status === "draft" ? <span className="font-normal text-[#98a2b3]"> (a draft)</span> : null}
+      </span>
+      {lines.length ? (
+        <ul className="grid gap-0.5">
+          {lines.map((line) => (
+            <li key={line.key} className="flex flex-wrap items-center gap-1.5">
+              <span
+                className={`rounded px-1.5 text-[11px] font-semibold ${
+                  line.level === "must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
+                }`}
+              >
+                {line.level === "must" ? "Must" : "Would like"}
+              </span>
+              <span className="text-[#344054]">{describeLine(line)}</span>
+              {brokenHere(line) ? <span className="font-semibold text-[#a6292f]">— this time breaks it</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {wishes.away.length ? (
+        <span className="text-[#667085]">
+          Away{" "}
+          {wishes.away
+            .map((entry) => `${formatDayAndMonth(entry.from)}–${formatDayAndMonth(entry.to)}${entry.reason ? ` (${entry.reason})` : ""}`)
+            .join(", ")}
+        </span>
+      ) : null}
+      {wishes.needs ? <span className="text-[#667085]">Needs: {wishes.needs}</span> : null}
+      {wishes.note ? <span className="text-[#667085]">Note: {wishes.note}</span> : null}
+    </div>
+  );
+}
+
+/**
  * A class on the calendar: which class it is, when, where, who teaches it, and — for a new
  * one or a whole series — the weeks it repeats in.
  *
@@ -141,11 +204,14 @@ export function PlanClassDialog({
   onSave,
   onDelete,
   onClose,
+  wishTeachers,
 }: {
   open: boolean;
   plan: Plan;
   rooms: string[];
   initial: ClassDraft;
+  /** The semester's teachers and their wishes, when wishes are being collected for it. */
+  wishTeachers?: WishTeacher[];
   /** Present when an existing class was opened: its week, date and who last changed it. */
   editing?: { week: number; meetsOn: string; seriesWeeks: number; updatedBy: string; updatedAt: string };
   busy: boolean;
@@ -158,6 +224,7 @@ export function PlanClassDialog({
   useEffect(() => setDraft(initial), [initial]);
   const set = (patch: Partial<ClassDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const section = plan.sections.find((entry) => entry.id === draft.sectionId);
+  const teacherWishes = section?.teacherId ? wishTeachers?.find((row) => row.teacherId === section.teacherId) : undefined;
   // A class no longer on Groups & CRNs is not placed again; it is only shown where it already is.
   const sectionOptions = useMemo(
     () => plan.sections.filter((entry) => !entry.gone || entry.id === draft.sectionId).map(sectionOption),
@@ -261,6 +328,9 @@ export function PlanClassDialog({
             <span className="text-xs text-[#667085]">Set on Groups & CRNs, for every class of this group.</span>
           </Titled>
         </div>
+        {teacherWishes ? (
+          <TeacherWishesNote teacher={teacherWishes} weekday={draft.weekday} startsAt={draft.startsAt} endsAt={draft.endsAt} />
+        ) : null}
         <div className="grid gap-1">
           <span className="text-sm font-medium text-[#344054]">Weeks</span>
           <WeekPicker count={plan.weeks} value={draft.weeks} onChange={(weeks) => set({ weeks })} dateOf={dateOf} />
@@ -379,7 +449,10 @@ export function ScopeDialog({
   );
 }
 
-/** The semester being planned: its name, Week 1, how many teaching weeks, its breaks and holidays. */
+/** A new period: the working week, with no classes from three in the afternoon, as in Ramadan. */
+const NEW_PERIOD: Period = { label: "", from: "", to: "", days: [1, 2, 3, 4, 5], blockFrom: "15:00", blockTo: "19:00" };
+
+/** The semester being planned: its name, Week 1, how many teaching weeks, its breaks, holidays and periods. */
 export function PlanSettingsDialog({
   open,
   plan,
@@ -396,8 +469,15 @@ export function PlanSettingsDialog({
   onClose: () => void;
 }) {
   const start = useMemo<PlanSettings>(
-    () => ({ name: plan.name, weekOne: plan.weekOne, weeks: plan.weeks, without: plan.without, holidays: plan.holidays }),
-    [plan.name, plan.weekOne, plan.weeks, plan.without, plan.holidays],
+    () => ({
+      name: plan.name,
+      weekOne: plan.weekOne,
+      weeks: plan.weeks,
+      without: plan.without,
+      holidays: plan.holidays,
+      periods: plan.periods ?? [],
+    }),
+    [plan.name, plan.weekOne, plan.weeks, plan.without, plan.holidays, plan.periods],
   );
   const [draft, setDraft] = useState(start);
   useEffect(() => {
@@ -408,7 +488,27 @@ export function PlanSettingsDialog({
     set({ without: draft.without.map((each, at) => (at === index ? day : each)) });
   const setHoliday = (index: number, patch: Partial<Holiday>) =>
     set({ holidays: draft.holidays.map((each, at) => (at === index ? { ...each, ...patch } : each)) });
-  const ready = draft.weekOne !== "" && draft.weeks >= 1 && draft.without.every(Boolean) && draft.holidays.every((each) => each.date);
+  const periods = draft.periods ?? [];
+  const setPeriod = (index: number, patch: Partial<Period>) =>
+    set({ periods: periods.map((each, at) => (at === index ? { ...each, ...patch } : each)) });
+  const periodProblem = (period: Period) =>
+    !period.label.trim()
+      ? "Give it a name."
+      : !period.from || !period.to
+        ? "Give it a first and a last day."
+        : period.to < period.from
+          ? "Its last day comes before its first."
+          : !period.days.length
+            ? "Choose at least one day."
+            : period.blockFrom >= period.blockTo
+              ? "Its hours end after they start."
+              : "";
+  const ready =
+    draft.weekOne !== "" &&
+    draft.weeks >= 1 &&
+    draft.without.every(Boolean) &&
+    draft.holidays.every((each) => each.date) &&
+    periods.every((period) => !periodProblem(period));
   // The plan's short name, saved with the rest — Cancel leaves it as it was.
   const client = useQueryClient();
   const shortNames = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false });
@@ -528,6 +628,79 @@ export function PlanSettingsDialog({
             <Plus size={15} /> Add a holiday
           </button>
           <span className="text-xs text-[#667085]">A class that falls on a holiday is not held; the plan lists what each holiday takes away.</span>
+        </div>
+        <div className="grid gap-2">
+          <span className="text-sm font-medium text-[#344054]">Periods for everybody</span>
+          {periods.map((period, index) => {
+            const problem = periodProblem(period);
+            return (
+              <fieldset key={index} className="grid gap-2 rounded-md border border-[#e4e8ef] p-3">
+                <legend className="sr-only">{period.label || `Period ${index + 1}`}</legend>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Field label="Name">
+                      <input value={period.label} onChange={(event) => setPeriod(index, { label: event.target.value })} placeholder="Ramadan" className={INPUT} />
+                    </Field>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${period.label || `period ${index + 1}`}`}
+                    onClick={() => set({ periods: periods.filter((_, at) => at !== index) })}
+                    className="mb-1 rounded-md p-2 text-[#a6292f] hover:bg-[#fdf3f3]"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <DateField label="From" value={period.from} onChange={(from) => setPeriod(index, { from })} />
+                  <DateField label="To" value={period.to} onChange={(to) => setPeriod(index, { to })} />
+                </div>
+                <div className="grid gap-1">
+                  <span className="text-sm font-medium text-[#344054]">On</span>
+                  <div role="group" aria-label="Days it covers" className="flex flex-wrap gap-1.5">
+                    {WEEKDAY_NAMES.map((name, at) => {
+                      const day = at + 1;
+                      const on = period.days.includes(day);
+                      return (
+                        <button
+                          key={day}
+                          type="button"
+                          aria-pressed={on}
+                          aria-label={name}
+                          onClick={() =>
+                            setPeriod(index, {
+                              days: on ? period.days.filter((each) => each !== day) : [...period.days, day].sort((a, b) => a - b),
+                            })
+                          }
+                          className={`rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
+                            on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                          }`}
+                        >
+                          {name.slice(0, 3)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <TimeField label="No classes from" value={period.blockFrom} onChange={(blockFrom) => setPeriod(index, { blockFrom })} />
+                  <TimeField label="Until" value={period.blockTo} onChange={(blockTo) => setPeriod(index, { blockTo })} />
+                </div>
+                {problem ? <p className="text-xs text-[#a6292f]">{problem}</p> : null}
+              </fieldset>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => set({ periods: [...periods, { ...NEW_PERIOD }] })}
+            className="inline-flex w-fit items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline"
+          >
+            <Plus size={15} /> Add a period
+          </button>
+          <span className="text-xs text-[#667085]">
+            Ramadan, an exam week: hours with no classes for everyone. They are shaded on the plan, and a class placed in
+            them is flagged.
+          </span>
         </div>
         <div className="grid gap-1">
           <span className="text-sm font-medium text-[#344054]">Pay periods</span>
