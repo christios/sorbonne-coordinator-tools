@@ -262,7 +262,7 @@ Sizes: **S** is under half a day, **M** about a day, **L** two days or more. Eve
 - [ ] Checkpoint D (rehearsal 1), then the go-ahead for Release D
 - [ ] E1–E4 Conversion: rehearsal 2, production dry run, backup and go-ahead, run and smoke check
 - [ ] E5 Remove the route (next release)
-- [ ] F1 Required markers and completeness panel (OQ4) — panel built ("N to fill in before review") and rules final (his ticks applied); red * markers on each required field not added yet
+- [x] F1 Required markers and completeness panel (OQ4) — "N to fill in before review" list, rules final (his ticks applied), red * on every required field
 - [x] F2 Submission gate — server refuses an incomplete syllabus; withdraw, save and export never blocked
 - [ ] Checkpoint F, then the go-ahead for Release F
 
