@@ -646,9 +646,14 @@ export function StudentRoster({
    * semester the department has ever run: the answer is only ever one of the two or three
    * they are in, and the table already knows which.
    */
+  /*
+   * Kept to the semester on screen: in Semester 2, before anyone was placed there, the
+   * list held only Semester 1 and was "simply named", so the button took students out of
+   * the groups of a semester nobody was looking at.
+   */
   const semestersHeld = useMemo(
-    () => semestersHeldBy(seen, chosen, termNames),
-    [seen, chosen, termNames],
+    () => semestersHeldBy(seen, chosen, termNames).filter((term) => !termId || term.termId === termId),
+    [seen, chosen, termNames, termId],
   );
 
   /*
@@ -776,6 +781,7 @@ export function StudentRoster({
         count={chosen.length}
         cohortName={cohortOfSelection?.name ?? ""}
         semesters={semestersHeld}
+        semesterName={termId ? (termNames[termId] ?? "") : ""}
         busy={emptySemester.isPending}
         onRemove={(termId) => emptySemester.mutate(termId)}
         onClose={() => setOutOfGroups(false)}
