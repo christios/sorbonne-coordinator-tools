@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, Compass, MousePointerClick, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowUp, Check, Compass, MousePointerClick, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -20,6 +20,10 @@ export type TourStep = {
   autoNext?: number;
   /** What "Nicely done" says on this step: "Nicely done: opening it…". */
   doneWords?: string;
+  /** Done, straight on to the next step: no "Nicely done", no Next. */
+  instantNext?: boolean;
+  /** The control to try, inside the lit part: an arrow bounces beside it. */
+  pointAt?: () => Element | null | undefined;
   /** The part of the page to light up — or several, lit as one; none puts the card in the middle. */
   target?: () => Element | null | (Element | null)[];
   /** Buttons in place of Next, for the last step: keep or clear what was tried. */
@@ -121,37 +125,43 @@ export function FormTour({
 }) {
   const step = steps[at];
   const [box, setBox] = useState<Box | null>(null);
+  // Where the arrow points: the control the step asks to try.
+  const [arrow, setArrow] = useState<Box | null>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const card = useRef<HTMLDivElement>(null);
   // The X pressed: are you sure?
   const [asking, setAsking] = useState(false);
   const last = at === steps.length - 1;
 
-  // Where the lit part is, every frame while the tour is on: it moves as the page does.
+  // Where the lit part is, and the control the arrow points at, every frame while the tour is on:
+  // they move as the page does. Read from the step as it is now, not as it was when it began.
   const target = step?.target;
+  const targetNow = useRef(target);
+  targetNow.current = target;
+  const pointNow = useRef(step?.pointAt);
+  pointNow.current = step?.pointAt;
   useEffect(() => {
     let stopped = false;
     const later = (then: () => void) =>
       typeof window.requestAnimationFrame === "function" ? window.requestAnimationFrame(then) : window.setTimeout(then, 16);
     const follow = () => {
       if (stopped) return;
-      const next = boxOf(target?.() ?? null);
+      const next = boxOf(targetNow.current?.() ?? null);
       setBox((current) => (sameBox(current, next) ? current : next));
+      const pointed = boxOf(pointNow.current?.() ?? null);
+      setArrow((current) => (sameBox(current, pointed) ? current : pointed));
       later(follow);
     };
     follow();
     return () => {
       stopped = true;
     };
-  }, [target]);
+  }, []);
 
   const stepId = step?.id;
   // A part lit up is brought into view if it is not — on a new step, and when the part changes
   // within one (a pop-over opening a moment after the step starts).
-  const shown = useRef<Element | null>(null);
-  // The step's part as it is now, not as it was when the step began: a pop-over opens later.
-  const targetNow = useRef(target);
-  targetNow.current = target;
+  const shown = useRef<Element[]>([]);
   useEffect(() => {
     let stopped = false;
     const later = (then: () => void) =>
@@ -160,8 +170,8 @@ export function FormTour({
       if (stopped) return;
       const found = targetNow.current?.() ?? null;
       const parts = (Array.isArray(found) ? found : [found]).filter((element): element is Element => Boolean(element));
-      if (parts.length && parts[0] !== shown.current) {
-        shown.current = parts[0];
+      if (parts.length && (parts.length !== shown.current.length || parts.some((part, index) => part !== shown.current[index]))) {
+        shown.current = parts;
         // Brought into view whole if it fits, else from its top: all of it, not what shows now.
         const rects = parts.map((element) => element.getBoundingClientRect());
         const top = Math.min(...rects.map((rect) => rect.top));
@@ -175,7 +185,7 @@ export function FormTour({
       }
       later(look);
     };
-    shown.current = null;
+    shown.current = [];
     look();
     return () => {
       stopped = true;
@@ -186,6 +196,10 @@ export function FormTour({
   // goes on by itself does so after its moment, a bar filling meanwhile.
   const done = Boolean(step?.tryIt && step.done);
   const autoNext = done && !last ? step?.autoNext : undefined;
+  const instant = done && !last && Boolean(step?.instantNext);
+  useEffect(() => {
+    if (instant) onStep(at + 1);
+  }, [instant, at, onStep]);
   useEffect(() => {
     if (!autoNext) return;
     const timer = window.setTimeout(() => onStep(at + 1), autoNext);
@@ -247,6 +261,25 @@ export function FormTour({
             : { left: "50%", top: "50%", width: 0, height: 0, boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.75)" }
         }
       />
+      {arrow ? (
+        // Here: a bouncing arrow at the control to try, over it if there is room, else under it.
+        <span
+          aria-hidden="true"
+          data-tour-arrow
+          className="pointer-events-none fixed z-[104]"
+          style={
+            arrow.top > 44
+              ? { left: arrow.left + arrow.width / 2 - 14, top: arrow.top - 34 }
+              : { left: arrow.left + arrow.width / 2 - 14, top: arrow.top + arrow.height + 6 }
+          }
+        >
+          <span
+            className={`grid h-7 w-7 place-items-center rounded-full bg-[#1f4e79] text-white shadow-lg ring-2 ring-white ${arrow.top > 44 ? "tour-arrow-down" : "tour-arrow-up"}`}
+          >
+            {arrow.top > 44 ? <ArrowDown size={15} strokeWidth={2.5} /> : <ArrowUp size={15} strokeWidth={2.5} />}
+          </span>
+        </span>
+      ) : null}
       <div
         ref={card}
         data-tour-card
@@ -284,7 +317,7 @@ export function FormTour({
           <p className="mt-2 text-sm font-semibold text-[#171717]">{step.title}</p>
           <div className="mt-1 text-[13px] leading-5 text-[#475467]">{step.body}</div>
           {step.tryIt ? (
-            done ? (
+            done && !instant ? (
               <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-1.5 text-xs font-semibold text-[#2e7d55]">
                 <Check size={14} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
                 {autoNext ? <Countdown key={at} ms={autoNext} /> : null}

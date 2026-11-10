@@ -1,4 +1,19 @@
-import { ChevronLeft, ChevronRight, Compass, MessageSquare, Pointer, Trash2, X } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarRange,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  MessageSquare,
+  MessageSquareText,
+  MousePointerClick,
+  MoveDown,
+  Paintbrush,
+  Pointer,
+  Trash2,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -94,6 +109,31 @@ function BrushLook({ value }: { value: Brush }) {
     <span className={`mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px align-middle text-[11px] font-semibold ${option.on}`}>
       <span className="inline-block h-2 w-2 rounded-sm" style={option.swatch} /> {option.label}
     </span>
+  );
+}
+
+/** How a part of the form is used, in three short steps side by side: an icon, what to do, a hint. */
+function HowTo({ steps, children }: { steps: { icon: LucideIcon; title: ReactNode; hint: ReactNode }[]; children?: ReactNode }) {
+  return (
+    <div className="mt-3 flex flex-wrap items-stretch gap-2">
+      <ol className="grid min-w-0 flex-1 gap-2 sm:grid-cols-3">
+        {steps.map(({ icon: Icon, title, hint }, index) => (
+          <li key={index} className="flex items-start gap-2.5 rounded-lg border border-[#e3e8ef] bg-white px-3 py-2">
+            <span className="relative mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#eef4fa] text-[#1f4e79]">
+              <Icon size={14} aria-hidden="true" />
+              <span className="absolute -right-1 -top-1 grid h-3.5 w-3.5 place-items-center rounded-full bg-[#1f4e79] text-[9px] font-semibold text-white">
+                {index + 1}
+              </span>
+            </span>
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold text-[#171717]">{title}</span>
+              <span className="block text-[11px] leading-4 text-[#667085]">{hint}</span>
+            </span>
+          </li>
+        ))}
+      </ol>
+      {children}
+    </div>
   );
 }
 
@@ -893,35 +933,44 @@ export function WishesForm({
       body: (
         <>
           {open && openLine ? <span className="mb-1.5 block font-semibold text-[#1f4e79]">Your click opened this box.</span> : null}
-          Choose <b>Must</b> or <b>Would like</b>: only {collection.mustQuota} can be Musts, so keep them for what really counts.
-          Then type in the <b>Comment</b> box why it matters, e.g. &ldquo;School run&rdquo;: the coordinator sees it.
+          Choose <b>Must</b> or <b>Would like</b>, and watch the block: solid for a Must, striped for a Would like. Only{" "}
+          {collection.mustQuota} can be Musts, so keep them for what really counts. Then type in the <b>Comment</b> box why it
+          matters, e.g. &ldquo;School run&rdquo;: the coordinator sees it.
         </>
       ),
       tryIt: open && openLine ? "Choose Must or Would like, write a comment if you like, then press Done." : painted ? "Click a painted block to open it again." : "Paint a few hours, then click them.",
       done: tourBase.sawOpen && !open,
-      // Done pressed: on to the next step by itself, after a beat to see it was done.
-      autoNext: 1000,
-      target: () => (open ? popover.current : gridBox.current),
+      // Done pressed: straight on.
+      instantNext: true,
+      // The whole calendar with the box, to see the block change as Must or Would like is chosen.
+      target: () => [part("toolbar"), gridBox.current, open ? popover.current : null],
+      pointAt: () => popover.current?.querySelector('[role="radiogroup"]'),
     },
     {
       id: "away",
       title: "Away on some dates?",
-      body: <>A conference or a few days&rsquo; leave go on the weeks they fall in, not on the usual week.</>,
+      body: <>A conference or a few days&rsquo; leave go on the weeks they fall in, not on the usual week. Switch, and watch the calendar turn into one week with its dates.</>,
       tryIt: (
         <>
           Switch to <b>Week by week</b>.
         </>
       ),
       done: Boolean(week),
-      target: () => part("which-week"),
+      instantNext: true,
+      target: () => [part("which-week"), part("toolbar"), gridBox.current],
+      pointAt: () => part("which-week")?.querySelectorAll('[role="radio"]')[1],
     },
     {
       id: "mark",
       title: "Mark the time away",
       body: <>Find the week with the arrows. Paint the hours away, or click a day&rsquo;s name for all of it, and say why if you like.</>,
       tryIt: open ? "Say why, if you like, then press Done." : "Click a day's name.",
-      done: awayKey !== tourBase.away && !stroking && !open,
-      target: () => (open ? popover.current : [part("toolbar"), gridBox.current]),
+      // Marked, its box opened (to say why) and closed: a mark alone is a moment before its box opens.
+      done: awayKey !== tourBase.away && tourBase.sawOpen && !open && !stroking,
+      instantNext: true,
+      target: () => [part("which-week"), part("toolbar"), gridBox.current, open ? popover.current : null],
+      pointAt: () =>
+        open ? popover.current?.querySelector("input") : gridBox.current?.querySelector('thead button[aria-label$="mark away all day"]'),
     },
     {
       id: "limits",
@@ -1003,20 +1052,43 @@ export function WishesForm({
             ))}
           </div>
         </div>
-        <p className={hint}>
-          {week ? (
-            <>
-              Mark when {voice === "you" ? "you're" : "they're"} away in a particular week — a conference, leave. Paint across the hours, or
-              click a day&rsquo;s name for all of it. {voice === "you" ? "Your" : "Their"} usual week shows faintly behind.
-            </>
-          ) : (
-            <>
-              Choose a colour and paint across the hours; hours left white are fine. When you let go, the block opens to say how
-              much it matters. Click a painted block to change it. Away on particular dates? Mark them <b>Week by week</b>.
-            </>
-          )}
-        </p>
-        <div data-tour="toolbar" className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        {week ? (
+          <HowTo
+            steps={[
+              { icon: CalendarRange, title: "Find the week", hint: "With the arrows, or from the list" },
+              { icon: Paintbrush, title: "Paint the hours away", hint: "Or click a day's name for all of it" },
+              { icon: MessageSquareText, title: "Say why", hint: "A conference, leave… (optional)" },
+            ]}
+          >
+            <button
+              type="button"
+              onClick={() => showWeek(null)}
+              className="inline-flex items-center gap-1.5 self-center rounded-lg px-2.5 py-2 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa]"
+            >
+              Back to every week
+            </button>
+          </HowTo>
+        ) : (
+          <HowTo
+            steps={[
+              { icon: Paintbrush, title: "Pick a colour", hint: "Red: can't teach · green: would rather" },
+              { icon: MoveDown, title: "Drag across the hours", hint: "Hours left white are fine" },
+              { icon: MousePointerClick, title: "Say how much it matters", hint: "It opens when you let go; click a block to change it" },
+            ]}
+          >
+            <button
+              type="button"
+              onClick={() => showWeek(firstWeek())}
+              className="flex flex-col items-start justify-center gap-0.5 rounded-lg border border-dashed border-[#c9b8e3] bg-[#faf8fd] px-3 py-2 text-left hover:bg-[#f5f1fa]"
+            >
+              <span className="text-[11px] text-[#6b4fa0]">Away on some dates?</span>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#6b4fa0]">
+                Week by week <ArrowRight size={12} aria-hidden="true" />
+              </span>
+            </button>
+          </HowTo>
+        )}
+        <div data-tour="toolbar" className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           {week ? (
             <div className="flex items-center gap-1">
               <button
@@ -1090,13 +1162,55 @@ export function WishesForm({
             ))}
           </div>
           {week ? null : (
-            <span className="ml-auto flex flex-wrap items-center gap-x-3 text-xs tabular-nums">
-              <span className={full ? "font-semibold text-[#1f4e79]" : "text-[#667085]"}>
-                {musts} of {collection.mustQuota} Musts used
-              </span>
-              <span className={overCap ? "font-semibold text-[#a6292f]" : "text-[#667085]"}>
-                Can&rsquo;t teach: {cant} of {collection.cantCap} h a week
-              </span>
+            <span className="ml-auto flex flex-wrap items-center gap-2 text-xs tabular-nums">
+              <Tip
+                side="bottom"
+                wide={false}
+                content={`At most ${collection.mustQuota} preferences can be a Must: keep them for what really counts.`}
+              >
+                <span
+                  aria-label={`${musts} of ${collection.mustQuota} Musts used`}
+                  className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 ${
+                    full ? "border-[#b9cde3] bg-[#eef4fa] text-[#1f4e79]" : "border-[#e3e8ef] bg-white text-[#475467]"
+                  }`}
+                >
+                  <span className="font-semibold">Musts</span>
+                  <span className="flex items-center gap-1" aria-hidden="true">
+                    {Array.from({ length: collection.mustQuota }, (_, index) => (
+                      <span
+                        key={index}
+                        className={`h-2 w-2 rounded-full ${index < musts ? "bg-[#a6292f]" : "border border-[#c8d0db] bg-white"}`}
+                      />
+                    ))}
+                  </span>
+                  <span aria-hidden="true">
+                    {musts}/{collection.mustQuota}
+                  </span>
+                </span>
+              </Tip>
+              <Tip
+                side="bottom"
+                wide={false}
+                content={`Hours a week painted can't teach. Over ${collection.cantCap}, say why for the coordinator.`}
+              >
+                <span
+                  aria-label={`Can't teach: ${cant} of ${collection.cantCap} hours a week`}
+                  className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 ${
+                    overCap ? "border-[#e8b4b7] bg-[#fdf3f3] text-[#a6292f]" : "border-[#e3e8ef] bg-white text-[#475467]"
+                  }`}
+                >
+                  <span className="font-semibold">Can&rsquo;t teach</span>
+                  <span className="relative h-1.5 w-14 overflow-hidden rounded-full bg-[#eef1f5]" aria-hidden="true">
+                    <span
+                      className={`absolute inset-y-0 left-0 rounded-full motion-safe:transition-[width] ${overCap ? "bg-[#a6292f]" : "bg-[#d9646a]"}`}
+                      style={{ width: `${collection.cantCap ? Math.min(100, (cant / collection.cantCap) * 100) : cant ? 100 : 0}%` }}
+                    />
+                  </span>
+                  <span aria-hidden="true">
+                    {cant} / {collection.cantCap} h{overCap ? " · over" : ""}
+                  </span>
+                </span>
+              </Tip>
             </span>
           )}
         </div>

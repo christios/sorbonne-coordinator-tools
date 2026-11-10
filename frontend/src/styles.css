@@ -181,3 +181,12 @@ main > div.max-w-6xl {
 @media (prefers-reduced-motion: reduce) {
   .tour-pop-in { animation: none; }
 }
+
+/* The tour's arrow at the control to try: a slow bounce towards it. */
+@keyframes tour-arrow-down { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+@keyframes tour-arrow-up { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+.tour-arrow-down { animation: tour-arrow-down 1s ease-in-out infinite; }
+.tour-arrow-up { animation: tour-arrow-up 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-arrow-down, .tour-arrow-up { animation: none; }
+}

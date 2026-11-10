@@ -93,7 +93,7 @@ describe("a teacher's wishes, filled in", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     // Drawn solid now, as a Must.
     expect(said("Tuesday", "14:00")).toContain("a Must");
-    expect(screen.getByText("1 of 2 Musts used")).toBeTruthy();
+    expect(screen.getByLabelText("1 of 2 Musts used")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(onSave).toHaveBeenCalledWith(
@@ -333,18 +333,14 @@ describe("the guided tour", () => {
     // The block cannot be removed while the tour is about it.
     expect((within(block).getByRole("button", { name: /Remove the whole block/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(block).getByRole("radio", { name: "Must" }));
+    // Done pressed: straight on, with no "Nicely done" and no Next.
     fireEvent.click(within(block).getByRole("button", { name: "Done" }));
-    // Done pressed: no Next, the tour goes on by itself.
-    expect(within(step("How much it matters")).queryByRole("button", { name: "Next" })).toBeNull();
-    wait(1000);
 
     expect(step("Away on some dates?")).toBeTruthy();
     fireEvent.click(screen.getByRole("radio", { name: "Week by week" }));
-    next("Away on some dates?");
     expect(step("Mark the time away")).toBeTruthy();
     fireEvent.click(screen.getAllByRole("button", { name: /: mark away all day$/ })[0]);
     fireEvent.click(within(screen.getByRole("dialog", { name: /^Away / })).getByRole("button", { name: "Done" }));
-    next("Mark the time away");
     fireEvent.click(within(step("Limits and needs")).getByRole("button", { name: "Next" }));
 
     // At the end the form is free, and what was tried can go.
