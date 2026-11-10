@@ -23,57 +23,125 @@ import { Tooltip } from "radix-ui";
 import type { ReactNode } from "react";
 
 /**
- * A small ⓘ that explains itself on hover or focus — for what used to be a line of grey
- * under a heading.
- *
- * A page read every day does not need telling every day what its parts are for; the
- * sentence is wanted the first time and in doubt, and costs a line of the page every
- * other time. This keeps it one hover away, beside the thing it explains.
+ * The bubble, around any trigger: the ⓘ's own card, wherever the app explains something on
+ * hover — a painted block of a teacher's week, a flag on the plan, where a dragged class would
+ * land — so every hover reads the same.
  *
  * With a `title`, the bubble is a small card read top to bottom: a heading, what to do
- * (`TipDo`), what it changes (`TipPoint`s), and one real case of use (`TipUsage`).
+ * (`TipDo`), what it changes (`TipPoint`s), and one real case of use (`TipUsage`). `wide`
+ * is the ⓘ's card; a hover over the page itself is narrower. `open` holds it open or shut
+ * from outside, for a bubble that follows a drag rather than the pointer.
  */
-export function InfoTip({ children, label = "What this is", title }: { children: ReactNode; label?: string; title?: string }) {
+export function Tip({
+  children,
+  content,
+  title,
+  icon: Icon = Info,
+  iconClassName = "text-[#1f4e79]",
+  wide = Boolean(title),
+  side,
+  delay = 150,
+  open,
+  follow = false,
+}: {
+  /** The trigger: one element, which takes the hover and focus. */
+  children: ReactNode;
+  content: ReactNode;
+  title?: ReactNode;
+  icon?: LucideIcon;
+  iconClassName?: string;
+  wide?: boolean;
+  side?: "top" | "right" | "bottom" | "left";
+  /** How long the pointer rests before it opens, in milliseconds. */
+  delay?: number;
+  open?: boolean;
+  /** Keep to a trigger that moves, as a dragged class's landing box does. */
+  follow?: boolean;
+}) {
   return (
-    <Tooltip.Provider delayDuration={150}>
-      <Tooltip.Root>
-        <Tooltip.Trigger asChild>
-          <button
-            type="button"
-            aria-label={label}
-            className="inline-flex shrink-0 items-center rounded-full p-0.5 align-middle text-[#b4bcc8] hover:text-[#667085] focus-visible:text-[#667085]"
-          >
-            <Info size={13} aria-hidden="true" />
-          </button>
-        </Tooltip.Trigger>
+    <Tooltip.Provider delayDuration={delay}>
+      <Tooltip.Root open={open}>
+        <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
             // A card opens beside its ⓘ, where it has the window's whole height to slide in;
             // above or below a header low on the page it had half of it, and scrolled.
-            side={title ? "right" : "bottom"}
+            side={side ?? (wide ? "right" : "bottom")}
             align="start"
             sideOffset={4}
             collisionPadding={12}
+            updatePositionStrategy={follow ? "always" : "optimized"}
             /*
              * Never taller than the room on the side it opens to: a long bubble flipped above
              * a button low on the page and ran off the top of the window. It scrolls inside
              * itself instead, and the pointer can move onto it to do so.
              */
             className={`z-[130] max-h-[var(--radix-tooltip-content-available-height)] overflow-y-auto overscroll-contain ${
-              title ? "w-[26rem] max-w-[calc(100vw-1.5rem)] px-3.5 py-3" : "max-w-xs px-3 py-2"
+              wide ? "w-[26rem] max-w-[calc(100vw-1.5rem)] px-3.5 py-3" : title ? "w-max max-w-xs px-3 py-2.5" : "max-w-xs px-3 py-2"
             } rounded-md border border-[#d9dee7] bg-white text-xs font-normal normal-case leading-5 tracking-normal text-[#475467] shadow-lg`}
           >
             {title ? (
               <span className="mb-2 flex items-center gap-1.5 text-[13px] font-semibold text-[#171717]">
-                <Info size={14} className="shrink-0 text-[#1f4e79]" aria-hidden="true" />
+                <Icon size={14} className={`shrink-0 ${iconClassName}`} aria-hidden="true" />
                 {title}
               </span>
             ) : null}
-            {children}
+            {content}
           </Tooltip.Content>
         </Tooltip.Portal>
       </Tooltip.Root>
     </Tooltip.Provider>
+  );
+}
+
+/**
+ * A small ⓘ that explains itself on hover or focus — for what used to be a line of grey
+ * under a heading.
+ *
+ * A page read every day does not need telling every day what its parts are for; the
+ * sentence is wanted the first time and in doubt, and costs a line of the page every
+ * other time. This keeps it one hover away, beside the thing it explains.
+ */
+export function InfoTip({ children, label = "What this is", title }: { children: ReactNode; label?: string; title?: string }) {
+  return (
+    <Tip content={children} title={title}>
+      <button
+        type="button"
+        aria-label={label}
+        className="inline-flex shrink-0 items-center rounded-full p-0.5 align-middle text-[#b4bcc8] hover:text-[#667085] focus-visible:text-[#667085]"
+      >
+        <Info size={13} aria-hidden="true" />
+      </button>
+    </Tip>
+  );
+}
+
+/**
+ * Broken wishes and rules, a line each, as the plan says them ("Must · Bilal Maaz: Can't
+ * teach Tue 14:00–18:00"): the Must, the Would like or the Everybody as a tag in its colour.
+ */
+export function TipWishes({ lines }: { lines: string[] }) {
+  return (
+    <span className="grid gap-1">
+      {lines.map((line) => {
+        const [tag, ...rest] = line.split(" · ");
+        const known = tag === "Must" || tag === "Would like" || tag === "Everybody";
+        return (
+          <span key={line} className="flex items-start gap-1.5">
+            {known ? (
+              <span
+                className={`mt-px shrink-0 rounded px-1.5 text-[11px] font-semibold leading-[18px] ${
+                  tag === "Must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
+                }`}
+              >
+                {tag}
+              </span>
+            ) : null}
+            <span className="min-w-0 text-[#344054]">{known ? rest.join(" · ") : line}</span>
+          </span>
+        );
+      })}
+    </span>
   );
 }
 

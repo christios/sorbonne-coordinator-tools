@@ -39,8 +39,10 @@ class CollectionInput(BaseModel):
 
 
 class Cell(BaseModel):
+    """A quarter of an hour of the week painted: 14.25 is 14:15-14:30."""
+
     day: int = Field(ge=1, le=7)
-    hour: int = Field(ge=0, le=23)
+    hour: float = Field(ge=0, lt=24)
     kind: str = Field(max_length=10)
 
 
@@ -52,7 +54,7 @@ class Away(BaseModel):
 
 
 class AnswerInput(BaseModel):
-    cells: list[Cell] = Field(default_factory=list, max_length=7 * 24)
+    cells: list[Cell] = Field(default_factory=list, max_length=7 * 24 * 4)
     limits: dict[str, int | None] = Field(default_factory=dict)
     away: list[Away] = Field(default_factory=list, max_length=20)
     needs: str = Field(default="", max_length=1000)

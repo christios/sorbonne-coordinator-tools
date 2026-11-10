@@ -3,8 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { Plan, PlanClass, PlanSection } from "@/services/semesterPlans";
 import { carryOver, checkWishes, lineOfCell, shadingOf, wishLines, type WishCell, type WishTeacher, type Wishes } from "@/services/teacherWishes";
 
+/** Every quarter of an hour from `from` to `to` on a day, painted can't-teach. */
 const cant = (day: number, from: number, to: number): WishCell[] =>
-  Array.from({ length: to - from }, (_, index) => ({ day, hour: from + index, kind: "cant" as const }));
+  Array.from({ length: (to - from) * 4 }, (_, index) => ({ day, hour: from + index / 4, kind: "cant" as const }));
 
 describe("the wishes an answer makes", () => {
   it("joins can't hours into blocks, and the same block on several days is one wish, as the server does", () => {
@@ -21,7 +22,8 @@ describe("the wishes an answer makes", () => {
   it("shades a teacher's week as stretches a day at a time", () => {
     expect(shadingOf({ cells: [...cant(2, 14, 16), { day: 2, hour: 9, kind: "prefer" }] })).toEqual({
       2: [
-        { from: "09:00", to: "10:00", kind: "prefer" },
+        // A single cell is a quarter of an hour.
+        { from: "09:00", to: "09:15", kind: "prefer" },
         { from: "14:00", to: "16:00", kind: "cant" },
       ],
     });
@@ -130,7 +132,8 @@ describe("a plan read against the teachers' wishes", () => {
     const morning = at("cm", 1, "08:00", "10:00");
     const afternoon = at("td1", 3, "14:00", "16:00");
     const plan = { sections: SECTIONS, classes: [morning, afternoon] } as unknown as Plan;
-    const prefer: WishCell[] = [1, 3].flatMap((day) => [8, 9, 10, 11].map((hour) => ({ day, hour, kind: "prefer" as const })));
+    // 08:00 to 12:00 on Monday and Wednesday, a quarter at a time.
+    const prefer: WishCell[] = [1, 3].flatMap((day) => Array.from({ length: 16 }, (_, quarter) => ({ day, hour: 8 + quarter / 4, kind: "prefer" as const })));
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { cells: prefer })]);
 
     expect(check.breaches.map((breach) => [breach.wish, breach.classes])).toEqual([["Their preferred hours", [afternoon]]]);

@@ -33,7 +33,7 @@ const bilal: WishTeacher = {
   email: "",
   wishes: {
     status: "submitted",
-    cells: [14, 15, 16, 17].map((hour) => ({ day: 2, hour, kind: "cant" as const })),
+    cells: Array.from({ length: 16 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })),
     limits: {},
     away: [],
     needs: "",

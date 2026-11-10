@@ -5,7 +5,8 @@ how many wishes may be a Must (three) and how much can't-teach time a teacher ma
 having to say why (twelve hours). Each teacher then answers — in the SCEN Requests app, or on
 a page here once invited — or a coordinator answers for them after a call or an email.
 
-An answer is a week painted "can't" and "prefer" an hour at a time, a few limits on the week,
+An answer is a week painted "can't" and "prefer" a quarter of an hour at a time (a cell's
+`hour` is where its quarter starts: 14.25 is 14:15-14:30), a few limits on the week,
 dates away, room needs and a note. From the painting and the limits come its *wishes*, the
 lines a teacher ranks: each block of can't-teach hours (the same hours on several days is
 one line), their preferred times as one line, and each limit. Each is a Must or a Would like,
@@ -37,6 +38,13 @@ MOST_AWAY = 20
 SUNDAY, MIDNIGHT = 7, 24
 MOST_MUSTS, MOST_CANT_HOURS = 10, 60
 COMMENT_LENGTH = 300
+#: A painted cell is a quarter of an hour.
+STEP = 0.25
+
+
+def _clock(hour: float) -> str:
+    """14.25 as a wish's key says it: "14.25"; 14.0 as "14", as the page says it."""
+    return f"{hour:g}"
 
 
 class InvalidWishes(ValueError):
@@ -77,22 +85,22 @@ def wish_lines(cells: list[dict[str, Any]], limits: dict[str, Any]) -> list[dict
     to rank, as it is one thing to the teacher. Preferred hours, however many, are one wish:
     where they would rather teach. The same rule is kept on the page (`wishLines`).
     """
-    blocks: dict[tuple[int, int], list[int]] = {}
-    by_day: dict[int, list[int]] = {}
+    blocks: dict[tuple[float, float], list[int]] = {}
+    by_day: dict[int, list[float]] = {}
     for cell in cells:
         if cell["kind"] == "cant":
-            by_day.setdefault(cell["day"], []).append(cell["hour"])
+            by_day.setdefault(cell["day"], []).append(float(cell["hour"]))
     for day, hours in sorted(by_day.items()):
-        run: list[int] = []
-        for hour in sorted(set(hours)) + [None]:  # type: ignore[list-item]
-            if run and (hour is None or hour != run[-1] + 1):
-                blocks.setdefault((run[0], run[-1] + 1), []).append(day)
+        run: list[float] = []
+        for hour in [*sorted(set(hours)), None]:
+            if run and (hour is None or hour != run[-1] + STEP):
+                blocks.setdefault((run[0], run[-1] + STEP), []).append(day)
                 run = []
             if hour is not None:
                 run.append(hour)
     lines = [
         {
-            "key": f"cant:{start}-{end}:{','.join(str(day) for day in days)}",
+            "key": f"cant:{_clock(start)}-{_clock(end)}:{','.join(str(day) for day in days)}",
             "kind": "cant",
             "days": days,
             "from": start,
@@ -143,13 +151,19 @@ def _collection_input(given: dict[str, Any]) -> dict[str, Any]:
 def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str, Any]:
     """An answer, checked against its semester's grid, quota and cap."""
     days, first, last = set(collection["days"]), collection["firstHour"], collection["lastHour"]
-    cells: dict[tuple[int, int], str] = {}
+    cells: dict[tuple[int, float], str] = {}
     for cell in given.get("cells") or []:
-        day, hour, kind = int(cell.get("day", 0)), int(cell.get("hour", -1)), str(cell.get("kind", ""))
+        day, hour, kind = int(cell.get("day", 0)), float(cell.get("hour", -1)), str(cell.get("kind", ""))
         if day not in days or not first <= hour < last or kind not in KINDS:
             raise InvalidWishes("A painted hour is outside this semester's grid.")
+        if hour / STEP != int(hour / STEP):
+            raise InvalidWishes("A painted cell starts on the hour or a quarter past, half past or a quarter to.")
         cells[(day, hour)] = kind
-    painted = [{"day": day, "hour": hour, "kind": kind} for (day, hour), kind in sorted(cells.items())]
+    # On the hour as a whole number, as before quarters: 14, not 14.0.
+    painted = [
+        {"day": day, "hour": int(hour) if hour.is_integer() else hour, "kind": kind}
+        for (day, hour), kind in sorted(cells.items())
+    ]
 
     limits: dict[str, int] = {}
     for name, (low, high) in _LIMIT_RANGES.items():
@@ -184,12 +198,12 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
     if musts > collection["mustQuota"]:
         quota = collection["mustQuota"]
         raise InvalidWishes(f"At most {quota} wishes can be a Must. Choose which {quota} matter most.")
-    cant_hours = sum(1 for kind in cells.values() if kind == "cant")
+    cant_hours = sum(STEP for kind in cells.values() if kind == "cant")
     reason = _words(given.get("overCapReason"), 1000)
     status = "submitted" if given.get("submit") else "draft"
     if status == "submitted" and cant_hours > collection["cantCap"] and not reason:
         raise InvalidWishes(
-            f"That is {cant_hours} hours you can't teach, over the {collection['cantCap']} a week a teacher may "
+            f"That is {cant_hours:g} hours you can't teach, over the {collection['cantCap']} a week a teacher may "
             "mark. Say why, for the coordinator, or mark fewer."
         )
     return {

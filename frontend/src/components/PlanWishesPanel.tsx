@@ -1,23 +1,23 @@
 import { Flag, Search } from "lucide-react";
 
-import { SelectMenu } from "@/components/SelectMenu";
+import { FilterMenu, FilterPills } from "@/components/PanelFilter";
 import { SortMenu } from "@/components/SortMenu";
 import { usePageState } from "@/components/usePageState";
 import type { Breach, Tally, WishCheck, WishCollection, WishLevel } from "@/services/teacherWishes";
 
 export type WishView = "week" | "all" | "teachers";
 
-const VIEWS: { value: WishView; label: string }[] = [
+/** The panel's three views, switched from its header beside the tabs. */
+export const WISH_VIEWS: { value: WishView; label: string }[] = [
   { value: "week", label: "This week" },
   { value: "all", label: "All weeks" },
   { value: "teachers", label: "By teacher" },
 ];
 
-type WishShow = "all" | "must" | "would" | "everybody" | "submitted" | "draft" | "comment";
+type WishShow = "must" | "would" | "everybody" | "submitted" | "draft" | "comment";
 type WishSort = "must" | "teacher" | "week" | "classes";
 
 const WISH_SHOW: { value: WishShow; label: string }[] = [
-  { value: "all", label: "All" },
   { value: "must", label: "Must" },
   { value: "would", label: "Would like" },
   { value: "everybody", label: "Everybody" },
@@ -82,14 +82,14 @@ type Item = {
  * The teachers' wishes the plan breaks, beside the week: this week's, every week's, or how
  * well each teacher is served — the least served first, so broken wishes are spread rather
  * than always landing on the same people. Searched, sorted and filtered as the classes to
- * place are, in the same layout. A line is pressed to show that teacher's week.
+ * place are, in the same layout: the filters behind one button, "Must" to hand. Which of
+ * the three views is the panel's header's to say. A line is pressed to show that teacher's week.
  */
 export function PlanWishesPanel({
   check,
   collection,
   week,
   view,
-  onView,
   onFocus,
   failed,
 }: {
@@ -98,13 +98,12 @@ export function PlanWishesPanel({
   /** The teaching week on screen, or null between weeks. */
   week: number | null;
   view: WishView;
-  onView: (view: WishView) => void;
   /** Show this teacher's wishes on the grid. */
   onFocus: (teacherId: string) => void;
   failed?: string;
 }) {
   const [search, setSearch] = usePageState("semester-plan:wish-search", "");
-  const [show, setShow] = usePageState<WishShow>("semester-plan:wish-show", "all");
+  const [chosen, setChosen] = usePageState<WishShow[]>("semester-plan:wish-filters", []);
   const [sort, setSort] = usePageState<WishSort>("semester-plan:wish-sort", "must");
   const [teacher, setTeacher] = usePageState("semester-plan:wish-teacher", EVERY_TEACHER);
 
@@ -165,7 +164,8 @@ export function PlanWishesPanel({
 
   const items = view === "week" ? weekItems : view === "all" ? allItems : teacherItems;
   const words = search.trim().toLowerCase();
-  const found = items.filter((item) => (!words || item.text.includes(words)) && (!teacher || item.teacherId === teacher));
+  const searched = items.filter((item) => !words || item.text.includes(words));
+  const found = searched.filter((item) => !teacher || item.teacherId === teacher);
   const keeps = (choice: WishShow, item: Item) =>
     choice === "must"
       ? item.about === "teacher" && item.level === "must"
@@ -177,13 +177,14 @@ export function PlanWishesPanel({
             ? item.status === "submitted"
             : choice === "draft"
               ? item.status === "draft"
-              : choice === "comment"
-                ? item.comment
-                : true;
-  const counts = Object.fromEntries(WISH_SHOW.map((option) => [option.value, found.filter((item) => keeps(option.value, item)).length])) as Record<
-    WishShow,
-    number
-  >;
+              : item.comment;
+  const keepsAll = (choices: WishShow[], item: Item) => choices.every((choice) => keeps(choice, item));
+  // How many each would leave, with the others chosen: the ones leaving none are not offered.
+  const counts = Object.fromEntries(
+    WISH_SHOW.map((option) => [option.value, found.filter((item) => keepsAll([...chosen.filter((each) => each !== option.value), option.value], item)).length]),
+  ) as Record<WishShow, number>;
+  const toggle = (choice: WishShow) =>
+    setChosen((current) => (current.includes(choice) ? current.filter((each) => each !== choice) : [...current, choice]));
   const musts = (left: Item, right: Item) =>
     Number(left.level !== "must") - Number(right.level !== "must") || left.teacherName.localeCompare(right.teacherName);
   const order: Record<WishSort, (left: Item, right: Item) => number> = {
@@ -193,14 +194,13 @@ export function PlanWishesPanel({
     week: (left, right) => Math.min(...left.weeks, 99) - Math.min(...right.weeks, 99) || musts(left, right),
     classes: (left, right) => right.classes - left.classes || musts(left, right),
   };
-  const shown = found.filter((item) => keeps(show, item)).sort(order[sort]);
+  const shown = found.filter((item) => keepsAll(chosen, item)).sort(order[sort]);
 
-  const teacherOptions = [
-    { value: EVERY_TEACHER, label: "Every teacher" },
-    ...[...new Map([...breaches, ...tallies].filter((each) => each.teacherId).map((each) => [each.teacherId, each.teacherName])).entries()]
-      .sort((left, right) => left[1].localeCompare(right[1]))
-      .map(([value, label]) => ({ value, label })),
-  ];
+  // The teachers to choose from, each with how many lines of theirs the other filters leave.
+  const teacherOptions = [...new Map([...breaches, ...tallies].filter((each) => each.teacherId).map((each) => [each.teacherId, each.teacherName])).entries()]
+    .sort((left, right) => left[1].localeCompare(right[1]))
+    .map(([value, label]) => ({ value, label, count: searched.filter((item) => item.teacherId === value && keepsAll(chosen, item)).length }));
+  const teacherName = teacherOptions.find((option) => option.value === teacher)?.label ?? "";
 
   const line = (item: Item) => {
     if (item.tally) {
@@ -266,49 +266,24 @@ export function PlanWishesPanel({
             />
           </label>
           <SortMenu value={sort} options={WISH_SORT} onChange={setSort} />
+          <FilterMenu
+            options={WISH_SHOW.map((option) => ({ ...option, count: counts[option.value] }))}
+            chosen={chosen}
+            onToggle={toggle}
+            teachers={{ options: teacherOptions, chosen: teacher, onChoose: setTeacher }}
+          />
         </div>
-        <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
-          {WISH_SHOW.map((option) => {
-            const on = show === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setShow(option.value)}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                  on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
-                }`}
-              >
-                {option.label}
-                <span className={`rounded-full px-1.5 tabular-nums ${on ? "bg-white/20 text-white" : "bg-[#eef1f5] text-[#667085]"}`}>
-                  {counts[option.value]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        {teacherOptions.length > 2 ? (
-          <SelectMenu label="Teacher" value={teacher} onChange={setTeacher} options={teacherOptions} searchable searchPlaceholder="Search teachers" />
-        ) : null}
-        <div role="group" aria-label="Which wishes" className="flex rounded-md bg-[#f2f4f7] p-0.5">
-          {VIEWS.map((option) => {
-            const on = view === option.value;
-            return (
-              <button
-                key={option.value}
-                type="button"
-                aria-pressed={on}
-                onClick={() => onView(option.value)}
-                className={`flex-1 whitespace-nowrap rounded px-2 py-1 text-xs font-semibold ${
-                  on ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"
-                }`}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
+        <FilterPills
+          shortcut={{ label: "Must", count: counts.must }}
+          on={chosen.includes("must")}
+          onShortcut={() => toggle("must")}
+          pills={[
+            ...chosen
+              .filter((choice) => choice !== "must")
+              .map((choice) => ({ key: choice, label: WISH_SHOW.find((option) => option.value === choice)?.label ?? choice, onRemove: () => toggle(choice) })),
+            ...(teacher ? [{ key: "teacher", label: teacherName || "One teacher", onRemove: () => setTeacher(EVERY_TEACHER) }] : []),
+          ]}
+        />
         {failed ? <p className="text-xs text-[#a6292f]">{failed}</p> : null}
         {!collection && !failed ? (
           <p className="text-xs text-[#667085]">

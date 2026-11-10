@@ -1,7 +1,7 @@
 /**
  * Timetable wishes: when each teacher can and can't teach, asked once a semester.
  *
- * An answer is a week painted "can't" and "prefer" an hour at a time, a few limits on the
+ * An answer is a week painted "can't" and "prefer" a quarter of an hour at a time, a few limits on the
  * week, dates away, room needs and a note. Its *wishes* are the lines a teacher ranks: each
  * block of can't-teach hours (the same hours on several days are one line), their preferred
  * hours as one line, and each limit. A wish is a Must or a Would like; no more than the
@@ -21,8 +21,22 @@ const BASE = `${API_BASE_URL}/api/v1/wishes`;
 
 export type WishKind = "cant" | "prefer";
 export type WishLevel = "must" | "would";
-/** One hour of the week painted: 1 is Monday, 8 is 08:00–09:00. */
+/**
+ * A quarter of an hour of the week painted: 1 is Monday, and `hour` is where the quarter
+ * starts — 8 is 08:00–08:15, 14.25 is 14:15–14:30. The grid may be painted an hour or half
+ * an hour at a time; each paints its quarters.
+ */
 export type WishCell = { day: number; hour: number; kind: WishKind };
+
+/** A painted cell's length, in hours: a quarter. */
+export const STEP = 0.25;
+
+/** "14:15", for 14.25. */
+export function clockOf(hour: number): string {
+  const whole = Math.floor(hour);
+  const minutes = Math.round((hour - whole) * 60);
+  return `${String(whole).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
 export type WishLimits = { maxDays?: number | null; maxHoursDay?: number | null; maxInRow?: number | null; freeDay?: number | null };
 export type WishAway = { from: string; to: string; reason: string };
 
@@ -142,9 +156,9 @@ export function wishLines(cells: WishCell[], limits: WishLimits): WishLine[] {
     for (let index = 0; index < hours.length; index += 1) {
       const hour = hours[index];
       const next = hours[index + 1];
-      if (next !== hour + 1) {
-        const key = `${start}-${hour + 1}`;
-        const block = blocks.get(key) ?? { from: start, to: hour + 1, days: [] };
+      if (next !== hour + STEP) {
+        const key = `${start}-${hour + STEP}`;
+        const block = blocks.get(key) ?? { from: start, to: hour + STEP, days: [] };
         block.days.push(day);
         blocks.set(key, block);
         start = next;
@@ -162,11 +176,9 @@ export function wishLines(cells: WishCell[], limits: WishLimits): WishLine[] {
   return lines;
 }
 
-const hour = (value: number) => `${String(value).padStart(2, "0")}:00`;
-
 /** "Tue, Thu 14:00–18:00", the days and hours of a can't-teach block. */
 function daysAndHours(days: number[], from: number, to: number): string {
-  return `${days.map((day) => DAY_SHORT[day]).join(", ")} ${hour(from)}–${hour(to)}`;
+  return `${days.map((day) => DAY_SHORT[day]).join(", ")} ${clockOf(from)}–${clockOf(to)}`;
 }
 
 /** A wish in the words of the panel and the flags: "Can't teach Tue 14:00–18:00". */
@@ -278,8 +290,8 @@ export function carryOver(
   return { levels: nextLevels, comments: nextComments };
 }
 
-/** Hours painted can't-teach, against the semester's cap. */
-export const cantHours = (cells: WishCell[]) => cells.filter((cell) => cell.kind === "cant").length;
+/** Hours painted can't-teach, against the semester's cap: four quarters an hour. */
+export const cantHours = (cells: WishCell[]) => cells.filter((cell) => cell.kind === "cant").length * STEP;
 
 /**
  * A teacher's week as stretches to shade on the plan's grid, a day at a time:
@@ -291,8 +303,8 @@ export function shadingOf(wishes: Pick<Wishes, "cells">): Record<number, { from:
   for (const cell of sorted) {
     const day = (shaded[cell.day] ??= []);
     const last = day[day.length - 1];
-    if (last && last.kind === cell.kind && last.to === hour(cell.hour)) last.to = hour(cell.hour + 1);
-    else day.push({ from: hour(cell.hour), to: hour(cell.hour + 1), kind: cell.kind });
+    if (last && last.kind === cell.kind && last.to === clockOf(cell.hour)) last.to = clockOf(cell.hour + STEP);
+    else day.push({ from: clockOf(cell.hour), to: clockOf(cell.hour + STEP), kind: cell.kind });
   }
   return shaded;
 }
@@ -431,10 +443,11 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
           }
         }
         if (prefer.size) {
-          const start = Math.floor(minutesOf(entry.startsAt) / 60);
-          const end = Math.ceil(minutesOf(entry.endsAt) / 60);
+          // Every quarter the class takes is a preferred one, or it is outside them.
+          const start = Math.floor(minutesOf(entry.startsAt) / 15);
+          const end = Math.ceil(minutesOf(entry.endsAt) / 15);
           let inside = true;
-          for (let at = start; at < end; at += 1) if (!prefer.has(`${entry.weekday}:${at}`)) inside = false;
+          for (let quarter = start; quarter < end; quarter += 1) if (!prefer.has(`${entry.weekday}:${quarter * STEP}`)) inside = false;
           if (!inside) add("prefer", levelOf("prefer"), describeLine({ key: "prefer", kind: "prefer" }), label(section, entry), week, [entry]);
         }
         for (const away of wishes.away) {

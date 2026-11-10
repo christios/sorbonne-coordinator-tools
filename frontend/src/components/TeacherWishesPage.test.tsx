@@ -21,7 +21,7 @@ const SEMESTER: wishes.WishSemester = {
       name: "Valerie Le Guyon",
       email: "",
       wishes: {
-        status: "submitted", cells: [14, 15].map((hour) => ({ day: 2, hour, kind: "cant" as const })), limits: { maxDays: 3 }, away: [],
+        status: "submitted", cells: Array.from({ length: 8 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })), limits: { maxDays: 3 }, away: [],
         needs: "", note: "Mornings are best", levels: { "cant:14-16:2": "must" }, comments: { "cant:14-16:2": "School run" },
         lines: [], overCapReason: "", source: "teacher", submittedAt: "2026-11-09T10:00:00Z", updatedAt: "2026-11-09T10:00:00Z", updatedBy: "",
       },
@@ -74,13 +74,13 @@ describe("closing the wishes window", () => {
   it("asks first when something has, and keeps editing or lets it go", async () => {
     page();
     fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's wishes" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Monday 9:00: / }));
+    fireEvent.click(screen.getByRole("button", { name: /^Monday 09:00: / }));
     fireEvent.mouseDown(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" }).parentElement as HTMLElement);
     expect(screen.getByRole("dialog", { name: "Discard your changes?" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.queryByRole("dialog", { name: "Discard your changes?" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Monday 9:00: can't teach/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Monday 09:00: can't teach/ })).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));

@@ -28,15 +28,21 @@ const week = (editing: Partial<GridEditing> = {}) =>
   );
 
 describe("a class on the plan's week", () => {
-  it("says the class on its hover, and the wishes it breaks on its flag's", () => {
+  it("says the class on its hover, and the wishes it breaks in its flag's bubble", async () => {
     const { container } = week();
     const box = container.querySelector("[data-box]") as HTMLElement;
     expect(box.getAttribute("title")).toContain("MATH-002");
     expect(box.getAttribute("title")).not.toContain("Can't teach");
-    expect(container.querySelector("[data-flag]")?.getAttribute("title")).toBe(BROKEN);
+    const flag = container.querySelector("[data-flag]") as HTMLElement;
+    expect(flag.getAttribute("title")).toBeNull();
+    fireEvent.focus(flag);
+    const bubble = await screen.findByRole("tooltip");
+    expect(bubble.textContent).toContain("Breaks 2 wishes");
+    expect(bubble.textContent).toContain("Can't teach Tue 14:00–18:00 — “School run”");
+    expect(bubble.textContent).toContain("At most 2 days on campus");
   });
 
-  it("shows where a class dragged in would land, at its own length, red where it would clash", () => {
+  it("shows where a class dragged in would land, at its own length, red where it would clash", async () => {
     const judge = vi.fn(() => ({ worst: "must" as const, label: "Clash", said: "Same teacher as PHYS-126 · CM" }));
     const { container } = week({
       dropType: DRAG,
@@ -53,6 +59,8 @@ describe("a class on the plan's week", () => {
     expect(ghost.getAttribute("data-ghost")).toBe("must");
     expect(ghost.textContent).toMatch(/^(\d\d):(\d\d)–\d\d:\2· Clash$/);
     expect(judge).toHaveBeenCalledWith(expect.objectContaining({ date: "2027-01-12" }), null);
+    // And what is wrong there, in the ⓘ's bubble beside it.
+    expect((await screen.findByRole("tooltip")).textContent).toContain("Same teacher as PHYS-126 · CM");
 
     // Gone once the drag ends, wherever it ends.
     fireEvent(window, new Event("dragend"));

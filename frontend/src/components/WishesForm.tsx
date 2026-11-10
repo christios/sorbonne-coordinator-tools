@@ -1,12 +1,15 @@
 import { MessageSquare, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
+import { Tip, TipDo } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
   DAY_NAMES,
   DAY_SHORT,
+  STEP,
   cantHours,
   carryOver,
+  clockOf,
   describeLine,
   lineOfCell,
   wishLines,
@@ -30,20 +33,64 @@ const BRUSHES: { value: Brush; label: string; on: string; swatch: CSSProperties 
 ];
 
 /*
- * A painted hour says how much it matters: a Must solid, a Would like light and hatched in
+ * A painted hour says how much it matters: a Must solid, a Would like light and striped in
  * the same colour. One look at the week says which hours the teacher holds to.
  */
-const hatch = (line: string) => `repeating-linear-gradient(135deg, ${line} 0 1.5px, transparent 1.5px 6px)`;
+const stripes = (line: string) => `repeating-linear-gradient(135deg, ${line} 0 1.5px, transparent 1.5px 6px)`;
 export const CELL_TONES: Record<WishKind, Record<WishLevel, CSSProperties>> = {
   cant: {
     must: { backgroundColor: "#d9646a" },
-    would: { backgroundColor: "#f8dfe0", backgroundImage: hatch("rgba(217, 100, 106, 0.55)") },
+    would: { backgroundColor: "#f8dfe0", backgroundImage: stripes("rgba(217, 100, 106, 0.55)") },
   },
   prefer: {
     must: { backgroundColor: "#4f9f74" },
-    would: { backgroundColor: "#dcefe4", backgroundImage: hatch("rgba(79, 159, 116, 0.55)") },
+    would: { backgroundColor: "#dcefe4", backgroundImage: stripes("rgba(79, 159, 116, 0.55)") },
   },
 };
+
+/** How finely the week is painted: an hour, half an hour or a quarter a cell, and how tall each row is. */
+export type Fineness = 1 | 0.5 | 0.25;
+const FINENESS: { value: Fineness; label: string; row: number }[] = [
+  { value: 1, label: "1 h", row: 24 },
+  { value: 0.5, label: "30 min", row: 16 },
+  { value: 0.25, label: "15 min", row: 12 },
+];
+
+/** The coarsest cells that say an answer exactly: an hour unless something starts on the half or a quarter. */
+export function finenessOf(cells: WishCell[]): Fineness {
+  const kinds = new Map(cells.map((cell) => [`${cell.day}:${cell.hour}`, cell.kind]));
+  const fits = (size: number) =>
+    cells.every((cell) => {
+      const start = Math.floor(cell.hour / size) * size;
+      for (let hour = start; hour < start + size; hour += STEP) if (kinds.get(`${cell.day}:${hour}`) !== cell.kind) return false;
+      return true;
+    });
+  return fits(1) ? 1 : fits(0.5) ? 0.5 : 0.25;
+}
+
+/** The plain words under a week: what the colours and the stripes mean. */
+export function WishesLegend() {
+  const swatch = (style: CSSProperties) => <span className="inline-block h-3 w-3 rounded-sm" style={style} />;
+  return (
+    <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
+      <span className="inline-flex items-center gap-1.5">
+        {swatch(CELL_TONES.cant.must)}
+        {swatch(CELL_TONES.prefer.must)}
+        <span>
+          <b className="font-semibold text-[#344054]">Solid</b> = Must
+        </span>
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        {swatch(CELL_TONES.cant.would)}
+        {swatch(CELL_TONES.prefer.would)}
+        <span>
+          <b className="font-semibold text-[#344054]">Striped</b> = Would like
+        </span>
+      </span>
+      <span>Red: can&rsquo;t teach · Green: would rather</span>
+    </p>
+  );
+}
 
 const section = "border-t border-[#eef1f5] pt-4";
 const heading = "text-sm font-semibold text-[#171717]";
@@ -94,6 +141,15 @@ export function LevelToggle({
   );
 }
 
+/** "One wish: the whole block, on Tuesday and Thursday." What a choice in the pop-over reaches. */
+function reach(line: WishLine): string {
+  if (line.kind === "prefer") return "One wish: every hour they would rather teach, all of it.";
+  if (line.kind !== "cant") return "";
+  const days = line.days.map((day) => DAY_NAMES[day]);
+  const said = days.length > 1 ? `${days.slice(0, -1).join(", ")} and ${days[days.length - 1]}` : days[0];
+  return `One wish: the whole block, ${clockOf(line.from)}–${clockOf(line.to)}${days.length > 1 ? ` on ${said}` : ""}. What you choose here applies to all of it.`;
+}
+
 /** What the form holds, said the same way whatever order it was entered in: to tell a change. */
 function snapshot(parts: {
   cells: WishCell[];
@@ -118,11 +174,18 @@ function snapshot(parts: {
   });
 }
 
+/** A cell of the grid: a day, and where its stretch of the day starts. */
+type Spot = { day: number; time: number; cell: HTMLElement };
+
 /**
  * One teacher's timetable wishes for a semester: the week painted, limits, dates away and
- * needs. How much each wish matters is said where the wish is: a painted block is clicked
- * to make it a Must or a Would like, comment on it, or take it away, and each limit has its
- * own. The Must quota is kept as it is chosen, not after.
+ * needs. How much each wish matters is said where the wish is: a painted block opens when the
+ * stroke that painted it ends, or when it is clicked, to make it a Must or a Would like,
+ * comment on it, or take it away; each limit has its own. The Must quota is kept as it is
+ * chosen, not after.
+ *
+ * The week is painted an hour, half an hour or a quarter at a time; whatever the cells, it is
+ * kept to the quarter. A block reads as one: hovered or opened, all of it lights up.
  *
  * The same parts wherever a teacher answers — here for a coordinator answering for them, and
  * on the page an invited teacher opens.
@@ -162,18 +225,27 @@ export function WishesForm({
   const [comments, setComments] = useState<Record<string, string>>(initial?.comments ?? {});
   const [reason, setReason] = useState(initial?.overCapReason ?? "");
   const [brush, setBrush] = useState<Brush>("cant");
+  const [fineness, setFineness] = useState<Fineness>(() => finenessOf(initial?.cells ?? []));
   const [problem, setProblem] = useState("");
   // The painted block open for ranking, and where its pop-over sits over the grid.
   const [open, setOpen] = useState<{ key: string; left: number; top: number; cell: HTMLElement } | null>(null);
+  // The cell the pointer rests on, for its bubble and its block lit up; and a stroke under way.
+  const [resting, setResting] = useState<{ day: number; time: number } | null>(null);
+  const [stroking, setStroking] = useState(false);
+  // A block to open once the stroke that painted it, or the click on it, has been drawn.
+  const [toOpen, setToOpen] = useState<Spot | null>(null);
   const gridBox = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   /*
-   * The stroke under way: its colour and the cell it last reached. A press on a painted hour
-   * waits: let go where it was pressed, it opens that block; dragged on, it paints.
+   * The stroke under way: its colour, the cell it last reached, and that cell on the page. A
+   * press on a painted cell waits: let go where it was pressed, it opens that block; dragged
+   * on, it paints.
    */
-  const stroke = useRef<{ with_: Brush; at: [number, number]; waiting?: { day: number; hour: number; cell: HTMLElement } } | null>(null);
+  const stroke = useRef<{ with_: Brush; at: [number, number]; last: Spot; waiting: boolean } | null>(null);
 
-  const hours = Array.from({ length: collection.lastHour - collection.firstHour }, (_, index) => collection.firstHour + index);
+  const rows = Array.from({ length: Math.round((collection.lastHour - collection.firstHour) / fineness) }, (_, index) => collection.firstHour + index * fineness);
+  const quartersOf = (time: number) => Array.from({ length: Math.round(fineness / STEP) }, (_, index) => time + index * STEP);
+  const rowHeight = FINENESS.find((option) => option.value === fineness)?.row ?? 24;
   const asList: WishCell[] = useMemo(
     () =>
       [...cells.entries()].map(([key, kind]) => {
@@ -188,6 +260,14 @@ export function WishesForm({
   const full = musts >= collection.mustQuota;
   const cant = cantHours(asList);
   const overCap = cant > collection.cantCap;
+  /** The wish a cell of the grid is part of: the block of its first painted quarter. */
+  const lineAt = (day: number, time: number): WishLine | null => {
+    for (const hour of quartersOf(time)) {
+      const kind = cells.get(`${day}:${hour}`);
+      if (kind) return lineOfCell(lines, day, hour, kind);
+    }
+    return null;
+  };
 
   // A block repainted keeps its rank and its comment under its new key (see `carryOver`).
   const before = useRef(lines);
@@ -226,31 +306,34 @@ export function WishesForm({
     told.current?.(dirty);
   }, [dirty]);
 
-  /** Open a painted block's pop-over under the hour it was clicked on. */
-  const openAt = (cell: HTMLElement, day: number, hour: number) => {
-    const line = lineOfCell(lines, day, hour, cells.get(`${day}:${hour}`));
+  /** Open a painted block's pop-over under the cell it was reached by. */
+  const openAt = ({ cell, day, time }: Spot) => {
+    const line = lineAt(day, time);
     const box = gridBox.current;
     if (!line || !box) return;
     const at = cell.getBoundingClientRect();
     const frame = box.getBoundingClientRect();
     const width = 288;
-    setOpen({
-      key: line.key,
-      left: Math.max(0, Math.min(at.left - frame.left, frame.width - width)),
-      top: at.bottom - frame.top + 4,
-      cell,
-    });
+    setOpen({ key: line.key, left: Math.max(0, Math.min(at.left - frame.left, frame.width - width)), top: at.bottom - frame.top + 4, cell });
   };
   const opener = useRef(openAt);
   useEffect(() => {
     opener.current = openAt;
   });
+  // Opened only once what was painted is on the page, so it is the block as it now stands.
+  useEffect(() => {
+    if (!toOpen) return;
+    setToOpen(null);
+    opener.current(toOpen);
+  }, [toOpen]);
 
   useEffect(() => {
     const stop = () => {
-      const waiting = stroke.current?.waiting;
+      const held = stroke.current;
       stroke.current = null;
-      if (waiting) opener.current(waiting.cell, waiting.day, waiting.hour);
+      setStroking(false);
+      // Let go: the block painted opens, to say how much it matters. Not after clearing.
+      if (held && (held.waiting || held.with_ !== "erase")) setToOpen(held.last);
     };
     window.addEventListener("pointerup", stop);
     return () => window.removeEventListener("pointerup", stop);
@@ -259,11 +342,11 @@ export function WishesForm({
   // A press anywhere but the pop-over closes it — caught first, before the dialog keeps it to itself.
   useEffect(() => {
     if (!open) return;
-    const away_ = (event: PointerEvent) => {
+    const elsewhere = (event: PointerEvent) => {
       if (!popover.current?.contains(event.target as Node)) setOpen(null);
     };
-    document.addEventListener("pointerdown", away_, true);
-    return () => document.removeEventListener("pointerdown", away_, true);
+    document.addEventListener("pointerdown", elsewhere, true);
+    return () => document.removeEventListener("pointerdown", elsewhere, true);
   }, [open]);
   // Opened, the pop-over takes the keyboard, on the rank the wish has now.
   const openKey = open?.key;
@@ -272,9 +355,9 @@ export function WishesForm({
   }, [openKey]);
 
   /**
-   * Paint every cell on the way from one cell to another. A quick drag reaches cells the
-   * pointer never stopped on — from 14:00 straight to 17:00 — and those are painted too.
-   * A cell is [its place among the grid's days, its hour].
+   * Paint every cell on the way from one cell to another, each cell all its quarters. A quick
+   * drag reaches cells the pointer never stopped on — from 14:00 straight to 17:00 — and those
+   * are painted too. A cell is [its place among the grid's days, its row].
    */
   const paint = (from: [number, number], to: [number, number], with_: Brush) => {
     setCells((current) => {
@@ -283,9 +366,11 @@ export function WishesForm({
       for (let step = 0; step <= steps; step += 1) {
         const share = steps ? step / steps : 0;
         const day = collection.days[Math.round(from[0] + (to[0] - from[0]) * share)];
-        const key = `${day}:${Math.round(from[1] + (to[1] - from[1]) * share)}`;
-        if (with_ === "erase") next.delete(key);
-        else next.set(key, with_);
+        const time = collection.firstHour + Math.round(from[1] + (to[1] - from[1]) * share) * fineness;
+        for (const hour of quartersOf(time)) {
+          if (with_ === "erase") next.delete(`${day}:${hour}`);
+          else next.set(`${day}:${hour}`, with_);
+        }
       }
       return next;
     });
@@ -314,7 +399,7 @@ export function WishesForm({
       <div className="grid content-start gap-1.5">
         <span className="text-xs font-semibold text-[#344054]">{label}</span>
         <div className="flex items-center gap-2">
-          <div className="min-w-0 flex-1">
+          <div className="min-w-0 max-w-xs flex-1">
             <SelectMenu
               label={label}
               value={limits[name] ? String(limits[name]) : NONE}
@@ -339,7 +424,7 @@ export function WishesForm({
             maxLength={COMMENT_LENGTH}
             onChange={(event) => setComment(name, event.target.value)}
             placeholder="Why it matters (optional)"
-            className="w-full rounded-md border border-[#e4e8ef] px-2.5 py-1 text-xs text-[#344054] placeholder:text-[#98a2b3]"
+            className="w-full max-w-md rounded-md border border-[#e4e8ef] px-2.5 py-1 text-xs text-[#344054] placeholder:text-[#98a2b3]"
           />
         ) : null}
       </div>
@@ -374,6 +459,9 @@ export function WishesForm({
   };
 
   const openLine = open ? lines.find((line) => line.key === open.key) : undefined;
+  // The block lit up: the one open, the one being painted, else the one the pointer rests on.
+  const strokeAt = stroking ? stroke.current?.last : undefined;
+  const litKey = open?.key ?? (strokeAt ? lineAt(strokeAt.day, strokeAt.time)?.key : resting ? lineAt(resting.day, resting.time)?.key : undefined);
 
   return (
     <div className="space-y-4">
@@ -390,10 +478,10 @@ export function WishesForm({
       <div>
         <p className={heading}>1 · Their week</p>
         <p className={hint}>
-          Choose a colour, then click or drag across the hours. Hours left white are fine. Click a painted block to say how
-          much it matters, add a comment, or remove it.
+          Choose a colour and paint across the hours; hours left white are fine. When you let go, the block opens to say how
+          much it matters. Click a painted block to change it.
         </p>
-        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <div role="radiogroup" aria-label="Paint with" className="flex flex-wrap gap-1.5">
             {BRUSHES.map((option) => (
               <button
@@ -410,6 +498,20 @@ export function WishesForm({
               </button>
             ))}
           </div>
+          <div role="radiogroup" aria-label="Cells" className="inline-flex rounded-md bg-[#f2f4f7] p-0.5 text-xs font-semibold">
+            {FINENESS.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={fineness === option.value}
+                onClick={() => setFineness(option.value)}
+                className={`rounded px-2 py-0.5 ${fineness === option.value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
           <span className="ml-auto flex flex-wrap items-center gap-x-3 text-xs tabular-nums">
             <span className={full ? "font-semibold text-[#1f4e79]" : "text-[#667085]"}>
               {musts} of {collection.mustQuota} Musts used
@@ -421,7 +523,7 @@ export function WishesForm({
         </div>
         <div ref={gridBox} className="relative mt-2">
           <div className="overflow-x-auto">
-            <table className="w-full table-fixed border-collapse select-none text-[11px]" aria-label="The week">
+            <table className="w-full table-fixed border-separate border-spacing-x-0.5 border-spacing-y-0 select-none text-[11px]" aria-label="The week">
               <thead>
                 <tr>
                   <th className="w-12" />
@@ -433,48 +535,102 @@ export function WishesForm({
                 </tr>
               </thead>
               <tbody>
-                {hours.map((hour) => (
-                  <tr key={hour}>
-                    <th className="pr-1.5 text-right font-normal tabular-nums text-[#98a2b3]">{`${String(hour).padStart(2, "0")}:00`}</th>
+                {rows.map((time, row) => (
+                  <tr key={time}>
+                    <th className="relative pr-1.5 text-right align-top font-normal tabular-nums leading-none text-[#98a2b3]">
+                      {Number.isInteger(time) ? <span className="relative -top-1">{clockOf(time)}</span> : null}
+                    </th>
                     {collection.days.map((day, column) => {
-                      const kind = cells.get(`${day}:${hour}`);
-                      const here: [number, number] = [column, hour];
-                      const line = kind ? lineOfCell(lines, day, hour, kind) : null;
-                      const level = line ? levelOf(line.key) : "would";
-                      const said = kind === "cant" ? "can't teach" : kind === "prefer" ? "would rather" : "fine";
+                      const here: [number, number] = [column, row];
+                      const quarters = quartersOf(time).map((hour) => {
+                        const kind = cells.get(`${day}:${hour}`);
+                        const line = kind ? lineOfCell(lines, day, hour, kind) : null;
+                        return { hour, kind, line, level: line ? levelOf(line.key) : ("would" as WishLevel) };
+                      });
+                      const painted = quarters.filter((quarter) => quarter.kind);
+                      const line = painted[0]?.line ?? null;
+                      const same = painted.length === quarters.length && painted.every((quarter) => quarter.kind === painted[0].kind);
+                      const said = !painted.length
+                        ? "fine"
+                        : !same
+                          ? "partly painted"
+                          : `${painted[0].kind === "cant" ? "can't teach" : "would rather"}, ${painted[0].level === "must" ? "a Must" : "a Would like"}`;
+                      const comment = line ? comments[line.key] : "";
+                      const button = (
+                        <button
+                          type="button"
+                          aria-label={`${DAY_NAMES[day]} ${clockOf(time)}: ${said}`}
+                          aria-haspopup={line ? "dialog" : undefined}
+                          onPointerDown={(event) => {
+                            event.preventDefault();
+                            const last = { day, time, cell: event.currentTarget };
+                            setStroking(true);
+                            setResting(null);
+                            if (line && brush !== "erase") {
+                              // Let go here and it opens; drag on and it paints from here.
+                              stroke.current = { with_: brush, at: here, last, waiting: true };
+                              return;
+                            }
+                            stroke.current = { with_: brush, at: here, last, waiting: false };
+                            paint(here, here, brush);
+                          }}
+                          onPointerEnter={(event) => {
+                            const held = stroke.current;
+                            if (!held) {
+                              setResting({ day, time });
+                              return;
+                            }
+                            held.waiting = false;
+                            paint(held.at, here, held.with_);
+                            held.at = here;
+                            held.last = { day, time, cell: event.currentTarget };
+                          }}
+                          onPointerLeave={() => setResting((current) => (current?.day === day && current.time === time ? null : current))}
+                          onClick={(event) => {
+                            // Enter or Space on a cell: the pointer acts on press, the keyboard here.
+                            if (event.detail !== 0) return;
+                            if (line) openAt({ day, time, cell: event.currentTarget });
+                            else paint(here, here, brush);
+                          }}
+                          className="flex w-full flex-col overflow-hidden bg-white"
+                          style={{ height: rowHeight }}
+                        >
+                          {quarters.map((quarter) => (
+                            <span
+                              key={quarter.hour}
+                              data-quarter={quarter.hour}
+                              className={`block min-h-0 w-full flex-1 ${
+                                quarter.kind ? "" : Number.isInteger(quarter.hour) ? "border-t border-[#e4e8ef]" : "border-t border-dotted border-[#f2f4f7]"
+                              } ${quarter.line && quarter.line.key === litKey ? "brightness-[0.85]" : ""}`}
+                              style={quarter.kind ? CELL_TONES[quarter.kind][quarter.level] : undefined}
+                            />
+                          ))}
+                        </button>
+                      );
                       return (
                         <td key={day} className="p-0">
-                          <button
-                            type="button"
-                            aria-label={`${DAY_NAMES[day]} ${hour}:00: ${said}${kind ? `, ${level === "must" ? "a Must" : "a Would like"}` : ""}`}
-                            aria-haspopup={kind ? "dialog" : undefined}
-                            onPointerDown={(event) => {
-                              event.preventDefault();
-                              const cell = event.currentTarget;
-                              if (kind && brush !== "erase") {
-                                // Let go here and it opens; drag on and it paints from here.
-                                stroke.current = { with_: brush, at: here, waiting: { day, hour, cell } };
-                                return;
-                              }
-                              stroke.current = { with_: brush, at: here };
-                              paint(here, here, brush);
-                            }}
-                            onPointerEnter={() => {
-                              const held = stroke.current;
-                              if (!held) return;
-                              held.waiting = undefined;
-                              paint(held.at, here, held.with_);
-                              held.at = here;
-                            }}
-                            onClick={(event) => {
-                              // Enter or Space on a cell: the pointer acts on press, the keyboard here.
-                              if (event.detail !== 0) return;
-                              if (kind) openAt(event.currentTarget, day, hour);
-                              else paint(here, here, brush);
-                            }}
-                            className="block h-6 w-full border border-[#eef1f5] bg-white hover:brightness-95"
-                            style={kind ? CELL_TONES[kind][level] : undefined}
-                          />
+                          <Tip
+                            open={Boolean(line) && !stroking && !open && resting?.day === day && resting.time === time}
+                            side="right"
+                            wide={false}
+                            title={line ? describeLine(line) : undefined}
+                            content={
+                              line ? (
+                                <>
+                                  <span className="mb-1.5 block">
+                                    <b className="font-semibold text-[#344054]">{levelOf(line.key) === "must" ? "Must" : "Would like"}</b>
+                                    {comment ? <> · &ldquo;{comment}&rdquo;</> : null}
+                                  </span>
+                                  <TipDo>Click to set Must / Would like, comment or remove</TipDo>
+                                  {line.kind === "cant" && line.days.length > 1 ? (
+                                    <span className="block text-[#667085]">The whole block, on {line.days.map((each) => DAY_SHORT[each]).join(" and ")}: one wish.</span>
+                                  ) : null}
+                                </>
+                              ) : null
+                            }
+                          >
+                            {button}
+                          </Tip>
                         </td>
                       );
                     })}
@@ -499,7 +655,10 @@ export function WishesForm({
               style={{ left: open.left, top: open.top }}
             >
               <div className="flex items-start justify-between gap-2">
-                <p className="text-sm font-semibold text-[#171717]">{describeLine(openLine)}</p>
+                <div className="grid gap-0.5">
+                  <p className="text-sm font-semibold text-[#171717]">{describeLine(openLine)}</p>
+                  <p className="text-xs text-[#667085]">{reach(openLine)}</p>
+                </div>
                 <button
                   type="button"
                   aria-label="Close"
@@ -547,7 +706,7 @@ export function WishesForm({
                   }}
                   className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
                 >
-                  <Trash2 size={13} aria-hidden="true" /> Remove
+                  <Trash2 size={13} aria-hidden="true" /> Remove the whole block
                 </button>
                 <button
                   type="button"
@@ -563,16 +722,8 @@ export function WishesForm({
             </div>
           ) : null}
         </div>
-        <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.cant.must} />
-            <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.cant.would} /> Can&rsquo;t teach
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.prefer.must} />
-            <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.prefer.would} /> Would rather
-          </span>
-          <span>Solid is a Must, hatched a Would like.</span>
+        <div className="mt-2">
+          <WishesLegend />
         </div>
         {lines.some((line) => (line.kind === "cant" || line.kind === "prefer") && comments[line.key]) ? (
           <ul className="mt-2 grid gap-0.5 text-xs text-[#667085]" aria-label="Comments on the week">
@@ -602,7 +753,7 @@ export function WishesForm({
       <div className={section}>
         <p className={heading}>2 · Limits on their week</p>
         <p className={hint}>Only those that matter. Each one set is a wish of its own: a Must or a Would like.</p>
-        <div className="mt-2 grid gap-4 sm:grid-cols-2">
+        <div className="mt-2 grid gap-4">
           {limitBlock("maxDays", "Most days on campus", counts(1, Math.max(1, collection.days.length - 1), "day"))}
           {limitBlock("maxHoursDay", "Most hours in a day", counts(2, 10, "hour"))}
           {limitBlock("maxInRow", "Most hours in a row", counts(1, 8, "hour"))}

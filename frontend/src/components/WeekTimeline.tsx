@@ -2,6 +2,7 @@ import { Flag } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ClassFacts } from "@/components/ClassFacts";
+import { Tip, TipWishes } from "@/components/InfoTip";
 import { heightNeeded, linesIn } from "@/services/boxFit";
 import { fittedRowHeight } from "@/services/timelineFit";
 import {
@@ -803,7 +804,19 @@ export function WeekTimeline({
                 const verdict =
                   carried === undefined ? null : judgeAt({ date: line.key, start: clock(ghost.start), end: clock(ghost.end) }, carried);
                 const tone = GHOST_TONES[verdict?.worst ?? "none"];
+                // What is wrong there, in the ⓘ's bubble beside the box, for as long as it is held there.
                 return (
+                  <Tip
+                    open={Boolean(verdict?.worst && verdict.said)}
+                    follow
+                    side="top"
+                    wide={false}
+                    delay={0}
+                    title={verdict?.label}
+                    icon={Flag}
+                    iconClassName={verdict?.worst === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}
+                    content={<TipWishes lines={(verdict?.said ?? "").split("\n").filter(Boolean)} />}
+                  >
                   <div
                     data-ghost={verdict?.worst ?? "fine"}
                     className={`pointer-events-none absolute z-10 flex items-center gap-1 overflow-hidden whitespace-nowrap rounded-md border-2 border-dashed px-1.5 text-[11px] font-semibold tabular-nums ${tone}`}
@@ -817,6 +830,7 @@ export function WeekTimeline({
                     {clock(ghost.start)}–{clock(ghost.end)}
                     {verdict?.label ? <span className="truncate font-normal">· {verdict.label}</span> : null}
                   </div>
+                  </Tip>
                 );
               })()}
               {boxes.map(({ session, lane: at, lanes, band }) => {
@@ -1017,19 +1031,34 @@ function Class({
         </span>
       ) : null}
       {session.wish ? (
-        // A wish broken, in the corner: apart from the clash outline, so neither reads as the other.
-        <span
-          data-flag={session.wish.level}
-          title={session.wish.said}
-          className="absolute right-0.5 top-0.5 flex items-center justify-center rounded-full bg-white p-[3px] shadow-sm ring-1 ring-black/5"
+        /*
+         * A wish broken, in the corner: apart from the clash outline, so neither reads as the
+         * other. Its bubble — the ⓘ's — opens at once, and says only what is broken.
+         */
+        <Tip
+          delay={0}
+          wide={false}
+          side="right"
+          title={(() => {
+            const count = session.wish.said.split("\n").length;
+            return `Breaks ${count === 1 ? "a wish" : `${count} wishes`}`;
+          })()}
+          icon={Flag}
+          iconClassName={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}
+          content={<TipWishes lines={session.wish.said.split("\n")} />}
         >
-          <Flag
-            size={11}
-            aria-hidden="true"
-            className={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}
-            fill="currentColor"
-          />
-        </span>
+          <span
+            data-flag={session.wish.level}
+            className="absolute right-0.5 top-0.5 flex items-center justify-center rounded-full bg-white p-[3px] shadow-sm ring-1 ring-black/5"
+          >
+            <Flag
+              size={11}
+              aria-hidden="true"
+              className={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}
+              fill="currentColor"
+            />
+          </span>
+        </Tip>
       ) : null}
       {onStretch ? (
         <span aria-hidden="true" className="absolute inset-y-0 right-0 w-1.5 cursor-ew-resize" onPointerDown={onStretch} />

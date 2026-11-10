@@ -180,7 +180,7 @@ describe("a class beside its teacher's wishes", () => {
   it("says first what goes wrong at the time chosen", () => {
     open(
       bilal({
-        status: "submitted", cells: [14, 15, 16, 17].map((hour) => ({ day: 2, hour, kind: "cant" as const })), limits: {}, away: [],
+        status: "submitted", cells: Array.from({ length: 16 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })), limits: {}, away: [],
         needs: "", note: "", levels: { "cant:14-18:2": "must" }, comments: { "cant:14-18:2": "School run" }, overCapReason: "",
         source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
         lines: [{ key: "cant:14-18:2", kind: "cant", days: [2], from: 14, to: 18, level: "must", comment: "School run" }],

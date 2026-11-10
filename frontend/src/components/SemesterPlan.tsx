@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarCheck, ChevronLeft, ChevronRight, Download, Plus, Search } from "lucide-react";
+import { CalendarCheck, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Download, Plus, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { PlanClassDialog, ScopeDialog, type ClassDraft } from "@/components/PlanDialogs";
-import { PlanWishesPanel, type WishView } from "@/components/PlanWishesPanel";
+import { FilterMenu, FilterPills } from "@/components/PanelFilter";
+import { PlanWishesPanel, WISH_VIEWS, type WishView } from "@/components/PlanWishesPanel";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TeachingWeek } from "@/components/SectionTimetable";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -114,13 +115,14 @@ const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
   { id: "days", displayName: "Day", type: "multiOption", accessor: (row) => row.days },
 ];
 
-type TrayShow = "all" | "to-place" | "placed" | "no-teacher" | "no-crn" | "wishes";
+type TrayShow = "to-place" | "placed" | "over" | "no-teacher" | "no-crn" | "wishes";
 type TraySort = "groups" | "course" | "left" | "teacher" | "cohort";
 
 const TRAY_SHOW: { value: TrayShow; label: string }[] = [
-  { value: "all", label: "All" },
   { value: "to-place", label: "Still to place" },
   { value: "placed", label: "Fully placed" },
+  // More hours on the calendar than Groups & CRNs asks for.
+  { value: "over", label: "Over hours" },
   { value: "no-teacher", label: "No teacher" },
   { value: "no-crn", label: "No CRN" },
   { value: "wishes", label: "Breaks a wish" },
@@ -210,7 +212,8 @@ export function SemesterPlan({
   const [week, setWeek] = usePageState<string>("semester-plan:week", "");
   // The list of classes to place: its own search, which of them, and in what order.
   const [traySearch, setTraySearch] = usePageState("semester-plan:tray-search", "");
-  const [trayShow, setTrayShow] = usePageState<TrayShow>("semester-plan:tray-show", "all");
+  // Which of them: any number of filters, narrowing together.
+  const [trayFilters, setTrayFilters] = usePageState<TrayShow[]>("semester-plan:tray-filters", []);
   const [traySort, setTraySort] = usePageState<TraySort>("semester-plan:tray-sort", "groups");
   const [widthZoom, setWidthZoom] = useKeptNumber("semester-plan:width", WIDTH);
   const [heightZoom, setHeightZoom] = useKeptNumber("semester-plan:height", HEIGHT);
@@ -252,6 +255,8 @@ export function SemesterPlan({
   // What the panel beside the week shows: the classes to place, or the teachers' wishes.
   const [side, setSide] = usePageState<"tray" | "wishes">("semester-plan:side", "tray");
   const [wishView, setWishView] = usePageState<WishView>("semester-plan:wish-view", "week");
+  // The panel folded away, for the week to have the whole width.
+  const [sideOpen, setSideOpen] = usePageState("semester-plan:side-open", true);
 
   const failed = (exc: Error) => {
     setError(exc.message);
@@ -674,19 +679,25 @@ export function SemesterPlan({
       ? stillToPlace(section)
       : show === "placed"
         ? !stillToPlace(section)
-        : show === "no-teacher"
+        : show === "over"
+          ? (section.hours ?? 0) > 0 && hoursLeft(section) < -0.01
+          : show === "no-teacher"
           ? !section.teacherName
           : show === "no-crn"
             ? !section.crn
-            : show === "wishes"
-              ? flaggedSections.has(section.id)
-              : true;
-  const trayKept = (section: PlanSection) => keeps(trayShow, section);
-  // How many each choice would show, beside it: the page's filters and the search still apply.
+            : flaggedSections.has(section.id);
+  const keepsAll = (shows: TrayShow[], section: PlanSection) => shows.every((show) => keeps(show, section));
+  const trayKept = (section: PlanSection) => keepsAll(trayFilters, section);
+  // How many each would leave with the others chosen: the page's filters and the search still apply.
   const found = placeable.filter(trayFound);
   const trayCounts = Object.fromEntries(
-    TRAY_SHOW.map((option) => [option.value, found.filter((section) => keeps(option.value, section)).length]),
+    TRAY_SHOW.map((option) => [
+      option.value,
+      found.filter((section) => keepsAll([...trayFilters.filter((each) => each !== option.value), option.value], section)).length,
+    ]),
   ) as Record<TrayShow, number>;
+  const toggleTray = (show: TrayShow) =>
+    setTrayFilters((current) => (current.includes(show) ? current.filter((each) => each !== show) : [...current, show]));
   const byCourse = (a: PlanSection, b: PlanSection) =>
     byNumber(a.courseCode, b.courseCode) || byNumber(a.groupLabel, b.groupLabel) || a.position - b.position;
   const trayOrder: Record<TraySort, (a: PlanSection, b: PlanSection) => number> = {
@@ -900,13 +911,51 @@ export function SemesterPlan({
           )}
         </div>
 
-        <aside className="hidden min-h-0 w-80 shrink-0 flex-col lg:flex" aria-label={side === "wishes" ? "Teacher wishes" : "Classes to place"}>
+        {!sideOpen ? (
+          // Folded away: a rail with the way back, and the two counts to open either tab.
+          <aside className="hidden min-h-0 w-10 shrink-0 flex-col items-center gap-2 rounded-lg border border-[#d9dee7] bg-white py-2 lg:flex" aria-label="Side panel, folded">
+            <button
+              type="button"
+              aria-label="Show the side panel"
+              title="Show the side panel"
+              onClick={() => setSideOpen(true)}
+              className="rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
+            >
+              <ChevronsLeft size={16} aria-hidden="true" />
+            </button>
+            {(
+              [
+                { value: "tray", title: "Classes to place", count: toPlace.length, alarm: false },
+                { value: "wishes", title: "Teacher wishes broken this week", count: thisWeekBroken, alarm: thisWeekBroken > 0 },
+              ] as const
+            ).map((tab) => (
+              <button
+                key={tab.value}
+                type="button"
+                title={tab.title}
+                aria-label={`${tab.title}: ${tab.count}`}
+                onClick={() => {
+                  setSide(tab.value);
+                  setSideOpen(true);
+                }}
+                className={`rounded-full px-1.5 text-[11px] font-semibold tabular-nums ${
+                  tab.alarm ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#f2f4f7] text-[#667085]"
+                }`}
+              >
+                {tab.count}
+              </button>
+            ))}
+          </aside>
+        ) : (
+        <aside className="hidden min-h-0 w-[28rem] shrink-0 flex-col lg:flex" aria-label={side === "wishes" ? "Teacher wishes" : "Classes to place"}>
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
           {/*
             * Beside the week: the classes to place, or what the plan does to the teachers' wishes.
-            * Two tabs on one line, the one open underlined, each with its count in a pill.
+            * Two tabs on one line, the one open underlined, each with its count in a pill; the
+            * wishes' three views beside them; and the fold, for the week to have the whole width.
             */}
-          <div role="tablist" aria-label="Beside the week" className="flex shrink-0 border-b border-[#e4e8ef]">
+          <div className="flex shrink-0 items-center gap-1.5 border-b border-[#e4e8ef] pr-1">
+          <div role="tablist" aria-label="Beside the week" className="flex">
             {(
               [
                 {
@@ -930,7 +979,7 @@ export function SemesterPlan({
                   aria-controls="plan-side-panel"
                   title={tab.title}
                   onClick={() => setSide(tab.value)}
-                  className={`-mb-px flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-3 py-2 text-sm font-semibold ${
+                  className={`-mb-px flex items-center justify-center gap-1.5 whitespace-nowrap border-b-2 px-2.5 py-2 text-sm font-semibold ${
                     on ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#667085] hover:bg-[#f8fafc] hover:text-[#344054]"
                   }`}
                 >
@@ -946,6 +995,36 @@ export function SemesterPlan({
               );
             })}
           </div>
+          {side === "wishes" ? (
+            <div role="group" aria-label="Which wishes" className="ml-auto flex rounded-md bg-[#f2f4f7] p-0.5">
+              {WISH_VIEWS.map((option) => {
+                const on = wishView === option.value;
+                return (
+                  <button
+                    key={option.value}
+                    type="button"
+                    aria-pressed={on}
+                    onClick={() => setWishView(option.value)}
+                    className={`whitespace-nowrap rounded px-1 py-0.5 text-[11px] font-semibold ${
+                      on ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+          <button
+            type="button"
+            aria-label="Fold the side panel away"
+            title="Fold the side panel away"
+            onClick={() => setSideOpen(false)}
+            className={`${side === "wishes" ? "" : "ml-auto"} shrink-0 rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]`}
+          >
+            <ChevronsRight size={16} aria-hidden="true" />
+          </button>
+          </div>
           <div id="plan-side-panel" role="tabpanel" aria-labelledby={`plan-side-${side}`} className="flex min-h-0 flex-1 flex-col">
           {side === "wishes" ? (
             <PlanWishesPanel
@@ -953,7 +1032,6 @@ export function SemesterPlan({
               collection={wishSemester.data?.collection ?? null}
               week={weekNo}
               view={wishView}
-              onView={setWishView}
               onFocus={(teacherId) => setPicked(teacherId)}
               failed={wishSemester.isError ? "The teachers' wishes could not be read." : undefined}
             />
@@ -974,31 +1052,16 @@ export function SemesterPlan({
                 />
               </label>
               <SortMenu value={traySort} options={TRAY_SORT} onChange={setTraySort} />
+              <FilterMenu options={TRAY_SHOW.map((option) => ({ ...option, count: trayCounts[option.value] }))} chosen={trayFilters} onToggle={toggleTray} />
             </div>
-            {/* Which of them, as chips that say how many each holds and wrap rather than cut a word. */}
-            <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
-              {TRAY_SHOW.map((option) => {
-                const on = trayShow === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() => setTrayShow(option.value)}
-                    className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                      on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
-                    }`}
-                  >
-                    {option.label}
-                    <span
-                      className={`rounded-full px-1.5 tabular-nums ${on ? "bg-white/20 text-white" : "bg-[#eef1f5] text-[#667085]"}`}
-                    >
-                      {trayCounts[option.value]}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+            <FilterPills
+              shortcut={{ label: "Still to place", count: trayCounts["to-place"] }}
+              on={trayFilters.includes("to-place")}
+              onShortcut={() => toggleTray("to-place")}
+              pills={trayFilters
+                .filter((show) => show !== "to-place")
+                .map((show) => ({ key: show, label: TRAY_SHOW.find((option) => option.value === show)?.label ?? show, onRemove: () => toggleTray(show) }))}
+            />
           </div>
           <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto">
             {trayShown.map((section) => {
@@ -1112,6 +1175,7 @@ export function SemesterPlan({
           </div>
           </div>
         </aside>
+        )}
       </div>
 
       {dialog ? (

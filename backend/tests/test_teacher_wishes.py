@@ -56,8 +56,9 @@ def opened(client: TestClient, **fields: object) -> dict:
     return made.json()
 
 
-def cant(day: int, start: int, end: int) -> list[dict]:
-    return [{"day": day, "hour": hour, "kind": "cant"} for hour in range(start, end)]
+def cant(day: int, start: float, end: float) -> list[dict]:
+    """Every quarter of an hour from `start` to `end` on a day, painted can't-teach."""
+    return [{"day": day, "hour": start + quarter / 4, "kind": "cant"} for quarter in range(int((end - start) * 4))]
 
 
 def test_cant_hours_are_joined_into_blocks_and_the_same_block_on_several_days_is_one_wish():
@@ -73,6 +74,17 @@ def test_cant_hours_are_joined_into_blocks_and_the_same_block_on_several_days_is
     lines = wish_lines(cells, {"maxDays": 2, "freeDay": 5})
     assert [line["key"] for line in lines] == ["cant:14-18:2,4", "cant:8-10:5", "prefer", "maxDays", "freeDay"]
     assert (lines[0]["days"], lines[0]["from"], lines[0]["to"]) == ([2, 4], 14, 18)
+
+
+def test_a_block_can_start_and_end_on_the_quarter_hour(client: TestClient):
+    opened(client)
+    saved = client.put(
+        f"{AT}/{TERM}/wish-test-bilal", json={"cells": cant(3, 12.25, 12.75), "levels": {"cant:12.25-12.75:3": "must"}}
+    ).json()
+    assert [(line["key"], line["level"]) for line in saved["lines"]] == [("cant:12.25-12.75:3", "must")]
+    assert [cell["hour"] for cell in saved["cells"]] == [12.25, 12.5]
+    off = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"cells": [{"day": 3, "hour": 12.1, "kind": "cant"}]})
+    assert off.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_answering_needs_the_semesters_collection_open(client: TestClient):

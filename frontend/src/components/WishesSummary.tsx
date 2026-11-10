@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react";
 
-import { CELL_TONES } from "@/components/WishesForm";
-import { DAY_NAMES, DAY_SHORT, describeLine, lineOfCell, wishLines, type WishCollection, type Wishes } from "@/services/teacherWishes";
+import { CELL_TONES, WishesLegend, finenessOf } from "@/components/WishesForm";
+import { DAY_NAMES, DAY_SHORT, STEP, clockOf, describeLine, lineOfCell, wishLines, type WishCollection, type Wishes } from "@/services/teacherWishes";
 import { formatDayAndMonth } from "@/services/weekSchedule";
 
 /** "10 Nov 2026, 14:05". */
@@ -44,7 +44,10 @@ export function WishesSummary({
   const levelOf = (key: string) => wishes.levels[key] ?? "would";
   const ranked = [...lines].sort((left, right) => Number(levelOf(left.key) !== "must") - Number(levelOf(right.key) !== "must"));
   const kinds = new Map(wishes.cells.map((cell) => [`${cell.day}:${cell.hour}`, cell.kind]));
-  const hours = Array.from({ length: collection.lastHour - collection.firstHour }, (_, index) => collection.firstHour + index);
+  // As finely as the answer needs: hours, unless something starts on the half or a quarter.
+  const size = finenessOf(wishes.cells);
+  const rows = Array.from({ length: Math.round((collection.lastHour - collection.firstHour) / size) }, (_, index) => collection.firstHour + index * size);
+  const quartersOf = (time: number) => Array.from({ length: Math.round(size / STEP) }, (_, index) => time + index * STEP);
 
   return (
     <div className="grid gap-5">
@@ -54,7 +57,7 @@ export function WishesSummary({
         <h3 className="text-sm font-semibold text-[#171717]">Their week</h3>
         {wishes.cells.length ? (
           <>
-            <table className="w-full table-fixed border-collapse text-[11px]" aria-label="The week as painted">
+            <table className="w-full table-fixed border-separate border-spacing-x-0.5 border-spacing-y-0 text-[11px]" aria-label="The week as painted">
               <thead>
                 <tr>
                   <th className="w-12" />
@@ -66,22 +69,36 @@ export function WishesSummary({
                 </tr>
               </thead>
               <tbody>
-                {hours.map((hour) => (
-                  <tr key={hour}>
-                    <th className="pr-1.5 text-right font-normal tabular-nums text-[#98a2b3]">{`${String(hour).padStart(2, "0")}:00`}</th>
+                {rows.map((time) => (
+                  <tr key={time}>
+                    <th className="pr-1.5 text-right align-top font-normal tabular-nums leading-none text-[#98a2b3]">
+                      {Number.isInteger(time) ? clockOf(time) : null}
+                    </th>
                     {collection.days.map((day) => {
-                      const kind = kinds.get(`${day}:${hour}`);
-                      const line = kind ? lineOfCell(lines, day, hour, kind) : null;
-                      const level = line ? levelOf(line.key) : "would";
+                      const quarters = quartersOf(time).map((hour) => {
+                        const kind = kinds.get(`${day}:${hour}`);
+                        const line = kind ? lineOfCell(lines, day, hour, kind) : null;
+                        return { hour, kind, line, level: line ? levelOf(line.key) : "would" };
+                      });
+                      const line = quarters.find((quarter) => quarter.line)?.line ?? null;
                       const comment = line ? wishes.comments?.[line.key] : "";
+                      const kind = quarters.find((quarter) => quarter.kind)?.kind;
                       return (
                         <td key={day} className="p-0">
                           <div
-                            title={line ? `${describeLine(line)} · ${level === "must" ? "Must" : "Would like"}${comment ? ` — ${comment}` : ""}` : undefined}
-                            aria-label={`${DAY_NAMES[day]} ${hour}:00: ${kind === "cant" ? "can't teach" : kind === "prefer" ? "would rather" : "fine"}`}
-                            className="h-5 border border-[#eef1f5] bg-white"
-                            style={kind ? CELL_TONES[kind][level] : undefined}
-                          />
+                            title={line ? `${describeLine(line)} · ${levelOf(line.key) === "must" ? "Must" : "Would like"}${comment ? ` — ${comment}` : ""}` : undefined}
+                            aria-label={`${DAY_NAMES[day]} ${clockOf(time)}: ${kind === "cant" ? "can't teach" : kind === "prefer" ? "would rather" : "fine"}`}
+                            className="flex flex-col overflow-hidden bg-white"
+                            style={{ height: size === 1 ? 20 : size === 0.5 ? 14 : 10 }}
+                          >
+                            {quarters.map((quarter) => (
+                              <span
+                                key={quarter.hour}
+                                className={`block min-h-0 flex-1 ${quarter.kind ? "" : Number.isInteger(quarter.hour) ? "border-t border-[#e4e8ef]" : ""}`}
+                                style={quarter.kind ? CELL_TONES[quarter.kind][quarter.level] : undefined}
+                              />
+                            ))}
+                          </div>
                         </td>
                       );
                     })}
@@ -89,17 +106,7 @@ export function WishesSummary({
                 ))}
               </tbody>
             </table>
-            <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.cant.must} />
-                <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.cant.would} /> Can&rsquo;t teach
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.prefer.must} />
-                <span className="inline-block h-3 w-3 rounded-sm" style={CELL_TONES.prefer.would} /> Would rather
-              </span>
-              <span>Solid is a Must, hatched a Would like.</span>
-            </p>
+            <WishesLegend />
           </>
         ) : (
           <p className="text-sm text-[#98a2b3]">Nothing painted: every hour is fine.</p>
