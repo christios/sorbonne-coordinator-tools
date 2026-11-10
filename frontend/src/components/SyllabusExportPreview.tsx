@@ -102,7 +102,7 @@ export function SyllabusExportPreview({ syllabusId }: { syllabusId: string }) {
         <Rows rows={[
           ["Books", resources(record(content.bibliography).books)],
           ["Websites", resources(record(content.bibliography).websites)],
-          ["Journal articles", resources(record(content.bibliography).articles)],
+          ["Journal articles", resources(record(content.bibliography).journalArticles)],
         ]} />
       </Block>
 

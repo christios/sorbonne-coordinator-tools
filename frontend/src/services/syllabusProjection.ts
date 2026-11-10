@@ -58,7 +58,7 @@ export function previewProjection(syllabus: Syllabus): Projection {
     bibliography: pairs([
       ["Books", resources(bibliography.books)],
       ["Websites", resources(bibliography.websites)],
-      ["Journal Articles", resources(bibliography.articles)],
+      ["Journal Articles", resources(bibliography.journalArticles)],
     ]),
     assessments: rows(assessment.items).map((item) => [
       byWeek ? text(item.week) : displayDate(item.date),
