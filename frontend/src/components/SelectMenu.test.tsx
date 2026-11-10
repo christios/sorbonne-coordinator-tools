@@ -257,4 +257,10 @@ describe("a multi-select says what is chosen", () => {
     // The whole list is still there for anyone who hovers.
     expect(trigger.querySelector("[title]")?.getAttribute("title")).toContain("FY, L1, L2, L3, M1");
   });
+  it("gives a menu that opens by itself the same height limit as one clicked open, so it scrolls", () => {
+    const options = Array.from({ length: 60 }, (_, index) => ({ value: `c${index}`, label: `Course ${index}` }));
+    render(<SelectMenu label="Course" value="" onChange={vi.fn()} options={options} searchable defaultOpen />);
+
+    expect(screen.getByRole("listbox", { name: "Course" }).style.maxHeight).not.toBe("");
+  });
 });
