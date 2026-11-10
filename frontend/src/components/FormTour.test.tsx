@@ -18,9 +18,21 @@ describe("a guided tour's card", () => {
     render(<FormTour steps={steps} at={0} onStep={() => {}} onClose={() => {}} />);
     const arrow = document.querySelector<HTMLElement>("[data-tour-arrow]");
     expect(arrow).not.toBeNull();
+    expect(arrow!.dataset.tourArrow).toBe("above");
     // Over the control, pointing down at its middle.
     expect(arrow!.style.left).toBe(`${300 + 60 - 14}px`);
     expect(arrow!.style.top).toBe(`${400 - 34}px`);
+    toggle.remove();
+  });
+
+  it("puts the arrow to the left of the control when the step asks, pointing right at it", () => {
+    const toggle = placed(300, 400, 220, 24);
+    const steps: TourStep[] = [{ id: "one", title: "How much it matters", body: "", target: () => toggle, pointAt: () => toggle, pointFrom: "left" }];
+    render(<FormTour steps={steps} at={0} onStep={() => {}} onClose={() => {}} />);
+    const arrow = document.querySelector<HTMLElement>("[data-tour-arrow]");
+    expect(arrow!.dataset.tourArrow).toBe("left");
+    expect(arrow!.style.left).toBe(`${300 - 36}px`);
+    expect(arrow!.style.top).toBe(`${400 + 12 - 14}px`);
     toggle.remove();
   });
 

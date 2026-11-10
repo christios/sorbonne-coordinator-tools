@@ -178,7 +178,7 @@ export function WishesLegend() {
 }
 
 /** Each part of the form on a canvas of its own: the week, the limits, the needs. */
-const section = "rounded-xl border border-[#e3e8ef] bg-[#f7f9fc] p-4 sm:p-5";
+const section = "rounded-xl border border-[#d5dde8] bg-[#edf1f6] p-4 sm:p-5";
 const hint = "mt-1 pl-7 text-xs text-[#667085]";
 const field = "w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1.5 text-sm";
 
@@ -275,7 +275,7 @@ function snapshot(parts: {
 }
 
 /** The guided tour's steps, in order (their words are in the form, which they act on). */
-const TOUR = ["paint", "open", "matters", "away", "mark", "limits", "save"] as const;
+const TOUR = ["paint", "open", "matters", "away", "mark", "listed", "limits", "save"] as const;
 
 /** A cell of the grid: a day, and where its stretch of the day starts. */
 type Spot = { day: number; time: number; cell: HTMLElement };
@@ -945,6 +945,8 @@ export function WishesForm({
       // The whole calendar with the box, to see the block change as Must or Would like is chosen.
       target: () => [part("toolbar"), gridBox.current, open ? popover.current : null],
       pointAt: () => popover.current?.querySelector('[role="radiogroup"]'),
+      // Beside the switch, outside its box: over it would cover the box's words.
+      pointFrom: "left",
     },
     {
       id: "away",
@@ -971,6 +973,20 @@ export function WishesForm({
       target: () => [part("which-week"), part("toolbar"), gridBox.current, open ? popover.current : null],
       pointAt: () =>
         open ? popover.current?.querySelector("input") : gridBox.current?.querySelector('thead button[aria-label$="mark away all day"]'),
+      pointFrom: "left",
+    },
+    {
+      id: "listed",
+      title: "Your time away",
+      body: (
+        <>
+          Every time away shows in this list, with its reason. Click one to go back to its week; <b>×</b> takes it off.
+        </>
+      ),
+      // The light grows from the calendar to take in the list under it.
+      target: () => [part("which-week"), part("toolbar"), gridBox.current, part("away-list")],
+      pointAt: () => part("away-list"),
+      pointFrom: "left",
     },
     {
       id: "limits",
@@ -1625,7 +1641,7 @@ export function WishesForm({
           )}
         </div>
         {away.length ? (
-          <div className="mt-3 rounded-md bg-[#faf8fd] px-3 py-2" aria-label="Time away">
+          <div data-tour="away-list" className="mt-3 rounded-md bg-[#faf8fd] px-3 py-2" aria-label="Time away">
             <p className="text-xs font-semibold text-[#6b4fa0]">Time away</p>
             <ul className="mt-1 grid gap-0.5">
               {away.map((entry) => (

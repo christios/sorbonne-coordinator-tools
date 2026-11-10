@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowLeft, ArrowUp, Check, Compass, MousePointerClick, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, MousePointerClick, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -24,6 +24,8 @@ export type TourStep = {
   instantNext?: boolean;
   /** The control to try, inside the lit part: an arrow bounces beside it. */
   pointAt?: () => Element | null | undefined;
+  /** Where the arrow sits: over the control (the default) or to its left, pointing right. */
+  pointFrom?: "above" | "left";
   /** The part of the page to light up — or several, lit as one; none puts the card in the middle. */
   target?: () => Element | null | (Element | null)[];
   /** Buttons in place of Next, for the last step: keep or clear what was tried. */
@@ -261,25 +263,27 @@ export function FormTour({
             : { left: "50%", top: "50%", width: 0, height: 0, boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.75)" }
         }
       />
-      {arrow ? (
-        // Here: a bouncing arrow at the control to try, over it if there is room, else under it.
-        <span
-          aria-hidden="true"
-          data-tour-arrow
-          className="pointer-events-none fixed z-[104]"
-          style={
-            arrow.top > 44
-              ? { left: arrow.left + arrow.width / 2 - 14, top: arrow.top - 34 }
-              : { left: arrow.left + arrow.width / 2 - 14, top: arrow.top + arrow.height + 6 }
-          }
-        >
-          <span
-            className={`grid h-7 w-7 place-items-center rounded-full bg-[#1f4e79] text-white shadow-lg ring-2 ring-white ${arrow.top > 44 ? "tour-arrow-down" : "tour-arrow-up"}`}
-          >
-            {arrow.top > 44 ? <ArrowDown size={15} strokeWidth={2.5} /> : <ArrowUp size={15} strokeWidth={2.5} />}
-          </span>
-        </span>
-      ) : null}
+      {arrow
+        ? (() => {
+            // Here: a bouncing arrow at the control to try — to its left if the step says so and
+            // there is room, else over it, else under it.
+            const from = step.pointFrom === "left" && arrow.left > 40 ? "left" : arrow.top > 44 ? "above" : "below";
+            const place =
+              from === "left"
+                ? { left: arrow.left - 36, top: arrow.top + arrow.height / 2 - 14 }
+                : from === "above"
+                  ? { left: arrow.left + arrow.width / 2 - 14, top: arrow.top - 34 }
+                  : { left: arrow.left + arrow.width / 2 - 14, top: arrow.top + arrow.height + 6 };
+            const Icon = from === "left" ? ArrowRight : from === "above" ? ArrowDown : ArrowUp;
+            return (
+              <span aria-hidden="true" data-tour-arrow={from} className="pointer-events-none fixed z-[104]" style={place}>
+                <span className={`grid h-7 w-7 place-items-center rounded-full bg-[#1f4e79] text-white shadow-lg ring-2 ring-white tour-arrow-${from}`}>
+                  <Icon size={15} strokeWidth={2.5} />
+                </span>
+              </span>
+            );
+          })()
+        : null}
       <div
         ref={card}
         data-tour-card

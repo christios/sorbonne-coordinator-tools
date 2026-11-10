@@ -185,8 +185,10 @@ main > div.max-w-6xl {
 /* The tour's arrow at the control to try: a slow bounce towards it. */
 @keyframes tour-arrow-down { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
 @keyframes tour-arrow-up { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
-.tour-arrow-down { animation: tour-arrow-down 1s ease-in-out infinite; }
-.tour-arrow-up { animation: tour-arrow-up 1s ease-in-out infinite; }
+@keyframes tour-arrow-right { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(6px); } }
+.tour-arrow-above { animation: tour-arrow-down 1s ease-in-out infinite; }
+.tour-arrow-below { animation: tour-arrow-up 1s ease-in-out infinite; }
+.tour-arrow-left { animation: tour-arrow-right 1s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .tour-arrow-down, .tour-arrow-up { animation: none; }
+  .tour-arrow-above, .tour-arrow-below, .tour-arrow-left { animation: none; }
 }
