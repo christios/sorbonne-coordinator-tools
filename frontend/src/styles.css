@@ -120,3 +120,64 @@ main > div.max-w-6xl {
     font-size: 16px;
   }
 }
+
+/*
+ * The guided tour shows how the week is painted (10 Nov 2026): a hand presses a cell and
+ * drags down, the stroke filling behind it, then lets go; over and over until somebody
+ * paints. The parent says how far the hand goes, in --tour-drag. Still where motion is
+ * turned down: the stroke drawn, the hand at its end.
+ */
+@keyframes tour-paint-stroke {
+  0%, 16% { transform: scaleY(0); opacity: 1; }
+  62%, 84% { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(1); opacity: 0; }
+}
+@keyframes tour-paint-hand {
+  0% { transform: translateY(-12px); opacity: 0; }
+  8% { transform: translateY(0); opacity: 1; }
+  16% { transform: translateY(0) scale(0.86); opacity: 1; }
+  62% { transform: translateY(var(--tour-drag)) scale(0.86); opacity: 1; }
+  72%, 84% { transform: translateY(var(--tour-drag)) scale(1); opacity: 1; }
+  100% { transform: translateY(var(--tour-drag)) scale(1); opacity: 0; }
+}
+@keyframes tour-paint-press {
+  0%, 12% { transform: scale(0.3); opacity: 0; }
+  16% { transform: scale(0.6); opacity: 0.9; }
+  34%, 100% { transform: scale(1.7); opacity: 0; }
+}
+.tour-paint-stroke { transform-origin: top; animation: tour-paint-stroke 2.8s ease-in-out infinite; }
+.tour-paint-hand { animation: tour-paint-hand 2.8s ease-in-out infinite; }
+.tour-paint-press { animation: tour-paint-press 2.8s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-paint-stroke { animation: none; }
+  .tour-paint-hand { animation: none; transform: translateY(var(--tour-drag)); }
+  .tour-paint-press { display: none; }
+}
+
+/* And where to click once a block is painted: the hand taps it, a ring spreading from the tap. */
+@keyframes tour-tap-hand {
+  0%, 20% { transform: translateY(-6px) scale(1); }
+  35% { transform: translateY(0) scale(0.84); }
+  50%, 100% { transform: translateY(-6px) scale(1); }
+}
+@keyframes tour-tap-press {
+  0%, 32% { transform: scale(0.3); opacity: 0; }
+  38% { transform: scale(0.6); opacity: 0.9; }
+  70%, 100% { transform: scale(1.6); opacity: 0; }
+}
+.tour-tap-hand { animation: tour-tap-hand 1.6s ease-in-out infinite; }
+.tour-tap-press { animation: tour-tap-press 1.6s ease-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-tap-hand { animation: none; }
+  .tour-tap-press { animation: none; opacity: 0.6; }
+}
+
+/* The block's pop-over, opened by the click the tour asked for: it grows out of the block. */
+@keyframes tour-pop-in {
+  from { opacity: 0; transform: translateY(-8px) scale(0.86); }
+  to { opacity: 1; transform: none; }
+}
+.tour-pop-in { transform-origin: 24px -8px; animation: tour-pop-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+@media (prefers-reduced-motion: reduce) {
+  .tour-pop-in { animation: none; }
+}

@@ -1,7 +1,8 @@
-import { ChevronLeft, ChevronRight, Compass, MessageSquare, Trash2, X } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { ChevronLeft, ChevronRight, Compass, MessageSquare, Pointer, Trash2, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
-import { FormTour, TourInvite, rememberTourOffered, tourOffered, type TourStep } from "@/components/FormTour";
+import { FormTour, rememberTourTaken, tourTaken, type TourStep } from "@/components/FormTour";
 import { Tip, TipDo } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
@@ -83,6 +84,17 @@ export function finenessOf(cells: WishCell[]): Fineness {
       return true;
     });
   return fits(1) ? 1 : fits(0.5) ? 0.5 : 0.25;
+}
+
+/** A brush as its button looks, inside a sentence: the tour names them so they are found at a glance. */
+function BrushLook({ value }: { value: Brush }) {
+  const option = [...BRUSHES, ...AWAY_BRUSHES].find((each) => each.value === value);
+  if (!option) return null;
+  return (
+    <span className={`mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px align-middle text-[11px] font-semibold ${option.on}`}>
+      <span className="inline-block h-2 w-2 rounded-sm" style={option.swatch} /> {option.label}
+    </span>
+  );
 }
 
 /** The line over a quarter of the grid: firm on the hour, light on the half hour, dashed on the quarters. */
@@ -223,7 +235,7 @@ function snapshot(parts: {
 }
 
 /** The guided tour's steps, in order (their words are in the form, which they act on). */
-const TOUR = ["paint", "matters", "away", "mark", "limits", "save"] as const;
+const TOUR = ["paint", "open", "matters", "away", "mark", "limits", "save"] as const;
 
 /** A cell of the grid: a day, and where its stretch of the day starts. */
 type Spot = { day: number; time: number; cell: HTMLElement };
@@ -261,6 +273,7 @@ export function WishesForm({
   onSave,
   onCancel,
   onDirtyChange,
+  tourButtonIn,
 }: {
   collection: WishCollection;
   /** The semester's teaching weeks, to mark time away on; without them, weeks of the calendar. */
@@ -278,6 +291,8 @@ export function WishesForm({
   onCancel?: () => void;
   /** Told whenever the form comes to differ from what it opened with, or stops differing. */
   onDirtyChange?: (dirty: boolean) => void;
+  /** Where the Guided tour button goes: top right of whatever holds the form, outside it. Above the form if not given. */
+  tourButtonIn?: HTMLElement | null;
 }) {
   const [cells, setCells] = useState<Map<string, WishKind>>(
     () => new Map((initial?.cells ?? []).map((cell) => [`${cell.day}:${cell.hour}`, cell.kind])),
@@ -310,11 +325,23 @@ export function WishesForm({
   const popover = useRef<HTMLDivElement>(null);
   // The guided tour: the step it is on, if it is on; offered the first time the form opens in a browser.
   const [tourAt, setTourAt] = useState<number | null>(null);
-  const [offerTour, setOfferTour] = useState(() => !tourOffered());
+  // Taken once, to its end, before the form is used in a browser; then again whenever wanted.
+  const [tourRequired, setTourRequired] = useState(() => !tourTaken());
   // Where each step started from — how much was painted, how much away — to tell when its "Try it" is done.
-  const [tourBase, setTourBase] = useState({ painted: 0, away: 0, sawOpen: false });
+  const [tourBase, setTourBase] = useState({ painted: "", away: "", sawOpen: false });
+  // The cell a stroke was last let go on, for the tour to show where to click.
+  const lastStroke = useRef<{ day: number; time: number } | null>(null);
+  // While the tour teaches clicking a block, painting one does not open it by itself.
+  const quietPaint = useRef(false);
+  // And clicking it opens it a moment later, once the tour has said so: the block clicked, and
+  // whether the pop-over came from it (it grows out of the block).
+  const clickOpensLater = useRef(false);
+  const [tourClicked, setTourClicked] = useState<Spot | null>(null);
+  const [popFromTour, setPopFromTour] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const tourStepId = tourAt === null ? "" : TOUR[tourAt];
+  // Where the tour shows a stroke being painted, over the grid: a few hours of one afternoon.
+  const [demo, setDemo] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   /*
    * The stroke under way: its colour, the cell it last reached, and that cell on the page. A
    * press on a painted cell waits: let go where it was pressed, it opens that block; dragged
@@ -335,6 +362,10 @@ export function WishesForm({
     [cells],
   );
   const lines = useMemo(() => wishLines(asList, limits), [asList, limits]);
+  // The week and the time away as they stand, said once: a tour step watches them change.
+  const cellsKey = useMemo(() => [...cells].map(([key, kind]) => `${key}=${kind}`).sort().join(","), [cells]);
+  const awayKey = useMemo(() => [...awayAt].sort().join(","), [awayAt]);
+  const painted = lines.some((line) => line.kind === "cant" || line.kind === "prefer");
   const away = useMemo(() => awayEntries(awayAt, awayWhy, collection), [awayAt, awayWhy, collection]);
   const levelOf = (key: string): WishLevel => levels[key] ?? "would";
   const musts = lines.filter((line) => levelOf(line.key) === "must").length;
@@ -468,7 +499,7 @@ export function WishesForm({
     // Only the steps about a pop-over keep one open: come back to an earlier step, and it is closed.
     const keepsOpen = id === "matters" || id === "mark";
     if (!keepsOpen) setOpen(null);
-    setTourBase({ painted: cells.size, away: awayAt.size, sawOpen: keepsOpen && Boolean(open) });
+    setTourBase({ painted: cellsKey, away: awayKey, sawOpen: keepsOpen && Boolean(open) });
     if (id === "paint" || id === "away") {
       if (week) showWeek(null);
       if (brush === "erase") setBrush("cant");
@@ -477,10 +508,67 @@ export function WishesForm({
       if (!week) showWeek(firstWeek());
       setAwayBrush("away");
     }
+    if (id === "open") setTourClicked(null);
+    // The block clicked on the step before opens now, growing out of it.
+    if (id === "matters" && tourClicked) {
+      setPopFromTour(true);
+      setToOpen(tourClicked);
+      setTourClicked(null);
+    }
+    // Come to the end, the tour has been taken: the form is free to use.
+    if (id === "save") {
+      rememberTourTaken();
+      setTourRequired(false);
+    }
   };
   useEffect(() => {
     if (tourStepId) entering.current(tourStepId);
   }, [tourStepId]);
+  // The painting shown while the tour asks for it, until somebody paints: Tuesday from 14:00, three hours.
+  const showDemo = tourStepId === "paint" && cellsKey === tourBase.painted && !stroking;
+  // And where to click, once there is a block: a hand tapping on it.
+  const showTap = tourStepId === "open" && !open && !tourClicked && painted;
+  quietPaint.current = tourStepId === "paint" || tourStepId === "open";
+  clickOpensLater.current = tourStepId === "open";
+  useLayoutEffect(() => {
+    if (!showDemo && !showTap) {
+      setDemo(null);
+      return;
+    }
+    const measure = () => {
+      const box = gridBox.current;
+      let first: Element | null | undefined;
+      let last: Element | null | undefined;
+      if (showTap) {
+        // The cell last painted, else any painted one, by the row it starts.
+        const rowOf = (hour: number) => collection.firstHour + Math.floor((hour - collection.firstHour) / fineness) * fineness;
+        const any = asList.find((cell) => cell.kind === "cant" || cell.kind === "prefer");
+        const at = lastStroke.current && cells.get(`${lastStroke.current.day}:${lastStroke.current.time}`) ? lastStroke.current : any ? { day: any.day, time: rowOf(any.hour) } : null;
+        first = last = at ? box?.querySelector(`[data-cell="${at.day}:${at.time}"]`) : null;
+      } else {
+        const day = collection.days.includes(2) ? 2 : collection.days[Math.min(1, collection.days.length - 1)];
+        const from = Math.max(collection.firstHour, Math.min(14, collection.lastHour - 1));
+        const to = Math.min(from + 3, collection.lastHour);
+        first = box?.querySelector(`[data-cell="${day}:${from}"]`);
+        last = box?.querySelector(`[data-cell="${day}:${to - fineness}"]`);
+      }
+      if (!box || !first || !last) return setDemo(null);
+      const frame = box.getBoundingClientRect();
+      const top = first.getBoundingClientRect();
+      const bottom = last.getBoundingClientRect();
+      setDemo({ left: top.left - frame.left, top: top.top - frame.top, width: top.width, height: bottom.bottom - top.top });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Measured again when the cells change: a block painted, or the cells made finer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDemo, showTap, fineness, collection, cellsKey]);
+
+  useEffect(() => {
+    if (!open) setPopFromTour(false);
+  }, [open]);
+
   // The block opened while the tour is on how much it matters: closing it is what was to try.
   useEffect(() => {
     if (open && (tourStepId === "matters" || tourStepId === "mark")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
@@ -491,8 +579,15 @@ export function WishesForm({
       const held = stroke.current;
       stroke.current = null;
       setStroking(false);
-      // Let go: the block painted opens, to say how much it matters. Not after clearing.
-      if (held && (held.waiting || held.with_ !== "erase")) setToOpen(held.last);
+      if (held && !held.waiting && held.with_ !== "erase" && held.with_ !== "away") lastStroke.current = { day: held.last.day, time: held.last.time };
+      // A block clicked while the tour teaches it: it opens once the tour has said "nicely done".
+      if (held?.waiting && clickOpensLater.current) {
+        setTourClicked(held.last);
+        return;
+      }
+      // Let go: the block painted opens, to say how much it matters. Not after clearing, and not
+      // while the tour is teaching to click it open.
+      if (held && (held.waiting || (held.with_ !== "erase" && !quietPaint.current))) setToOpen(held.last);
     };
     window.addEventListener("pointerup", stop);
     return () => window.removeEventListener("pointerup", stop);
@@ -673,7 +768,9 @@ export function WishesForm({
   const strokeAt = stroking ? stroke.current?.last : undefined;
   const litKey = week
     ? undefined
-    : (open?.key ?? (strokeAt ? lineAt(strokeAt.day, strokeAt.time)?.key : resting ? lineAt(resting.day, resting.time)?.key : undefined));
+    : (open?.key ??
+      (tourClicked ? lineAt(tourClicked.day, tourClicked.time)?.key : undefined) ??
+      (strokeAt ? lineAt(strokeAt.day, strokeAt.time)?.key : resting ? lineAt(resting.day, resting.time)?.key : undefined));
   // On a single week, the day away open or rested on lights up.
   const litDate = week ? openDate || (resting ? dateOf(resting.day) : "") : "";
   const yours = voice === "you" ? "your" : "their";
@@ -717,11 +814,18 @@ export function WishesForm({
   const tried = tourFrom.current !== null && current !== tourFrom.current.said;
   const startTour = () => {
     tourFrom.current = { said: current, cells, limits, awayAt, awayWhy, needs, note, levels, comments, reason };
-    rememberTourOffered();
-    setOfferTour(false);
     setOpen(null);
     setTourAt(0);
   };
+  // Not taken yet in this browser: it starts as the form opens, and the form waits for it.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!tourRequired || autoStarted.current) return;
+    autoStarted.current = true;
+    startTour();
+    // Once, as the form opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const endTour = () => {
     tourFrom.current = null;
     setTourAt(null);
@@ -746,31 +850,54 @@ export function WishesForm({
     voice === "you"
       ? "Save a draft to come back to it, or Submit when you're done. You can change your answer until the deadline."
       : "Save a draft to come back to it, or Submit when it's complete. It's kept as entered by you.";
-  const painted = lines.some((line) => line.kind === "cant" || line.kind === "prefer");
+  const tourButton = (
+    <button
+      type="button"
+      onClick={startTour}
+      disabled={tourAt !== null}
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#cfe0f1] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa] disabled:opacity-50"
+    >
+      <Compass size={14} aria-hidden="true" /> Guided tour
+    </button>
+  );
   const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
     {
       id: "paint",
       title: "Paint the week",
       body: (
         <>
-          Pick <b>Can&rsquo;t teach</b> (red) or <b>Would rather</b> (green), then paint across the hours. Hours left white are
-          fine.
+          {tourRequired ? (
+            <span className="mb-1.5 block">Before you start: a one-minute tour, trying each part as you go. You can clear it all at the end.</span>
+          ) : null}
+          Pick <BrushLook value="cant" /> or <BrushLook value="prefer" />, then paint across the hours. Hours left white are fine.
         </>
       ),
       tryIt: "Drag down a few hours on any day.",
-      done: cells.size > tourBase.painted && !stroking,
+      done: cellsKey !== tourBase.painted && !stroking,
       target: () => [part("toolbar"), gridBox.current],
+    },
+    {
+      id: "open",
+      title: "Open a block",
+      body: <>Click a painted block to open its box: there you say how much it matters, write a comment, or remove it.</>,
+      tryIt: painted ? "Click the block you painted." : "Paint a few hours, then click them.",
+      done: Boolean(tourClicked || (open && openLine)),
+      doneWords: "Nicely done: opening it…",
+      // Clicked: a moment to see the block chosen, then it opens and the tour goes on by itself.
+      autoNext: 2000,
+      target: () => gridBox.current,
     },
     {
       id: "matters",
       title: "How much it matters",
       body: (
         <>
-          Each block is a <b>Must</b> or a <b>Would like</b>. There are only {collection.mustQuota} Musts, so keep them for what
-          really counts. A word on why helps.
+          {open && openLine ? <span className="mb-1.5 block font-semibold text-[#1f4e79]">Your click opened this box.</span> : null}
+          Choose <b>Must</b> or <b>Would like</b>: only {collection.mustQuota} can be Musts, so keep them for what really counts.
+          Then type in the <b>Comment</b> box why it matters, e.g. &ldquo;School run&rdquo;: the coordinator sees it.
         </>
       ),
-      tryIt: open && openLine ? "Choose Must or Would like, then press Done." : painted ? "Click a painted block." : "Paint a few hours, then click them.",
+      tryIt: open && openLine ? "Choose Must or Would like, write a comment if you like, then press Done." : painted ? "Click a painted block to open it again." : "Paint a few hours, then click them.",
       done: tourBase.sawOpen && !open,
       target: () => (open ? popover.current : gridBox.current),
     },
@@ -791,7 +918,7 @@ export function WishesForm({
       title: "Mark the time away",
       body: <>Find the week with the arrows. Paint the hours away, or click a day&rsquo;s name for all of it, and say why if you like.</>,
       tryIt: open ? "Say why, if you like, then press Done." : "Click a day's name.",
-      done: awayAt.size > tourBase.away && !stroking && !open,
+      done: awayKey !== tourBase.away && !stroking && !open,
       target: () => (open ? popover.current : [part("toolbar"), gridBox.current]),
     },
     {
@@ -823,24 +950,24 @@ export function WishesForm({
 
   return (
     <div ref={root} className="space-y-4">
-      {offerTour && tourAt === null ? (
-        <TourInvite
-          onStart={startTour}
-          onDismiss={() => {
-            rememberTourOffered();
-            setOfferTour(false);
-          }}
-        />
-      ) : null}
       {tourAt !== null ? (
         <FormTour
           steps={tourSteps}
           at={tourAt}
           onStep={setTourAt}
-          // Ended early with things tried: the last step, to keep them or clear them.
-          onClose={() => (tried && tourAt !== tourSteps.length - 1 ? setTourAt(tourSteps.length - 1) : endTour())}
+          endWords={[
+            tried && tourAt !== tourSteps.length - 1 ? "What you tried during the tour is cleared." : "",
+            tourRequired
+              ? "Save and Submit stay off until the tour is taken to its end: start it again from Guided tour, top right."
+              : "You can take it again from Guided tour, top right.",
+          ]
+            .filter(Boolean)
+            .join(" ")}
+          // Finished, or ended early: what was tried on the way is cleared, unless kept at the end.
+          onClose={() => (tried && tourAt !== tourSteps.length - 1 ? clearTried() : endTour())}
         />
       ) : null}
+      {tourButtonIn ? createPortal(tourButton, tourButtonIn) : <div className="flex justify-end">{tourButton}</div>}
       {notice ? (
         <div
           role={noticeTone === "warning" ? "note" : undefined}
@@ -854,16 +981,6 @@ export function WishesForm({
       <section aria-label={voice === "you" ? "Your week" : "Their week"} className={section}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <SectionTitle number={1}>{voice === "you" ? "Your" : "Their"} week</SectionTitle>
-          <div className="flex items-center gap-2">
-          {offerTour ? null : (
-            <button
-              type="button"
-              onClick={startTour}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa]"
-            >
-              <Compass size={13} aria-hidden="true" /> Guided tour
-            </button>
-          )}
           <div role="radiogroup" aria-label="Which week" data-tour="which-week" className="inline-flex rounded-md bg-[#f2f4f7] p-0.5 text-xs font-semibold">
             {[
               { value: false, label: "Every week" },
@@ -882,7 +999,6 @@ export function WishesForm({
                 {option.label}
               </button>
             ))}
-          </div>
           </div>
         </div>
         <p className={hint}>
@@ -1068,6 +1184,7 @@ export function WishesForm({
                         <button
                           type="button"
                           disabled={holiday}
+                          data-cell={`${day}:${time}`}
                           aria-label={`${DAY_NAMES[day]}${week ? ` ${formatDayAndMonth(date)}` : ""} ${clockOf(time)}: ${said}`}
                           aria-haspopup={holds ? "dialog" : undefined}
                           onPointerDown={(event) => {
@@ -1105,7 +1222,8 @@ export function WishesForm({
                           onClick={(event) => {
                             // Enter or Space on a cell: the pointer acts on press, the keyboard here.
                             if (event.detail !== 0) return;
-                            if (holds) openAt({ day, time, cell: event.currentTarget });
+                            if (holds && clickOpensLater.current) setTourClicked({ day, time, cell: event.currentTarget });
+                            else if (holds) openAt({ day, time, cell: event.currentTarget });
                             else paint(here, here, brushNow);
                           }}
                           className="flex w-full flex-col overflow-hidden bg-white disabled:cursor-default"
@@ -1146,6 +1264,47 @@ export function WishesForm({
               </tbody>
             </table>
           </div>
+          {showTap && demo ? (
+            // Where to click: a hand tapping on the block painted.
+            <div
+              aria-hidden="true"
+              data-tour-demo="tap"
+              className="pointer-events-none absolute z-10"
+              style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height }}
+            >
+              <span className="absolute left-1/2 top-1/2 -ml-4 -mt-4 h-8 w-8">
+                <span className="tour-tap-press block h-8 w-8 rounded-full border-2 border-[#1f4e79]" />
+              </span>
+              <span className="absolute left-1/2 top-1/2 -ml-[9px] -mt-[3px]">
+                <span className="tour-tap-hand block">
+                  <Pointer size={24} strokeWidth={1.75} className="fill-white text-[#171717] drop-shadow-[0_1px_2px_rgba(16,24,40,0.35)]" />
+                </span>
+              </span>
+            </div>
+          ) : null}
+          {showDemo && demo ? (
+            // How to paint, shown and not told: a hand presses, drags down, and the stroke fills behind it.
+            <div
+              aria-hidden="true"
+              data-tour-demo
+              className="pointer-events-none absolute z-10"
+              style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height, ["--tour-drag" as string]: `${demo.height - 6}px` }}
+            >
+              {/* In the colour of the brush picked: red for can't teach, green for would rather. */}
+              <span
+                className="tour-paint-stroke absolute inset-x-1 top-0 h-full rounded-sm"
+                style={{ backgroundColor: brush === "prefer" ? "rgba(79, 159, 116, 0.6)" : "rgba(217, 100, 106, 0.6)" }}
+              />
+              <span className="absolute left-1/2 top-0 -ml-3 -mt-3 h-6 w-6">
+                <span className={`tour-paint-press block h-6 w-6 rounded-full border-2 ${brush === "prefer" ? "border-[#2e7d55]" : "border-[#a6292f]"}`} />
+              </span>
+              <span className="absolute left-1/2 top-0 -ml-[9px] -mt-[3px]">
+                <span className="tour-paint-hand block">
+                  <Pointer size={24} strokeWidth={1.75} className="fill-white text-[#171717] drop-shadow-[0_1px_2px_rgba(16,24,40,0.35)]" />
+                </span>
+              </span>
+            </div>
+          ) : null}
           {/*
            * One bubble for the whole grid, beside the cell the pointer rests on: a bubble on
            * every cell made a week of quarter hours slow to draw, and only one is ever open.
@@ -1167,7 +1326,7 @@ export function WishesForm({
                 setOpen(null);
                 open.cell.focus();
               }}
-              className="absolute z-20 grid w-72 gap-2.5 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg"
+              className={`absolute z-20 grid w-72 gap-2.5 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg ${popFromTour ? "tour-pop-in" : ""}`}
               style={{ left: open.left, top: open.top }}
             >
               <div className="flex items-start justify-between gap-2">
@@ -1218,11 +1377,14 @@ export function WishesForm({
               <div className="flex items-center justify-between">
                 <button
                   type="button"
+                  // Not while the tour is on: the block is what its steps are about.
+                  disabled={tourAt !== null}
+                  title={tourAt !== null ? "Not during the guided tour" : undefined}
                   onClick={() => {
                     removeLine(openLine);
                     setOpen(null);
                   }}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:text-[#d0a5a8] disabled:hover:bg-transparent"
                 >
                   <Trash2 size={13} aria-hidden="true" /> Remove the whole block
                 </button>
@@ -1300,6 +1462,8 @@ export function WishesForm({
               <div className="flex items-center justify-between">
                 <button
                   type="button"
+                  disabled={tourAt !== null}
+                  title={tourAt !== null ? "Not during the guided tour" : undefined}
                   onClick={() => {
                     removeAway({ from: openDate, to: openDate, reason: "" });
                     setAwayWhy((current) => {
@@ -1309,7 +1473,7 @@ export function WishesForm({
                     });
                     setOpen(null);
                   }}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3]"
+                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:text-[#d0a5a8] disabled:hover:bg-transparent"
                 >
                   <Trash2 size={13} aria-hidden="true" /> Not away this day
                 </button>
@@ -1439,7 +1603,7 @@ export function WishesForm({
         <button
           type="button"
           data-tour="save"
-          disabled={busy}
+          disabled={busy || tourRequired}
           onClick={() => submit(false)}
           className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
         >
@@ -1448,7 +1612,7 @@ export function WishesForm({
         <button
           type="button"
           data-tour="save"
-          disabled={busy}
+          disabled={busy || tourRequired}
           onClick={() => submit(true)}
           className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
         >

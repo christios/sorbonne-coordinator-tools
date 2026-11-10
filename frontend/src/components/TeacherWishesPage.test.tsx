@@ -41,6 +41,12 @@ beforeEach(() => {
   vi.spyOn(wishes, "fetchWishSemester").mockResolvedValue(SEMESTER);
 });
 
+
+// The guided tour is taken once in a browser before the form is used: here it has been.
+beforeEach(() => {
+  window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
+});
+
 describe("a teacher's answer, opened from the list", () => {
   it("is read first, and changed only through Edit their answer, with a warning", async () => {
     page();

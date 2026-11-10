@@ -23,14 +23,18 @@ const day = (value: string) =>
   value ? new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
 
 /** The page's frame: the university's name over a card, and nothing of the coordinators' app. */
-function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+function Frame({ children, wide = false, aside }: { children: ReactNode; wide?: boolean; aside?: ReactNode }) {
   return (
     <main className="min-h-screen bg-[#f7f8fa] px-4 py-8 sm:py-12">
       <div className={`mx-auto ${wide ? "max-w-5xl" : "max-w-lg"}`}>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#a6292f]">Sorbonne University Abu Dhabi</p>
-        <h1 className="mt-1 flex items-center gap-2 text-xl font-semibold text-[#171717]">
-          <CalendarHeart size={20} className="text-[#1f4e79]" aria-hidden="true" /> Timetable preferences and constraints request
-        </h1>
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+          <h1 className="flex items-center gap-2 text-xl font-semibold text-[#171717]">
+            <CalendarHeart size={20} className="text-[#1f4e79]" aria-hidden="true" /> Timetable preferences and constraints request
+          </h1>
+          {/* Top right, outside the card: the form's Guided tour. */}
+          {aside}
+        </div>
         <div className="mt-5 rounded-xl border border-[#d9dee7] bg-white p-5 shadow-sm sm:p-7">{children}</div>
       </div>
     </main>
@@ -54,6 +58,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const [editing, setEditing] = useState(false);
   const [startFrom, setStartFrom] = useState<Wishes | null>(null);
   const [saved, setSaved] = useState<"" | "draft" | "submitted">("");
+  const [tourSlot, setTourSlot] = useState<HTMLElement | null>(null);
 
   // Leaving with changes not saved asks first, as the coordinators' window does.
   const dirty = useRef(false);
@@ -169,7 +174,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const { collection, window: open } = data;
   const answerBy = open.reopenedUntil && open.deadline && open.reopenedUntil > open.deadline ? open.reopenedUntil : open.deadline;
   return (
-    <Frame wide>
+    <Frame wide aside={<span ref={setTourSlot} className="flex" />}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eef1f5] pb-4">
         <div>
           <p className="text-base font-semibold text-[#171717]">
@@ -229,6 +234,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
               key={`${data.wishes?.updatedAt ?? ""}|${startFrom ? "previous" : "fresh"}`}
               collection={collection}
               calendar={data.calendar}
+              tourButtonIn={tourSlot}
               initial={data.wishes ?? startFrom}
               voice="you"
               busy={save.isPending}

@@ -162,6 +162,8 @@ function CollectionSettings({
 export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const client = useQueryClient();
   const { semesters, semester, setTermId, term } = usePortalSemester();
+  // Where the form puts its Guided tour button: the window's header.
+  const [tourSlot, setTourSlot] = useState<HTMLElement | null>(null);
   const wishes = useQuery({
     queryKey: ["wishes", term],
     queryFn: () => fetchWishSemester(term),
@@ -470,9 +472,12 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
           title={answering.row.wishes ? `${answering.row.name}'s preferences` : `Answer for ${answering.row.name}`}
           description={`Timetable preferences and constraints request · ${semesterName}${answering.row.wishes ? ` · ${STATUS[answering.row.wishes.status].words.toLowerCase()}` : ""}`}
           onClose={() => askToLeave("close")}
+          // The form's Guided tour, top right of the window, beside its X.
+          actions={answering.editing ? <span ref={setTourSlot} className="flex" /> : null}
         >
           {answering.editing ? (
             <WishesForm
+              tourButtonIn={tourSlot}
               collection={collection}
               calendar={wishes.data?.calendar}
               initial={answering.row.wishes}

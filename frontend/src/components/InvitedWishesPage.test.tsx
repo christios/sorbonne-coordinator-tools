@@ -38,6 +38,12 @@ beforeEach(() => {
   vi.spyOn(auth, "fetchSignInConfig").mockResolvedValue({ configured: true, clientId: "client.apps.googleusercontent.com" });
 });
 
+
+// The guided tour is taken once in a browser before the form is used: here it has been.
+beforeEach(() => {
+  window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
+});
+
 describe("an invited teacher's link", () => {
   it("says it no longer works when it does not", async () => {
     vi.spyOn(invite, "fetchInvitation").mockRejectedValue(new invite.InviteRefused("This invitation link is not valid any more.", 401));

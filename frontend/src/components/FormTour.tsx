@@ -2,9 +2,11 @@ import { ArrowLeft, Check, Compass, MousePointerClick, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
+
 /**
  * One step of a guided tour: a part of the page lit up, a sentence or two about it, and
- * something to try there. A step with something to try moves on by itself once it is done.
+ * something to try there. A step with something to try offers Next once it is done.
  */
 export type TourStep = {
   id: string;
@@ -14,6 +16,10 @@ export type TourStep = {
   tryIt?: ReactNode;
   /** The thing to try has been done. */
   done?: boolean;
+  /** Done, go on by itself after this many milliseconds, with no Next to press. */
+  autoNext?: number;
+  /** What "Nicely done" says on this step: "Nicely done: opening it…". */
+  doneWords?: string;
   /** The part of the page to light up — or several, lit as one; none puts the card in the middle. */
   target?: () => Element | null | (Element | null)[];
   /** Buttons in place of Next, for the last step: keep or clear what was tried. */
@@ -22,11 +28,26 @@ export type TourStep = {
 
 type Box = { left: number; top: number; width: number; height: number };
 
+/** A thin bar filling up while "Nicely done" shows, on a step that goes on by itself. */
+function Countdown({ ms }: { ms: number }) {
+  const [full, setFull] = useState(false);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setFull(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute bottom-0 left-0 h-0.5 rounded-full bg-[#2e7d55]/50"
+      style={{ width: full ? "100%" : "0%", transition: `width ${ms}ms linear` }}
+    />
+  );
+}
+
 /** Room kept round the lit part, and between it and the card. */
 const PAD = 6;
 const GAP = 12;
-/** How long "Nicely done" shows before the next step. */
-const SETTLE_MS = 900;
+
 
 /** The boxes that scroll or clip round an element, nearest first: kept, as the page does not rebuild them. */
 const SCROLLERS = new WeakMap<Element, Element[]>();
@@ -88,17 +109,22 @@ export function FormTour({
   at,
   onStep,
   onClose,
+  endWords,
 }: {
   steps: TourStep[];
   at: number;
   onStep: (next: number) => void;
-  /** Asked to end: the X, Escape, or the last step's Finish. */
+  /** Ended: the last step's Finish, or the X (or Escape) once the reader is sure. */
   onClose: () => void;
+  /** What ending the tour early means, said in the "are you sure" before it ends. */
+  endWords?: string;
 }) {
   const step = steps[at];
   const [box, setBox] = useState<Box | null>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
   const card = useRef<HTMLDivElement>(null);
+  // The X pressed: are you sure?
+  const [asking, setAsking] = useState(false);
   const last = at === steps.length - 1;
 
   // Where the lit part is, every frame while the tour is on: it moves as the page does.
@@ -119,48 +145,68 @@ export function FormTour({
     };
   }, [target]);
 
-  // A new step brings its part into view, if it is not.
   const stepId = step?.id;
+  // A part lit up is brought into view if it is not — on a new step, and when the part changes
+  // within one (a pop-over opening a moment after the step starts).
+  const shown = useRef<Element | null>(null);
+  // The step's part as it is now, not as it was when the step began: a pop-over opens later.
+  const targetNow = useRef(target);
+  targetNow.current = target;
   useEffect(() => {
-    const found = target?.() ?? null;
-    const parts = (Array.isArray(found) ? found : [found]).filter((element): element is Element => Boolean(element));
-    if (!parts.length) return;
-    // Brought into view whole if it fits, else from its top: all of it, not what shows now.
-    const rects = parts.map((element) => element.getBoundingClientRect());
-    const top = Math.min(...rects.map((rect) => rect.top));
-    const bottom = Math.max(...rects.map((rect) => rect.bottom));
-    const frame = scrollersOf(parts[0])[0]?.getBoundingClientRect();
-    const roomTop = Math.max(0, frame?.top ?? 0);
-    const roomBottom = Math.min(window.innerHeight, frame?.bottom ?? window.innerHeight);
-    if (top < roomTop || bottom > roomBottom) {
-      parts[0].scrollIntoView?.({ block: bottom - top > roomBottom - roomTop ? "start" : "center", behavior: "smooth" });
-    }
-    // Only when the step changes, not every time the page redraws.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    let stopped = false;
+    const later = (then: () => void) =>
+      typeof window.requestAnimationFrame === "function" ? window.requestAnimationFrame(then) : window.setTimeout(then, 16);
+    const look = () => {
+      if (stopped) return;
+      const found = targetNow.current?.() ?? null;
+      const parts = (Array.isArray(found) ? found : [found]).filter((element): element is Element => Boolean(element));
+      if (parts.length && parts[0] !== shown.current) {
+        shown.current = parts[0];
+        // Brought into view whole if it fits, else from its top: all of it, not what shows now.
+        const rects = parts.map((element) => element.getBoundingClientRect());
+        const top = Math.min(...rects.map((rect) => rect.top));
+        const bottom = Math.max(...rects.map((rect) => rect.bottom));
+        const frame = scrollersOf(parts[0])[0]?.getBoundingClientRect();
+        const roomTop = Math.max(0, frame?.top ?? 0);
+        const roomBottom = Math.min(window.innerHeight, frame?.bottom ?? window.innerHeight);
+        if (top < roomTop || bottom > roomBottom) {
+          parts[0].scrollIntoView?.({ block: bottom - top > roomBottom - roomTop ? "start" : "center", behavior: "smooth" });
+        }
+      }
+      later(look);
+    };
+    shown.current = null;
+    look();
+    return () => {
+      stopped = true;
+    };
   }, [stepId]);
 
-  // Done: a beat to see it was, then on to the next.
+  // Done: "Nicely done", and Next — the reader goes on when they have seen it. A step that
+  // goes on by itself does so after its moment, a bar filling meanwhile.
   const done = Boolean(step?.tryIt && step.done);
+  const autoNext = done && !last ? step?.autoNext : undefined;
   useEffect(() => {
-    if (!done || last) return;
-    const timer = window.setTimeout(() => onStep(at + 1), SETTLE_MS);
+    if (!autoNext) return;
+    const timer = window.setTimeout(() => onStep(at + 1), autoNext);
     return () => window.clearTimeout(timer);
-  }, [done, at, last, onStep]);
+  }, [autoNext, at, onStep]);
 
-  // Escape ends the tour, and only the tour: caught before the window round the form sees it.
+  // Escape asks to end the tour, as the X does, and answers "no" when asked: only the tour, caught
+  // before the window round the form sees it.
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       // A pop-over of the page's own, open over it, closes first.
       const popover = (event.target as Element | null)?.closest?.('[role="dialog"]:not([aria-modal="true"])');
-      if (popover && !card.current?.contains(popover)) return;
+      if (!asking && popover && !card.current?.contains(popover)) return;
       event.stopPropagation();
       event.preventDefault();
-      onClose();
+      setAsking((now) => !now);
     };
     window.addEventListener("keydown", escape, true);
     return () => window.removeEventListener("keydown", escape, true);
-  }, [onClose]);
+  }, [asking]);
 
   // The card beside the lit part: under it, else over it, else beside it, else in a corner.
   useLayoutEffect(() => {
@@ -196,9 +242,9 @@ export function FormTour({
                 top: box.top - PAD,
                 width: box.width + PAD * 2,
                 height: box.height + PAD * 2,
-                boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.42), 0 0 0 6px rgba(91, 143, 196, 0.25)",
+                boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.75), 0 0 0 6px rgba(91, 143, 196, 0.35)",
               }
-            : { left: "50%", top: "50%", width: 0, height: 0, boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.42)" }
+            : { left: "50%", top: "50%", width: 0, height: 0, boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.75)" }
         }
       />
       <div
@@ -222,14 +268,14 @@ export function FormTour({
               />
             ))}
           </span>
-          <span className="text-[11px] font-semibold tabular-nums text-[#98a2b3]">
+          <span className="mr-auto text-[11px] font-semibold tabular-nums text-[#98a2b3]">
             {at + 1} of {steps.length}
           </span>
           <button
             type="button"
             aria-label="End the tour"
-            onClick={onClose}
-            className="-mr-1 ml-auto rounded p-1 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#344054]"
+            onClick={() => setAsking(true)}
+            className="-mr-1 rounded p-1 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#344054]"
           >
             <X size={14} aria-hidden="true" />
           </button>
@@ -239,8 +285,9 @@ export function FormTour({
           <div className="mt-1 text-[13px] leading-5 text-[#475467]">{step.body}</div>
           {step.tryIt ? (
             done ? (
-              <p className="mt-3 flex items-center gap-1.5 rounded-md bg-[#e7f4ec] px-2.5 py-1.5 text-xs font-semibold text-[#2e7d55]">
-                <Check size={14} aria-hidden="true" /> Nicely done
+              <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-1.5 text-xs font-semibold text-[#2e7d55]">
+                <Check size={14} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
+                {autoNext ? <Countdown key={at} ms={autoNext} /> : null}
               </p>
             ) : (
               <p className="mt-3 flex items-start gap-1.5 rounded-md bg-[#eef4fa] px-2.5 py-1.5 text-xs font-semibold text-[#1f4e79]">
@@ -283,14 +330,9 @@ export function FormTour({
               <button type="button" onClick={onClose} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
                 Finish
               </button>
-            ) : step.tryIt && !done ? (
-              <button
-                type="button"
-                onClick={() => onStep(at + 1)}
-                className="rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
-              >
-                Skip
-              </button>
+            ) : autoNext ? null : step.tryIt && !done ? (
+              // Nothing to skip: a step with something to try offers Next once it is tried.
+              <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
             ) : (
               <button type="button" onClick={() => onStep(at + 1)} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
                 Next
@@ -299,51 +341,38 @@ export function FormTour({
           </span>
         </div>
       </div>
+      <ConfirmDialog
+        open={asking}
+        title="End the guided tour?"
+        description={endWords ?? "You can take it again from Guided tour."}
+        confirmLabel="End the tour"
+        cancelLabel="Keep going"
+        onConfirm={() => {
+          setAsking(false);
+          onClose();
+        }}
+        onClose={() => setAsking(false)}
+      />
     </>,
     document.body,
   );
 }
 
-const SEEN = "coordinator-tools:preferences-tour";
+const TAKEN = "coordinator-tools:preferences-tour";
 
-/** Whether this browser has been offered the tour already; a browser that keeps nothing has not. */
-export function tourOffered(): boolean {
+/** Whether the tour has been taken to its end in this browser; a browser that keeps nothing has not. */
+export function tourTaken(): boolean {
   try {
-    return window.localStorage.getItem(SEEN) === "offered";
+    return window.localStorage.getItem(TAKEN) === "taken";
   } catch {
     return false;
   }
 }
 
-export function rememberTourOffered(): void {
+export function rememberTourTaken(): void {
   try {
-    window.localStorage.setItem(SEEN, "offered");
+    window.localStorage.setItem(TAKEN, "taken");
   } catch {
-    // Not kept: it is offered again next time, which is all that is lost.
+    // Not kept: the tour is asked for again next time, which is all that is lost.
   }
-}
-
-/** The offer, the first time the form is opened in a browser: take the tour, or not now. */
-export function TourInvite({ onStart, onDismiss }: { onStart: () => void; onDismiss: () => void }) {
-  return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#cfe0f1] bg-[#f4f8fc] px-3.5 py-3">
-      <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white text-[#1f4e79] shadow-sm">
-        <Compass size={16} aria-hidden="true" />
-      </span>
-      <span className="min-w-0 flex-1 text-sm">
-        <span className="block font-semibold text-[#171717]">New to this form?</span>
-        <span className="block text-[13px] text-[#475467]">
-          A one-minute tour shows each part, and lets you try it as you go. Nothing is kept unless you save.
-        </span>
-      </span>
-      <span className="flex items-center gap-2">
-        <button type="button" onClick={onDismiss} className="rounded-md px-2.5 py-1.5 text-xs font-semibold text-[#667085] hover:bg-white">
-          Not now
-        </button>
-        <button type="button" onClick={onStart} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
-          Take the tour
-        </button>
-      </span>
-    </div>
-  );
 }
