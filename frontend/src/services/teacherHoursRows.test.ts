@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { academicYearOfTerm, crnDistribution, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
+import { academicYearOfTerm, claimsOfSemester, crnDistribution, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
 import type { ActiveTeacher } from "@/services/portalLists";
 import type { RequestRow, RequestSheet } from "@/services/timetableExport";
 
@@ -180,5 +180,29 @@ describe("a teacher's hours, CRN by CRN", () => {
     const [hani] = hoursRowsFor(held, september, false);
     expect(hani.registrarHours).toBe(2);
     expect(crnDistribution(held, hani, september, false)[0].booked).toBe(2);
+  });
+});
+
+describe("the claims of one semester", () => {
+  // On Semester 2 every Semester 1 claim read "the timetable has 0 h".
+  const weekOnes = { "plan:262710": "2026-09-07", "plan:262720": "2027-01-25" };
+  const claims = [
+    { periodStart: "2026-08-26", periodEnd: "2026-09-25" },
+    { periodStart: "2026-12-26", periodEnd: "2027-01-25" },
+    { periodStart: "2027-01-26", periodEnd: "2027-02-25" },
+  ];
+
+  it("are the ones whose period ends once that semester has begun, and before the next has", () => {
+    expect(claimsOfSemester(claims, "plan:262710", weekOnes).map((claim) => claim.periodStart)).toEqual([
+      "2026-08-26",
+    ]);
+    expect(claimsOfSemester(claims, "plan:262720", weekOnes).map((claim) => claim.periodStart)).toEqual([
+      "2026-12-26",
+      "2027-01-26",
+    ]);
+  });
+
+  it("are all of them when the semester's Week 1 is not set", () => {
+    expect(claimsOfSemester(claims, "plan:262810", weekOnes)).toHaveLength(3);
   });
 });

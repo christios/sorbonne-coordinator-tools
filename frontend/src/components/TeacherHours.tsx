@@ -16,7 +16,8 @@ import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
 import { SCHEMA_TERM } from "@/services/remembered";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
-import { academicYearOfTerm, crnDistribution, hoursRowsFor, type CrnLine, type HoursSource } from "@/services/teacherHoursRows";
+import { academicYearOfTerm, claimsOfSemester, crnDistribution, hoursRowsFor, type CrnLine, type HoursSource } from "@/services/teacherHoursRows";
+import { fetchTermWeeks } from "@/services/termWeeks";
 import { downloadTeacherHours, periodsCovering } from "@/services/hoursExport";
 import { opensOnFor, periodChoices, periodEnd, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import {
@@ -205,6 +206,49 @@ export function TeacherHours({
    */
   const today = new Date().toISOString().slice(0, 10);
   /*
+   * The semester's own claims: a claim is the latest semester's whose Week 1 is on or before
+   * the end of its period. On Semester 2 every Semester 1 claim read "the timetable has 0 h".
+   */
+  const weeks = useQuery({ queryKey: ["term-weeks"], queryFn: fetchTermWeeks, retry: false, staleTime: 60_000 });
+  const claimsHere = useMemo(
+    () =>
+      claimsOfSemester(
+        submitted.data ?? [],
+        chosenTerm,
+        Object.fromEntries(Object.entries(weeks.data ?? {}).map(([id, calendar]) => [id, calendar.weekOne])),
+      ),
+    [submitted.data, chosenTerm, weeks.data],
+  );
+  /*
+   * The plan of every semester of the chosen one's academic year, teacher by teacher, and
+   * of those before it. A requisition is a year's; held against one semester's plan it read
+   * every Semester 2 teacher as under-planned by their whole Semester 1.
+   */
+  const academicYear = academicYearOfTerm(termCode);
+  const year = useMemo(() => {
+    if (!academicYear) return undefined;
+    const planned = new Map<string, number>();
+    const earlier = new Map<string, number>();
+    for (const id of termIds) {
+      const code = links.data?.[id] ?? "";
+      if (academicYearOfTerm(code) !== academicYear) continue;
+      const theirs = requestSheets(
+        cards,
+        id,
+        termName(id),
+        () => "",
+        (teacherId) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "",
+        (cohortId) => (cohorts.data ?? []).find((candidate) => candidate.id === cohortId) ?? { name: "" },
+      );
+      for (const row of loadRows(teacherLoads(theirs), teachers.data ?? [], crnsByTeacher(theirs))) {
+        const key = row.teacherId || row.teacher.trim().toLowerCase();
+        planned.set(key, (planned.get(key) ?? 0) + row.total);
+        if (id !== chosenTerm && code < termCode) earlier.set(key, (earlier.get(key) ?? 0) + row.total);
+      }
+    }
+    return { planned, earlier };
+  }, [academicYear, termIds, links.data, cards, teachers.data, cohorts.data, chosenTerm, termCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  /*
    * Everything the table is made of, gathered once.
    *
    * The arranging lives in a service, because the export asks the same question of every
@@ -218,14 +262,15 @@ export function TeacherHours({
       sections: met.data?.sections ?? [],
       booked: booked.data ?? {},
       owners,
-      submitted: submitted.data ?? [],
+      submitted: claimsHere,
       contracts: contracts.data ?? {},
-      academicYear: academicYearOfTerm(termCode),
+      academicYear,
+      year,
       decided,
       threshold: apart?.enabled === false ? Number.POSITIVE_INFINITY : (apart?.threshold ?? DEFAULT_APART),
       today,
     }),
-    [sheets, teachers.data, notes.data, met.data, booked.data, owners, submitted.data, contracts.data, termCode,
+    [sheets, teachers.data, notes.data, met.data, booked.data, owners, claimsHere, contracts.data, academicYear, year,
      decided, apart?.enabled, apart?.threshold, today],
   );
   const rows = useMemo(
