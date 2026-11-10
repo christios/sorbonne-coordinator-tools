@@ -67,7 +67,7 @@ describe("an invited teacher's link", () => {
     const save = vi.spyOn(invite, "saveInviteeAnswer").mockResolvedValue({ ...FORM, wishes: ANSWER });
     page();
     expect(await screen.findByText(/You answered for Semester 1 2026-27 before/)).toBeTruthy();
-    expect(screen.getByText("1 · Your week")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Your week" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start from it" }));
     expect(screen.getByRole("button", { name: /^Tuesday 14:00: can't teach, a Must/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));

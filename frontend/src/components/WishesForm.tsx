@@ -125,10 +125,22 @@ export function WishesLegend() {
   );
 }
 
-const section = "border-t border-[#eef1f5] pt-4";
-const heading = "text-sm font-semibold text-[#171717]";
-const hint = "mt-0.5 text-xs text-[#667085]";
-const field = "w-full rounded-md border border-[#cbd5e1] px-2.5 py-1.5 text-sm";
+/** Each part of the form on a canvas of its own: the week, the limits, the needs. */
+const section = "rounded-xl border border-[#e3e8ef] bg-[#f7f9fc] p-4 sm:p-5";
+const hint = "mt-1 pl-7 text-xs text-[#667085]";
+const field = "w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1.5 text-sm";
+
+/** A part's title, after its number in a badge: "② Limits on your week". */
+function SectionTitle({ number, children }: { number: number; children: ReactNode }) {
+  return (
+    <h3 className="flex items-center gap-2 text-sm font-semibold text-[#171717]">
+      <span aria-hidden="true" className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#1f4e79] text-[11px] font-semibold text-white">
+        {number}
+      </span>
+      {children}
+    </h3>
+  );
+}
 const COMMENT_LENGTH = 300;
 
 const NONE = "";
@@ -623,7 +635,7 @@ export function WishesForm({
             maxLength={COMMENT_LENGTH}
             onChange={(event) => setComment(name, event.target.value)}
             placeholder="Why it matters (optional)"
-            className="w-full max-w-md rounded-md border border-[#e4e8ef] px-2.5 py-1 text-xs text-[#344054] placeholder:text-[#98a2b3]"
+            className="w-full max-w-md rounded-md border border-[#e4e8ef] bg-white px-2.5 py-1 text-xs text-[#344054] placeholder:text-[#98a2b3]"
           />
         ) : null}
       </div>
@@ -839,9 +851,9 @@ export function WishesForm({
       ) : null}
 
       {/* -------------------------------------------------------------- their week */}
-      <div>
+      <section aria-label={voice === "you" ? "Your week" : "Their week"} className={section}>
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className={heading}>1 · {voice === "you" ? "Your" : "Their"} week</p>
+          <SectionTitle number={1}>{voice === "you" ? "Your" : "Their"} week</SectionTitle>
           <div className="flex items-center gap-2">
           {offerTour ? null : (
             <button
@@ -1382,11 +1394,11 @@ export function WishesForm({
             <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} className={`mt-1 ${field}`} />
           </label>
         ) : null}
-      </div>
+      </section>
 
       {/* -------------------------------------------------------------- limits */}
-      <div data-tour="limits" className={section}>
-        <p className={heading}>2 · Limits on {yours} week</p>
+      <section data-tour="limits" aria-label={`Limits on ${yours} week`} className={section}>
+        <SectionTitle number={2}>Limits on {yours} week</SectionTitle>
         <p className={hint}>Only those that matter. Each one set is a preference of its own: a Must or a Would like.</p>
         <div className="mt-2 grid gap-4">
           {limitBlock("maxDays", "Most days on campus", counts(1, Math.max(1, collection.days.length - 1), "day"))}
@@ -1398,11 +1410,11 @@ export function WishesForm({
             collection.days.map((day) => ({ value: String(day), label: DAY_NAMES[day] })),
           )}
         </div>
-      </div>
+      </section>
 
       {/* -------------------------------------------------------------- needs */}
-      <div data-tour="needs" className={section}>
-        <p className={heading}>3 · Needs</p>
+      <section data-tour="needs" aria-label="Needs" className={section}>
+        <SectionTitle number={3}>Needs</SectionTitle>
         <label className="mt-2 block">
           <span className="text-xs font-semibold text-[#344054]">Room or equipment needs</span>
           <input value={needs} onChange={(event) => setNeeds(event.target.value)} placeholder="Lab, PC room, ground floor…" className={`mt-1 ${field}`} />
@@ -1411,9 +1423,9 @@ export function WishesForm({
           <span className="text-xs font-semibold text-[#344054]">Note</span>
           <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} className={`mt-1 ${field}`} />
         </label>
-      </div>
+      </section>
 
-      <div className="flex flex-wrap items-center justify-end gap-3 border-t border-[#eef1f5] pt-3">
+      <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
         {problem || error ? (
           <span role="alert" className="mr-auto text-sm text-[#a6292f]">
             {problem || error}
