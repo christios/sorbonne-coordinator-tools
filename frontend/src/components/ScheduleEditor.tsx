@@ -349,6 +349,7 @@ export function ScheduleEditor({
                 id={`schedule-${row.id}`}
                 expanded={isExpanded}
                 highlighted={highlightedId === row.id}
+                titleAside={holdsGradedActivities && isExpanded ? <CardKindSwitch kind="session" title={topicLabel(row)} onSwitch={() => switchKind(row.id, "graded")} /> : null}
                 onToggle={() => toggleExpanded(row.id)}
                 toggleLabel={`${isExpanded ? "Collapse" : "Expand"} topic: ${topicLabel(row)} (position ${index + 1})`}
                 title={topicLabel(row)}
@@ -440,9 +441,6 @@ export function ScheduleEditor({
                 }
               >
                 <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-                  {holdsGradedActivities ? (
-                    <CardKindSwitch kind="session" title={topicLabel(row)} onSwitch={() => switchKind(row.id, "graded")} />
-                  ) : null}
                   <FormGrid>
                   <SyllabusField
                     className={SESSION_SPAN.sessionType}
@@ -686,6 +684,7 @@ function GradedCard({ card, number, expanded, highlighted = false, onSwitchKind,
       id={`schedule-${card.id}`}
       expanded={expanded}
       highlighted={highlighted}
+      titleAside={onSwitchKind && expanded ? <CardKindSwitch kind="graded" title={title} onSwitch={onSwitchKind} /> : null}
       onToggle={onToggle}
       toggleLabel={`${expanded ? "Collapse" : "Expand"} graded activity: ${title}`}
       title={title}
@@ -703,7 +702,6 @@ function GradedCard({ card, number, expanded, highlighted = false, onSwitchKind,
       }
     >
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-        {onSwitchKind ? <CardKindSwitch kind="graded" title={title} onSwitch={onSwitchKind} /> : null}
         {foundationYear ? (
           <FoundationYearGradedFields card={card} number={number} outcomes={outcomes} onChange={onChange} onOpenHistory={onOpenHistory} />
         ) : <GradedActivityFields
@@ -729,28 +727,25 @@ function GradedCard({ card, number, expanded, highlighted = false, onSwitchKind,
 }
 
 /**
- * At the top of an open card: whether it is a session or a graded activity, to switch it. The
- * week, date and title carry over; what only the other kind has waits on the card for a switch
- * back (services/scheduleCardKind).
+ * Beside an open card's title (Christian, 11 Nov 2026): whether it is a session or a graded
+ * activity, to switch it. The week, date and title carry over; what only the other kind has
+ * waits on the card for a switch back (services/scheduleCardKind).
  */
 function CardKindSwitch({ kind, title, onSwitch }: { kind: CardKind; title: string; onSwitch: () => void }) {
   const choices: Array<[CardKind, string]> = [["session", "Session"], ["graded", "Graded activity"]];
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <div role="group" data-card-kind aria-label={`Kind of card: ${title}`} className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
-        {choices.map(([id, name]) => (
-          <button
-            key={id}
-            type="button"
-            aria-pressed={kind === id}
-            onClick={kind === id ? undefined : onSwitch}
-            className={`rounded px-2.5 py-1 text-xs font-semibold ${kind === id ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}
-          >
-            {name}
-          </button>
-        ))}
-      </div>
-      <span className="text-xs text-[#667085]">Switching keeps the week, date and title.</span>
+    <div role="group" data-card-kind aria-label={`Kind of card: ${title}`} title="Switching keeps the week, date and title" className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
+      {choices.map(([id, name]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={kind === id}
+          onClick={kind === id ? undefined : onSwitch}
+          className={`rounded px-2 py-0.5 text-xs font-semibold ${kind === id ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}
+        >
+          {name}
+        </button>
+      ))}
     </div>
   );
 }
