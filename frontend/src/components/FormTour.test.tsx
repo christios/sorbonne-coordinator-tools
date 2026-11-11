@@ -51,8 +51,9 @@ describe("a guided tour's card", () => {
     expect(screen.queryByText("Nicely done")).toBeNull();
   });
 
-  it("lets a press reach only the lit part: elsewhere it does nothing but shake the card and say why", () => {
-    const lit = placed(300, 400, 120, 24);
+  it("lets a press reach only the controls the step is about: elsewhere it does nothing but shake the card and say why", () => {
+    const allowed = placed(300, 400, 120, 24);
+    const lit = placed(300, 430, 120, 24);
     // Outside the lit part, in the window that holds the form: its close button, say.
     const window_ = document.createElement("div");
     window_.setAttribute("role", "dialog");
@@ -61,22 +62,28 @@ describe("a guided tour's card", () => {
     window_.appendChild(outside);
     document.body.appendChild(window_);
     const pressed = vi.fn();
-    outside.addEventListener("click", pressed);
-    lit.addEventListener("click", pressed);
-    render(<FormTour steps={[{ id: "one", title: "First", body: "", target: () => lit }]} at={0} onStep={() => {}} onClose={() => {}} />);
+    for (const element of [allowed, lit, outside]) element.addEventListener("click", pressed);
+    const steps: TourStep[] = [{ id: "one", title: "First", steps: ["Press it.", "Watch."], target: () => [allowed, lit], allow: () => allowed }];
+    render(<FormTour steps={steps} at={0} onStep={() => {}} onClose={() => {}} />);
+    // What to do, numbered.
+    expect(within(screen.getByRole("dialog", { name: "Guided tour: First" })).getAllByRole("listitem").map((item) => item.textContent)).toEqual([
+      "11. Press it.",
+      "22. Watch.",
+    ]);
     expect(screen.queryByRole("status")).toBeNull();
 
-    fireEvent.mouseDown(outside, { clientX: 20, clientY: 20 });
-    fireEvent.click(outside, { clientX: 20, clientY: 20, detail: 1 });
+    // Lit, but not what the step is about; then outside it; then from the keyboard.
+    fireEvent.mouseDown(lit);
+    fireEvent.click(lit);
+    fireEvent.click(outside);
+    fireEvent.click(outside, { detail: 0 });
     expect(pressed).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain("only the lit part works");
+    expect(screen.getByRole("status").textContent).toContain("only what this step asks for works");
     expect(document.querySelector("[data-tour-card] .tour-card-shake")).not.toBeNull();
 
-    fireEvent.click(lit, { clientX: 320, clientY: 410, detail: 1 });
+    fireEvent.click(allowed);
     expect(pressed).toHaveBeenCalledTimes(1);
-    // Enter on a focused control is a click with no place: it is not held back.
-    fireEvent.click(outside, { detail: 0 });
-    expect(pressed).toHaveBeenCalledTimes(2);
+    allowed.remove();
     lit.remove();
     window_.remove();
   });

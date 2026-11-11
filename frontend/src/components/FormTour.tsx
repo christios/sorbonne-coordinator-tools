@@ -11,7 +11,15 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 export type TourStep = {
   id: string;
   title: string;
-  body: ReactNode;
+  /** A line before the steps, if any: "Your click opened this box." */
+  body?: ReactNode;
+  /** What to do, in order: numbered on the card. */
+  steps?: ReactNode[];
+  /**
+   * The controls this step is about: a press reaches them, and nothing else on the page — not
+   * even the rest of the lit part. None: only the card works.
+   */
+  allow?: () => Element | null | undefined | (Element | null | undefined)[];
   /** What to try, said as a task: "Drag down a few hours on any day." */
   tryIt?: ReactNode;
   /** The thing to try has been done. */
@@ -103,17 +111,17 @@ const sameBox = (left: Box | null, right: Box | null) =>
   (left !== null && right !== null && left.left === right.left && left.top === right.top && left.width === right.width && left.height === right.height);
 
 /**
- * What a press outside the lit part may still reach during a tour: the card, and a menu opened
- * from the lit part. Not any dialog: the form may itself sit in one, close button and all.
+ * What a press may always reach during a tour: the card, and a menu opened from a control the
+ * step allows. Not any dialog: the form may itself sit in one, close button and all.
  */
-const STILL_REACHED = '[data-tour-card], [role="listbox"], [data-tour-allow]';
+const STILL_REACHED = '[data-tour-card], [role="listbox"]';
 
 /**
  * A guided tour over a page: the part a step is about lit up, everything else dimmed, and a
- * card beside it. The lit part stays usable, so a step can ask to try the very thing it shows
- * and watch for it being done; a press on the dimmed rest does nothing but shake the card,
- * which says the tour is where to look. The card asks to be read: a coloured band, and each
- * step arrives with a glow round it.
+ * card beside it, saying what to do in numbered steps. Only the controls a step is about
+ * work, so it can ask to try the very thing it shows and watch for it being done; a press
+ * anywhere else does nothing but shake the card, which says the tour is where to look. The
+ * card asks to be read: a coloured band, and each step arrives with a glow round it.
  *
  * Drawn over everything but menus and bubbles, and kept in step with the page as it moves:
  * a pop-over opening, the window scrolling. Scrolling is never stopped.
@@ -124,6 +132,7 @@ export function FormTour({
   onStep,
   onClose,
   endWords,
+  hint = false,
 }: {
   steps: TourStep[];
   at: number;
@@ -132,6 +141,11 @@ export function FormTour({
   onClose: () => void;
   /** What ending the tour early means, said in the "are you sure" before it ends. */
   endWords?: string;
+  /**
+   * A single card, not a tour: the suggestion to take one, or how to take it again. No step
+   * count, and its × (or Escape) closes it at once.
+   */
+  hint?: boolean;
 }) {
   const step = steps[at];
   const [box, setBox] = useState<Box | null>(null);
@@ -173,21 +187,23 @@ export function FormTour({
     };
   }, []);
 
-  // A press outside the lit part reaches nothing: caught before the page sees it, it shakes the card.
-  const boxNow = useRef(box);
-  boxNow.current = box;
+  /*
+   * A press on anything the step is not about reaches nothing: caught before the page sees it,
+   * it shakes the card. Judged by what is pressed, not where, so a click from the keyboard
+   * (Enter, Space on the control in focus) is held to the same.
+   */
+  const allowNow = useRef(step?.allow);
+  allowNow.current = step?.allow;
   const askingNow = useRef(asking);
   askingNow.current = asking;
   useEffect(() => {
     const outside = (event: MouseEvent) => {
-      const lit = boxNow.current;
-      // Not measured (yet), or asking whether to end the tour: nothing is held back.
-      if (!lit || askingNow.current) return;
-      if ((event.target as Element | null)?.closest?.(STILL_REACHED)) return;
-      // A click from the keyboard (Enter, Space) has no place on the screen: it acts where the focus is.
-      if (event.type === "click" && event.detail === 0) return;
-      const { clientX: x, clientY: y } = event;
-      if (x >= lit.left - PAD && x <= lit.left + lit.width + PAD && y >= lit.top - PAD && y <= lit.top + lit.height + PAD) return;
+      // Asking whether to end the tour: its question is to be answered.
+      if (askingNow.current) return;
+      const pressed = event.target as Element | null;
+      if (pressed?.closest?.(STILL_REACHED)) return;
+      const allowed = allowNow.current?.() ?? [];
+      if ((Array.isArray(allowed) ? allowed : [allowed]).some((element) => element && pressed && element.contains(pressed))) return;
       event.preventDefault();
       event.stopPropagation();
       // A pointer's press, or a mouse's where there is no pointer event before it.
@@ -267,11 +283,12 @@ export function FormTour({
       if (!asking && popover && !card.current?.contains(popover)) return;
       event.stopPropagation();
       event.preventDefault();
-      setAsking((now) => !now);
+      if (hint) onClose();
+      else setAsking((now) => !now);
     };
     window.addEventListener("keydown", escape, true);
     return () => window.removeEventListener("keydown", escape, true);
-  }, [asking]);
+  }, [asking, hint, onClose]);
 
   // The card beside the lit part: under it, else over it, else beside it, else in a corner.
   useLayoutEffect(() => {
@@ -356,21 +373,27 @@ export function FormTour({
             <div className="flex items-center gap-2 rounded-t-[10px] bg-[#1f4e79] px-3.5 py-2 text-white">
               <Compass size={15} aria-hidden="true" />
               <span className="text-xs font-semibold">Guided tour</span>
-              <span className="ml-1 flex items-center gap-1" aria-hidden="true">
-                {steps.map((each, index) => (
-                  <span
-                    key={each.id}
-                    className={`h-1.5 rounded-full motion-safe:transition-all ${index === at ? "w-4 bg-white" : index < at ? "w-1.5 bg-white/70" : "w-1.5 bg-white/30"}`}
-                  />
-                ))}
-              </span>
-              <span className="mr-auto text-[11px] font-semibold tabular-nums text-white/80">
-                {at + 1} of {steps.length}
-              </span>
+              {hint ? (
+                <span className="mr-auto" />
+              ) : (
+                <>
+                  <span className="ml-1 flex items-center gap-1" aria-hidden="true">
+                    {steps.map((each, index) => (
+                      <span
+                        key={each.id}
+                        className={`h-1.5 rounded-full motion-safe:transition-all ${index === at ? "w-4 bg-white" : index < at ? "w-1.5 bg-white/70" : "w-1.5 bg-white/30"}`}
+                      />
+                    ))}
+                  </span>
+                  <span className="mr-auto text-[11px] font-semibold tabular-nums text-white/80">
+                    {at + 1} of {steps.length}
+                  </span>
+                </>
+              )}
               <button
                 type="button"
-                aria-label="End the tour"
-                onClick={() => setAsking(true)}
+                aria-label={hint ? "Close" : "End the tour"}
+                onClick={() => (hint ? onClose() : setAsking(true))}
                 className="-mr-1 rounded p-1 text-white/80 hover:bg-white/15 hover:text-white"
               >
                 <X size={14} aria-hidden="true" />
@@ -379,7 +402,25 @@ export function FormTour({
             <div className="px-4 pb-4 pt-3">
               <div aria-live="polite">
                 <p className="text-base font-semibold text-[#171717]">{step.title}</p>
-                <div className="mt-1 text-[13px] leading-5 text-[#475467]">{step.body}</div>
+                {step.body ? <div className="mt-1 text-[13px] leading-5 text-[#475467]">{step.body}</div> : null}
+                {step.steps?.length ? (
+                  <ol className="mt-2 grid gap-1.5 text-[13px] leading-5 text-[#344054]">
+                    {step.steps.map((said, index) => (
+                      <li key={index} className="flex items-start gap-2">
+                        <span
+                          aria-hidden="true"
+                          className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#1f4e79] text-[10px] font-semibold text-white"
+                        >
+                          {index + 1}
+                        </span>
+                        <span className="min-w-0">
+                          <span className="sr-only">{index + 1}. </span>
+                          {said}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
                 {step.tryIt ? (
                   done && !instant ? (
                     <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-2 text-[13px] font-semibold text-[#2e7d55]">
@@ -398,7 +439,7 @@ export function FormTour({
                 ) : null}
                 {saying ? (
                   <p role="status" className="mt-2 rounded-md bg-[#fdf6e3] px-2.5 py-1.5 text-xs text-[#7a5d00]">
-                    During the tour, only the lit part works. Follow the card, or end the tour with ×.
+                    During the tour, only what this step asks for works. Follow the steps on the card, or end the tour with ×.
                   </p>
                 ) : null}
               </div>
