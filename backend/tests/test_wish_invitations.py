@@ -79,7 +79,7 @@ def invited(client: TestClient, email: str = GMAIL) -> str:
     return made.json()["code"]
 
 
-WEEK = [{"id": "tue", "kind": "constraint", "days": [2], "from": 14, "to": 16}]
+WEEK = [{"id": "tue", "kind": "constraint", "days": [2], "from": 14, "to": 16, "comment": "School run"}]
 
 
 def test_only_a_teacher_of_the_semester_can_be_invited_and_only_while_collecting(client: TestClient):

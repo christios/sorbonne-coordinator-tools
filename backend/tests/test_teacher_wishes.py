@@ -124,7 +124,11 @@ def test_a_semester_lists_its_teachers_and_who_has_answered(client: TestClient):
     opened(client, message="By 10 January, please.")
     saved = client.put(
         f"{AT}/{TERM}/wish-test-bilal",
-        json={"blocks": [block("constraint", [2], 14, 18, id="tue")], "limits": {"maxDays": 2}, "submit": True},
+        json={
+            "blocks": [block("constraint", [2], 14, 18, id="tue", comment="School run")],
+            "limits": {"maxDays": 2},
+            "submit": True,
+        },
     )
     assert saved.status_code == 200, saved.text
     answer = saved.json()
@@ -146,8 +150,9 @@ def test_a_semester_lists_its_teachers_and_who_has_answered(client: TestClient):
 def test_constraints_every_week_over_the_cap_are_submitted_only_with_a_reason(client: TestClient):
     opened(client, cantCap=6)
     blocks = [
-        block("constraint", [1, 2], 8, 12, id="mornings"),  # eight hours a week, over six
-        block("constraint", [3], 8, 19, id="away", repeat="once", week="2027-01-18"),  # a day away is not counted
+        block("constraint", [1, 2], 8, 12, id="mornings", comment="Other job"),  # eight hours a week, over six
+        # A day away is not counted.
+        block("constraint", [3], 8, 19, id="away", repeat="once", week="2027-01-18", comment="Conference"),
     ]
     # A draft may be anything: it is still being thought about.
     assert client.put(f"{AT}/{TERM}/wish-test-samar", json={"blocks": blocks}).status_code == 200
@@ -164,6 +169,23 @@ def test_constraints_every_week_over_the_cap_are_submitted_only_with_a_reason(cl
     within_cap = [blocks[1], block("preference", [4], 8, 19)]
     fine = client.put(f"{AT}/{TERM}/wish-test-samar", json={"blocks": within_cap, "submit": True})
     assert fine.status_code == 200, fine.text
+
+
+def test_a_constraint_is_submitted_only_with_a_reason_and_a_preference_without(client: TestClient):
+    opened(client)
+    bare = [block("constraint", [2], 14, 18, id="tue"), block("preference", [1], 8, 12, id="mon")]
+    # A draft may leave the reason for later.
+    assert client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": bare}).status_code == 200
+    refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": bare, "submit": True})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "A constraint needs a reason" in refused.json()["detail"]
+    # A limit made a constraint needs one too.
+    said = [{**bare[0], "comment": "School run"}, bare[1]]
+    limited = {"blocks": said, "limits": {"maxDays": 3}, "limitKinds": {"maxDays": "constraint"}, "submit": True}
+    assert client.put(f"{AT}/{TERM}/wish-test-bilal", json=limited).status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    fine = client.put(f"{AT}/{TERM}/wish-test-bilal", json={**limited, "comments": {"maxDays": "Lab days"}})
+    assert fine.status_code == 200, fine.text
+    assert fine.json()["status"] == "submitted"
 
 
 def test_a_limit_is_a_constraint_or_a_preference_and_keeps_its_comment(client: TestClient):

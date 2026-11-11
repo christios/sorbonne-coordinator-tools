@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, MousePointerClick, X } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -139,6 +139,9 @@ function unite(boxes: Box[]): Box | null {
   return { left, top, width: right - left, height: bottom - top };
 }
 
+/** A box as an SVG rectangle's place, grown by `out` on every side. */
+const rectOf = (box: Box, out = 0) => ({ x: box.left - out, y: box.top - out, width: box.width + out * 2, height: box.height + out * 2 });
+
 const padded = (box: Box): Box => ({ left: box.left - PAD, top: box.top - PAD, width: box.width + PAD * 2, height: box.height + PAD * 2 });
 
 /** What is left of one box once another is taken out of it: none to four boxes, side by side. */
@@ -212,6 +215,8 @@ export function FormTour({
   const [box, setBox] = useState<Box | null>(null);
   // The parts lit, each its own box (one, unless the step lights them apart).
   const [holes, setHoles] = useState<Box[]>([]);
+  // The rings' masks, by a name of this tour's own.
+  const ringId = `tour-ring-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
   // The window's size, for the dim to cover it all: told again when it changes.
   const [screen, setScreen] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
   useEffect(() => {
@@ -311,7 +316,13 @@ export function FormTour({
       if (stopped) return;
       const found = targetNow.current?.() ?? null;
       const parts = (Array.isArray(found) ? found.flat() : [found]).filter((element): element is Element => Boolean(element));
-      if (parts.length && (parts.length !== shown.current.length || parts.some((part, index) => part !== shown.current[index]))) {
+      const added = parts.filter((part) => !shown.current.includes(part));
+      if (parts.length && shown.current.length && added.length) {
+        // A part come within the step — a box opened: brought into view itself, by as little as
+        // it takes, the rest kept where it is as far as it can be.
+        shown.current = parts;
+        added[added.length - 1].scrollIntoView?.({ block: "nearest" });
+      } else if (parts.length && added.length) {
         shown.current = parts;
         // Brought into view whole if it fits, else from its top: all of it, not what shows now.
         const rects = parts.map((element) => element.getBoundingClientRect());
@@ -323,6 +334,9 @@ export function FormTour({
         if (top < roomTop || bottom > roomBottom) {
           parts[0].scrollIntoView?.({ block: bottom - top > roomBottom - roomTop ? "start" : "center", behavior: "smooth" });
         }
+      } else if (parts.length !== shown.current.length) {
+        // A part gone (a box closed): nothing to bring into view.
+        shown.current = parts;
       }
       later(look);
     };
@@ -405,15 +419,29 @@ export function FormTour({
           style={{ ...piece, backgroundColor: "rgba(16, 24, 40, 0.72)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" }}
         />
       ))}
-      {holes.map((hole, index) => (
-        <div
-          key={index}
-          aria-hidden="true"
-          data-tour-lit
-          className="pointer-events-none fixed z-[95] rounded-[3px] ring-2 ring-[#5b8fc4]"
-          style={{ ...padded(hole), boxShadow: "0 0 0 6px rgba(91, 143, 196, 0.35)" }}
-        />
-      ))}
+      {/*
+       * A ring round the lit parts, as one shape: each part's ring is hidden where it runs inside
+       * another lit part, so no line crosses a box lying over the calendar.
+       */}
+      <svg aria-hidden="true" className="pointer-events-none fixed inset-0 z-[95] h-full w-full">
+        <defs>
+          {holes.map((_, index) => (
+            <mask key={index} id={`${ringId}-${index}`} maskUnits="userSpaceOnUse" x={-50} y={-50} width={screen.width + 100} height={screen.height + 100}>
+              <rect x={-50} y={-50} width={screen.width + 100} height={screen.height + 100} fill="white" />
+              {holes.map((other, at) => (at === index ? null : <rect key={at} {...rectOf(padded(other))} fill="black" />))}
+            </mask>
+          ))}
+        </defs>
+        {holes.map((hole, index) => {
+          const ring = padded(hole);
+          return (
+            <g key={index} data-tour-lit mask={`url(#${ringId}-${index})`} fill="none">
+              <rect {...rectOf(ring, 5)} rx={8} stroke="rgba(91, 143, 196, 0.35)" strokeWidth={6} />
+              <rect {...rectOf(ring, 1)} rx={4} stroke="#5b8fc4" strokeWidth={2} />
+            </g>
+          );
+        })}
+      </svg>
       {arrow
         ? (() => {
             // Here: a bouncing arrow at the control to try — to its left if the step says so and
@@ -520,7 +548,9 @@ export function FormTour({
                 ) : null}
                 {saying ? (
                   <p role="status" className="mt-2 rounded-md bg-[#fdf6e3] px-2.5 py-1.5 text-xs text-[#7a5d00]">
-                    During the tour, only what this step asks for works. Follow the steps on the card, or end the tour with ×.
+                    {step.allow || step.tryIt
+                      ? "During the tour, only what this step asks for works. Follow the steps on the card, or end the tour with ×."
+                      : "Nothing on the page is to be clicked at this step: read the card, then go on with its button."}
                   </p>
                 ) : null}
               </div>

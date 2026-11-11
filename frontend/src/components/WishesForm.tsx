@@ -119,7 +119,7 @@ export function KindToggle({ name, kind, onChange }: { name: string; kind: WishK
           role="radio"
           aria-checked={kind === option.value}
           onClick={() => onChange(option.value)}
-          className={`rounded px-2 py-0.5 ${kind === option.value ? option.solid : "text-[#344054] hover:bg-[#f8fafc]"}`}
+          className={`flex-1 rounded px-2 py-0.5 text-center ${kind === option.value ? option.solid : "text-[#344054] hover:bg-[#f8fafc]"}`}
         >
           {option.label}
         </button>
@@ -238,6 +238,7 @@ export function BlockList({
   onRemove,
   removeOff,
   onHover,
+  flagMissing = false,
 }: {
   blocks: WishBlock[];
   grid: { firstHour: number; lastHour: number };
@@ -247,6 +248,8 @@ export function BlockList({
   /** Why × is off for now, if it is. */
   removeOff?: string;
   onHover?: (id: string | null) => void;
+  /** A constraint without its reason says so: it cannot be submitted that way. */
+  flagMissing?: boolean;
 }) {
   if (!blocks.length) return <p className="text-sm text-[#98a2b3]">Nothing marked: every hour is fine.</p>;
   return (
@@ -288,7 +291,11 @@ export function BlockList({
                       <span className="ml-1.5 whitespace-nowrap rounded bg-[#f2f4f7] px-1.5 text-[10px] font-semibold text-[#667085]">
                         {repeatTag(block)}
                       </span>
-                      {block.comment ? <span className="mt-0.5 block text-[#667085]">&ldquo;{block.comment}&rdquo;</span> : null}
+                      {block.comment ? (
+                        <span className="mt-0.5 block text-[#667085]">&ldquo;{block.comment}&rdquo;</span>
+                      ) : flagMissing && block.kind === "constraint" ? (
+                        <span className="mt-0.5 block font-semibold text-[#a6292f]">Reason needed: click to say why</span>
+                      ) : null}
                     </span>
                     {onRemove ? (
                       <button
@@ -423,6 +430,11 @@ export function WishesForm({
   // The week on screen, by its Monday.
   const [week, setWeek] = useState<string>(firstWeek);
   const [problem, setProblem] = useState("");
+  // A constraint's reason asked for: in its box (Done pressed without one), and on the limits and
+  // the list once Submit has found one missing. The next box to open asks at once, if set.
+  const [askWhy, setAskWhy] = useState(false);
+  const [missingWhy, setMissingWhy] = useState(false);
+  const whyNext = useRef(false);
   // The block open over the grid, by its name, and where its pop-over sits.
   const [open, setOpen] = useState<{ id: string; left: number; top: number; cell: HTMLElement } | null>(null);
   // The cell the pointer rests on, for its bubble and its block lit up; a block hovered in the list.
@@ -449,6 +461,8 @@ export function WishesForm({
   const [tourBase, setTourBase] = useState({ week: "", sawOpen: false });
   // The one block made during the tour: after it, the tour makes no more.
   const [tourMade, setTourMade] = useState("");
+  // And the one whole day marked on the step about a day away: the only other the tour allows.
+  const [tourDay, setTourDay] = useState("");
   // The block clicked while the tour teaches clicking, opened once the tour has said so.
   const [tourClicked, setTourClicked] = useState<{ id: string; cell: HTMLElement } | null>(null);
   const [popFromTour, setPopFromTour] = useState(false);
@@ -521,18 +535,22 @@ export function WishesForm({
 
   // ---------------------------------------------------------------- blocks
   const canMake = tourAt === null || !tourMade;
-  // While the tour is on, a block made does not open by itself: opening it is a step.
-  const quiet = tourAt !== null;
+  // While the tour is on, a block made does not open by itself — opening it is a step — but for a
+  // day away, whose box is where its reason goes.
+  const quiet = tourAt !== null && tourStepId !== "day";
   const change = (id: string, patch: Partial<WishBlock>) => setBlocks((current) => current.map((block) => (block.id === id ? { ...block, ...patch } : block)));
   const remove = (id: string) => {
     setBlocks((current) => current.filter((block) => block.id !== id));
     setOpen((now) => (now?.id === id ? null : now));
   };
   const make = (block: Omit<WishBlock, "id" | "comment">, at?: HTMLElement) => {
-    if (!canMake) return;
+    // The tour's step about a day away may mark one day, past the tour's one block.
+    const aDay = tourStepId === "day" && !tourDay;
+    if (!canMake && !aDay) return;
     const id = newId();
     setBlocks((current) => [...current, { ...block, id, comment: "" }]);
-    if (tourAt !== null) setTourMade(id);
+    if (aDay) setTourDay(id);
+    else if (tourAt !== null) setTourMade(id);
     if (!quiet) setToOpen({ id, cell: at });
   };
 
@@ -568,9 +586,9 @@ export function WishesForm({
     setToOpen({ id: block.id });
   };
 
-  /** A whole day a constraint, this week only, from its name; or that day's own block, if it has one. */
-  const wholeDay = (day: number, header: HTMLElement) => {
-    const there = blocks.find(
+  /** The block making a day of this week a constraint all day, if there is one. */
+  const wholeDayOf = (day: number) =>
+    blocks.find(
       (block) =>
         block.repeat === "once" &&
         block.week === week &&
@@ -580,6 +598,9 @@ export function WishesForm({
         block.from <= collection.firstHour &&
         block.to >= collection.lastHour,
     );
+  /** A whole day a constraint, this week only, from its Whole day button; or that day's own block, if it has one. */
+  const wholeDay = (day: number, header: HTMLElement) => {
+    const there = wholeDayOf(day);
     if (there) {
       if (tourStepId !== "paint") openAt(there.id, header);
       return;
@@ -633,10 +654,18 @@ export function WishesForm({
     document.addEventListener("pointerdown", elsewhere, true);
     return () => document.removeEventListener("pointerdown", elsewhere, true);
   }, [open]);
-  // Opened, the pop-over takes the keyboard: on how the block repeats.
+  // Opened, the pop-over takes the keyboard, on how the block repeats; and is brought into view
+  // whole, by as little scrolling as it takes, if it hangs below what shows.
   const openId = open?.id;
   useEffect(() => {
-    if (openId) popover.current?.querySelector<HTMLElement>("[data-first]")?.focus();
+    if (!openId) return;
+    // Opened to give a constraint its missing reason (from Submit): on the reason, already asked.
+    const why = whyNext.current;
+    whyNext.current = false;
+    setAskWhy(why);
+    popover.current?.querySelector<HTMLElement>(why ? "[data-why]" : "[data-first]")?.focus({ preventScroll: true });
+    // At once, not gliding: a short way, and sure to happen where a glide can stall.
+    popover.current?.scrollIntoView?.({ block: "nearest" });
   }, [openId]);
 
   const setLimitKind = (name: keyof WishLimits, kind: WishKind) => setLimitKinds((current) => ({ ...current, [name]: kind }));
@@ -664,8 +693,10 @@ export function WishesForm({
             value={comments[name] ?? ""}
             maxLength={COMMENT_LENGTH}
             onChange={(event) => setComment(name, event.target.value)}
-            placeholder="Why it matters (optional)"
-            className="w-full max-w-md rounded-md border border-[#e4e8ef] bg-white px-2.5 py-1 text-xs text-[#344054] placeholder:text-[#98a2b3]"
+            aria-required={(limitKinds[name] ?? "preference") === "constraint"}
+            aria-invalid={missingWhy && (limitKinds[name] ?? "preference") === "constraint" && !(comments[name] ?? "").trim()}
+            placeholder={(limitKinds[name] ?? "preference") === "constraint" ? "Why (required for a constraint)" : "Why it matters (optional)"}
+            className="w-full max-w-md rounded-md border border-[#e4e8ef] bg-white px-2.5 py-1 text-xs text-[#344054] placeholder:text-[#98a2b3] aria-[invalid=true]:border-[#d9646a] aria-[invalid=true]:bg-[#fdf3f3]"
           />
         ) : null}
       </div>
@@ -689,6 +720,24 @@ export function WishesForm({
       goTo(0);
       setProblem(`That's ${cant} hours a week of constraints, over the ${collection.cantCap}: say why under the calendar, or mark fewer.`);
       return;
+    }
+    if (finished) {
+      const bare = inListOrder(blocks).filter((block) => block.kind === "constraint" && !block.comment.trim());
+      const bareLimits = LIMIT_NAMES.filter((name) => limits[name] && limitKinds[name] === "constraint" && !(comments[name] ?? "").trim());
+      if (bare.length || bareLimits.length) {
+        setMissingWhy(true);
+        const count = bare.length + bareLimits.length;
+        if (bare.length) {
+          // Back on the calendar, the first one open, its reason asked for.
+          goTo(0);
+          whyNext.current = true;
+          pick(bare[0]);
+        } else {
+          goTo(1);
+        }
+        setProblem(`Each constraint needs a reason, for the coordinator: ${count === 1 ? "one has" : `${count} have`} none yet.`);
+        return;
+      }
     }
     const set = LIMIT_NAMES.filter((name) => limits[name]);
     onSave({
@@ -732,6 +781,7 @@ export function WishesForm({
     tourFrom.current = { said: current, week, blocks, limits, limitKinds, comments, needs, note, reason };
     setOpen(null);
     setTourMade("");
+    setTourDay("");
     setTourClicked(null);
     setTourAt(0);
   };
@@ -793,7 +843,7 @@ export function WishesForm({
   }, [open]);
   // The box opened while the tour is on how a block repeats: closing it is what was to try.
   useEffect(() => {
-    if (open && tourStepId === "repeat") setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
+    if (open && (tourStepId === "repeat" || tourStepId === "day")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
   }, [open, tourStepId]);
 
   // The painting shown while the tour asks for it, until somebody paints: Tuesday from 14:00, three hours.
@@ -885,7 +935,7 @@ export function WishesForm({
         open && openBlock
           ? [
               <>Pick how it repeats.</>,
-              <>Add a comment if you like: the coordinator reads it.</>,
+              <>Say why: a constraint needs a reason; for a preference it&rsquo;s optional. The coordinator reads it.</>,
               <>
                 Press <b>Done</b>.
               </>,
@@ -921,15 +971,26 @@ export function WishesForm({
     {
       id: "day",
       title: "Away for a day?",
-      body: <span className="text-[#667085]">Not now: the tour keeps to one block.</span>,
       steps: [
         <>
-          Click a day&rsquo;s name: the whole day becomes a <KindLook kind="constraint" /> for that week only.
+          Press <b>Whole day</b> under a day&rsquo;s name.
         </>,
-        <>Say why in its box.</>,
+        <>
+          The whole day becomes a <KindLook kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Conference&rdquo;.
+        </>,
+        <>
+          Press <b>Done</b>.
+        </>,
       ],
-      target: () => [part("toolbar"), gridBox.current],
-      pointAt: () => gridBox.current?.querySelector("thead button[data-day-name]"),
+      tryIt: "Mark a day.",
+      done: Boolean(tourDay) && tourBase.sawOpen && !open,
+      instantNext: true,
+      // The calendar, and the day's box on its own once it is open.
+      target: () => [[part("toolbar"), gridBox.current], open ? popover.current : null],
+      apart: true,
+      allow: () => [gridBox.current?.querySelector("thead"), open ? popover.current : null],
+      pointAt: () => (open ? popover.current?.querySelector("[data-why]") : gridBox.current?.querySelector("thead button[data-day-name]")),
+      pointFrom: open ? "left" : undefined,
     },
     {
       id: "summary",
@@ -1069,6 +1130,15 @@ export function WishesForm({
     setOpen(null);
     if (cell.isConnected) cell.focus();
   };
+  /** Done: a constraint is done once it says why; a preference, at once. (× and Escape close it anyway.) */
+  const finishBox = () => {
+    if (openBlock?.kind === "constraint" && !openBlock.comment.trim()) {
+      setAskWhy(true);
+      popover.current?.querySelector<HTMLElement>("[data-why]")?.focus();
+      return;
+    }
+    closeBox();
+  };
 
   return (
     <div ref={root} className="space-y-4">
@@ -1150,7 +1220,7 @@ export function WishesForm({
               <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
                 <span className="text-[11px] text-[#a6292f]">Away for a day?</span>
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
-                  <CalendarX2 size={12} aria-hidden="true" /> Click its name
+                  <CalendarX2 size={12} aria-hidden="true" /> Press Whole day under it
                 </span>
               </div>
             </HowTo>
@@ -1269,17 +1339,28 @@ export function WishesForm({
                               <span className="block text-[10px] font-normal text-[#98a2b3]">{holiday || "Holiday"}</span>
                             </span>
                           ) : (
-                            <Tip side="top" wide={false} content={`Click: a constraint all ${DAY_NAMES[day]} ${formatDayAndMonth(date)}, this week only.`}>
-                              <button
-                                type="button"
-                                data-day-name
-                                aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a constraint all day, this week only`}
-                                onClick={(event) => wholeDay(day, event.currentTarget)}
-                                className="rounded px-1.5 py-0.5 hover:bg-[#fdf3f3] hover:text-[#a6292f]"
-                              >
+                            <span className="flex flex-col items-center gap-1">
+                              <span>
                                 {DAY_SHORT[day]} <span className="font-normal">{formatDayAndMonth(date)}</span>
-                              </button>
-                            </Tip>
+                              </span>
+                              {/* The whole day, a button of its own: a date alone does not say it can be pressed. */}
+                              <Tip side="top" wide={false} content={`Can't teach all ${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a constraint for this week only.`}>
+                                <button
+                                  type="button"
+                                  data-day-name
+                                  aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a constraint all day, this week only`}
+                                  aria-pressed={wholeDayOf(day) ? true : false}
+                                  onClick={(event) => wholeDay(day, event.currentTarget)}
+                                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-px text-[10px] font-semibold ${
+                                    wholeDayOf(day)
+                                      ? "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]"
+                                      : "border-[#e8b4b7] bg-white text-[#a6292f] hover:bg-[#fdf3f3]"
+                                  }`}
+                                >
+                                  <CalendarX2 size={11} aria-hidden="true" /> Whole day
+                                </button>
+                              </Tip>
+                            </span>
                           )}
                         </th>
                       );
@@ -1508,21 +1589,37 @@ export function WishesForm({
                   })}
                 </div>
                 <label className="grid gap-1">
-                  <span className="text-xs font-semibold text-[#344054]">Comment, for the coordinator</span>
+                  {openBlock.kind === "constraint" ? (
+                    <span className="text-xs font-semibold text-[#344054]">
+                      Why, for the coordinator <span className="font-normal text-[#a6292f]">· required</span>
+                    </span>
+                  ) : (
+                    <span className="text-xs font-semibold text-[#344054]">
+                      Comment, for the coordinator <span className="font-normal text-[#98a2b3]">· optional</span>
+                    </span>
+                  )}
                   <input
+                    data-why
                     value={openBlock.comment}
                     maxLength={COMMENT_LENGTH}
+                    aria-required={openBlock.kind === "constraint"}
+                    aria-invalid={askWhy && openBlock.kind === "constraint" && !openBlock.comment.trim()}
                     onChange={(event) => change(openBlock.id, { comment: event.target.value.slice(0, COMMENT_LENGTH) })}
                     onKeyDown={(event) => {
                       if (event.key === "Enter") {
                         // Not to reach the cell the focus goes back to, and press it.
                         event.preventDefault();
-                        closeBox();
+                        finishBox();
                       }
                     }}
-                    placeholder="Why: school run, lab day… (optional)"
-                    className={field}
+                    placeholder={openBlock.kind === "constraint" ? "School run, lab day, another job…" : "Why it suits (optional)"}
+                    className={`${field} aria-[invalid=true]:border-[#d9646a] aria-[invalid=true]:bg-[#fdf3f3]`}
                   />
+                  {askWhy && openBlock.kind === "constraint" && !openBlock.comment.trim() ? (
+                    <span role="alert" className="text-xs text-[#a6292f]">
+                      A constraint needs a reason.
+                    </span>
+                  ) : null}
                 </label>
                 <div className="flex items-center justify-between">
                   <button
@@ -1535,7 +1632,7 @@ export function WishesForm({
                   >
                     <Trash2 size={13} aria-hidden="true" /> Remove
                   </button>
-                  <button type="button" onClick={closeBox} className="rounded-md bg-[#1f4e79] px-3 py-1 text-xs font-semibold text-white">
+                  <button type="button" onClick={finishBox} className="rounded-md bg-[#1f4e79] px-3 py-1 text-xs font-semibold text-white">
                     Done
                   </button>
                 </div>
@@ -1563,6 +1660,7 @@ export function WishesForm({
               voice={voice}
               onPick={pick}
               onRemove={(block) => remove(block.id)}
+              flagMissing
               removeOff={tourAt !== null ? "Not during the guided tour" : ""}
               onHover={setHovered}
             />

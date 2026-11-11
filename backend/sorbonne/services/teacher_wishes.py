@@ -316,6 +316,15 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
             f"That is {hours:g} hours a week of constraints, over the {collection['cantCap']} a teacher may mark. "
             "Say why, for the coordinator, or mark fewer."
         )
+    # A constraint holds the plan to it: submitted, each says why. A preference may go without.
+    unexplained = sum(1 for block in blocks if block["kind"] == "constraint" and not block["comment"]) + sum(
+        1 for name in limits if kinds[name] == "constraint" and not comments.get(name)
+    )
+    if status == "submitted" and unexplained:
+        raise InvalidWishes(
+            "A constraint needs a reason, for the coordinator: "
+            + ("one has none yet." if unexplained == 1 else f"{unexplained} have none yet.")
+        )
     return {
         "blocks": blocks,
         "limits": limits,

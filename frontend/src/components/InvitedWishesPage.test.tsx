@@ -12,7 +12,7 @@ const COLLECTION: WishCollection = {
   mustQuota: 3, cantCap: 12, openedAt: "", openedBy: "",
 };
 const ANSWER: Wishes = {
-  status: "submitted", blocks: [{ id: "run", kind: "constraint", days: [2], from: 14, to: 16, repeat: "all", week: "", comment: "" }],
+  status: "submitted", blocks: [{ id: "run", kind: "constraint", days: [2], from: 14, to: 16, repeat: "all", week: "", comment: "School run" }],
   limits: {}, limitKinds: {}, needs: "", note: "Mornings, please", comments: {}, lines: [],
   overCapReason: "", source: "invitation", submittedAt: "2026-11-10T10:00:00Z", updatedAt: "2026-11-10T10:00:00Z", updatedBy: "",
 };

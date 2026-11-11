@@ -29,7 +29,12 @@ const stroke = (from: [string, string], to: [string, string] = from) => {
   fireEvent.pointerUp(window);
 };
 const box = () => screen.getByRole("dialog", { name: /^(Constraint|Preference) · / });
-const done = () => fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
+/** Done in a block's box: a constraint given a reason first, if it has none (it needs one). */
+const done = () => {
+  const why = within(box()).getByRole("textbox") as HTMLInputElement;
+  if (why.getAttribute("aria-required") === "true" && !why.value) fireEvent.change(why, { target: { value: "A reason" } });
+  fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
+};
 const answer = (blocks: WishBlock[], rest: Partial<Wishes> = {}): Wishes => ({
   status: "draft",
   blocks,
@@ -216,6 +221,62 @@ describe("a teacher's week, marked block by block", () => {
     );
   });
 
+  it("asks a constraint why before its box is done, and not a preference", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Monday", "09:00"]);
+    expect(within(box()).getByText("· required")).toBeTruthy();
+    fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
+    expect(within(box()).getByRole("alert").textContent).toBe("A constraint needs a reason.");
+    expect(within(box()).getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
+    // The switch fills its row, its two halves sharing it.
+    for (const half of within(within(box()).getByRole("radiogroup", { name: "Constraint or preference" })).getAllByRole("radio")) {
+      expect(half.className).toContain("flex-1");
+    }
+    fireEvent.click(within(box()).getByRole("radio", { name: "Preference" }));
+    expect(within(box()).getByText("· optional")).toBeTruthy();
+    fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("is submitted only once every constraint says why: the first without is opened to say it", () => {
+    const onSave = vi.fn();
+    const bare: WishBlock = { id: "b", kind: "constraint", days: [2], from: 14, to: 16, repeat: "all", week: "", comment: "" };
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([bare])} onSave={onSave} />);
+    expect(screen.getByLabelText("Summary of constraints and preferences").textContent).toContain("Reason needed");
+    // A draft may wait for it.
+    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ submit: false }));
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Needs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Each constraint needs a reason/)).toBeTruthy();
+    const opened = screen.getByRole("dialog", { name: "Constraint · Tue 14:00–16:00 · every week" });
+    expect(within(opened).getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(within(opened).getByRole("textbox"), { target: { value: "School run" } });
+    fireEvent.click(within(opened).getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Needs and a note" }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ submit: true, blocks: [expect.objectContaining({ comment: "School run" })] }));
+  });
+
+  it("asks a limit made a constraint why, on Submit, on its page", () => {
+    const onSave = vi.fn();
+    render(
+      <WishesForm
+        collection={COLLECTION}
+        calendar={CALENDAR}
+        initial={answer([], { limits: { maxDays: 3 }, limitKinds: { maxDays: "constraint" } })}
+        onSave={onSave}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Needs/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "Most days on campus: comment" }).getAttribute("aria-invalid")).toBe("true");
+  });
+
   it("holds each limit as a preference unless made a constraint, with why", () => {
     const onSave = vi.fn();
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([], { limits: { maxDays: 3 } })} onSave={onSave} />);
@@ -353,17 +414,30 @@ describe("the guided tour", () => {
     expect(opened.className).toContain("tour-pop-in");
     expect(step("How it repeats").textContent).toContain("Your click opened this box.");
     expect(within(step("How it repeats")).getAllByRole("listitem")).toHaveLength(3);
-    expect(step("How it repeats").textContent).toContain("Add a comment if you like");
+    expect(step("How it repeats").textContent).toContain("Say why: a constraint needs a reason");
     expect((within(opened).getByRole("button", { name: /Remove/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(opened).getByRole("radio", { name: /^This week only/ }));
-    // Done pressed: straight on.
+    // A constraint is done once it says why.
+    fireEvent.click(within(opened).getByRole("button", { name: "Done" }));
+    expect(within(box()).getByRole("alert").textContent).toBe("A constraint needs a reason.");
+    expect(step("How it repeats")).toBeTruthy();
+    // Said: straight on.
     done();
 
     expect(step("Move between weeks")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "The week after" }));
     // The one-week block stays on its week.
     expect(said("Tuesday", "14:00")).toContain("fine");
-    fireEvent.click(within(step("Away for a day?")).getByRole("button", { name: "Next" }));
+    // A day away, tried: its Whole day button marks all of it for this week, and its box asks why.
+    expect(step("Away for a day?").textContent).toContain("Press Whole day under a day’s name");
+    fireEvent.click(screen.getByRole("button", { name: "Monday 18 Jan: a constraint all day, this week only" }));
+    expect(box().getAttribute("aria-label")).toBe("Constraint · Mon 18 Jan, all day");
+    expect(step("Away for a day?")).toBeTruthy();
+    done();
+    expect(said("Monday", "10:00")).toContain("constraint, this week only");
+    // One day is all: another day's button does nothing more.
+    fireEvent.click(screen.getByRole("button", { name: "Tuesday 19 Jan: a constraint all day, this week only" }));
+    expect(said("Tuesday", "10:00")).toContain("fine");
     expect(step("Summary of constraints and preferences").textContent).toContain("Click one to go to its week");
     fireEvent.click(within(step("Summary of constraints and preferences")).getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
