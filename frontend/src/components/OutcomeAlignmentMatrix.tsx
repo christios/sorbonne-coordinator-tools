@@ -1,22 +1,31 @@
 import { ArrowDown, ArrowRight, ArrowUp, Check, Trash2, X } from "lucide-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode } from "react";
 
 import { AddEntryButton } from "@/components/AddEntryButton";
 import { type HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
-import { SelectMenu, type SelectOption } from "@/components/SelectMenu";
 
-/** A column of the matrix: one PLO the curriculum mapping expects of the course. */
+/** A column of the CLO–PLO matrix: one PLO the curriculum mapping expects of the course. */
 export type MatrixPlo = { id: string; code: string; outcome: string; /** "code: outcome", what a CLO stores. */ value: string };
-export type CompetencyOption = SelectOption & { catalogueId?: string };
+/** A column of the competency matrix: one SCEN graduate competency, ticked per CLO. */
+export type MatrixCompetency = {
+  id: string;
+  code: string;
+  outcome: string;
+  /** "code: outcome", what a CLO stores. */
+  value: string;
+  /** The SUAD graduate competencies it brings, as the catalogue maps them. */
+  graduateIds: string[];
+};
+/** A SUAD graduate competency: a column that follows from the SCEN ones, never ticked itself. */
+export type MatrixGraduate = { id: string; code: string; outcome: string };
 type CloRow = Record<string, string> & { id: string };
 
 type Props = {
   rows: CloRow[];
   plos: MatrixPlo[];
-  competencyOptions: CompetencyOption[];
-  /** The SUAD graduate competencies that follow from a CLO's SCEN competencies, one per line. */
-  graduateText: (skills: string) => string;
+  competencies: MatrixCompetency[];
+  graduates: MatrixGraduate[];
   /** Left out in Head-of-Department mode: the outcomes and their PLOs are then read, not edited. */
   onChange?: (rows: CloRow[]) => void;
   /**
@@ -28,52 +37,48 @@ type Props = {
 };
 
 /*
- * Three ways of showing the competencies, built side by side for Christian to choose from
- * (11 Nov 2026): a second table under the CLO–PLO matrix, a tick matrix like the PLOs', or two
- * tabs. The switch is temporary; once one is chosen the others go.
- */
-export type CompetencyLayout = "table" | "ticks" | "tabs";
-const LAYOUT_KEY = "scen-outcomes-competency-layout";
-const LAYOUTS: Array<[CompetencyLayout, string]> = [["table", "Second table"], ["ticks", "Tick matrix"], ["tabs", "Two tabs"]];
-
-function readLayout(): CompetencyLayout {
-  try {
-    const kept = window.localStorage.getItem(LAYOUT_KEY);
-    return kept === "ticks" || kept === "tabs" ? kept : "table";
-  } catch {
-    return "table";
-  }
-}
-
-/*
  * The CLO–PLO matrix: one row per outcome, ruled between the PLOs so each tick reads against
  * its column — the outcome, a narrow column per PLO (their wording is in the panel beside the
- * matrix, which takes the room), then move/remove.
+ * matrices, which takes the room), then move/remove.
  */
 const GRID = "grid [grid-template-columns:minmax(14rem,1fr)_repeat(var(--plos),2.25rem)_2.25rem]";
+/*
+ * The competency matrix: the outcome, a column per SCEN competency, an arrow, then a column per
+ * SUAD graduate competency they bring. Narrower columns than the PLOs' so both groups fit beside
+ * the panel on a laptop; below that the matrix scrolls sideways, the outcome column staying put.
+ */
+const COMPETENCY_GRID = "grid [grid-template-columns:minmax(8rem,1fr)_repeat(var(--scen),2rem)_1.5rem_repeat(var(--suad),2rem)]";
 const RULE = "border-l border-[#c3cbd6]";
+/*
+ * Each matrix is a pane of its own (11 Nov 2026): on a large screen the section fills the
+ * height and the panes scroll inside it, headings and totals staying in view, rather than the
+ * whole section scrolling as one page. They share the height by what they hold, and neither
+ * shrinks below a heading and a couple of rows.
+ */
+const PANE = "min-w-0 overflow-auto rounded-lg border border-[#c3cbd6] bg-white text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1f4e79] lg:min-h-36 lg:flex-[0_1_auto]";
+
+type Reference = "plos" | "scen" | "suad";
+/** What the pointer or keyboard is on in the competency matrix, to light up what it links to. */
+type Trace = { row?: string; scen?: string; suad?: string };
 
 /**
- * Section 4's outcomes (November 2026 review): an alignment matrix with a row per course
+ * Section 4's outcomes (November 2026 review). An alignment matrix with a row per course
  * learning outcome and a column per PLO the Head of Department's curriculum mapping expects of
- * the course, a tick where they align; a column nobody has ticked is flagged at its foot. Beside
- * it a panel, in view while the outcomes scroll, gives each PLO's wording and the CLOs serving
- * it. Then the competencies each outcome develops.
+ * the course, a tick where they align; a column nobody has ticked is flagged at its foot. Under
+ * it, the competencies: a tick per CLO and SCEN competency, and past an arrow the SUAD graduate
+ * competencies those ticks bring, which follow on their own. Beside both, a panel gives every
+ * PLO and competency in full with what it is linked to.
  *
  * It stores what the list of cards did, so the document and the checks read it unchanged:
  * each CLO's `ploIds` and `plo` ("code: outcome", one per line), `skillIds` and `skills`.
  */
-export function OutcomeAlignmentMatrix({ rows, plos, competencyOptions, graduateText, onChange, onCompetenciesChange, history }: Props) {
+export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, onChange, onCompetenciesChange, history }: Props) {
   const editable = Boolean(onChange);
-  const [layout, setLayoutState] = useState<CompetencyLayout>(readLayout);
-  const [tab, setTab] = useState<"plos" | "competencies">("plos");
-  const setLayout = (next: CompetencyLayout) => {
-    setLayoutState(next);
-    try {
-      window.localStorage.setItem(LAYOUT_KEY, next);
-    } catch {
-      // Kept for this visit only.
-    }
+  const [reference, setReference] = useState<Reference>("plos");
+  const [revealed, setRevealed] = useState<string | null>(null);
+  const reveal = (tab: Reference, id: string) => {
+    setReference(tab);
+    setRevealed(id);
   };
   const save = (next: CloRow[]) => onChange?.(next);
   const update = (id: string, change: Partial<CloRow>) => save(rows.map((row) => (row.id === id ? ({ ...row, ...change } as CloRow) : row)));
@@ -85,382 +90,531 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencyOptions, graduate
   };
   // The competencies are the teacher's in either mode: through the row, or on their own.
   const setCompetencies = editable || onCompetenciesChange
-    ? (row: CloRow, labels: string[]) => {
-        const skillIds = labels.map((label) => competencyOptions.find((option) => option.value === label)?.catalogueId).filter((id): id is string => Boolean(id));
-        if (editable) update(row.id, { skills: labels.join("\n"), skillIds: skillIds.join("\n") });
-        else onCompetenciesChange?.(row.id, skillIds);
+    ? (row: CloRow, ids: string[]) => {
+        const ordered = competencies.filter((competency) => ids.includes(competency.id));
+        if (editable) update(row.id, { skills: ordered.map((item) => item.value).join("\n"), skillIds: ordered.map((item) => item.id).join("\n") });
+        else onCompetenciesChange?.(row.id, ordered.map((item) => item.id));
       }
     : undefined;
   const covered = new Set(rows.flatMap((row) => alignedIds(row, plos)));
   const uncovered = plos.filter((plo) => !covered.has(plo.id));
   const style = { "--plos": plos.length } as CSSProperties;
-  // The matrix keeps the width its columns need; the panel beside it takes the rest, up to 30rem.
-  const sideBySide = { "--matrix-min": `calc(14rem + ${plos.length + 1} * 2.25rem)` } as CSSProperties;
+  // The matrices keep the width the PLO columns need; the panel beside them takes the rest, from
+  // 15 to 30rem, giving way first to the competency matrix so it fits whole on a laptop.
+  const competencyWidth = `(8rem + ${competencies.length + graduates.length} * 2rem + 1.5rem)`;
+  const sideBySide = {
+    "--matrix-min": `calc(14rem + ${plos.length + 1} * 2.25rem)`,
+    "--panel-max": `clamp(15rem, 100cqw - ${competencyWidth} - 1rem, 30rem)`,
+  } as CSSProperties;
 
   const matrix = (
-    <div role="table" aria-label="Course learning outcomes and the programme learning outcomes each is aligned to" style={style} className="min-w-0 overflow-hidden rounded-lg border border-[#c3cbd6] text-sm">
-      <div role="row" className={`${GRID} border-b border-[#c3cbd6] bg-[#e6ecf4] font-semibold text-[#1d2939]`}>
-        <div role="columnheader" className="px-4 py-2.5">Course learning outcome</div>
-        {plos.map((plo) => <StackedHeader key={plo.id} code={plo.code} title={plo.outcome} />)}
-        <div role="columnheader" className={`${RULE} py-2.5`}><span className="sr-only">Move or remove</span></div>
-      </div>
-      {rows.map((row, index) => {
-        const number = index + 1;
-        const aligned = alignedIds(row, plos);
-        const extras = extraLabels(row, plos);
-        return (
-          <div key={row.id} role="row" className={`${GRID} border-b border-[#d5dbe4] last:border-b-0`}>
-            <div role="cell" className="min-w-0 px-4 py-3">
-              {editable ? (
-                <HistoryTextField
-                  label={`CLO ${number}`}
-                  required
-                  value={row.clo ?? ""}
-                  onChange={(clo) => update(row.id, { clo })}
-                  grow
-                  history={history ? { field: { path: `learningOutcomes.clos[${row.id}].clo`, label: `CLO ${number} · Course learning outcome` }, onOpenHistory: history.onOpenHistory } : undefined}
-                />
-              ) : (
-                <p className="text-[#344054]"><span className="font-semibold">CLO {number}</span> {row.clo}</p>
-              )}
-              {extras.length ? (
-                <p role="note" className="mt-2 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-2 py-1 text-xs leading-5 text-[#8a6116]">
-                  Also aligned to {extras.join("; ")}, which the curriculum mapping does not expect of this course.
-                  {editable ? (
-                    <button type="button" onClick={() => update(row.id, keepOnly(plos, aligned))} className="ml-1 inline-flex items-center gap-0.5 font-semibold underline underline-offset-2">
-                      <X size={12} aria-hidden="true" /> Remove
-                    </button>
-                  ) : null}
-                </p>
-              ) : null}
-            </div>
-            {plos.map((plo) => (
-              <TickCell
-                key={plo.id}
-                ticked={aligned.includes(plo.id)}
-                label={`CLO ${number} aligned to ${plo.code}`}
-                onToggle={editable ? () => update(row.id, toggled(row, plos, plo)) : undefined}
-              />
-            ))}
-            <div role="cell" className={`${RULE} flex flex-col items-center justify-center gap-0.5 py-2`}>
-              {editable ? (
-                <>
-                  <IconButton label={`Move CLO ${number} up`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} aria-hidden="true" /></IconButton>
-                  <IconButton label={`Move CLO ${number} down`} disabled={index === rows.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} aria-hidden="true" /></IconButton>
-                  <IconButton label={`Remove CLO ${number}`} danger onClick={() => save(rows.filter((item) => item.id !== row.id))}><Trash2 size={15} aria-hidden="true" /></IconButton>
-                </>
-              ) : null}
-            </div>
-          </div>
-        );
-      })}
-      {rows.length === 0 ? <div role="row" className="px-4 py-4 text-[#475467]"><span role="cell">No course learning outcomes yet.</span></div> : null}
-      {plos.length ? (
-        <div role="row" className={`${GRID} border-t border-[#c3cbd6] bg-[#f1f4f8]`}>
-          <div role="rowheader" className="px-4 py-2 text-xs font-medium text-[#475467]">Each PLO aligned to at least one CLO</div>
+    <div role="region" aria-label="Alignment to the programme learning outcomes" tabIndex={0} className={PANE}>
+      <div role="table" aria-label="Course learning outcomes and the programme learning outcomes each is aligned to" style={style}>
+        <div role="row" className={`${GRID} sticky top-0 z-10 border-b border-[#c3cbd6] bg-[#e6ecf4] font-semibold text-[#1d2939]`}>
+          <div role="columnheader" className="px-4 py-2.5">Course learning outcome</div>
           {plos.map((plo) => (
-            <div key={plo.id} role="cell" className={`${RULE} flex items-center justify-center py-2`}>
-              {covered.has(plo.id)
-                ? <Check size={16} strokeWidth={3} aria-label={`${plo.code} aligned`} className="text-[#1d6b47]" />
-                : <span title={`${plo.code} is not aligned to any CLO yet`} className="rounded-full bg-[#fef0c7] px-1 text-[10px] font-bold leading-4 text-[#8a4b00]">Not yet</span>}
+            <ColumnHead key={plo.id} code={plo.code} short={trailingNumber(plo.code) || plo.code} stackedOver={trailingNumber(plo.code) ? "PLO" : undefined} title={plo.outcome} onReveal={() => reveal("plos", plo.id)} />
+          ))}
+          <div role="columnheader" className={`${RULE} py-2.5`}><span className="sr-only">Move or remove</span></div>
+        </div>
+        {rows.map((row, index) => {
+          const number = index + 1;
+          const aligned = alignedIds(row, plos);
+          const extras = extraLabels(row, plos);
+          return (
+            <div key={row.id} role="row" className={`${GRID} border-b border-[#d5dbe4] last:border-b-0`}>
+              <div role="cell" className="min-w-0 px-4 py-3">
+                {editable ? (
+                  <HistoryTextField
+                    label={`CLO ${number}`}
+                    required
+                    value={row.clo ?? ""}
+                    onChange={(clo) => update(row.id, { clo })}
+                    grow
+                    history={history ? { field: { path: `learningOutcomes.clos[${row.id}].clo`, label: `CLO ${number} · Course learning outcome` }, onOpenHistory: history.onOpenHistory } : undefined}
+                  />
+                ) : (
+                  <p className="text-[#344054]"><span className="font-semibold">CLO {number}</span> {row.clo}</p>
+                )}
+                {extras.length ? (
+                  <p role="note" className="mt-2 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-2 py-1 text-xs leading-5 text-[#8a6116]">
+                    Also aligned to {extras.join("; ")}, which the curriculum mapping does not expect of this course.
+                    {editable ? (
+                      <button type="button" onClick={() => update(row.id, keepOnly(plos, aligned))} className="ml-1 inline-flex items-center gap-0.5 font-semibold underline underline-offset-2">
+                        <X size={12} aria-hidden="true" /> Remove
+                      </button>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
+              {plos.map((plo) => (
+                <TickCell
+                  key={plo.id}
+                  ticked={aligned.includes(plo.id)}
+                  label={`CLO ${number} aligned to ${plo.code}`}
+                  onToggle={editable ? () => update(row.id, toggled(row, plos, plo)) : undefined}
+                />
+              ))}
+              <div role="cell" className={`${RULE} flex flex-col items-center justify-center gap-0.5 py-2`}>
+                {editable ? (
+                  <>
+                    <IconButton label={`Move CLO ${number} up`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp size={15} aria-hidden="true" /></IconButton>
+                    <IconButton label={`Move CLO ${number} down`} disabled={index === rows.length - 1} onClick={() => move(index, 1)}><ArrowDown size={15} aria-hidden="true" /></IconButton>
+                    <IconButton label={`Remove CLO ${number}`} danger onClick={() => save(rows.filter((item) => item.id !== row.id))}><Trash2 size={15} aria-hidden="true" /></IconButton>
+                  </>
+                ) : null}
+              </div>
             </div>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-  const addOutcome = editable ? <AddEntryButton onClick={() => save([...rows, { id: crypto.randomUUID(), clo: "", plo: "", ploIds: "", skills: "", skillIds: "" }])} label="Add outcome" /> : null;
-  const competencyTable = <CompetencyTable rows={rows} options={competencyOptions} graduateText={graduateText} onChange={setCompetencies} />;
-  const competencyTicks = <CompetencyTicks rows={rows} options={competencyOptions} graduateText={graduateText} onChange={setCompetencies} />;
-
-  const left =
-    layout === "tabs" ? (
-      <>{matrix}{addOutcome}</>
-    ) : (
-      <>
-        {matrix}
-        {addOutcome}
-        {layout === "ticks" ? competencyTicks : null}
-      </>
-    );
-
-  return (
-    <div className="@container grid gap-4">
-      <LayoutSwitch layout={layout} onChange={setLayout} />
-      {layout === "tabs" ? (
-        <div role="tablist" aria-label="Learning outcomes" className="flex gap-1 border-b border-[#c3cbd6]">
-          {([["plos", "PLO alignment"], ["competencies", "Competencies"]] as const).map(([id, name]) => (
-            <button key={id} type="button" role="tab" aria-selected={tab === id} onClick={() => setTab(id)} className={`-mb-px border-b-2 px-3 py-2 text-sm font-semibold ${tab === id ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#475467] hover:text-[#1d2939]"}`}>
-              {name}
-            </button>
-          ))}
-        </div>
-      ) : null}
-      {/* On the Competencies tab, the competencies alone, across the full width. */}
-      {layout === "tabs" && tab === "competencies" ? competencyTable : (
-      <div style={sideBySide} className="grid grid-cols-[minmax(0,1fr)] gap-4 @3xl:[grid-template-columns:minmax(var(--matrix-min),1fr)_minmax(15rem,30rem)] @3xl:items-start">
-        <div className="grid min-w-0 grid-cols-[minmax(0,1fr)] gap-4">{left}</div>
-        {plos.length || layout === "ticks" ? (
-          <ReferencePanel plos={plos} rows={rows} uncovered={uncovered} competencies={layout === "ticks" ? competencyOptions : undefined} />
+          );
+        })}
+        {rows.length === 0 ? <div role="row" className="px-4 py-4 text-[#475467]"><span role="cell">No course learning outcomes yet.</span></div> : null}
+        {plos.length ? (
+          // The coverage stays in view at the foot of the pane while the outcomes scroll.
+          <div role="row" className={`${GRID} sticky bottom-0 z-10 border-t border-[#c3cbd6] bg-[#f1f4f8]`}>
+            <div role="rowheader" className="px-4 py-2 text-xs font-medium text-[#475467]">Each PLO aligned to at least one CLO</div>
+            {plos.map((plo) => (
+              <div key={plo.id} role="cell" className={`${RULE} flex items-center justify-center py-2`}>
+                {covered.has(plo.id)
+                  ? <Check size={16} strokeWidth={3} aria-label={`${plo.code} aligned`} className="text-[#1d6b47]" />
+                  : <span title={`${plo.code} is not aligned to any CLO yet`} className="rounded-full bg-[#fef0c7] px-1 text-[10px] font-bold leading-4 text-[#8a4b00]">Not yet</span>}
+              </div>
+            ))}
+            <div role="cell" className={RULE} />
+          </div>
         ) : null}
       </div>
-      )}
-      {/* Under the matrix and its panel, across the full width: room for each pair. */}
-      {layout === "table" ? competencyTable : null}
+    </div>
+  );
+
+  return (
+    <div className="@container min-w-0 lg:h-full lg:min-h-0">
+      <div style={sideBySide} className="grid grid-cols-[minmax(0,1fr)] gap-4 @3xl:[grid-template-columns:minmax(var(--matrix-min),1fr)_minmax(15rem,var(--panel-max))] lg:h-full lg:min-h-0 lg:[grid-template-rows:minmax(0,1fr)]">
+        <div className="flex min-w-0 flex-col gap-3 lg:min-h-0 lg:overflow-y-auto">
+          {matrix}
+          {editable ? (
+            <div className="flex-none">
+              <AddEntryButton onClick={() => save([...rows, { id: crypto.randomUUID(), clo: "", plo: "", ploIds: "", skills: "", skillIds: "" }])} label="Add outcome" />
+            </div>
+          ) : null}
+          {competencies.length ? (
+            <CompetencyMatrix rows={rows} competencies={competencies} graduates={graduates} onChange={setCompetencies} onReveal={reveal} />
+          ) : (
+            <p className="flex-none rounded-lg border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+              The department has no SCEN graduate competencies in its catalogue yet, so none can be chosen.
+            </p>
+          )}
+        </div>
+        <ReferencePanel
+          tab={reference}
+          onTab={(tab) => { setReference(tab); setRevealed(null); }}
+          revealed={revealed}
+          plos={plos}
+          competencies={competencies}
+          graduates={graduates}
+          rows={rows}
+          uncovered={uncovered}
+        />
+      </div>
     </div>
   );
 }
 
-/** The temporary switch between the three layouts, until one is chosen. */
-function LayoutSwitch({ layout, onChange }: { layout: CompetencyLayout; onChange: (layout: CompetencyLayout) => void }) {
+/**
+ * The competencies each outcome develops, as one matrix: the teacher ticks SCEN competencies,
+ * and past the arrow the SUAD graduate competencies they bring light up on their own, so the
+ * CLO → graduate competency mapping is read across the row. One SCEN competency often brings
+ * several (SCEN-C2 brings three); pointing at a tick, or a heading, lights up what it is
+ * linked to on the other side.
+ */
+function CompetencyMatrix({
+  rows,
+  competencies,
+  graduates,
+  onChange,
+  onReveal,
+}: {
+  rows: CloRow[];
+  competencies: MatrixCompetency[];
+  graduates: MatrixGraduate[];
+  onChange?: (row: CloRow, ids: string[]) => void;
+  onReveal: (tab: Reference, id: string) => void;
+}) {
+  const [trace, setTrace] = useState<Trace | null>(null);
+  const scenCount = competencies.length;
+  const style = { "--scen": scenCount, "--suad": graduates.length } as CSSProperties;
+  const byId = new Map(competencies.map((item) => [item.id, item]));
+  const chosenOf = new Map(rows.map((row) => [row.id, chosenIds(row, competencies)]));
+  const sources = (rowId: string, graduate: MatrixGraduate) =>
+    (chosenOf.get(rowId) ?? []).map((id) => byId.get(id)).filter((item): item is MatrixCompetency => Boolean(item?.graduateIds.includes(graduate.id)));
+  // Headings light up for what is pointed at, and for what it links to on the other side.
+  const scenLit = (competency: MatrixCompetency) =>
+    trace?.scen === competency.id || Boolean(trace?.suad && competency.graduateIds.includes(trace.suad) && (!trace.row || chosenOf.get(trace.row)?.includes(competency.id)));
+  const suadLit = (graduate: MatrixGraduate) =>
+    trace?.suad === graduate.id || Boolean(trace?.scen && byId.get(trace.scen)?.graduateIds.includes(graduate.id));
+  const leave = (event: FocusEvent) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setTrace(null);
+  };
+  const scenColumn = (index: number) => ({ gridColumn: index + 2 });
+  const arrowColumn = { gridColumn: scenCount + 2 };
+  const suadColumn = (index: number) => ({ gridColumn: scenCount + 3 + index });
+
   return (
-    <div className="flex flex-wrap items-center gap-2 rounded-md border border-dashed border-[#98a2b3] bg-[#fffdf5] px-3 py-2 text-sm">
-      <span className="font-medium text-[#344054]">Compare layouts</span>
-      <span className="text-xs text-[#475467]">(temporary, to choose how competencies are shown)</span>
-      <div className="ml-auto inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
-        {LAYOUTS.map(([id, name]) => (
-          <button key={id} type="button" aria-pressed={layout === id} onClick={() => onChange(id)} className={`rounded px-3 py-1 text-sm font-semibold ${layout === id ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}>
+    <div role="region" aria-label="Competencies each outcome develops" tabIndex={0} className={PANE} onMouseLeave={() => setTrace(null)} onBlur={leave}>
+      <div role="table" aria-label="SCEN graduate competencies each course learning outcome develops, and the SUAD graduate competencies they bring" style={style} className="min-w-fit">
+        <div className={`${COMPETENCY_GRID} sticky top-0 z-10 border-b border-[#c3cbd6] bg-[#e6ecf4] text-[#1d2939]`}>
+          <div aria-hidden="true" className={`${RULE} row-start-1 px-2 pb-1 pt-2 text-xs leading-4`} style={{ gridColumn: `2 / span ${scenCount}` }}>
+            <span className="block font-semibold">SCEN graduate competencies</span>
+            <span className="block text-[11px] text-[#475467]">{onChange ? "Tick what each CLO develops" : "What each CLO develops"}</span>
+          </div>
+          <div aria-hidden="true" className="row-span-2 row-start-1 flex items-center justify-center text-[#475467]" style={arrowColumn}>
+            <ArrowRight size={16} strokeWidth={2.5} />
+          </div>
+          {graduates.length ? (
+            <div aria-hidden="true" className={`${RULE} row-start-1 px-2 pb-1 pt-2 text-xs leading-4`} style={{ gridColumn: `${scenCount + 3} / span ${graduates.length}` }}>
+              <span className="block font-semibold">SUAD graduate competencies</span>
+              <span className="block text-[11px] text-[#475467]">Follow from the ticks</span>
+            </div>
+          ) : null}
+          <div role="row" className="contents">
+            <div role="columnheader" className="sticky left-0 z-[1] col-start-1 row-span-2 row-start-1 flex items-end bg-[#e6ecf4] px-3 py-2 text-sm font-semibold">Outcome</div>
+            {competencies.map((competency, index) => (
+              <ColumnHead
+                key={competency.id}
+                code={competency.code}
+                short={shortCode("C", competency.code)}
+                title={competency.outcome}
+                lit={scenLit(competency)}
+                className="row-start-2"
+                style={scenColumn(index)}
+                onPoint={() => setTrace({ scen: competency.id })}
+                onReveal={() => onReveal("scen", competency.id)}
+              />
+            ))}
+            <div role="columnheader" className="row-start-2" style={arrowColumn}><span className="sr-only">Brings</span></div>
+            {graduates.map((graduate, index) => (
+              <ColumnHead
+                key={graduate.id}
+                code={graduate.code}
+                short={shortCode("GC", graduate.code)}
+                title={graduate.outcome}
+                lit={suadLit(graduate)}
+                className="row-start-2"
+                style={suadColumn(index)}
+                onPoint={() => setTrace({ suad: graduate.id })}
+                onReveal={() => onReveal("suad", graduate.id)}
+              />
+            ))}
+          </div>
+        </div>
+        {rows.map((row, index) => {
+          const number = index + 1;
+          const chosen = chosenOf.get(row.id) ?? [];
+          return (
+            <div key={row.id} role="row" className={`${COMPETENCY_GRID} border-b border-[#d5dbe4] last:border-b-0`}>
+              <div role="rowheader" className="sticky left-0 z-[1] min-w-0 bg-white px-3 py-2">
+                <p className="text-sm font-semibold text-[#1d2939]">CLO {number}</p>
+                <p title={row.clo} className="truncate text-xs leading-5 text-[#475467]">{row.clo || "Not written yet"}</p>
+              </div>
+              {competencies.map((competency) => {
+                const ticked = chosen.includes(competency.id);
+                const linked = trace?.row === row.id && ticked && Boolean(trace.suad) && competency.graduateIds.includes(trace.suad ?? "");
+                return (
+                  <TickCell
+                    key={competency.id}
+                    compact
+                    ticked={ticked}
+                    linked={linked}
+                    label={`CLO ${number} develops ${competency.code}`}
+                    onPoint={() => setTrace({ row: row.id, scen: competency.id })}
+                    onToggle={onChange ? () => onChange(row, ticked ? chosen.filter((id) => id !== competency.id) : [...chosen, competency.id]) : undefined}
+                  />
+                );
+              })}
+              <div role="cell" aria-hidden="true" className="flex items-center justify-center text-[#98a2b3]">
+                <ArrowRight size={14} />
+              </div>
+              {chosen.length === 0 && graduates.length ? (
+                <div role="cell" className={`${RULE} flex items-center px-2 text-xs font-medium text-[#8a4b00]`} style={{ gridColumn: `${scenCount + 3} / span ${graduates.length}` }}>
+                  {onChange ? "Tick at least one SCEN competency" : "No SCEN competency yet"}
+                </div>
+              ) : (
+                graduates.map((graduate) => {
+                  const from = sources(row.id, graduate);
+                  const linked = trace?.row === row.id && from.length > 0 && (trace.suad === graduate.id || from.some((item) => item.id === trace.scen));
+                  return (
+                    <div
+                      key={graduate.id}
+                      role="cell"
+                      title={from.length ? `${graduate.code}, through ${from.map((item) => item.code).join(", ")}` : undefined}
+                      onMouseEnter={from.length ? () => setTrace({ row: row.id, suad: graduate.id }) : undefined}
+                      className={`${RULE} flex items-center justify-center ${from.length ? "bg-[#dcefe4]" : ""} ${linked ? "shadow-[inset_0_0_0_2px_#b54708]" : ""}`}
+                    >
+                      {from.length ? (
+                        <Check size={15} strokeWidth={3} aria-label={`CLO ${number} develops ${graduate.code}, through ${from.map((item) => item.code).join(", ")}`} className="text-[#1d6b47]" />
+                      ) : null}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          );
+        })}
+        {rows.length === 0 ? <div role="row" className="px-4 py-4 text-[#475467]"><span role="cell">No course learning outcomes yet.</span></div> : null}
+        {rows.length ? (
+          <div role="row" className={`${COMPETENCY_GRID} sticky bottom-0 z-10 border-t border-[#c3cbd6] bg-[#f1f4f8] text-[11px]`}>
+            <div role="rowheader" className="sticky left-0 z-[1] bg-[#f1f4f8] px-3 py-2 text-xs font-medium text-[#475467]">Number of CLOs</div>
+            {competencies.map((competency) => (
+              <Count key={competency.id} value={rows.filter((row) => chosenOf.get(row.id)?.includes(competency.id)).length} />
+            ))}
+            <div role="cell" />
+            {graduates.map((graduate) => (
+              <Count key={graduate.id} value={rows.filter((row) => sources(row.id, graduate).length > 0).length} />
+            ))}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function Count({ value }: { value: number }) {
+  return (
+    <div role="cell" className={`${RULE} flex items-center justify-center py-2 font-semibold ${value ? "text-[#1d2939]" : "text-[#98a2b3]"}`}>
+      {value || "–"}
+    </div>
+  );
+}
+
+/**
+ * A column heading one tick wide — "PLO" over "1", or "C4" — the full wording in the panel,
+ * which opening the heading brings into view.
+ */
+function ColumnHead({
+  code,
+  short,
+  stackedOver,
+  title,
+  lit = false,
+  className = "",
+  style,
+  onPoint,
+  onReveal,
+}: {
+  code: string;
+  /** What fits one tick wide: "4", "C4", "GC1". */
+  short: string;
+  /** Written over the short form, as "PLO" over "1". */
+  stackedOver?: string;
+  title: string;
+  lit?: boolean;
+  className?: string;
+  style?: CSSProperties;
+  onPoint?: () => void;
+  onReveal: () => void;
+}) {
+  return (
+    <div role="columnheader" aria-label={code} style={style} className={`${RULE} ${className} flex`} onMouseEnter={onPoint}>
+      <button
+        type="button"
+        onClick={onReveal}
+        onFocus={onPoint}
+        title={`${code}: ${title}`}
+        aria-label={`${code}: show in full`}
+        className={`flex w-full flex-col items-center justify-center text-center text-[11px] leading-tight ${stackedOver ? "py-1.5" : "py-1"} ${lit ? "bg-[#1f4e79] text-white" : "hover:bg-[#d5dfec]"}`}
+      >
+        {stackedOver ? <span aria-hidden="true" className={`font-medium ${lit ? "" : "text-[#344054]"}`}>{stackedOver}</span> : null}
+        <span aria-hidden="true" className="font-semibold">{short || code}</span>
+      </button>
+    </div>
+  );
+}
+
+function TickCell({
+  ticked,
+  label,
+  onToggle,
+  onPoint,
+  compact = false,
+  linked = false,
+}: {
+  ticked: boolean;
+  label: string;
+  onToggle?: () => void;
+  onPoint?: () => void;
+  compact?: boolean;
+  linked?: boolean;
+}) {
+  return (
+    <div role="cell" onMouseEnter={onPoint} className={`${RULE} flex items-center justify-center ${ticked ? "bg-[#d3e3f3]" : ""} ${linked ? "shadow-[inset_0_0_0_2px_#b54708]" : ""}`}>
+      {onToggle ? (
+        // The whole cell is the target, not a 16px box in the middle of it.
+        <label className={`flex h-full w-full cursor-pointer items-center justify-center hover:bg-[#c5daef] ${compact ? "min-h-9" : "min-h-10"}`}>
+          <input type="checkbox" checked={ticked} onChange={onToggle} onFocus={onPoint} aria-label={label} className={`cursor-pointer accent-[#1f4e79] ${compact ? "h-4 w-4" : "h-[18px] w-[18px]"}`} />
+        </label>
+      ) : ticked ? (
+        <Check size={compact ? 16 : 18} strokeWidth={3} aria-label={label} className="text-[#1f4e79]" />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Beside the matrices, in view while they scroll: the PLOs, the SCEN competencies and the SUAD
+ * graduate competencies in full, each with the CLOs it serves and what it is linked to.
+ */
+function ReferencePanel({
+  tab,
+  onTab,
+  revealed,
+  plos,
+  competencies,
+  graduates,
+  rows,
+  uncovered,
+}: {
+  tab: Reference;
+  onTab: (tab: Reference) => void;
+  revealed: string | null;
+  plos: MatrixPlo[];
+  competencies: MatrixCompetency[];
+  graduates: MatrixGraduate[];
+  rows: CloRow[];
+  uncovered: MatrixPlo[];
+}) {
+  const panel = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!revealed) return;
+    const items = Array.from(panel.current?.querySelectorAll<HTMLElement>("[data-reference]") ?? []);
+    items.find((item) => item.dataset.reference === revealed)?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+  }, [revealed, tab]);
+  const numbers = (test: (row: CloRow) => boolean) => rows.flatMap((row, index) => (test(row) ? [index + 1] : []));
+  const cloList = (list: number[]) => (list.length ? `CLO ${list.join(", ")}` : "");
+  const byId = new Map(competencies.map((item) => [item.id, item]));
+  const developing = (graduate: MatrixGraduate) =>
+    numbers((row) => chosenIds(row, competencies).some((id) => byId.get(id)?.graduateIds.includes(graduate.id)));
+  const tabs: Array<[Reference, string]> = [["plos", "PLOs"], ["scen", "SCEN"], ["suad", "SUAD"]];
+
+  return (
+    <aside ref={panel} aria-label="Reference" className="min-w-0 rounded-lg border border-[#c3cbd6] bg-[#f1f4f8] lg:flex lg:min-h-0 lg:flex-col">
+      <div role="tablist" aria-label="Reference" className="flex gap-1 border-b border-[#c3cbd6] px-3 pt-2">
+        {tabs.map(([id, name]) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => onTab(id)}
+            className={`-mb-px border-b-2 px-2.5 py-1.5 text-xs font-semibold ${tab === id ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#475467] hover:text-[#1d2939]"}`}
+          >
             {name}
           </button>
         ))}
       </div>
-    </div>
-  );
-}
-
-/** "PLO" over "1": a heading one tick wide. */
-function StackedHeader({ code, title }: { code: string; title: string }) {
-  const match = /^(.*?)[\s-]*([A-Z]?\d+)$/.exec(code);
-  return (
-    <div role="columnheader" title={title} aria-label={code} className={`${RULE} flex flex-col items-center justify-center py-1.5 text-center text-[11px] leading-tight`}>
-      <span aria-hidden="true" className="font-medium text-[#344054]">{match?.[1] || code}</span>
-      <span aria-hidden="true">{match?.[2] ?? ""}</span>
-    </div>
-  );
-}
-
-function TickCell({ ticked, label, onToggle }: { ticked: boolean; label: string; onToggle?: () => void }) {
-  return (
-    <div role="cell" className={`${RULE} flex items-center justify-center ${ticked ? "bg-[#d3e3f3]" : ""}`}>
-      {onToggle ? (
-        // The whole cell is the target, not a 16px box in the middle of it.
-        <label className="flex h-full min-h-10 w-full cursor-pointer items-center justify-center hover:bg-[#c5daef]">
-          <input type="checkbox" checked={ticked} onChange={onToggle} aria-label={label} className="h-[18px] w-[18px] cursor-pointer accent-[#1f4e79]" />
-        </label>
-      ) : ticked ? (
-        <Check size={18} strokeWidth={3} aria-label={label} className="text-[#1f4e79]" />
-      ) : null}
-    </div>
-  );
-}
-
-/** "CLO 2" and the first words of its outcome, to say which row a competency belongs to. */
-function CloName({ row, number }: { row: CloRow; number: number }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-sm font-semibold text-[#1d2939]">CLO {number}</p>
-      <p title={row.clo} className="line-clamp-2 text-xs leading-5 text-[#475467]">{row.clo}</p>
-    </div>
-  );
-}
-
-/**
- * Layout 1 (and the second tab of layout 3): a table of the competencies each CLO develops —
- * a row per CLO, each SCEN competency in full beside the SUAD ones it brings.
- */
-function CompetencyTable({ rows, options, graduateText, onChange }: { rows: CloRow[]; options: CompetencyOption[]; graduateText: (skills: string) => string; onChange?: (row: CloRow, labels: string[]) => void }) {
-  return (
-    <section aria-labelledby="competency-table" className="min-w-0 overflow-hidden rounded-lg border border-[#c3cbd6] text-sm">
-      <h4 id="competency-table" className="border-b border-[#c3cbd6] bg-[#e6ecf4] px-4 py-2.5 font-semibold text-[#1d2939]">Competencies each CLO develops</h4>
-      <div className="@container">
-        <div className="hidden grid-cols-[9rem_minmax(0,1fr)_1.25rem_minmax(0,1fr)] gap-3 border-b border-[#d5dbe4] bg-[#f1f4f8] px-4 py-2 text-xs font-medium text-[#344054] @2xl:grid">
-          <span>Outcome</span>
-          <span>SCEN graduate competencies{onChange ? <span aria-hidden="true" className="ml-0.5 text-[#a6292f]">*</span> : null}</span>
-          <span aria-hidden="true" />
-          <span>SUAD graduate competencies</span>
-        </div>
-        {rows.map((row, index) => (
-          <div key={row.id} className="grid grid-cols-[minmax(0,1fr)] gap-2 border-b border-[#d5dbe4] px-4 py-3 last:border-b-0 @2xl:grid-cols-[9rem_minmax(0,1fr)] @2xl:gap-3">
-            <CloName row={row} number={index + 1} />
-            <CompetencyPairs number={index + 1} value={row.skills ?? ""} options={options} graduateText={graduateText} onChange={onChange ? (labels) => onChange(row, labels) : undefined} />
-          </div>
-        ))}
+      <div role="tabpanel" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto p-3 focus-visible:outline-2 focus-visible:outline-[#1f4e79]">
+        {tab === "plos" ? (
+          <>
+            <h4 className="text-sm font-semibold text-[#1d2939]">Programme learning outcomes</h4>
+            <p className="mt-0.5 text-xs text-[#475467]">
+              {uncovered.length ? <span className="font-medium text-[#8a4b00]">{uncovered.map((plo) => plo.code).join(", ")} not aligned yet</span> : plos.length ? "Each one aligned to a CLO" : "The curriculum mapping expects none of this course"}
+            </p>
+            <ol className="mt-3 grid gap-2">
+              {plos.map((plo) => (
+                <ReferenceItem
+                  key={plo.id}
+                  id={plo.id}
+                  revealed={revealed === plo.id}
+                  code={plo.code}
+                  text={plo.outcome || plo.code}
+                  used={cloList(numbers((row) => alignedIds(row, plos).includes(plo.id)))}
+                  missing="Not aligned yet"
+                />
+              ))}
+            </ol>
+          </>
+        ) : tab === "scen" ? (
+          <>
+            <h4 className="text-sm font-semibold text-[#1d2939]">SCEN graduate competencies</h4>
+            <p className="mt-0.5 text-xs text-[#475467]">Each brings the SUAD graduate competencies listed under it.</p>
+            <ol className="mt-3 grid gap-2">
+              {competencies.map((competency) => (
+                <ReferenceItem
+                  key={competency.id}
+                  id={competency.id}
+                  revealed={revealed === competency.id}
+                  code={competency.code}
+                  text={competency.outcome}
+                  used={cloList(numbers((row) => chosenIds(row, competencies).includes(competency.id)))}
+                  missing=""
+                  links={graduates.filter((graduate) => competency.graduateIds.includes(graduate.id)).map((graduate) => graduate.code)}
+                  linksLabel="Brings"
+                />
+              ))}
+            </ol>
+          </>
+        ) : (
+          <>
+            <h4 className="text-sm font-semibold text-[#1d2939]">SUAD graduate competencies</h4>
+            <p className="mt-0.5 text-xs text-[#475467]">Developed through the SCEN competencies listed under each.</p>
+            <ol className="mt-3 grid gap-2">
+              {graduates.map((graduate) => (
+                <ReferenceItem
+                  key={graduate.id}
+                  id={graduate.id}
+                  revealed={revealed === graduate.id}
+                  code={graduate.code}
+                  text={graduate.outcome}
+                  used={cloList(developing(graduate))}
+                  missing=""
+                  links={competencies.filter((competency) => competency.graduateIds.includes(graduate.id)).map((competency) => competency.code)}
+                  linksLabel="Through"
+                />
+              ))}
+            </ol>
+          </>
+        )}
       </div>
-    </section>
-  );
-}
-
-/**
- * A CLO's SCEN competencies, each in full beside the SUAD graduate competencies it brings, an
- * arrow between. One often brings several (SCEN-C2 brings three): the arrow then points into a
- * bracket that holds them together.
- */
-function CompetencyPairs({ number, value, options, graduateText, onChange }: { number: number; value: string; options: CompetencyOption[]; graduateText: (skills: string) => string; onChange?: (labels: string[]) => void }) {
-  const chosen = lines(value);
-  const remaining = options.filter((option) => !chosen.includes(option.value));
-  return (
-    <div className="@container grid min-w-0 gap-2">
-      {chosen.length ? (
-        <ul aria-label={`CLO ${number} SCEN graduate competencies`} className="grid gap-2">
-          {chosen.map((label) => {
-            const option = options.find((item) => item.value === label);
-            const code = competencyCode(label, option);
-            const suad = lines(graduateText(label));
-            return (
-              <li key={label} className="grid grid-cols-[minmax(0,1fr)] items-start gap-1 @sm:grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] @sm:items-center @sm:gap-2">
-                <div className="flex items-start gap-2 rounded-md border border-[#c3cbd6] bg-white px-2 py-1.5">
-                  <CodeBadge code={code} />
-                  <span className="min-w-0 flex-1 text-xs leading-5 text-[#344054]">{competencyWording(label, option)}</span>
-                  {onChange ? (
-                    <button type="button" onClick={() => onChange(chosen.filter((item) => item !== label))} aria-label={`Remove ${code} from CLO ${number}`} className="shrink-0 rounded p-0.5 text-[#475467] hover:bg-[#f2f4f7] hover:text-[#a6292f]">
-                      <X size={13} aria-hidden="true" />
-                    </button>
-                  ) : null}
-                </div>
-                <ArrowRight size={16} aria-hidden="true" className="mx-auto hidden text-[#475467] @sm:block" />
-                <SuadList code={code} lines={suad} />
-              </li>
-            );
-          })}
-        </ul>
-      ) : <p className="text-xs text-[#667085]">{onChange ? "None chosen yet." : "—"}</p>}
-      {onChange && remaining.length ? (
-        <div className="max-w-xs">
-          <SelectMenu label={`Add a SCEN competency to CLO ${number}`} size="small" value="" onChange={(next) => { if (next) onChange([...chosen, next]); }} placeholder="Add a competency…" options={remaining} />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function SuadList({ code, lines: suad }: { code: string; lines: string[] }) {
-  return (
-    <ul aria-label={`SUAD graduate competencies ${code} brings`} className={`grid gap-1 pl-4 ${suad.length > 1 ? "@sm:border-l-2 @sm:border-[#667085] @sm:pl-2" : "@sm:pl-0"}`}>
-      {suad.length ? suad.map((line) => {
-        const [suadCode, ...rest] = line.split(" — ");
-        return (
-          <li key={line} className="flex items-start gap-2 rounded-md border border-[#d5dbe4] bg-[#f1f4f8] px-2 py-1.5 text-xs leading-5 text-[#344054]">
-            <span className="shrink-0 font-semibold text-[#1d2939]">{suadCode}</span>
-            <span className="min-w-0">{rest.join(" — ")}</span>
-          </li>
-        );
-      }) : <li className="px-2 py-1.5 text-xs text-[#667085]">None mapped in the catalogue</li>}
-    </ul>
-  );
-}
-
-/**
- * Layout 2: competencies chosen like the PLOs, a tick per CLO and SCEN competency; their
- * wording is in the panel's second tab. Under the grid, the SUAD competencies each CLO gets.
- */
-function CompetencyTicks({ rows, options, graduateText, onChange }: { rows: CloRow[]; options: CompetencyOption[]; graduateText: (skills: string) => string; onChange?: (row: CloRow, labels: string[]) => void }) {
-  const grid = "grid [grid-template-columns:minmax(10rem,1fr)_repeat(var(--competencies),2.25rem)]";
-  const style = { "--competencies": options.length } as CSSProperties;
-  return (
-    <section aria-labelledby="competency-ticks" className="grid min-w-0 gap-3">
-      <div role="table" aria-labelledby="competency-ticks" style={style} className="min-w-0 overflow-x-auto rounded-lg border border-[#c3cbd6] text-sm">
-        <div role="row" className={`${grid} border-b border-[#c3cbd6] bg-[#e6ecf4] font-semibold text-[#1d2939]`}>
-          <div role="columnheader" id="competency-ticks" className="px-4 py-2.5">SCEN graduate competencies</div>
-          {options.map((option) => <StackedHeader key={option.value} code={competencyCode(option.value, option)} title={String(option.label)} />)}
-        </div>
-        {rows.map((row, index) => {
-          const chosen = lines(row.skills);
-          return (
-            <div key={row.id} role="row" className={`${grid} border-b border-[#d5dbe4] last:border-b-0`}>
-              <div role="cell" className="min-w-0 px-4 py-2"><CloName row={row} number={index + 1} /></div>
-              {options.map((option) => {
-                const ticked = chosen.includes(option.value);
-                const code = competencyCode(option.value, option);
-                return (
-                  <TickCell
-                    key={option.value}
-                    ticked={ticked}
-                    label={`CLO ${index + 1} develops ${code}`}
-                    onToggle={onChange ? () => onChange(row, ticked ? chosen.filter((item) => item !== option.value) : options.map((item) => item.value).filter((value) => value === option.value || chosen.includes(value))) : undefined}
-                  />
-                );
-              })}
-            </div>
-          );
-        })}
-      </div>
-      <div className="rounded-lg border border-[#c3cbd6] bg-[#f6f8fb] p-3">
-        <h4 className="text-sm font-semibold text-[#1d2939]">SUAD graduate competencies each CLO develops</h4>
-        <ul className="mt-2 grid gap-1.5">
-          {rows.map((row, index) => {
-            const suad = lines(graduateText(row.skills ?? ""));
-            return (
-              <li key={row.id} className="grid grid-cols-[3.5rem_1.25rem_minmax(0,1fr)] items-start gap-1 text-xs leading-5">
-                <span className="font-semibold text-[#1d2939]">CLO {index + 1}</span>
-                <ArrowRight size={14} aria-hidden="true" className="mt-0.5 text-[#475467]" />
-                <span className="text-[#344054]">{suad.length ? suad.map((line) => line.replace(" — ", ": ")).join(" · ") : <span className="text-[#667085]">none yet</span>}</span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
-    </section>
-  );
-}
-
-/**
- * Beside the matrix, in view while the outcomes scroll: the PLOs in full, each with the CLOs
- * aligned to it — or flagged when none is. In the tick layout it has a second tab with the SCEN
- * competencies' wording.
- */
-function ReferencePanel({ plos, rows, uncovered, competencies }: { plos: MatrixPlo[]; rows: CloRow[]; uncovered: MatrixPlo[]; competencies?: CompetencyOption[] }) {
-  const [tab, setTab] = useState<"plos" | "competencies">("plos");
-  const showing = competencies ? tab : "plos";
-  const servedBy = (plo: MatrixPlo) => rows.flatMap((row, index) => (alignedIds(row, plos).includes(plo.id) ? [index + 1] : []));
-  const developedBy = (option: CompetencyOption) => rows.flatMap((row, index) => (lines(row.skills).includes(option.value) ? [index + 1] : []));
-  return (
-    <aside aria-label="Reference" className="min-w-0 rounded-lg border border-[#c3cbd6] bg-[#f1f4f8] p-3 @3xl:sticky @3xl:top-0 @3xl:max-h-[calc(100dvh-16rem)] @3xl:overflow-y-auto">
-      {competencies ? (
-        <div role="tablist" aria-label="Reference" className="mb-3 inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
-          {([["plos", "PLOs"], ["competencies", "Competencies"]] as const).map(([id, name]) => (
-            <button key={id} type="button" role="tab" aria-selected={showing === id} onClick={() => setTab(id)} className={`rounded px-3 py-1 text-xs font-semibold ${showing === id ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}>{name}</button>
-          ))}
-        </div>
-      ) : null}
-      {showing === "plos" ? (
-        <>
-          <h4 className="text-sm font-semibold text-[#1d2939]">Programme learning outcomes</h4>
-          <p className="mt-0.5 text-xs text-[#475467]">
-            {uncovered.length ? <span className="font-medium text-[#8a4b00]">{uncovered.map((plo) => plo.code).join(", ")} not aligned yet</span> : "Each one aligned to a CLO"}
-          </p>
-          <ol className="mt-3 grid gap-2">
-            {plos.map((plo) => {
-              const clos = servedBy(plo);
-              return (
-                <ReferenceItem key={plo.id} code={plo.code} text={plo.outcome || plo.code} used={clos.length ? `CLO ${clos.join(", ")}` : ""} missing="Not aligned yet" />
-              );
-            })}
-          </ol>
-        </>
-      ) : (
-        <>
-          <h4 className="text-sm font-semibold text-[#1d2939]">SCEN graduate competencies</h4>
-          <ol className="mt-3 grid gap-2">
-            {(competencies ?? []).map((option) => {
-              const clos = developedBy(option);
-              return <ReferenceItem key={option.value} code={competencyCode(option.value, option)} text={String(option.label)} used={clos.length ? `CLO ${clos.join(", ")}` : ""} missing="" />;
-            })}
-          </ol>
-        </>
-      )}
     </aside>
   );
 }
 
-function ReferenceItem({ code, text, used, missing }: { code: string; text: string; used: string; missing: string }) {
+function ReferenceItem({
+  id,
+  revealed,
+  code,
+  text,
+  used,
+  missing,
+  links,
+  linksLabel,
+}: {
+  id: string;
+  revealed: boolean;
+  code: string;
+  text: string;
+  used: string;
+  missing: string;
+  links?: string[];
+  linksLabel?: string;
+}) {
   const warn = !used && Boolean(missing);
   return (
-    <li className={`rounded-md border px-2.5 py-2 ${warn ? "border-[#f0d8a8] bg-[#fdf8ee]" : "border-[#d5dbe4] bg-white"}`}>
+    <li
+      data-reference={id}
+      className={`rounded-md border px-2.5 py-2 ${warn ? "border-[#f0d8a8] bg-[#fdf8ee]" : "border-[#d5dbe4] bg-white"} ${revealed ? "ring-2 ring-[#1f4e79]" : ""}`}
+    >
       <p className="flex items-center justify-between gap-2">
         <CodeBadge code={code} />
         <span className={`text-[11px] font-medium ${used ? "text-[#1d6b47]" : "text-[#8a4b00]"}`}>{used || missing}</span>
       </p>
       <p className="mt-1.5 text-xs leading-5 text-[#344054]">{text}</p>
+      {links ? (
+        <p className="mt-1.5 flex flex-wrap items-center gap-1 text-[11px] text-[#475467]">
+          <span className="font-medium">{linksLabel}</span>
+          {links.length ? links.map((link) => (
+            <span key={link} className="rounded border border-[#c3cbd6] bg-[#f1f4f8] px-1 font-semibold leading-4 text-[#1d2939]">{link}</span>
+          )) : <span>none in the catalogue</span>}
+        </p>
+      ) : null}
     </li>
   );
 }
@@ -481,14 +635,25 @@ function lines(value: string | undefined): string[] {
   return (value ?? "").split("\n").map((line) => line.trim()).filter(Boolean);
 }
 
-function competencyCode(label: string, option?: CompetencyOption): string {
-  if (option?.badge) return String(option.badge);
-  return label.split(":")[0].trim();
+/** "3" from "PLO 3", "SCEN-C3" or "GradComp 3": the number a column heading keeps. */
+function trailingNumber(code: string): string {
+  return /(\d+)\s*$/.exec(code)?.[1] ?? "";
 }
 
-function competencyWording(label: string, option?: CompetencyOption): string {
-  if (option) return String(option.label);
-  return label.includes(":") ? label.slice(label.indexOf(":") + 1).trim() : "";
+/** "C3" for SCEN-C3, "GC1" for GradComp 1; a code without a number is kept whole. */
+function shortCode(prefix: string, code: string): string {
+  const number = trailingNumber(code);
+  return number ? `${prefix}${number}` : code;
+}
+
+/** The competencies a CLO develops: by id, or for an older CLO by their wording. */
+function chosenIds(row: CloRow, competencies: MatrixCompetency[]): string[] {
+  const ids = lines(row.skillIds);
+  if (ids.length) return competencies.filter((item) => ids.includes(item.id)).map((item) => item.id);
+  const labels = lines(row.skills);
+  return competencies
+    .filter((item) => labels.some((label) => label === item.value || label === item.code || label.startsWith(`${item.code}:`)))
+    .map((item) => item.id);
 }
 
 /** "PLO 3" from "PLO 3: …" or "PLO3", to match a CLO written before PLOs had ids. */

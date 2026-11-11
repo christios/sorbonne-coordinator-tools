@@ -24,6 +24,12 @@ type Props = {
   compactHeaderActions?: ReactNode;
   /** Shrink the menu to section numbers on 1024–1279px screens, to give the content room. */
   compactMenu?: boolean;
+  /**
+   * The open section fills the height and scrolls inside its own panes, as Coordinator Tools'
+   * other screens do (the learning outcomes' matrices and panel, 11 Nov 2026), rather than
+   * the whole section scrolling as one page. From `lg` up; a phone still scrolls as a page.
+   */
+  fill?: boolean;
   /** How many things each section still lacks, shown beside its name in the menu. */
   sectionCounts?: Partial<Record<string, number>>;
 };
@@ -47,6 +53,7 @@ export function SectionEditorShell({
   compactHeaderActions,
   sectionCounts = {},
   compactMenu = false,
+  fill = false,
 }: Props) {
   const [headerCollapsed, setHeaderCollapsed] = useState(false);
   const headerCollapsedRef = useRef(false);
@@ -92,7 +99,7 @@ export function SectionEditorShell({
         const compact = compactMenu ? "lg:max-xl:relative lg:max-xl:justify-center lg:max-xl:px-0 lg:max-xl:py-2.5" : "";
         return <button key={section.id} type="button" onClick={() => onSectionChange(section.id)} title={compactMenu ? section.label : undefined} aria-current={active ? "step" : undefined} aria-label={count ? `${section.label}, ${count} to fill in` : undefined} className={`flex w-full items-start justify-between gap-2 rounded-md px-3 py-2 text-left text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] ${compact} ${active ? "bg-[#1f4e79] font-semibold text-white" : "text-[#344054] hover:bg-[#eef2f7]"}`}><span className={`min-w-0 ${compactMenu ? "lg:max-xl:sr-only" : ""}`}>{section.label}</span>{compactMenu ? <span aria-hidden="true" className="hidden text-base tabular-nums lg:max-xl:inline">{short}</span> : null}{count ? <span aria-hidden="true" className={`mt-px shrink-0 rounded-full bg-[#fef0c7] px-1.5 text-xs font-semibold tabular-nums leading-5 text-[#8a4b00] ${compactMenu ? "lg:max-xl:absolute lg:max-xl:-right-0.5 lg:max-xl:-top-1 lg:max-xl:mt-0 lg:max-xl:px-1 lg:max-xl:text-[10px] lg:max-xl:leading-4" : ""}`}>{count}</span> : null}</button>;
       })}</nav>
-      <div ref={workspaceRef} data-testid="editor-workspace" onScroll={handleScroll} className={`min-w-0 lg:min-h-0 lg:overflow-y-auto lg:pr-2 ${headerCollapsed ? "lg:pb-36" : ""}`}>{children}</div>
+      <div ref={workspaceRef} data-testid="editor-workspace" onScroll={handleScroll} className={`min-w-0 lg:min-h-0 ${fill ? "lg:flex lg:flex-col lg:overflow-hidden" : `lg:overflow-y-auto lg:pr-2 ${headerCollapsed ? "lg:pb-36" : ""}`}`}>{children}</div>
     </div>
   </div>;
 }

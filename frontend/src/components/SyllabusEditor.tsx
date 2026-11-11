@@ -44,7 +44,7 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
 import { listAcademicYears, listCoursesByCode } from "@/services/courses";
-import { OutcomeAlignmentMatrix, type MatrixPlo } from "@/components/OutcomeAlignmentMatrix";
+import { OutcomeAlignmentMatrix, type MatrixCompetency, type MatrixGraduate, type MatrixPlo } from "@/components/OutcomeAlignmentMatrix";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
@@ -72,7 +72,7 @@ import {
   type FysTableRow,
 } from "@/services/syllabusContent";
 import { courseAiFallback } from "@/services/aiPolicy";
-import { alignablePlos, catalogueCloRows, mappingEntryFor, unalignedPloIds, type CatalogueCloRow } from "@/services/outcomes";
+import { alignablePlos, catalogueCloRows, mappingEntryFor, type CatalogueCloRow } from "@/services/outcomes";
 import { useOutcomeMode } from "@/services/syllabusOutcomeMode";
 import { presetsForSchedule } from "@/services/teachingApproach";
 import {
@@ -330,6 +330,10 @@ export function SyllabusEditor({
     }
   }
 
+  // The learning outcomes fill the screen, their matrices and panel each scrolling on their
+  // own (11 Nov 2026); a Foundation Year syllabus's outcomes are a plain list and scroll as a page.
+  const fillSection = active === "learningOutcomes" && draft.templateId !== "fys-2025-26";
+
   // Guidance belongs to the field, not to one syllabus, so every syllabus shows it.
   return (
     <FieldInfoProvider
@@ -370,6 +374,7 @@ export function SyllabusEditor({
           onSectionChange={setActive}
           sectionCounts={sectionCounts}
           compactMenu
+          fill={fillSection}
           onHeaderCollapseChange={onHeaderCollapseChange}
           compactHeaderActions={compactHeaderActions}
           actions={
@@ -427,7 +432,7 @@ export function SyllabusEditor({
         >
           {/* A section can edit more than one part of the stored content (description
               and delivery are one section since November 2026); each part keeps its key. */}
-          <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
+          <div className={`grid grid-cols-[minmax(0,1fr)] gap-6 ${fillSection ? "lg:min-h-0 lg:flex-1 lg:[grid-template-rows:minmax(0,1fr)]" : ""}`}>
             {sectionParts(template.sections, active).map((part) => (
               <SectionForm
                 key={part}
@@ -1239,30 +1244,11 @@ function LearningOutcomesEditor({
     const outcome = stringify(plo.payload.outcome);
     return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
   });
-  const competencyOptions = scenCompetencies.map((entry) => {
-    const code = stringify(entry.payload.code) || entry.label;
-    const outcome = stringify(entry.payload.outcome);
-    return {
-      value: outcome ? `${code}: ${outcome}` : entry.label,
-      label: outcome || entry.label,
-      badge: code,
-      badgePlacement: "leading" as const,
-      catalogueId: entry.id,
-    };
-  });
-  const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
   const rows = (section.clos as Row[]) ?? [];
-  // Every PLO the mapping expects must be aligned to at least one CLO; submission enforces it.
-  const uncovered = mappingEntry
-    ? unalignedPloIds(ploChoices.map((plo) => plo.id), rows)
-        .map((id) => {
-          const plo = cataloguePlos.find((entry) => entry.id === id);
-          return plo ? stringify(plo.payload.code) || plo.label : "";
-        })
-        .filter(Boolean)
-    : [];
+  const competencies = matrixCompetencies(scenCompetencies, rows);
+  const graduates = matrixGraduates(graduateCompetencies, competencies);
   return (
-    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5">
+    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 lg:flex lg:min-h-0 lg:flex-col">
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
         Learning outcomes
         <InfoTip label="Where the programme outcomes come from">
@@ -1289,21 +1275,14 @@ function LearningOutcomesEditor({
           Curriculum mapping.
         </p>
       ) : null}
-      {uncovered.length ? (
-        <p
-          role="status"
-          className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]"
-        >
-          Every PLO the curriculum mapping expects of this course must be aligned to at least
-          one course outcome. Still to align: {uncovered.join(", ")}.
-        </p>
-      ) : null}
-      <div className="mt-5 min-w-0">
+      {/* Every PLO the mapping expects must be aligned to at least one CLO (submission enforces
+          it): the matrix flags each one at the foot of its column, and the panel lists them. */}
+      <div className="mt-4 min-w-0 lg:min-h-0 lg:flex-1">
         <OutcomeAlignmentMatrix
           rows={rows}
           plos={matrixPlos}
-          competencyOptions={competencyOptions}
-          graduateText={(skills) => suadCompetencyText(skills, scenCompetencies, graduateById)}
+          competencies={competencies}
+          graduates={graduates}
           onChange={(clos) => onChange({ ...section, clos })}
           history={{ onOpenHistory }}
         />
@@ -1367,18 +1346,15 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
  */
 function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies, plos, onCompetenciesChange }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[]; /** Given, the outcomes show as the read-only alignment matrix. */ plos?: CatalogueEntry[]; /** The teacher still chooses each CLO's competencies (Christian, 10 Nov 2026). */ onCompetenciesChange?: (cloId: string, skillIds: string[]) => void }) {
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
-  const competencyOptions = scenCompetencies.filter((entry) => !entry.isRetired).map((entry) => {
-    const code = stringify(entry.payload.code) || entry.label;
-    const outcome = stringify(entry.payload.outcome);
-    return { value: outcome ? `${code}: ${outcome}` : entry.label, label: outcome || entry.label, badge: code, catalogueId: entry.id };
-  });
+  const competencies = matrixCompetencies(scenCompetencies, clos);
+  const graduates = matrixGraduates(graduateCompetencies, competencies);
   const matrixPlos: MatrixPlo[] = (plos ?? []).map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
     return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
   });
   return (
-    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5">
+    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 lg:flex lg:min-h-0 lg:flex-col">
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
         Learning outcomes
         <InfoTip label="Why these cannot be edited here">
@@ -1386,12 +1362,12 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
           and every syllabus of the course shows them.
         </InfoTip>
       </h3>
-      <p role="note" className="mt-4 rounded-md border border-[#c3cbd6] bg-[#f1f4f8] px-3 py-2 text-sm text-[#475467]">
-        The outcomes and their PLOs are set by the Head of Department in the catalogue, and appear here, in the preview and in the document as written there. The competencies each one develops are yours to choose.
+      <p role="note" className="mt-1 text-sm text-[#475467]">
+        The outcomes and their PLOs are the Head of Department&apos;s, as written in the catalogue. The competencies each one develops are yours to choose.
       </p>
       {clos.length && plos ? (
-        <div className="mt-5 min-w-0">
-          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencyOptions={competencyOptions} graduateText={(skills) => suadCompetencyText(skills, scenCompetencies, graduateById)} onCompetenciesChange={onCompetenciesChange} />
+        <div className="mt-4 min-w-0 lg:min-h-0 lg:flex-1">
+          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencies={competencies} graduates={graduates} onCompetenciesChange={onCompetenciesChange} />
         </div>
       ) : clos.length ? (
         <ol className="mt-5 grid gap-3">
@@ -1412,6 +1388,48 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
       )}
     </section>
   );
+}
+
+/**
+ * The competency matrix's SCEN columns: the catalogue's competencies, and a retired one only
+ * while an outcome still develops it, so it can be seen and unticked.
+ */
+function matrixCompetencies(scenCompetencies: CatalogueEntry[], clos: Array<Record<string, unknown>>): MatrixCompetency[] {
+  const chosenIds = new Set(clos.flatMap((clo) => String(clo.skillIds ?? "").split("\n").map((id) => id.trim()).filter(Boolean)));
+  const chosenLabels = new Set(clos.flatMap((clo) => String(clo.skills ?? "").split("\n").map((label) => label.trim()).filter(Boolean)));
+  return scenCompetencies
+    .map((entry) => {
+      const code = stringify(entry.payload.code) || entry.label;
+      const outcome = stringify(entry.payload.outcome);
+      const ids = entry.payload.graduateCompetencyIds;
+      return {
+        entry,
+        column: {
+          id: entry.id,
+          code,
+          outcome: outcome || entry.label,
+          value: outcome ? `${code}: ${outcome}` : entry.label,
+          graduateIds: Array.isArray(ids) ? ids.map(String) : [],
+        },
+      };
+    })
+    .filter(({ entry, column }) => !entry.isRetired || chosenIds.has(column.id) || chosenLabels.has(column.value))
+    .map(({ column }) => column);
+}
+
+/** Its SUAD columns: the graduate competencies in force, and any a SCEN column still brings. */
+function matrixGraduates(graduateCompetencies: CatalogueEntry[], competencies: MatrixCompetency[]): MatrixGraduate[] {
+  const brought = new Set(competencies.flatMap((competency) => competency.graduateIds));
+  return graduateCompetencies
+    .filter((entry) => !entry.isRetired || brought.has(entry.id))
+    .map((entry) => {
+      const [labelCode, ...labelRest] = entry.label.split(" — ");
+      return {
+        id: entry.id,
+        code: stringify(entry.payload.code) || labelCode,
+        outcome: stringify(entry.payload.outcome) || labelRest.join(" — ") || entry.label,
+      };
+    });
 }
 
 /** The SUAD competencies a course develops follow from the SCEN ones it selects. */
