@@ -160,6 +160,7 @@ export function ScheduleEditor({
   );
   const [movingRowId, setMovingRowId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const [heldOrder, setHeldOrder] = useState<{ ids: string[]; placement: string } | null>(null);
 
   useEffect(() => {
     if (!reveal) return;
@@ -204,7 +205,16 @@ export function ScheduleEditor({
         : [...current, id],
     );
   const weeksInUse = weeksTaught(rows);
-  const shown = holdsGradedActivities ? scheduleOrder(rows) : rows;
+  /*
+   * After a card switches kind the list keeps the order it had on screen (11 Nov 2026). A
+   * session made a graded activity belongs after the week's sessions — with no week, after
+   * every undated session — and jumping there moved every card on screen: "everything
+   * flickers". The held order lasts until a week or date changes or a card comes or goes;
+   * the document and its export always go by week.
+   */
+  const placement = placementOf(rows);
+  const ordered = holdsGradedActivities ? scheduleOrder(rows) : rows;
+  const shown = heldOrder && heldOrder.placement === placement ? inHeldOrder(rows, heldOrder.ids) : ordered;
   const sessionNumbers = new Map<string, number>();
   const gradedNumbers = new Map<string, number>();
   const counts = new Map<string, number>();
@@ -236,6 +246,7 @@ export function ScheduleEditor({
   const switchKind = (id: string, to: CardKind) => {
     const card = document.getElementById(`schedule-${id}`);
     switchAnchor.current = card ? { id, top: card.getBoundingClientRect().top } : null;
+    setHeldOrder({ ids: shown.map((row) => row.id), placement });
     onChange(rows.map((row) => (row.id === id ? switchCardKind(row, to) : row)));
   };
   useLayoutEffect(() => {
@@ -742,6 +753,16 @@ function CardKindSwitch({ kind, title, onSwitch }: { kind: CardKind; title: stri
       <span className="text-xs text-[#667085]">Switching keeps the week, date and title.</span>
     </div>
   );
+}
+
+/** What places the cards: which there are, and their weeks and dates. A kind switch leaves it be. */
+function placementOf(rows: ScheduleRow[]): string {
+  return rows.map((row) => `${row.id}:${row.week ?? ""}:${row.date ?? ""}`).sort().join("|");
+}
+
+function inHeldOrder(rows: ScheduleRow[], ids: string[]): ScheduleRow[] {
+  const position = new Map(ids.map((id, index) => [id, index]));
+  return [...rows].sort((left, right) => (position.get(left.id) ?? ids.length) - (position.get(right.id) ?? ids.length));
 }
 
 /** The box that scrolls the card: the editor's workspace on a computer, the page on a phone. */

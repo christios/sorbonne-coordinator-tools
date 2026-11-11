@@ -231,4 +231,26 @@ describe("ScheduleEditor", () => {
     expect(card.kind).toBeUndefined();
     expect(card).toMatchObject({ id: "essay", topic: "Essay", week: "4", weight: "40" });
   });
+
+  it("keeps the cards where they were when one switches kind, until a week changes", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    let rows: Array<Record<string, string> & { id: string }> = [
+      { id: "a", topic: "Rays", week: "" },
+      { id: "b", topic: "Mirrors", week: "" },
+      { id: "c", topic: "Prisms", week: "" },
+    ];
+    const titles = () => Array.from(document.querySelectorAll("article[id^=schedule-]")).map((card) => card.querySelector(":scope > div > button[aria-expanded]")?.getAttribute("aria-label")?.replace(/^(Expand|Collapse) /, ""));
+    const show = () => <QueryClientProvider client={queryClient}><ScheduleEditor rows={rows} onChange={(next) => { rows = next; }} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} holdsGradedActivities reveal={{ id: "a", count: 1 }} /></QueryClientProvider>;
+    const { rerender } = render(show());
+
+    // Undated, a graded activity belongs after every session: it stays put all the same.
+    fireEvent.click(screen.getByRole("group", { name: "Kind of card: Rays" }).querySelector("button[aria-pressed=false]")!);
+    rerender(show());
+    expect(titles()).toEqual(["graded activity: Rays", "topic: Mirrors (position 2)", "topic: Prisms (position 3)"]);
+
+    // Once a week changes, the schedule is in week order again.
+    rows = rows.map((row) => (row.id === "c" ? { ...row, week: "1" } : row));
+    rerender(show());
+    expect(titles()).toEqual(["topic: Prisms (position 1)", "topic: Mirrors (position 2)", "graded activity: Rays"]);
+  });
 });
