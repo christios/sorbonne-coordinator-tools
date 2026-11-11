@@ -273,7 +273,7 @@ describe("the guided tour", () => {
     expect(within(welcome).getAllByRole("listitem")).toHaveLength(3);
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(welcome).getByRole("button", { name: "Later" }));
-    expect(step("Take the tour again").textContent).toContain("Save draft and Submit open once the tour is taken to its end");
+    expect(step("Take the tour again").textContent).toContain("Save draft and Submit open once it is finished");
     gotIt();
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
@@ -287,7 +287,9 @@ describe("the guided tour", () => {
     begin();
     const first = step("Mark a time");
     expect(within(first).queryByRole("button", { name: "Skip" })).toBeNull();
-    expect(within(first).getByText("Try it to go on")).toBeTruthy();
+    expect(within(first).getByText("Your turn")).toBeTruthy();
+    // What to do is said once, in the numbered steps: no "Try it" box saying it again.
+    expect(within(first).queryByText(/^Try it/)).toBeNull();
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
 
     // The X, or Escape, asks first; and says the form waits for the tour.
@@ -330,7 +332,7 @@ describe("the guided tour", () => {
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     // Made: the block does not open by itself, while the tour is to teach opening it.
     expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
-    expect(step("Mark a time").textContent).toContain("one block is enough for the tour");
+    expect(step("Mark a time").textContent).toContain("One block is enough for the tour");
     // No second block, from a stroke or a day's name; and a press on the block is nothing yet.
     stroke(["Thursday", "10:00"]);
     expect(said("Thursday", "10:00")).toContain("fine");
@@ -351,7 +353,7 @@ describe("the guided tour", () => {
     expect(opened.className).toContain("tour-pop-in");
     expect(step("How it repeats").textContent).toContain("Your click opened this box.");
     expect(within(step("How it repeats")).getAllByRole("listitem")).toHaveLength(3);
-    expect(step("How it repeats").textContent).toContain("type in Comment why");
+    expect(step("How it repeats").textContent).toContain("Add a comment if you like");
     expect((within(opened).getByRole("button", { name: /Remove/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(opened).getByRole("radio", { name: /^This week only/ }));
     // Done pressed: straight on.
@@ -362,7 +364,7 @@ describe("the guided tour", () => {
     // The one-week block stays on its week.
     expect(said("Tuesday", "14:00")).toContain("fine");
     fireEvent.click(within(step("Away for a day?")).getByRole("button", { name: "Next" }));
-    expect(step("Summary of constraints and preferences").textContent).toContain("click one to go to its week");
+    expect(step("Summary of constraints and preferences").textContent).toContain("Click one to go to its week");
     fireEvent.click(within(step("Summary of constraints and preferences")).getByRole("button", { name: "Next" }));
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
     fireEvent.click(within(step("Limits on their week")).getByRole("button", { name: "Next" }));
@@ -395,7 +397,7 @@ describe("the guided tour", () => {
     expect(box()).toBeTruthy();
     fireEvent.click(back);
     // Back on "Open a block", the block closed, waiting to be clicked again.
-    expect(step("Open a block").textContent).toContain("Its box opens");
+    expect(step("Open a block").textContent).toContain("Click the block you made");
     expect(within(step("Open a block")).queryByRole("button", { name: "Next" })).toBeNull();
     expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
   });
@@ -416,7 +418,8 @@ describe("the guided tour", () => {
     expect(sure.textContent).toContain("What you tried during the tour is cleared.");
     fireEvent.click(within(sure).getByRole("button", { name: "End the tour" }));
     // Taken before: how to take it again says nothing of Save waiting.
-    expect(step("Take the tour again").textContent).toContain("what you try during it can be cleared");
+    expect(step("Take the tour again").textContent).toContain("whenever you want it");
+    expect(step("Take the tour again").textContent).not.toContain("Save draft");
     gotIt();
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
     expect(said("Tuesday", "14:00")).toContain("fine");

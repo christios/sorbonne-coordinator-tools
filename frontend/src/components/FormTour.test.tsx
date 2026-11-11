@@ -88,6 +88,29 @@ describe("a guided tour's card", () => {
     window_.remove();
   });
 
+  it("lights parts apart when a step asks, the dim between them, a box overlapping the calendar cut once", () => {
+    const calendar = placed(100, 100, 400, 300);
+    // A box hanging below the calendar, its top inside it.
+    const box = placed(150, 350, 200, 150);
+    const steps: TourStep[] = [{ id: "one", title: "First", body: "", target: () => [[calendar], box], apart: true }];
+    render(<FormTour steps={steps} at={0} onStep={() => {}} onClose={() => {}} />);
+    expect(document.querySelectorAll("[data-tour-lit]")).toHaveLength(2);
+    // The dim covers what is not lit, and nothing that is: not the calendar, not the box under it.
+    const dimmed = (x: number, y: number) =>
+      [...document.querySelectorAll<HTMLElement>("[data-tour-dim]")].filter((piece) => {
+        const [left, top, width, height] = ["left", "top", "width", "height"].map((side) => parseFloat(piece.style.getPropertyValue(side)));
+        return x >= left && x < left + width && y >= top && y < top + height;
+      }).length;
+    expect(dimmed(300, 200)).toBe(0);
+    expect(dimmed(250, 480)).toBe(0);
+    // Beside the box, under the calendar: the summary's place.
+    expect(dimmed(450, 480)).toBe(1);
+    expect(dimmed(20, 20)).toBe(1);
+    expect(dimmed(250, 600)).toBe(1);
+    calendar.remove();
+    box.remove();
+  });
+
   it("asks before it ends", () => {
     const onClose = vi.fn();
     render(<FormTour steps={[{ id: "one", title: "First", body: "" }]} at={0} onStep={() => {}} onClose={onClose} endWords="Nothing is lost." />);

@@ -843,22 +843,24 @@ export function WishesForm({
       <Compass size={14} aria-hidden="true" /> Guided tour
     </button>
   );
-  const you = voice === "you" ? "you" : "they";
-  const youd = voice === "you" ? "you'd" : "they'd";
   const gridBody = () => gridBox.current?.querySelector("tbody");
+  /*
+   * The cards' words: one line per thing to do, or per thing the page does not already say.
+   * No option or field named again where the page shows it, and no line said twice.
+   */
   const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
     {
       id: "paint",
       title: "Mark a time",
+      body: tourMade ? <b className="font-semibold text-[#1f4e79]">One block is enough for the tour. Press Next.</b> : undefined,
       steps: [
         <>
-          Pick <KindLook kind="constraint" /> for hours {you} can&rsquo;t teach, or <KindLook kind="preference" /> for hours {youd} like to teach.
+          Pick <KindLook kind="constraint" /> (can&rsquo;t teach) or <KindLook kind="preference" /> (would like to teach).
         </>,
-        <>Press on an hour in the calendar and drag down; drag sideways too, to cover several days.</>,
-        <>Let go: the hours become one block. Hours left white are fine.</>,
-        ...(tourMade ? [<b className="font-semibold text-[#1f4e79]">That&rsquo;s it for now: one block is enough for the tour. Press Next.</b>] : []),
+        <>Drag down a few hours on any day; sideways covers several days.</>,
+        <>Hours left white are fine.</>,
       ],
-      tryIt: "Drag down a few hours on any day.",
+      tryIt: "Make a block.",
       done: Boolean(tourMade) && !drag,
       target: () => [part("toolbar"), gridBox.current],
       allow: () => [part("brushes"), gridBody()],
@@ -866,11 +868,8 @@ export function WishesForm({
     {
       id: "open",
       title: "Open a block",
-      steps: [
-        <>Click the block you made.</>,
-        <>Its box opens: there you choose how it repeats, switch constraint and preference, add a comment, or remove it.</>,
-      ],
-      tryIt: "Click the block you made.",
+      steps: [<>Click the block you made.</>],
+      tryIt: "Open it.",
       done: Boolean(tourClicked || (open && openBlock)),
       doneWords: "Nicely done: opening it…",
       // Clicked: a moment to see the block chosen, then it opens and the tour goes on by itself.
@@ -882,24 +881,24 @@ export function WishesForm({
       id: "repeat",
       title: "How it repeats",
       body: open && openBlock ? <span className="font-semibold text-[#1f4e79]">Your click opened this box.</span> : undefined,
-      steps: [
-        <>
-          Under <b>How it repeats</b>, choose <b>Every week</b>, <b>Every week from this week on</b> (a change partway through the semester) or{" "}
-          <b>This week only</b> (a one-off, like a conference).
-        </>,
-        <>
-          If you like, type in <b>Comment</b> why, e.g. &ldquo;School run&rdquo;: the coordinator sees it.
-        </>,
-        <>
-          Press <b>Done</b>.
-        </>,
-      ],
-      tryIt: open && openBlock ? "Choose how it repeats, then press Done." : "Click your block to open it again.",
+      steps:
+        open && openBlock
+          ? [
+              <>Pick how it repeats.</>,
+              <>Add a comment if you like: the coordinator reads it.</>,
+              <>
+                Press <b>Done</b>.
+              </>,
+            ]
+          : [<>Click your block to open it again.</>],
+      tryIt: "Set it.",
       done: tourBase.sawOpen && !open,
       // Done pressed: straight on.
       instantNext: true,
-      // The whole calendar with the box, to see the block change as it is chosen.
-      target: () => [part("toolbar"), gridBox.current, open ? popover.current : null],
+      // The calendar and all above it, to see the block change as it is chosen, and the box: each lit
+      // on its own, so the summary under the calendar stays in the dim, wherever the box reaches.
+      target: () => [[part("notice"), part("stepper"), part("week-head"), part("toolbar"), gridBox.current], open ? popover.current : null],
+      apart: true,
       allow: () => (open ? popover.current : gridBody()),
       pointAt: () => popover.current?.querySelector('[aria-label="How it repeats"]'),
       // Beside the choice, outside its box: over it would cover the box's words.
@@ -909,10 +908,10 @@ export function WishesForm({
       id: "weeks",
       title: "Move between weeks",
       steps: [
-        <>Press the arrow beside the week&rsquo;s name, or pick a week from its menu.</>,
-        <>Watch the calendar: a block that repeats shows on every week it covers; a one-week block only on its own week.</>,
+        <>Press the arrow to go to {after_ ? "the next week" : "the week before"}.</>,
+        <>A block for one week only stays on its week; the others follow.</>,
       ],
-      tryIt: <>Go to {after_ ? "the next week" : "the week before"} with the arrow.</>,
+      tryIt: "Change week.",
       done: week !== tourBase.week,
       instantNext: true,
       target: () => [part("toolbar"), gridBox.current],
@@ -922,25 +921,20 @@ export function WishesForm({
     {
       id: "day",
       title: "Away for a day?",
+      body: <span className="text-[#667085]">Not now: the tour keeps to one block.</span>,
       steps: [
-        <>Click the day&rsquo;s name over the calendar.</>,
         <>
-          The whole day becomes a <KindLook kind="constraint" /> for that week only.
+          Click a day&rsquo;s name: the whole day becomes a <KindLook kind="constraint" /> for that week only.
         </>,
-        <>Say why in its box: a conference, leave…</>,
+        <>Say why in its box.</>,
       ],
-      body: <span className="text-[#667085]">Not now: the tour keeps to one block. Press Next.</span>,
       target: () => [part("toolbar"), gridBox.current],
       pointAt: () => gridBox.current?.querySelector("thead button[data-day-name]"),
     },
     {
       id: "summary",
       title: "Summary of constraints and preferences",
-      steps: [
-        <>Look under the calendar: every block is listed, constraints first, then preferences.</>,
-        <>Each says when it is, how it repeats, and why.</>,
-        <>Later, click one to go to its week and open it; × removes it.</>,
-      ],
+      steps: [<>Everything marked is listed here, with how it repeats and why.</>, <>Click one to go to its week and open it.</>],
       // The light grows from the calendar to take in the list under it.
       target: () => [gridBox.current, part("summary")],
       pointAt: () => part("summary"),
@@ -951,16 +945,13 @@ export function WishesForm({
       title: "Two more pages",
       steps: [
         <>
-          Press <b>Next</b> for limits on {yours} week.
+          Press <b>Next: Limits</b>.
         </>,
         <>
-          Then <b>Next</b> again for needs and a note.
-        </>,
-        <>
-          <b>Back</b> brings the calendar again, as it was left.
+          <b>Back</b> returns to the calendar as you left it.
         </>,
       ],
-      tryIt: "Press Next.",
+      tryIt: "Go on.",
       done: page >= 1,
       instantNext: true,
       target: () => part("nav"),
@@ -971,11 +962,10 @@ export function WishesForm({
       id: "limits",
       title: `Limits on ${yours} week`,
       steps: [
-        <>Set only the limits that matter: days on campus, hours in a day or in a row, a day free. All are optional.</>,
+        <>Set only those that matter.</>,
         <>
-          Each one set is a <KindLook kind="preference" />; switch it to <KindLook kind="constraint" /> if it must hold.
+          Each is a <KindLook kind="preference" /> unless you switch it to <KindLook kind="constraint" />.
         </>,
-        <>Add why, if you like.</>,
       ],
       target: () => part("limits"),
       allow: () => part("limits"),
@@ -985,10 +975,10 @@ export function WishesForm({
       title: "Save or submit",
       steps: [
         <>
-          <b>Save draft</b>, on every page, keeps {voice === "you" ? "your" : "the"} answer to come back to.
+          <b>Save draft</b> keeps it for later.
         </>,
         <>
-          <b>Submit</b> is on the last page, after Needs.
+          <b>Submit</b> is on the last page.
         </>,
         voice === "you" ? <>You can change your answer until the deadline.</> : <>It&rsquo;s kept as entered by you.</>,
       ],
@@ -999,10 +989,8 @@ export function WishesForm({
       title: "Take the tour again",
       steps: [
         <>
-          Press <b>Guided tour</b>, top right, whenever you want this tour again.
+          Press <b>Guided tour</b>, top right, whenever you want it.
         </>,
-        <>It starts from the form as it is, and what you try during it can be cleared at the end.</>,
-        tried ? <>Keep what you tried, or clear it and go back to where you were.</> : <>Press Finish to start filling in the form.</>,
       ],
       target: () => tourButtonAt.current,
       pointAt: () => tourButtonAt.current,
@@ -1015,25 +1003,13 @@ export function WishesForm({
     },
   ];
 
-  const againWords = [
-    <>
-      Press <b>Guided tour</b>, top right, whenever you want the tour.
-    </>,
-    tourRequired ? (
-      <>
-        <b>Save draft</b> and <b>Submit</b> open once the tour is taken to its end.
-      </>
-    ) : (
-      <>It starts from the form as it is, and what you try during it can be cleared at the end.</>
-    ),
-  ];
   const hintStep: TourStep | null =
     tourHint === "welcome"
       ? {
           id: "welcome",
           title: "New here? Take the one-minute tour",
           steps: [
-            <>It shows each part of the form, and you try each one as you go.</>,
+            <>You try each part of the form as you go.</>,
             <>Anything you try can be cleared at the end.</>,
             <>
               <b>Save draft</b> and <b>Submit</b> open once it is done.
@@ -1055,7 +1031,18 @@ export function WishesForm({
         ? {
             id: "again-hint",
             title: "Take the tour again",
-            steps: againWords,
+            steps: [
+              <>
+                Press <b>Guided tour</b>, top right, whenever you want it.
+              </>,
+              ...(tourRequired
+                ? [
+                    <>
+                      <b>Save draft</b> and <b>Submit</b> open once it is finished.
+                    </>,
+                  ]
+                : []),
+            ],
             target: () => tourButtonAt.current,
             pointAt: () => tourButtonAt.current,
             actions: [{ label: "Got it", primary: true, onClick: () => setTourHint(null) }],
@@ -1115,6 +1102,7 @@ export function WishesForm({
       {tourButtonIn ? createPortal(tourButton, tourButtonIn) : <div className="flex justify-end">{tourButton}</div>}
       {notice ? (
         <div
+          data-tour="notice"
           role={noticeTone === "warning" ? "note" : undefined}
           className={`rounded-md px-3 py-2 text-sm ${noticeTone === "warning" ? "bg-[#fdf6e3] text-[#7a5d00]" : "bg-[#f2f7fb] text-[#344054]"}`}
         >
@@ -1150,21 +1138,23 @@ export function WishesForm({
       {/* -------------------------------------------------------------- the week */}
       {page === 0 ? (
         <section aria-label={`${Yours} week`} className={section}>
-          <h3 className="text-sm font-semibold text-[#171717]">{Yours} week</h3>
-          <HowTo
-            steps={[
-              { icon: Paintbrush, title: "Pick Constraint or Preference", hint: `Red: ${meaning("constraint", voice)} · green: ${meaning("preference", voice)}` },
-              { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
-              { icon: Repeat, title: "Choose how it repeats", hint: "Every week, from a week on, or one week only" },
-            ]}
-          >
-            <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
-              <span className="text-[11px] text-[#a6292f]">Away for a day?</span>
-              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
-                <CalendarX2 size={12} aria-hidden="true" /> Click its name
-              </span>
-            </div>
-          </HowTo>
+          <div data-tour="week-head">
+            <h3 className="text-sm font-semibold text-[#171717]">{Yours} week</h3>
+            <HowTo
+              steps={[
+                { icon: Paintbrush, title: "Pick Constraint or Preference", hint: `Red: ${meaning("constraint", voice)} · green: ${meaning("preference", voice)}` },
+                { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
+                { icon: Repeat, title: "Choose how it repeats", hint: "Every week, from a week on, or one week only" },
+              ]}
+            >
+              <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
+                <span className="text-[11px] text-[#a6292f]">Away for a day?</span>
+                <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
+                  <CalendarX2 size={12} aria-hidden="true" /> Click its name
+                </span>
+              </div>
+            </HowTo>
+          </div>
           <div data-tour="toolbar" className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
             <div data-tour="weeks" className="flex items-center gap-1">
               <button

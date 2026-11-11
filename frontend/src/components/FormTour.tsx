@@ -20,7 +20,10 @@ export type TourStep = {
    * even the rest of the lit part. None: only the card works.
    */
   allow?: () => Element | null | undefined | (Element | null | undefined)[];
-  /** What to try, said as a task: "Drag down a few hours on any day." */
+  /**
+   * Something to try before going on: "Drag down a few hours on any day." With numbered steps,
+   * which say how, it is not shown again — the card says only "Your turn".
+   */
   tryIt?: ReactNode;
   /** The thing to try has been done. */
   done?: boolean;
@@ -34,11 +37,20 @@ export type TourStep = {
   pointAt?: () => Element | null | undefined;
   /** Where the arrow sits: over the control (the default) or to its left, pointing right. */
   pointFrom?: "above" | "left";
-  /** The part of the page to light up — or several, lit as one; none puts the card in the middle. */
-  target?: () => Element | null | (Element | null)[];
+  /**
+   * The part of the page to light up — or several, lit as one (as one each, with `apart`: a
+   * group in its own array lit as one); none puts the card in the middle.
+   */
+  target?: () => Parts;
+  /** Each of the target's parts lit on its own, the dim between them: not one box round them all. */
+  apart?: boolean;
   /** Buttons in place of Next, for the last step: keep or clear what was tried. */
   actions?: { label: string; onClick: () => void; primary?: boolean }[];
 };
+
+type Part = Element | null | undefined;
+/** One part of the page, or several, or groups of several. */
+export type Parts = Part | (Part | Part[])[];
 
 type Box = { left: number; top: number; width: number; height: number };
 
@@ -82,8 +94,8 @@ function scrollersOf(element: Element): Element[] {
  * Where one part, or several taken together, sit on the screen — the part of them that can
  * be seen: a form scrolled inside a window shows only what the window shows.
  */
-function boxOf(found: Element | null | (Element | null)[]): Box | null {
-  const seen = (Array.isArray(found) ? found : [found])
+function boxOf(found: Parts): Box | null {
+  const seen = (Array.isArray(found) ? found.flat() : [found])
     .filter((element): element is Element => Boolean(element))
     .map((element) => {
       const rect = element.getBoundingClientRect();
@@ -109,6 +121,55 @@ function boxOf(found: Element | null | (Element | null)[]): Box | null {
 const sameBox = (left: Box | null, right: Box | null) =>
   left === right ||
   (left !== null && right !== null && left.left === right.left && left.top === right.top && left.width === right.width && left.height === right.height);
+const sameBoxes = (left: Box[], right: Box[]) => left.length === right.length && left.every((box, index) => sameBox(box, right[index]));
+
+/** The parts lit, each a box: one round them all, or, `apart`, one for each part or group. */
+function litBoxes(found: Parts, apart: boolean): Box[] {
+  const boxes = apart && Array.isArray(found) ? found.map((entry) => boxOf(entry)) : [boxOf(found)];
+  return boxes.filter((box): box is Box => box !== null);
+}
+
+/** One box round several. */
+function unite(boxes: Box[]): Box | null {
+  if (!boxes.length) return null;
+  const left = Math.min(...boxes.map((box) => box.left));
+  const top = Math.min(...boxes.map((box) => box.top));
+  const right = Math.max(...boxes.map((box) => box.left + box.width));
+  const bottom = Math.max(...boxes.map((box) => box.top + box.height));
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+const padded = (box: Box): Box => ({ left: box.left - PAD, top: box.top - PAD, width: box.width + PAD * 2, height: box.height + PAD * 2 });
+
+/** What is left of one box once another is taken out of it: none to four boxes, side by side. */
+function minus(from: Box, out: Box): Box[] {
+  const [right, bottom] = [from.left + from.width, from.top + from.height];
+  const [outRight, outBottom] = [out.left + out.width, out.top + out.height];
+  if (out.left >= right || outRight <= from.left || out.top >= bottom || outBottom <= from.top) return [from];
+  const left: Box[] = [];
+  if (out.top > from.top) left.push({ left: from.left, top: from.top, width: from.width, height: out.top - from.top });
+  if (outBottom < bottom) left.push({ left: from.left, top: outBottom, width: from.width, height: bottom - outBottom });
+  const top = Math.max(from.top, out.top);
+  const height = Math.min(bottom, outBottom) - top;
+  if (out.left > from.left) left.push({ left: from.left, top, width: out.left - from.left, height });
+  if (outRight < right) left.push({ left: outRight, top, width: right - outRight, height });
+  return left;
+}
+
+/**
+ * The dim as boxes side by side: the screen, less each lit box. A blur behind a cut-out outline
+ * blurs the cut-outs too in some browsers; boxes that only cover what is dimmed do not.
+ */
+function dimBoxes(lit: Box[], screen: Box): Box[] {
+  // On whole pixels, each lit box grown to the pixel: boxes meeting between pixels leave a hairline.
+  const whole = (box: Box): Box => {
+    const [left, top] = [Math.floor(box.left), Math.floor(box.top)];
+    return { left, top, width: Math.ceil(box.left + box.width) - left, height: Math.ceil(box.top + box.height) - top };
+  };
+  let pieces = [whole(screen)];
+  for (const box of lit.map((each) => whole(padded(each)))) pieces = pieces.flatMap((piece) => minus(piece, box));
+  return pieces;
+}
 
 /**
  * What a press may always reach during a tour: the card, and a menu opened from a control the
@@ -149,6 +210,15 @@ export function FormTour({
 }) {
   const step = steps[at];
   const [box, setBox] = useState<Box | null>(null);
+  // The parts lit, each its own box (one, unless the step lights them apart).
+  const [holes, setHoles] = useState<Box[]>([]);
+  // The window's size, for the dim to cover it all: told again when it changes.
+  const [screen, setScreen] = useState(() => ({ width: window.innerWidth, height: window.innerHeight }));
+  useEffect(() => {
+    const resized = () => setScreen({ width: window.innerWidth, height: window.innerHeight });
+    window.addEventListener("resize", resized);
+    return () => window.removeEventListener("resize", resized);
+  }, []);
   // Where the arrow points: the control the step asks to try.
   const [arrow, setArrow] = useState<Box | null>(null);
   const [place, setPlace] = useState<{ left: number; top: number } | null>(null);
@@ -167,6 +237,8 @@ export function FormTour({
   const target = step?.target;
   const targetNow = useRef(target);
   targetNow.current = target;
+  const apartNow = useRef(Boolean(step?.apart));
+  apartNow.current = Boolean(step?.apart);
   const pointNow = useRef(step?.pointAt);
   pointNow.current = step?.pointAt;
   useEffect(() => {
@@ -175,7 +247,9 @@ export function FormTour({
       typeof window.requestAnimationFrame === "function" ? window.requestAnimationFrame(then) : window.setTimeout(then, 16);
     const follow = () => {
       if (stopped) return;
-      const next = boxOf(targetNow.current?.() ?? null);
+      const lit = litBoxes(targetNow.current?.() ?? null, apartNow.current);
+      setHoles((current) => (sameBoxes(current, lit) ? current : lit));
+      const next = unite(lit);
       setBox((current) => (sameBox(current, next) ? current : next));
       const pointed = boxOf(pointNow.current?.() ?? null);
       setArrow((current) => (sameBox(current, pointed) ? current : pointed));
@@ -236,7 +310,7 @@ export function FormTour({
     const look = () => {
       if (stopped) return;
       const found = targetNow.current?.() ?? null;
-      const parts = (Array.isArray(found) ? found : [found]).filter((element): element is Element => Boolean(element));
+      const parts = (Array.isArray(found) ? found.flat() : [found]).filter((element): element is Element => Boolean(element));
       if (parts.length && (parts.length !== shown.current.length || parts.some((part, index) => part !== shown.current[index]))) {
         shown.current = parts;
         // Brought into view whole if it fits, else from its top: all of it, not what shows now.
@@ -318,22 +392,28 @@ export function FormTour({
   if (!step) return null;
   return createPortal(
     <>
-      {/* The dim, with the lit part cut out of it; presses on it are caught above, not by it. */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed z-[95] rounded-lg ring-2 ring-[#5b8fc4] motion-safe:transition-all motion-safe:duration-300"
-        style={
-          box
-            ? {
-                left: box.left - PAD,
-                top: box.top - PAD,
-                width: box.width + PAD * 2,
-                height: box.height + PAD * 2,
-                boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.75), 0 0 0 6px rgba(91, 143, 196, 0.35)",
-              }
-            : { left: "50%", top: "50%", width: 0, height: 0, boxShadow: "0 0 0 9999px rgba(16, 24, 40, 0.75)" }
-        }
-      />
+      {/*
+       * The dim, dark and blurred, round the lit parts; and a ring round each lit part.
+       * Presses on the dim are caught above, not by it.
+       */}
+      {dimBoxes(holes, { left: -40, top: -40, width: screen.width + 80, height: screen.height + 80 }).map((piece, index) => (
+        <div
+          key={index}
+          aria-hidden="true"
+          data-tour-dim
+          className="pointer-events-none fixed z-[95]"
+          style={{ ...piece, backgroundColor: "rgba(16, 24, 40, 0.72)", backdropFilter: "blur(3px)", WebkitBackdropFilter: "blur(3px)" }}
+        />
+      ))}
+      {holes.map((hole, index) => (
+        <div
+          key={index}
+          aria-hidden="true"
+          data-tour-lit
+          className="pointer-events-none fixed z-[95] rounded-[3px] ring-2 ring-[#5b8fc4]"
+          style={{ ...padded(hole), boxShadow: "0 0 0 6px rgba(91, 143, 196, 0.35)" }}
+        />
+      ))}
       {arrow
         ? (() => {
             // Here: a bouncing arrow at the control to try — to its left if the step says so and
@@ -421,13 +501,14 @@ export function FormTour({
                     ))}
                   </ol>
                 ) : null}
+                {/* What to try: the numbered steps say it, when there are any; the box says it otherwise. Done, it says so. */}
                 {step.tryIt ? (
                   done && !instant ? (
                     <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-2 text-[13px] font-semibold text-[#2e7d55]">
                       <Check size={15} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
                       {autoNext ? <Countdown key={at} ms={autoNext} /> : null}
                     </p>
-                  ) : (
+                  ) : step.steps?.length ? null : (
                     <p className="mt-3 flex items-start gap-2 rounded-md border border-[#9cc0e4] bg-[#eef4fa] px-2.5 py-2 text-[13px] font-semibold text-[#1f4e79]">
                       <MousePointerClick size={15} className="mt-0.5 shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
                       <span>
@@ -475,7 +556,14 @@ export function FormTour({
                     </button>
                   ) : autoNext ? null : step.tryIt && !done ? (
                     // Nothing to skip: a step with something to try offers Next once it is tried.
-                    <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
+                    step.steps?.length ? (
+                      // The numbered steps say what; this only says it is to be done before going on.
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f4e79]">
+                        <MousePointerClick size={13} className="motion-safe:animate-pulse" aria-hidden="true" /> Your turn
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
+                    )
                   ) : (
                     <button type="button" onClick={() => onStep(at + 1)} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
                       Next
