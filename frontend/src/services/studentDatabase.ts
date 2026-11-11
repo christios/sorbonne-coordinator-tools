@@ -452,8 +452,10 @@ export function placeStudents(
  * happens to hold that set. Anything asking "who is in this cohort" has to ask the records,
  * not the placements.
  */
-export async function fetchMemberIds(cohortId: string): Promise<Set<string>> {
-  const payload = await request<{ members: { studentId: string }[] }>(`${BASE}/cohorts/${cohortId}/members`);
+/** A cohort's students — in one semester when `termId` is said, else in any. */
+export async function fetchMemberIds(cohortId: string, termId = ""): Promise<Set<string>> {
+  const term = termId ? `?term=${encodeURIComponent(termId)}` : "";
+  const payload = await request<{ members: { studentId: string }[] }>(`${BASE}/cohorts/${cohortId}/members${term}`);
   return new Set(payload.members.map((member) => member.studentId));
 }
 
@@ -486,8 +488,10 @@ export type TeamsCheck = {
   channels: TeamsChannelCheck[];
 };
 
-export function fetchTeamsCheck(cohortId: string): Promise<TeamsCheck> {
-  return request<TeamsCheck>(`${BASE}/cohorts/${cohortId}/teams-check`);
+/** Which of a cohort's members Teams did not list, in one semester when `termId` is said. */
+export function fetchTeamsCheck(cohortId: string, termId = ""): Promise<TeamsCheck> {
+  const term = termId ? `?term=${encodeURIComponent(termId)}` : "";
+  return request<TeamsCheck>(`${BASE}/cohorts/${cohortId}/teams-check${term}`);
 }
 
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
@@ -580,6 +584,21 @@ export function updateScope(
  */
 export function moveScope(scopeId: string, by: -1 | 1): Promise<void> {
   return send<void>(`${BASE}/scopes/${scopeId}/move`, "POST", { by });
+}
+
+/** What carrying a set into another semester made there. */
+export type CarriedSet = { scopeId: string; courses: number; groups: number; exemptions: number };
+
+/** The exemptions carrying a set would bring, by reason, and how many stay behind. */
+export type CarryPreview = { exemptions: number; reasons: { reason: string; count: number }[]; stayBehind: number };
+
+export function fetchCarryPreview(scopeId: string, termId: string): Promise<CarryPreview> {
+  return request<CarryPreview>(`${BASE}/scopes/${scopeId}/carry-preview?termId=${encodeURIComponent(termId)}`);
+}
+
+/** The set made again in another semester: courses, groups and — when asked — exemptions; not CRNs or placements. */
+export function carryScope(scopeId: string, termId: string, exemptions = true): Promise<CarriedSet> {
+  return send<CarriedSet>(`${BASE}/scopes/${scopeId}/carry`, "POST", { termId, exemptions });
 }
 
 export function deleteScope(scopeId: string): Promise<void> {
@@ -779,6 +798,8 @@ export type HistoryLine = {
     fromProgram?: string;
     program?: string;
     scopeCode?: string;
+    /** The semester a placement or a cohort change was made in; missing on lines older than 10 Nov 2026. */
+    termId?: string;
     termCode?: string;
     crn?: string;
     courseCode?: string;
@@ -793,8 +814,18 @@ export async function fetchStudentHistory(studentId: string): Promise<HistoryLin
   return answer.entries;
 }
 
-/** The sentence a history line reads as, without its date or its signature. */
-export function describeHistory(line: HistoryLine): string {
+/**
+ * The sentence a history line reads as, without its date or its signature — led by its
+ * semester where the line knows it and `semesterName` can name it: a cohort is a year's,
+ * and "TD: placed in 2" said nothing about which of its semesters.
+ */
+export function describeHistory(line: HistoryLine, semesterName: (termId: string) => string = () => ""): string {
+  const said = sayHistory(line);
+  const semester = line.detail.termId ? semesterName(line.detail.termId) : "";
+  return semester ? `${semester} · ${said}` : said;
+}
+
+function sayHistory(line: HistoryLine): string {
   const { detail } = line;
   const group = (label?: string, program?: string) => [label, program ? `(${program})` : ""].filter(Boolean).join(" ");
   switch (line.kind) {

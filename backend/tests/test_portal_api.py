@@ -3306,6 +3306,8 @@ def test_pulling_one_semester_says_nothing_about_another_semesters_courses(clien
     # Each term's pull is dated on its own.
     [held] = client.get(f"{BASE}/filters", params={"kind": "courses"}).json()["filters"]
     assert sorted(held["syncedTerms"]) == [TERM, SPRING]
+    # And who pulled each, so "last synced by" can name the semester's own sync.
+    assert sorted(held["syncedTermsBy"]) == [TERM, SPRING]
 
     # Semester 1 pulled again without one of its courses: that one, and only that one, is gone.
     again = client.post(at, json={"rows": [course("22151", "MATH-001")], "termCode": TERM}).json()

@@ -269,7 +269,7 @@ export function ActiveCourses({
             * settles it everywhere. The approval is stored against the missing classes
             * themselves, so the two pages cannot drift apart.
             */}
-          <ClassChangesBanner className="mb-3" />
+          <ClassChangesBanner className="mb-3" term={term} />
           {report && attention ? (
             <RegisterBanner
               report={report}

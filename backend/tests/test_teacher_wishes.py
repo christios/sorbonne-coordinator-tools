@@ -124,7 +124,7 @@ def test_no_more_musts_than_the_quota(client: TestClient):
     levels = {"cant:8-9:1": "must", "cant:10-11:2": "must", "cant:12-13:3": "must"}
     refused = client.put(f"{AT}/{TERM}/wish-test-samar", json={"cells": cells, "levels": levels})
     assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert refused.json()["detail"] == "At most 2 wishes can be a Must. Choose which 2 matter most."
+    assert refused.json()["detail"] == "At most 2 preferences can be a Must. Choose which 2 matter most."
 
 
 def test_cant_teach_time_over_the_cap_is_submitted_only_with_a_reason(client: TestClient):
@@ -182,3 +182,44 @@ def test_dates_away_end_on_or_after_they_start(client: TestClient):
         json={"away": [{"from": "2027-03-15", "to": "2027-03-19", "reason": "Conference"}]},
     ).json()
     assert kept["away"] == [{"from": "2027-03-15", "to": "2027-03-19", "reason": "Conference"}]
+
+
+def test_part_of_a_day_away_is_kept_with_its_hours(client: TestClient):
+    opened(client)
+    afternoon = {"from": "2027-03-16", "to": "2027-03-16", "reason": "Doctor", "start": 14, "end": 16.5}
+    kept = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"away": [afternoon]})
+    assert kept.status_code == 200, kept.text
+    assert kept.json()["away"] == [afternoon]
+    for wrong in (
+        {"from": "2027-03-16", "to": "2027-03-17", "start": 14, "end": 16},  # hours on more than one day
+        {"from": "2027-03-16", "to": "2027-03-16", "start": 16, "end": 14},  # ends before it starts
+        {"from": "2027-03-16", "to": "2027-03-16", "start": 14.1, "end": 16},  # not on a quarter hour
+        {"from": "2027-03-16", "to": "2027-03-16", "start": 14},  # no end
+    ):
+        refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"away": [wrong]})
+        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, wrong
+
+
+def test_a_semester_gives_its_teaching_weeks_for_marking_time_away(client: TestClient, wishes: WishStore):
+    opened(client)
+    assert client.get(AT, params={"term": TERM}).json()["calendar"] is None
+    with wishes.engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO plan_terms (term_code, name, week_one, weeks, without, holidays)
+                    VALUES (:term, 'Semester 2', '2027-01-11', 15, '["2027-03-29"]',
+                            '[{"date": "2027-02-01", "label": "Holiday"}]')
+                    ON CONFLICT (term_code) DO UPDATE SET week_one = excluded.week_one, weeks = excluded.weeks,
+                        without = excluded.without, holidays = excluded.holidays"""),
+            {"term": TERM},
+        )
+    try:
+        calendar = client.get(AT, params={"term": TERM}).json()["calendar"]
+        assert calendar == {
+            "weekOne": "2027-01-11",
+            "weeks": 15,
+            "without": ["2027-03-29"],
+            "holidays": [{"date": "2027-02-01", "label": "Holiday"}],
+        }
+    finally:
+        with wishes.engine.begin() as connection:
+            connection.execute(text("DELETE FROM plan_terms WHERE term_code = :term"), {"term": TERM})

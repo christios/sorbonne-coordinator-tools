@@ -113,10 +113,24 @@ export function useSyncTargets(): SyncTargets {
     });
   }
 
+  /*
+   * How old the chosen semester's pulls are. Every semester's used to count: once Semester
+   * 2 was pulled, "just now" said nothing about Semester 1's lists, and on Semester 1 the
+   * age could be a Semester 2 pull's. A list is as old as its pull for the chosen term; a
+   * student list left out of this semester's run, and teachers, are as they were.
+   */
   type Synced = { lastSyncedAt?: string; lastSyncedBy?: string; lastSyncedByName?: string };
-  const synced = [
-    ...((views.data ?? []) as Synced[]),
-    ...LISTS.flatMap((_, index) => (lists[index]?.data ?? []) as Synced[]),
+  const forTerm = (kind: ListKind, filter: Held & { syncedTermsBy?: Record<string, string> } & Synced): Synced =>
+    kind === "teachers" || !chosen?.code
+      ? filter
+      : {
+          lastSyncedAt: filter.syncedTerms?.[chosen.code],
+          lastSyncedBy: filter.syncedTermsBy?.[chosen.code],
+          lastSyncedByName: filter.syncedTermsBy?.[chosen.code] === filter.lastSyncedBy ? filter.lastSyncedByName : undefined,
+        };
+  const synced: Synced[] = [
+    ...students.flatMap(({ view, target }) => (target ? [view as Synced] : [])),
+    ...LISTS.flatMap((kind, index) => ((lists[index]?.data ?? []) as (Held & Synced)[]).map((filter) => forTerm(kind, filter))),
   ];
   const ages = synced.map((row) => (row.lastSyncedAt ? Date.parse(row.lastSyncedAt) : Number.NaN));
   const oldest = ages.length && ages.every((at) => !Number.isNaN(at)) ? synced[ages.indexOf(Math.min(...ages))] : null;

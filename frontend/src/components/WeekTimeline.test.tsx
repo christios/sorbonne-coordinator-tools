@@ -37,7 +37,7 @@ describe("a class on the plan's week", () => {
     expect(flag.getAttribute("title")).toBeNull();
     fireEvent.focus(flag);
     const bubble = await screen.findByRole("tooltip");
-    expect(bubble.textContent).toContain("Breaks 2 wishes");
+    expect(bubble.textContent).toContain("Breaks 2 preferences");
     expect(bubble.textContent).toContain("Can't teach Tue 14:00–18:00 — “School run”");
     expect(bubble.textContent).toContain("At most 2 days on campus");
   });

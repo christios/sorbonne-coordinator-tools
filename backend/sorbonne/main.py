@@ -19,6 +19,7 @@ from sorbonne.api.exemption_reasons import router as exemption_reasons_router
 from sorbonne.api.rooms import router as rooms_router
 from sorbonne.api.semester_plans import router as semester_plans_router
 from sorbonne.api.teacher_wishes import router as teacher_wishes_router
+from sorbonne.api.wish_invite import router as wish_invite_router
 from sorbonne.api.term_weeks import router as term_weeks_router
 from sorbonne.api.rosters import router as rosters_router
 from sorbonne.api.portal import router as portal_router
@@ -99,6 +100,7 @@ app.include_router(exemption_reasons_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(semester_plans_router, prefix="/api/v1")
 app.include_router(teacher_wishes_router, prefix="/api/v1")
+app.include_router(wish_invite_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
 app.include_router(department_roles_router, prefix="/api/v1")
 app.include_router(pay_rates_router, prefix="/api/v1")
@@ -138,6 +140,13 @@ async def requisition_frontend() -> FileResponse:
 
 @app.get("/timetables", include_in_schema=False)
 async def timetables_frontend() -> FileResponse:
+    return frontend_entrypoint()
+
+
+@app.get("/preferences/{code}", include_in_schema=False)
+async def invited_teacher_frontend(code: str) -> FileResponse:
+    """An invited teacher's emailed link: the app, which reads the code from the address."""
+    del code
     return frontend_entrypoint()
 
 

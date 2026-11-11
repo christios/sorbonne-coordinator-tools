@@ -1,8 +1,7 @@
 import { Pencil } from "lucide-react";
 
-import { CELL_TONES, WishesLegend, finenessOf } from "@/components/WishesForm";
-import { DAY_NAMES, DAY_SHORT, STEP, clockOf, describeLine, lineOfCell, wishLines, type WishCollection, type Wishes } from "@/services/teacherWishes";
-import { formatDayAndMonth } from "@/services/weekSchedule";
+import { AWAY_TONE, CELL_TONES, RowTime, WishesLegend, finenessOf, ruleOf } from "@/components/WishesForm";
+import { DAY_NAMES, DAY_SHORT, STEP, awayWords, clockOf, describeLine, lineOfCell, wishLines, type WishCollection, type Wishes } from "@/services/teacherWishes";
 
 /** "10 Nov 2026, 14:05". */
 const when = (value: string) =>
@@ -16,8 +15,13 @@ function Level({ must }: { must: boolean }) {
   );
 }
 
-/** Who gave an answer and when: the teacher themself, or a coordinator for them. */
-export function answeredBy(name: string, wishes: Wishes): string {
+/** Who gave an answer and when: the teacher themself, or a coordinator for them. To the teacher, only when. */
+export function answeredBy(name: string, wishes: Wishes, voice: "they" | "you" = "they"): string {
+  if (voice === "you") {
+    return wishes.status === "submitted"
+      ? `Submitted${wishes.submittedAt ? ` ${when(wishes.submittedAt)}` : ""}`
+      : `A draft, saved${wishes.updatedAt ? ` ${when(wishes.updatedAt)}` : ""}`;
+  }
   const by = wishes.source === "coordinator" ? `by ${wishes.updatedBy || "a coordinator"} for ${name}` : `by ${name}`;
   return wishes.status === "submitted"
     ? `Submitted ${by}${wishes.submittedAt ? `, ${when(wishes.submittedAt)}` : ""}`
@@ -25,8 +29,8 @@ export function answeredBy(name: string, wishes: Wishes): string {
 }
 
 /**
- * A teacher's answer, read and not changed: their week shaded as they painted it, each wish
- * with how much it matters and why, their dates away, needs and note, and who gave it when.
+ * A teacher's answer, read and not changed: their week shaded as they painted it, each
+ * preference with how much it matters and why, their time away, needs and note, and who gave it when.
  * Changing it is a step of its own (`onEdit`), so an answer is not altered by a stray click.
  */
 export function WishesSummary({
@@ -34,11 +38,16 @@ export function WishesSummary({
   collection,
   wishes,
   onEdit,
+  editLabel = "Edit their answer",
+  voice = "they",
 }: {
   name: string;
   collection: WishCollection;
   wishes: Wishes;
-  onEdit: () => void;
+  /** Left out where the answer can no longer be changed. */
+  onEdit?: () => void;
+  editLabel?: string;
+  voice?: "they" | "you";
 }) {
   const lines = wishLines(wishes.cells, wishes.limits);
   const levelOf = (key: string) => wishes.levels[key] ?? "would";
@@ -51,13 +60,13 @@ export function WishesSummary({
 
   return (
     <div className="grid gap-5">
-      <p className="text-sm text-[#667085]">{answeredBy(name, wishes)}</p>
+      <p className="text-sm text-[#667085]">{answeredBy(name, wishes, voice)}</p>
 
       <section className="grid gap-2" aria-label="Their week">
-        <h3 className="text-sm font-semibold text-[#171717]">Their week</h3>
+        <h3 className="text-sm font-semibold text-[#171717]">{voice === "you" ? "Your" : "Their"} week</h3>
         {wishes.cells.length ? (
           <>
-            <table className="w-full table-fixed border-separate border-spacing-x-0.5 border-spacing-y-0 text-[11px]" aria-label="The week as painted">
+            <table className="mt-1.5 w-full table-fixed border-collapse text-[11px]" aria-label="The week as painted">
               <thead>
                 <tr>
                   <th className="w-12" />
@@ -69,10 +78,10 @@ export function WishesSummary({
                 </tr>
               </thead>
               <tbody>
-                {rows.map((time) => (
+                {rows.map((time, row) => (
                   <tr key={time}>
-                    <th className="pr-1.5 text-right align-top font-normal tabular-nums leading-none text-[#98a2b3]">
-                      {Number.isInteger(time) ? clockOf(time) : null}
+                    <th className="pr-1.5 text-right align-top font-normal tabular-nums leading-none">
+                      <RowTime time={time} size={size} />
                     </th>
                     {collection.days.map((day) => {
                       const quarters = quartersOf(time).map((hour) => {
@@ -84,7 +93,7 @@ export function WishesSummary({
                       const comment = line ? wishes.comments?.[line.key] : "";
                       const kind = quarters.find((quarter) => quarter.kind)?.kind;
                       return (
-                        <td key={day} className="p-0">
+                        <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
                           <div
                             title={line ? `${describeLine(line)} · ${levelOf(line.key) === "must" ? "Must" : "Would like"}${comment ? ` — ${comment}` : ""}` : undefined}
                             aria-label={`${DAY_NAMES[day]} ${clockOf(time)}: ${kind === "cant" ? "can't teach" : kind === "prefer" ? "would rather" : "fine"}`}
@@ -94,7 +103,7 @@ export function WishesSummary({
                             {quarters.map((quarter) => (
                               <span
                                 key={quarter.hour}
-                                className={`block min-h-0 flex-1 ${quarter.kind ? "" : Number.isInteger(quarter.hour) ? "border-t border-[#e4e8ef]" : ""}`}
+                                className={`block min-h-0 flex-1 ${quarter.kind || quarter.hour !== time ? "" : ruleOf(quarter.hour)}`}
                                 style={quarter.kind ? CELL_TONES[quarter.kind][quarter.level] : undefined}
                               />
                             ))}
@@ -113,9 +122,9 @@ export function WishesSummary({
         )}
       </section>
 
-      <section className="grid gap-2" aria-label="Their wishes">
+      <section className="grid gap-2" aria-label="Their preferences">
         <h3 className="text-sm font-semibold text-[#171717]">
-          Wishes{" "}
+          Preferences{" "}
           <span className="font-normal text-[#98a2b3]">
             · {lines.filter((line) => levelOf(line.key) === "must").length} of {collection.mustQuota} Musts
           </span>
@@ -135,7 +144,7 @@ export function WishesSummary({
             ))}
           </ul>
         ) : (
-          <p className="text-sm text-[#98a2b3]">No wishes.</p>
+          <p className="text-sm text-[#98a2b3]">No preferences.</p>
         )}
         {wishes.overCapReason ? (
           <p className="text-xs text-[#667085]">
@@ -145,14 +154,17 @@ export function WishesSummary({
       </section>
 
       {wishes.away.length || wishes.needs || wishes.note ? (
-        <section className="grid gap-2 text-sm" aria-label="Dates away and needs">
-          <h3 className="text-sm font-semibold text-[#171717]">Dates away and needs</h3>
+        <section className="grid gap-2 text-sm" aria-label="Time away and needs">
+          <h3 className="text-sm font-semibold text-[#171717]">Time away and needs</h3>
           {wishes.away.length ? (
             <ul className="grid gap-1">
               {wishes.away.map((entry) => (
-                <li key={`${entry.from}-${entry.to}`} className="text-[#344054]">
-                  Away {entry.from === entry.to ? formatDayAndMonth(entry.from) : `${formatDayAndMonth(entry.from)}–${formatDayAndMonth(entry.to)}`}
-                  {entry.reason ? <span className="text-[#667085]"> · {entry.reason}</span> : null}
+                <li key={`${entry.from}-${entry.to}-${entry.start ?? ""}`} className="flex items-baseline gap-2 text-[#344054]">
+                  <span className="inline-block h-2 w-2 shrink-0 rounded-sm" style={AWAY_TONE} />
+                  <span>
+                    Away {awayWords(entry)}
+                    {entry.reason ? <span className="text-[#667085]"> · {entry.reason}</span> : null}
+                  </span>
                 </li>
               ))}
             </ul>
@@ -170,11 +182,13 @@ export function WishesSummary({
         </section>
       ) : null}
 
-      <div className="border-t border-[#eef1f5] pt-3">
-        <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
-          <Pencil size={14} aria-hidden="true" /> Edit their answer
-        </button>
-      </div>
+      {onEdit ? (
+        <div className="border-t border-[#eef1f5] pt-3">
+          <button type="button" onClick={onEdit} className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f4e79] hover:underline">
+            <Pencil size={14} aria-hidden="true" /> {editLabel}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

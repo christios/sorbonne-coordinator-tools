@@ -1440,6 +1440,41 @@ def test_a_warning_can_be_brought_back_for_everybody(client: TestClient):
     )
 
 
+def test_a_semesters_dismissals_move_to_its_new_id_keeping_who_made_them(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+):
+    """Semester 1 moved from the Student Hub's id to plan:262710 and 27 "not placed in LANG"
+    dismissals stayed under the old one, so the warnings came back as though unseen."""
+    old, new = "hub-s1", "plan:262710"
+    key = f"group|A001|{old}|LANG"
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": key, "dismissed": True})
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": WARNING_KEY, "dismissed": True})
+    held = client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]
+    [before] = [row for row in held if row["key"] == key]
+
+    moved = client.post(
+        "/api/v1/student-database/warning-dismissals/move-semester", json={"fromTermId": old, "toTermId": new}
+    )
+
+    assert moved.json() == {"moved": 1}
+    listed = {
+        row["key"]: row for row in client.get("/api/v1/student-database/warning-dismissals").json()["dismissals"]
+    }
+    assert sorted(listed) == sorted([f"group|A001|{new}|LANG", WARNING_KEY])
+    after = listed[f"group|A001|{new}|LANG"]
+    assert (after["byEmail"], after["at"]) == (before["byEmail"], before["at"])
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="coordinator@sorbonne.ae", name="Coordinator", is_admin=False),
+    )
+    refused = client.post(
+        "/api/v1/student-database/warning-dismissals/move-semester", json={"fromTermId": new, "toTermId": old}
+    )
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+
+
 def test_the_first_decision_stands_when_two_people_dismiss_the_same_warning(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):
@@ -1811,6 +1846,27 @@ def test_each_channel_says_which_members_the_reading_does_not_list_there(
     assert fys["missing"] == [{"studentId": "A00021505", "address": "a00021505@sorbonne.ae"}]
     assert fys["listed"] == 2
     assert scen["missing"] == [{"studentId": "A00021503", "address": "a00021503@sorbonne.ae"}]
+
+
+def test_the_teams_check_asks_about_the_members_of_one_semester(
+    client: TestClient, cohort_id: str, view_id: str, rosters: TeamRosterStore
+):
+    """A student who is in the cohort in Semester 1 and moved on in Semester 2 is no member
+    there: read across every semester, they showed as missing from the channel."""
+    sync(client, view_id, STUDENTS)
+    move = "/api/v1/student-database/students/cohort"
+    client.post(move, json={"studentIds": STUDENTS[:2], "cohortId": cohort_id, "termId": "autumn"})
+    client.post(move, json={"studentIds": STUDENTS[:1], "cohortId": cohort_id, "termId": "spring"})
+    name_channels(client, cohort_id, "FYS Students")
+    rosters.record(channels={"FYS Students": ["a00021503@sorbonne.ae"]})
+
+    def missing(term: str) -> list[str]:
+        response = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/teams-check", params={"term": term})
+        assert response.status_code == status.HTTP_200_OK, response.text
+        return [entry["studentId"] for entry in response.json()["channels"][0]["missing"]]
+
+    assert missing("autumn") == ["A00021505"]
+    assert missing("spring") == []
 
 
 def test_the_channel_is_found_whatever_its_case_and_spacing(

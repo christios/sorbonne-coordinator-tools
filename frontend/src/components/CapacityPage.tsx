@@ -3,7 +3,7 @@ import { AlertTriangle, Copy } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { type ReactNode, useMemo, useState } from "react";
 
-import { CohortMenu } from "@/components/CohortMenu";
+import { CohortMenu, studentsIn } from "@/components/CohortMenu";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
@@ -476,8 +476,10 @@ export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
   const mineLines = lines(capacityByGroup(mine));
   const over = mineLines.filter((line) => line.reading.status === "Over");
   const overPlanOnly = mineLines.filter((line) => line.reading.status !== "Over" && line.reading.byRoom && line.reading.overPlan > 0);
-  // The cohort's own headcount, which its groups cannot be added up to give.
-  const members = (known.data ?? []).find((cohort) => cohort.id === chosen?.id)?.memberCount ?? 0;
+  // The cohort's own headcount in the semester on screen, which its groups cannot be added up
+  // to give. Its every-semester count read 109 + 109 for L1 once it was rolled over.
+  const held = (known.data ?? []).find((cohort) => cohort.id === chosen?.id);
+  const members = held ? studentsIn(held, semester?.id) : 0;
 
   const copy = () => {
     const rows = sets.flatMap((set) =>

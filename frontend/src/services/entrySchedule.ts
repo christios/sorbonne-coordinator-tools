@@ -101,8 +101,12 @@ export async function scheduleFromEntries(
   };
 }
 
-/** "Grace-Younes-timetable.pdf" for one; "timetables-4-teachers.pdf" for several. */
-export function timetablesFilename(names: string[], noun: string): string {
-  if (names.length === 1) return `${names[0].replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "timetable"}-timetable.pdf`;
-  return `timetables-${names.length}-${noun}.pdf`;
+/**
+ * "Grace-Younes-timetable.pdf" for one; "timetables-4-teachers.pdf" for several — with the
+ * semester when the file is one semester's: "Grace-Younes-S2-timetable.pdf".
+ */
+export function timetablesFilename(names: string[], noun: string, semester = ""): string {
+  const tag = semester ? `-${semester.replace(/[^A-Za-z0-9]+/g, "-")}` : "";
+  if (names.length === 1) return `${names[0].replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "") || "timetable"}${tag}-timetable.pdf`;
+  return `timetables${tag}-${names.length}-${noun}.pdf`;
 }

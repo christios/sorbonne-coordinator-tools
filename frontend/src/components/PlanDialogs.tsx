@@ -21,7 +21,7 @@ import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portal
 import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import { fetchPayCycles, setPayCycle } from "@/services/teachers";
 import { judgeSlot } from "@/services/planJudge";
-import { describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
+import { awayWords, describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
 import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
@@ -142,7 +142,7 @@ function WishesStrip({
   const [open, setOpen] = useState(false);
   const wishes = teacher.wishes;
   if (!wishes) {
-    return <p className="pt-2 text-sm text-[#667085]">{teacher.name} hasn&rsquo;t given their wishes for this semester.</p>;
+    return <p className="pt-2 text-sm text-[#667085]">{teacher.name} hasn&rsquo;t given their preferences for this semester.</p>;
   }
   const start = minutesOf(startsAt);
   const end = minutesOf(endsAt);
@@ -159,7 +159,7 @@ function WishesStrip({
         <span className="text-[#344054]">
           {lines.length
             ? `${musts} Must${musts === 1 ? "" : "s"} · ${lines.length - musts} Would like${lines.length - musts === 1 ? "" : "s"}`
-            : "No wishes on the week"}
+            : "No preferences on the week"}
         </span>
         {lines.length ? (
           broken ? (
@@ -184,7 +184,7 @@ function WishesStrip({
       {open ? (
         <div className="grid gap-2">
           {lines.length ? (
-            <ul className="grid gap-1.5" aria-label={`${teacher.name}'s wishes`}>
+            <ul className="grid gap-1.5" aria-label={`${teacher.name}'s preferences`}>
               {lines.map((line) => (
                 <li key={line.key} className="flex items-start gap-2">
                   <span
@@ -206,9 +206,7 @@ function WishesStrip({
           {wishes.away.length ? (
             <p className="text-[#667085]">
               Away{" "}
-              {wishes.away
-                .map((entry) => `${formatDayAndMonth(entry.from)}–${formatDayAndMonth(entry.to)}${entry.reason ? ` (${entry.reason})` : ""}`)
-                .join(", ")}
+              {wishes.away.map((entry) => `${awayWords(entry)}${entry.reason ? ` (${entry.reason})` : ""}`).join(", ")}
             </p>
           ) : null}
           {wishes.needs ? <p className="text-[#667085]">Needs: {wishes.needs}</p> : null}
@@ -466,7 +464,7 @@ export function PlanClassDialog({
         </Part>
 
         {teacherWishes ? (
-          <Part label="Wishes">
+          <Part label="Preferences">
             <WishesStrip teacher={teacherWishes} weekday={draft.weekday} startsAt={draft.startsAt} endsAt={draft.endsAt} />
           </Part>
         ) : null}

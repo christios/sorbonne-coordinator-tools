@@ -237,6 +237,24 @@ describe("how stale the lists are", () => {
     expect(await screen.findByText(/7 days ago/)).toBeTruthy();
   });
 
+  it("is the chosen semester's age, not another semester's pull", async () => {
+    // Semester 1's courses were pulled an hour ago, Semester 2's a week ago: on Semester 2
+    // the button is a week old, not an hour.
+    const week = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+    const hour = new Date(Date.now() - 3600_000).toISOString();
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-2": "262720" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-2", name: "Semester 2" } as unknown as timetables.TimetableTerm,
+    ]);
+    vi.spyOn(database, "fetchViews").mockResolvedValue([{ ...VIEW, lastSyncedAt: hour }]);
+    vi.spyOn(lists, "fetchPortalFilters").mockImplementation(async (kind) =>
+      kind === "courses" ? [{ ...COURSES, lastSyncedAt: hour, syncedTerms: { "262710": hour, "262720": week } }] : [],
+    );
+    show();
+
+    expect(await screen.findByText(/7 days ago/)).toBeTruthy();
+  });
+
   it("says whose sync it was: a colleague by first name, and you as you", async () => {
     // Everybody reads the same lists: an age with no name read as a sync you had not run.
     const hour = new Date(Date.now() - 3600_000).toISOString();

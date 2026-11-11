@@ -93,6 +93,46 @@ describe("who the exports are about", () => {
   });
 });
 
+describe("the semester the files are for", () => {
+  it("opens on the page's cohort and semester, and lists only that semester's students, in a file named for it", async () => {
+    // It opened on the first cohort and Semester 1, and a Semester 2 file listed the
+    // students placed only in Semester 1, with nothing beside their names.
+    const exported = vi.fn();
+    const saved = vi.spyOn(workbook, "downloadWorkbook").mockImplementation(async (input) => void exported(input));
+    const catalogue = vi.spyOn(database, "fetchCatalogue").mockResolvedValue({
+      scopes: [
+        {
+          id: "scope-spring", code: "CM", name: "Lectures", note: "", kind: "shared", parentScopeId: "", openToAll: false,
+          courses: [], groups: [{ id: "cm-s", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 1, crns: {} }],
+        },
+      ],
+    });
+    vi.spyOn(database, "fetchAssignments").mockResolvedValue({
+      A001: { "scope-autumn": "cm-a", "scope-spring": "cm-s" },
+      A002: { "scope-autumn": "cm-a" },
+    });
+    const members = vi.spyOn(database, "fetchMemberIds").mockResolvedValue(new Set(["A001", "A002"]));
+    vi.spyOn(roster, "namesHeld").mockResolvedValue({});
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+    const spring = { id: "term-2", name: "Physics & Maths — Semester 2" } as TimetableTerm;
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <WorkbookTools open cohorts={[COHORT]} terms={[...TERMS, spring]} semesterShown="term-2" cohortShown={COHORT.id} onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    const button = await screen.findByRole("button", { name: /Export workbook/ });
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    expect(catalogue).toHaveBeenCalledWith(COHORT.id, "term-2", true);
+    fireEvent.click(button);
+
+    await waitFor(() => expect(exported).toHaveBeenCalled());
+    expect(members).toHaveBeenCalledWith(COHORT.id, "term-2");
+    expect(exported.mock.calls[0][0].students.map((s: { studentId: string }) => s.studentId)).toEqual(["A001"]);
+    expect(saved.mock.calls[0][1]).toMatch(/-S2-groups\.xlsx$/);
+  });
+});
+
 describe("what a student is exempt from", () => {
   it("goes into the workbook with them, for the courses in it and no others", async () => {
     // Four L1 students exempt from CPSC-100 were given its CRN all the same.
@@ -156,14 +196,15 @@ describe("the timetable", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Timetable" }));
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(1));
     expect(built.mock.calls[0][0]).toEqual([CARDS[0], CARDS[1]]);
-    expect(saved.mock.calls[0][1]).toBe("Time-Tables-26-27-Foundation-Year.xlsx");
+    // The semester in the name, so a Semester 2 file is never mistaken for Semester 1's.
+    expect(saved.mock.calls[0][1]).toBe("Time-Tables-26-27-S1-Foundation-Year.xlsx");
 
     fireEvent.click(screen.getByRole("radio", { name: "All cohorts" }));
     fireEvent.click(screen.getByRole("button", { name: "Timetable" }));
     await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
     // Every cohort of the semester — and nothing of another semester.
     expect(built.mock.calls[1][0]).toEqual([CARDS[0], CARDS[1], CARDS[2]]);
-    expect(saved.mock.calls[1][1]).toBe("Time-Tables-26-27.xlsx");
+    expect(saved.mock.calls[1][1]).toBe("Time-Tables-26-27-S1.xlsx");
   });
 });
 

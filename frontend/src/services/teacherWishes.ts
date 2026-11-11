@@ -14,7 +14,7 @@
 
 import { apiFetch } from "@/services/http";
 import type { Period, Plan, PlanClass, PlanSection } from "@/services/semesterPlans";
-import { minutesOf } from "@/services/weekSchedule";
+import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const BASE = `${API_BASE_URL}/api/v1/wishes`;
@@ -37,8 +37,110 @@ export function clockOf(hour: number): string {
   const minutes = Math.round((hour - whole) * 60);
   return `${String(whole).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
 }
+/** The date `days` after an ISO date: "2026-09-15" and 1 is "2026-09-16". */
+export function isoPlus(iso: string, days: number): string {
+  const [year, month, day] = iso.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
+}
+
+/** An ISO date's day of the week, as the grid counts them: 1 is Monday, 7 Sunday. */
+export function isoWeekday(iso: string): number {
+  const [year, month, day] = iso.split("-").map(Number);
+  return ((new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7) + 1;
+}
+
+/** The semester's teaching weeks, each by its number and its Monday; breaks are not counted. */
+export function teachingWeeks(calendar: WishCalendar | null | undefined): { number: number; monday: string }[] {
+  if (!calendar?.weekOne || !calendar.weeks) return [];
+  return Array.from({ length: calendar.weeks }, (_, index) => ({
+    number: index + 1,
+    monday: toIsoDate(weekStartOf(index + 1, { weekOne: calendar.weekOne, without: calendar.without })),
+  }));
+}
+
+/** A quarter of a day away, as the form keeps it: "2026-09-15|14.25". */
+export const awaySpot = (date: string, hour: number) => `${date}|${hour}`;
+
+/**
+ * Time away as the grid shows it: each quarter hour away, on its date, within the grid's days
+ * and hours; and the reason given for each date. A whole day fills every hour of the grid.
+ */
+export function awaySpots(
+  away: WishAway[],
+  collection: Pick<WishCollection, "days" | "firstHour" | "lastHour">,
+): { spots: Set<string>; reasons: Record<string, string> } {
+  const spots = new Set<string>();
+  const reasons: Record<string, string> = {};
+  for (const entry of away) {
+    for (let date = entry.from, guard = 0; date <= entry.to && guard < 400; date = isoPlus(date, 1), guard += 1) {
+      if (!collection.days.includes(isoWeekday(date))) continue;
+      const from = Math.max(entry.start ?? collection.firstHour, collection.firstHour);
+      const to = Math.min(entry.end ?? collection.lastHour, collection.lastHour);
+      for (let hour = from; hour < to; hour += STEP) spots.add(awaySpot(date, hour));
+      if (entry.reason && !reasons[date]) reasons[date] = entry.reason;
+    }
+  }
+  return { spots, reasons };
+}
+
+/**
+ * The quarters away said as times away: a day with every hour of the grid is a whole day, and
+ * whole days one after another (with only days off the grid between them) are one stretch, if
+ * for the same reason; part of a day is each stretch of it, from one time to another.
+ */
+export function awayEntries(
+  spots: Set<string>,
+  reasons: Record<string, string>,
+  collection: Pick<WishCollection, "days" | "firstHour" | "lastHour">,
+): WishAway[] {
+  const byDate = new Map<string, number[]>();
+  for (const spot of spots) {
+    const [date, hour] = spot.split("|");
+    byDate.set(date, [...(byDate.get(date) ?? []), Number(hour)]);
+  }
+  const quarters = Math.round((collection.lastHour - collection.firstHour) / STEP);
+  /** The next day the grid has, after a date. */
+  const nextGridDay = (date: string) => {
+    let next = isoPlus(date, 1);
+    for (let guard = 0; guard < 7 && !collection.days.includes(isoWeekday(next)); guard += 1) next = isoPlus(next, 1);
+    return next;
+  };
+  const entries: WishAway[] = [];
+  for (const date of [...byDate.keys()].sort()) {
+    const hours = byDate.get(date)!.sort((left, right) => left - right);
+    const reason = reasons[date] ?? "";
+    if (hours.length >= quarters) {
+      const last = entries[entries.length - 1];
+      if (last && last.start === undefined && last.reason === reason && nextGridDay(last.to) === date) last.to = date;
+      else entries.push({ from: date, to: date, reason });
+      continue;
+    }
+    let start = hours[0];
+    for (let index = 1; index <= hours.length; index += 1) {
+      if (index < hours.length && hours[index] === hours[index - 1] + STEP) continue;
+      entries.push({ from: date, to: date, reason, start, end: hours[index - 1] + STEP });
+      start = hours[index];
+    }
+  }
+  return entries;
+}
+
+/** "Tue 15 Sep", "Tue 15 Sep, 14:00–16:30", "14 Sep–18 Sep": a time away in words, without its reason. */
+export function awayWords(entry: WishAway): string {
+  const day = (iso: string) => `${DAY_SHORT[isoWeekday(iso)]} ${formatDayAndMonth(iso)}`;
+  if (entry.from !== entry.to) return `${day(entry.from)}–${day(entry.to)}`;
+  return entry.start !== undefined && entry.end !== undefined ? `${day(entry.from)}, ${clockOf(entry.start)}–${clockOf(entry.end)}` : day(entry.from);
+}
+
 export type WishLimits = { maxDays?: number | null; maxHoursDay?: number | null; maxInRow?: number | null; freeDay?: number | null };
-export type WishAway = { from: string; to: string; reason: string };
+/**
+ * Time away: whole days from one date to another, or part of one day — `start` 14 and `end`
+ * 16.5 is 14:00–16:30. Marked on the week it falls in, week by week.
+ */
+export type WishAway = { from: string; to: string; reason: string; start?: number; end?: number };
+
+/** A semester's teaching weeks, as the plan keeps them: Week 1's date, how many, breaks and holidays. */
+export type WishCalendar = { weekOne: string; weeks: number; without: string[]; holidays: { date: string; label: string }[] };
 
 export type WishCollection = {
   termCode: string;
@@ -76,8 +178,22 @@ export type Wishes = {
   updatedBy: string;
 };
 
-export type WishTeacher = { teacherId: string; name: string; email: string; wishes: Wishes | null };
-export type WishSemester = { collection: WishCollection | null; teachers: WishTeacher[] };
+/** A teacher's invitation to answer for themselves: never its link, which only the email holds. */
+export type WishInvitation = { email: string; createdAt: string; createdBy: string; openedAt: string; signedInAt: string };
+
+export type WishTeacher = {
+  teacherId: string;
+  name: string;
+  email: string;
+  wishes: Wishes | null;
+  invitation?: WishInvitation | null;
+  /** The day a coordinator let this teacher answer until, past the deadline; "" if not. */
+  reopenedUntil?: string;
+};
+
+/** Whether a teacher may still answer for themselves: until the deadline, or a reopening. */
+export type AnswerWindow = { open: boolean; deadline: string; reopenedUntil: string };
+export type WishSemester = { collection: WishCollection | null; calendar?: WishCalendar | null; teachers: WishTeacher[] };
 
 export type WishesInput = Pick<Wishes, "cells" | "limits" | "away" | "needs" | "note" | "levels" | "comments" | "overCapReason"> & {
   submit: boolean;
@@ -129,6 +245,30 @@ export async function saveWishes(termCode: string, teacherId: string, input: Wis
     await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}`, json("PUT", input)),
   );
 }
+
+/** Invite a teacher to answer for themselves. The link's code comes back once, here. */
+export async function inviteTeacher(termCode: string, teacherId: string, email: string): Promise<{ code: string; invitation: WishInvitation }> {
+  return answer(
+    await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/invitation`, json("POST", { email })),
+  );
+}
+
+export async function withdrawInvitation(termCode: string, teacherId: string): Promise<void> {
+  return answer(
+    await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/invitation`, { method: "DELETE" }),
+  );
+}
+
+export async function reopenFor(termCode: string, teacherId: string, until: string): Promise<AnswerWindow> {
+  return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/reopen`, json("PUT", { until })));
+}
+
+export async function closeAgain(termCode: string, teacherId: string): Promise<void> {
+  return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/reopen`, { method: "DELETE" }));
+}
+
+/** The link a teacher opens: this site's own address, and the code. */
+export const invitationLink = (code: string) => `${window.location.origin}/preferences/${code}`;
 
 export async function forgetWishes(termCode: string, teacherId: string): Promise<void> {
   return answer(
@@ -451,9 +591,10 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
           if (!inside) add("prefer", levelOf("prefer"), describeLine({ key: "prefer", kind: "prefer" }), label(section, entry), week, [entry]);
         }
         for (const away of wishes.away) {
-          if (entry.meetsOn >= away.from && entry.meetsOn <= away.to) {
-            const wish = `Away ${dateWords(away.from, away.to)}${away.reason ? ` (${away.reason})` : ""}`;
-            add(`away:${away.from}`, "must", wish, label(section, entry), week, [entry]);
+          const during = away.start === undefined || away.end === undefined || overlaps(entry, away.start, away.end);
+          if (entry.meetsOn >= away.from && entry.meetsOn <= away.to && during) {
+            const wish = `Away ${awayWords(away)}${away.reason ? ` (${away.reason})` : ""}`;
+            add(`away:${away.from}:${away.start ?? ""}`, "must", wish, label(section, entry), week, [entry]);
           }
         }
       }

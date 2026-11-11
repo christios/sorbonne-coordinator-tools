@@ -20,6 +20,7 @@ export function Modal({
   children,
   size = "default",
   header,
+  actions,
 }: {
   open: boolean;
   title: string;
@@ -31,6 +32,8 @@ export function Modal({
   size?: "default" | "wide";
   /** Something to sit under the title — pills, a summary line. */
   header?: ReactNode;
+  /** A button or two at the top right, beside the X: a guided tour, say. */
+  actions?: ReactNode;
 }) {
   const titleId = useId();
 
@@ -81,15 +84,18 @@ export function Modal({
               </h2>
               {description ? <p className="mt-1 text-sm text-[#667085]">{description}</p> : null}
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              title="Close (Esc)"
-              className="-mr-1 shrink-0 rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
-            >
-              <X size={18} aria-hidden="true" />
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              {actions}
+              <button
+                type="button"
+                onClick={onClose}
+                aria-label="Close"
+                title="Close (Esc)"
+                className="-mr-1 shrink-0 rounded p-1 text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
+              >
+                <X size={18} aria-hidden="true" />
+              </button>
+            </div>
           </div>
           {header}
         </header>

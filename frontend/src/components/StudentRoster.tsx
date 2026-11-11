@@ -213,14 +213,15 @@ export function StudentRoster({
     [terms.data],
   );
   /*
-   * Which portal term the registrar's weekdays are asked for.
+   * Which portal term the registrar's weekdays are asked for: the semester on screen's.
    *
-   * The first linked one, because the Meets column is about the semester being worked on
-   * and every roster page here shows one. `retry: false`: an unlinked deployment must not
-   * spend the table's first render retrying a question that has no answer.
+   * It was the first linked one, so on Semester 2 the Meets column read Semester 1's
+   * weekdays. A table with no semester, or one linked to no term, still asks the first.
+   * `retry: false`: an unlinked deployment must not spend the table's first render
+   * retrying a question that has no answer.
    */
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
-  const portalTerm = Object.values(links.data ?? {}).find(Boolean) ?? "";
+  const portalTerm = (termId && links.data?.[termId]) || Object.values(links.data ?? {}).find(Boolean) || "";
 
   // The table offers the portal's own fields, so the columns follow the harvested schema.
   const allColumns = useMemo(
@@ -252,7 +253,9 @@ export function StudentRoster({
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   // Kept ten minutes, per table — the Students page's view, or the cohort on Cohorts.
   const stateKey = scope ? `cohorts:${everyCohort ? "every" : (scope.cohortId ?? "none")}` : `students:${viewId || "all"}`;
-  const [filters, setFilters] = usePageState<FilterModel[]>(`roster:${stateKey}:filters`, []);
+  // The filters per semester too: "Groups is TD 2" is one semester's group, and kept across a
+  // switch it narrowed Semester 2's table to a group it does not have.
+  const [filters, setFilters] = usePageState<FilterModel[]>(`roster:${stateKey}${termId ? `:${termId}` : ""}:filters`, []);
   const [query, setQuery] = usePageState(`roster:${stateKey}:search`, "");
   const [sort, setSort] = usePageState<Sort>(`roster:${stateKey}:sort`, defaultSort ?? { key: "studentId", ascending: true });
   // Ticks belong to the view, cohort and semester they were made in: see `useTicks`. A
@@ -740,6 +743,8 @@ export function StudentRoster({
                 cohortId: row.cohortId,
                 cohortName: cohorts.find((candidate) => candidate.id === row.cohortId)?.name,
               })),
+            // The semester on screen's classes, not both semesters' on one week.
+            (termId && links.data?.[termId]) || "",
           )
         }
       />

@@ -68,7 +68,12 @@ def test_every_api_route_refuses_an_anonymous_caller(
     # Two ways to be refused, because one caller is not a person: the Part-Time Timesheets
     # app carries the department's key, and telling a Power Automate flow to sign in would
     # be a sentence nobody reading its run history could act on.
-    assert response.json()["detail"] in {"Sign in to continue.", "That key is not this department's."}
+    # The invited teacher's door refuses in its own words: a link that is not an invitation.
+    assert response.json()["detail"] in {
+        "Sign in to continue.",
+        "That key is not this department's.",
+        "This invitation link is not valid any more. Ask the coordinator who sent it for a new one.",
+    }
 
 
 def test_the_handbook_is_behind_sign_in_too(client: TestClient, configured: None):
@@ -84,6 +89,8 @@ def test_the_health_check_and_sign_in_screen_stay_reachable(client: TestClient, 
 def test_the_static_app_shell_is_public_so_the_sign_in_screen_can_load():
     assert is_public("/")
     assert is_public("/syllabus")
+    # An invited teacher's link opens the app, which then asks for their own sign-in.
+    assert is_public("/preferences/abc123")
     assert is_public("/assets/index-abc123.js")
     assert not is_public("/api/v1/syllabi")
     assert not is_public("/handbook/")
@@ -142,3 +149,13 @@ def test_a_cors_preflight_still_works_so_the_browser_sees_the_real_answer(
 
     assert response.status_code == status.HTTP_200_OK
     assert response.headers["access-control-allow-origin"] == "http://localhost:3000"
+
+
+def test_an_invited_teachers_link_opens_the_app(tmp_path, monkeypatch):
+    """The page a teacher's emailed link names is the app itself, not a 404."""
+    (tmp_path / "frontend-dist").mkdir()
+    (tmp_path / "frontend-dist" / "index.html").write_text("<!doctype html><div id=app></div>")
+    monkeypatch.chdir(tmp_path)
+    page = TestClient(app).get("/preferences/abc123")
+    assert page.status_code == status.HTTP_200_OK
+    assert "id=app" in page.text

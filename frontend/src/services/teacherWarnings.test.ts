@@ -176,3 +176,21 @@ describe("how loudly a warning says itself", () => {
     expect(warningsFor(running({ taughtSoFar: 66 }))[0].severity).toBe("high");
   });
 });
+
+describe("a requisition, which is a year's", () => {
+  it("is held against the year's plan, not one semester's", () => {
+    // 30 h planned in Semester 2, 30 h in Semester 1, a 60 h requisition for the year:
+    // against Semester 2 alone it read "Requisition over 30 h".
+    const year = { label: "2026-2027", planned: 60, taughtSoFar: 30 };
+    const held = warningsFor(figures({ planned: 30, contracted: 60, taughtSoFar: 0, year }));
+    expect(kinds(held)).not.toContain("plan_vs_contract");
+  });
+
+  it("counts the year's earlier semesters in what has been used", () => {
+    const year = { label: "2026-2027", planned: 60, taughtSoFar: 59 };
+    const [spent] = warningsFor(figures({ planned: 30, contracted: 60, taughtSoFar: 29, registrar: 30, year })).filter(
+      (warning) => warning.kind === "contract_nearly_spent",
+    );
+    expect(spent.label).toBe("1 h of requisition left");
+  });
+});

@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CohortMenu } from "@/components/CohortMenu";
+import { CarrySet } from "@/components/CarrySet";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -38,7 +39,7 @@ import {
   updateGroup,
   updateScope,
 } from "@/services/studentDatabase";
-import { fetchTimetableTerms } from "@/services/timetables";
+import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 import { useSemesterShown } from "@/services/semesterYears";
 
 
@@ -173,7 +174,15 @@ export function GroupSchema({
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
   const shownOf = useSemesterShown();
-  const active = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
+  /*
+   * The courses active in the semester on screen, by its portal term: a set of Semester 2
+   * is given Semester 2's courses. Every semester's were offered, so a course chosen for
+   * Semester 1 only could be put on a Semester 2 set. A semester linked to no portal term
+   * still offers them all, as before.
+   */
+  const termLinks = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  const portalTerm = termLinks.data?.[termId] ?? "";
+  const active = useQuery({ queryKey: ["active-courses", portalTerm], queryFn: () => fetchActiveCourses(portalTerm) });
   /*
    * The programmes the registrar has for this browser's students, which is the vocabulary
    * both pickers below must speak: `scope_groups.program` is matched against a student's
@@ -482,6 +491,12 @@ export function GroupSchema({
                 activeCourses={(active.data ?? []).map((course) => ({ code: course.courseCode, title: course.title }))}
                 programmes={vocabulary}
                 pulled={pulled}
+                semesters={terms.data ?? []}
+                onCarried={(semesterId, scopeId) => {
+                  refresh();
+                  setTermId(semesterId);
+                  setChosenId(scopeId);
+                }}
                 onChanged={refresh}
                 onRemoved={() => {
                   setChosenId("");
@@ -578,6 +593,8 @@ function SetEditor({
   activeCourses,
   programmes,
   pulled,
+  semesters,
+  onCarried,
   onChanged,
   onRemoved,
 }: {
@@ -591,6 +608,9 @@ function SetEditor({
   programmes: string[];
   /** Whether those are the synced students' majors, the whole list, or only the schema's. */
   pulled: boolean;
+  /** Every semester, for carrying the set into another. */
+  semesters: TimetableTerm[];
+  onCarried: (termId: string, scopeId: string) => void;
   onChanged: () => void;
   onRemoved: () => void;
 }) {
@@ -670,6 +690,7 @@ function SetEditor({
           <span className="ml-auto text-xs tabular-nums text-[#98a2b3]">
             {reading.groups} group{reading.groups === 1 ? "" : "s"} · {reading.placed} placed
           </span>
+          <CarrySet scope={scope} semesters={semesters} onCarried={onCarried} />
           <button
             type="button"
             onClick={() => setRemoving(true)}

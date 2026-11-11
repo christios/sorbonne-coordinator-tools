@@ -13,7 +13,7 @@ import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type CatalogueScope, type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchEveryExemption, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
-import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel } from "@/services/timetableExport";
+import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel, shortSemester } from "@/services/timetableExport";
 import { downloadWorkbook, labelIn, prefixOf, readingsFor, shortYear } from "@/services/workbookExport";
 import { useSemesterShown } from "@/services/semesterYears";
 
@@ -40,9 +40,24 @@ import { useSemesterShown } from "@/services/semesterYears";
  *
  * The records say who is in a cohort. The placements say where they sit.
  */
-async function placementsOfMembers(cohortId: string): Promise<Record<string, Record<string, string>>> {
-  const [placements, members] = await Promise.all([fetchAssignments(cohortId), fetchMemberIds(cohortId)]);
-  return Object.fromEntries(Object.entries(placements).filter(([studentId]) => members.has(studentId)));
+async function placementsOfMembers(
+  cohortId: string,
+  termId: string,
+  scopes: CatalogueScope[],
+): Promise<Record<string, Record<string, string>>> {
+  /*
+   * And of the semester chosen: its members, in its sets. A cohort is a year's, so its
+   * placements and its members are both semesters'; a Semester 2 file listed the students
+   * placed only in Semester 1, with nothing beside their names.
+   */
+  const [placements, members] = await Promise.all([fetchAssignments(cohortId), fetchMemberIds(cohortId, termId)]);
+  const sets = new Set(scopes.map((scope) => scope.id));
+  return Object.fromEntries(
+    Object.entries(placements)
+      .filter(([studentId]) => members.has(studentId))
+      .map(([studentId, byScope]) => [studentId, Object.fromEntries(Object.entries(byScope).filter(([scopeId]) => sets.has(scopeId)))] as const)
+      .filter(([, byScope]) => Object.keys(byScope).length > 0),
+  );
 }
 
 /**
@@ -69,6 +84,8 @@ export function WorkbookTools({
   terms,
   cards = [],
   teacherName = () => "",
+  cohortShown = "",
+  semesterShown = "",
   onClose,
 }: {
   open: boolean;
@@ -78,15 +95,29 @@ export function WorkbookTools({
   cards?: Card[];
   /** An Active teacher's name, by id. */
   teacherName?: (teacherId: string) => string;
+  /** The cohort and semester the page has on screen, which the files are made for unless changed here. */
+  cohortShown?: string;
+  semesterShown?: string;
   onClose: () => void;
 }) {
-  const [cohortId, setCohortId] = useState(cohorts[0]?.id ?? "");
-  const [termId, setTermId] = useState(terms[0]?.id ?? "");
+  // The page's cohort and semester: it opened on the first cohort and Semester 1.
+  const [cohortId, setCohortId] = useState(cohortShown || (cohorts[0]?.id ?? ""));
+  const [termId, setTermId] = useState(semesterShown || (terms[0]?.id ?? ""));
   const shownOf = useSemesterShown();
   useEffect(() => {
-    if (!cohortId && cohorts[0]) setCohortId(cohorts[0].id);
-    if (!termId && terms[0]) setTermId(terms[0].id);
-  }, [cohorts, terms, cohortId, termId]);
+    if (!cohortId && (cohortShown || cohorts[0])) setCohortId(cohortShown || cohorts[0].id);
+    if (!termId && (semesterShown || terms[0])) setTermId(semesterShown || terms[0].id);
+  }, [cohorts, terms, cohortId, termId, cohortShown, semesterShown]);
+  // Every time it opens: the dialog stays mounted while the page moves to another semester.
+  useEffect(() => {
+    if (!open) return;
+    if (cohortShown) setCohortId(cohortShown);
+    if (semesterShown) setTermId(semesterShown);
+  }, [open, cohortShown, semesterShown]);
+  // Each file says its semester in its name: "L1-S2-groups.xlsx".
+  const semesterTag = shortSemester(terms.find((candidate) => candidate.id === termId)?.name ?? "");
+  const fileOf = (name: string, what: string) =>
+    `${[name.replace(/[^A-Za-z0-9]+/g, "-"), semesterTag].filter(Boolean).join("-")}-${what}.xlsx`;
   const cohort = cohorts.find((candidate) => candidate.id === cohortId) ?? null;
   const catalogue = useQuery({ queryKey: ["catalogue", cohortId, termId, "own-only"], queryFn: () => fetchCatalogue(cohortId, termId, true), enabled: open && Boolean(cohortId && termId) });
   // The UE codes: the workbook keys its columns on the Sorbonne unit, and only the
@@ -119,7 +150,7 @@ export function WorkbookTools({
     try {
       const held = await namesHeld();
       const programs = await fieldHeld("MAJOR_CODE_DESC");
-      const placements = await placementsOfMembers(cohort.id);
+      const placements = await placementsOfMembers(cohort.id, termId, scopes);
       // Which half each placement took, where a group is written as its halves.
       const majors = await fetchAssignmentMajors(cohort.id);
       const exempt = await exemptionsIn(scopes);
@@ -156,7 +187,7 @@ export function WorkbookTools({
           ueOf,
           teacherOf,
         },
-        `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-groups.xlsx`,
+        fileOf(cohort.name, "groups"),
       );
     } finally {
       setExporting("");
@@ -168,7 +199,7 @@ export function WorkbookTools({
     setExporting("list");
     try {
       const held = await namesHeld();
-      const placements = await placementsOfMembers(cohort.id);
+      const placements = await placementsOfMembers(cohort.id, termId, scopes);
       // Which major each placement took, so a student reads their major's own cells.
       const majors = await fetchAssignmentMajors(cohort.id);
       const exempt = await exemptionsIn(scopes);
@@ -185,7 +216,7 @@ export function WorkbookTools({
             exempt: exempt[studentId] ?? [],
           })),
         },
-        `${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}-admissions.xlsx`,
+        fileOf(cohort.name, "admissions"),
       );
     } finally {
       setExporting("");
@@ -221,7 +252,8 @@ export function WorkbookTools({
       // One workbook a year, as the department's own file is named; a cohort's says whose.
       const year = shortYear((everyCohort ? cohorts.find((candidate) => candidate.term) : cohort)?.term ?? "");
       const whose = everyCohort || !cohort ? "" : `-${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}`;
-      await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}${whose}.xlsx`, year);
+      const tag = semesterTag ? `-${semesterTag}` : "";
+      await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}${tag}${whose}.xlsx`, year);
     } finally {
       setExporting("");
     }
@@ -241,7 +273,7 @@ export function WorkbookTools({
       const programs = await fieldHeld("MAJOR_CODE_DESC");
       const family = await fieldHeld("LAST_NAME");
       const first = await fieldHeld("FIRST_NAME");
-      const placements = await placementsOfMembers(cohort.id);
+      const placements = await placementsOfMembers(cohort.id, termId, scopes);
       // Which half each placement took, so each student reads their own major's lectures.
       const majors = await fetchAssignmentMajors(cohort.id);
       const exempt = await exemptionsIn(scopes);

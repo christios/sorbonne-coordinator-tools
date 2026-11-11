@@ -61,7 +61,7 @@ import {
 } from "@/services/weekSchedule";
 import { fetchSemesterShortNames } from "@/services/portalLists";
 import { judgeSlot } from "@/services/planJudge";
-import { checkWishes, fetchWishSemester, periodShades, shadingOf } from "@/services/teacherWishes";
+import { checkWishes, clockOf, fetchWishSemester, periodShades, shadingOf } from "@/services/teacherWishes";
 import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
@@ -125,7 +125,7 @@ const TRAY_SHOW: { value: TrayShow; label: string }[] = [
   { value: "over", label: "Over hours" },
   { value: "no-teacher", label: "No teacher" },
   { value: "no-crn", label: "No CRN" },
-  { value: "wishes", label: "Breaks a wish" },
+  { value: "wishes", label: "Breaks a preference" },
 ];
 const TRAY_SORT: { value: TraySort; label: string }[] = [
   // Groups & CRNs' own order: cohort, set, group, course.
@@ -554,7 +554,13 @@ export function SemesterPlan({
       }
       for (const away of focusRow.wishes.away) {
         if (date >= away.from && date <= away.to) {
-          shades.push({ from: "00:00", to: "23:59", tone: "cant", title: `${focusRow.name} is away${away.reason ? `: ${away.reason}` : ""}` });
+          const part = away.start !== undefined && away.end !== undefined;
+          shades.push({
+            from: part ? clockOf(away.start!) : "00:00",
+            to: part ? clockOf(away.end!) : "23:59",
+            tone: "cant",
+            title: `${focusRow.name} is away${part ? ` ${clockOf(away.start!)}–${clockOf(away.end!)}` : ""}${away.reason ? `: ${away.reason}` : ""}`,
+          });
         }
       }
     }
@@ -581,7 +587,7 @@ export function SemesterPlan({
     const clash = problems.some((problem) => problem.kind === "clash");
     return {
       worst,
-      label: clash ? "Clash" : worst === "must" ? "Breaks a Must" : worst ? "Breaks a wish" : "",
+      label: clash ? "Clash" : worst === "must" ? "Breaks a Must" : worst ? "Breaks a preference" : "",
       said: problems.map((problem) => problem.said).join("\n"),
     };
   };
@@ -885,7 +891,7 @@ export function SemesterPlan({
             <p className="mt-1.5 flex shrink-0 flex-wrap items-center gap-x-2 text-xs text-[#667085]">
               {focusRow?.wishes ? (
                 <>
-                  <span className="font-semibold text-[#344054]">{focusName}&rsquo;s wishes:</span>
+                  <span className="font-semibold text-[#344054]">{focusName}&rsquo;s preferences:</span>
                   <span className="inline-flex items-center gap-1">
                     <span className="inline-block h-2.5 w-3 rounded-sm border border-[#a6292f]/40 bg-[#a6292f]/[0.15]" /> can&rsquo;t teach
                   </span>
@@ -895,7 +901,7 @@ export function SemesterPlan({
                   {focusRow.wishes.status === "draft" ? <span>(a draft)</span> : null}
                 </>
               ) : (
-                <span>{focusName} hasn&rsquo;t given their wishes for this semester.</span>
+                <span>{focusName} hasn&rsquo;t given their preferences for this semester.</span>
               )}
               {!held && picked ? (
                 <button type="button" onClick={() => setPicked("")} className="font-semibold text-[#1f4e79] underline">
@@ -926,7 +932,7 @@ export function SemesterPlan({
             {(
               [
                 { value: "tray", title: "Classes to place", count: toPlace.length, alarm: false },
-                { value: "wishes", title: "Teacher wishes broken this week", count: thisWeekBroken, alarm: thisWeekBroken > 0 },
+                { value: "wishes", title: "Teacher preferences broken this week", count: thisWeekBroken, alarm: thisWeekBroken > 0 },
               ] as const
             ).map((tab) => (
               <button
@@ -947,7 +953,7 @@ export function SemesterPlan({
             ))}
           </aside>
         ) : (
-        <aside className="hidden min-h-0 w-[28rem] shrink-0 flex-col lg:flex" aria-label={side === "wishes" ? "Teacher wishes" : "Classes to place"}>
+        <aside className="hidden min-h-0 w-[28rem] shrink-0 flex-col lg:flex" aria-label={side === "wishes" ? "Teacher preferences" : "Classes to place"}>
           <div className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white">
           {/*
             * Beside the week: the classes to place, or what the plan does to the teachers' wishes.
@@ -965,7 +971,7 @@ export function SemesterPlan({
                   count: trayShown.length !== toPlace.length ? `${trayShown.length} of ${toPlace.length}` : String(toPlace.length),
                   alarm: false,
                 },
-                { value: "wishes", label: "Wishes", title: "Teacher wishes broken this week", count: String(thisWeekBroken), alarm: thisWeekBroken > 0 },
+                { value: "wishes", label: "Preferences", title: "Teacher preferences broken this week", count: String(thisWeekBroken), alarm: thisWeekBroken > 0 },
               ] as const
             ).map((tab) => {
               const on = side === tab.value;
@@ -996,7 +1002,7 @@ export function SemesterPlan({
             })}
           </div>
           {side === "wishes" ? (
-            <div role="group" aria-label="Which wishes" className="ml-auto flex rounded-md bg-[#f2f4f7] p-0.5">
+            <div role="group" aria-label="Which preferences" className="ml-auto flex rounded-md bg-[#f2f4f7] p-0.5">
               {WISH_VIEWS.map((option) => {
                 const on = wishView === option.value;
                 return (
@@ -1033,7 +1039,7 @@ export function SemesterPlan({
               week={weekNo}
               view={wishView}
               onFocus={(teacherId) => setPicked(teacherId)}
-              failed={wishSemester.isError ? "The teachers' wishes could not be read." : undefined}
+              failed={wishSemester.isError ? "The teachers' preferences could not be read." : undefined}
             />
           ) : (
           <>
@@ -1120,7 +1126,7 @@ export function SemesterPlan({
                       </p>
                       {wishSemester.data?.collection && section.teacherId && !answeredIds.has(section.teacherId) ? (
                         <span className="mt-0.5 inline-block rounded-full bg-[#f2f4f7] px-1.5 text-[11px] text-[#667085]">
-                          no wishes
+                          no preferences
                         </span>
                       ) : null}
                       <div className="mt-1 flex items-center gap-2">

@@ -223,7 +223,7 @@ export function PlanWishesPanel({
           </span>
           <span className="shrink-0 tabular-nums text-[#667085]">
             {tally.musts ? `${tally.mustsKept} of ${tally.musts} Musts` : "no Musts"} ·{" "}
-            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} wishes` : "no wishes"}
+            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} preferences` : "no preferences"}
           </span>
         </button>
       );
@@ -258,10 +258,10 @@ export function PlanWishesPanel({
             <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#667085]" aria-hidden="true" />
             <input
               type="search"
-              aria-label="Search wishes"
+              aria-label="Search preferences"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Teacher, course or wish"
+              placeholder="Teacher, course or preference"
               className="w-full rounded-md border border-[#d3d9e2] bg-white py-1.5 pl-8 pr-2 text-sm"
             />
           </label>
@@ -287,7 +287,7 @@ export function PlanWishesPanel({
         {failed ? <p className="text-xs text-[#a6292f]">{failed}</p> : null}
         {!collection && !failed ? (
           <p className="text-xs text-[#667085]">
-            No wishes collected for this semester yet. Open the collection on the Timetable wishes page, under Teachers.
+            No preferences collected for this semester yet. Open the collection on the Timetable preferences page, under Teachers.
           </p>
         ) : null}
         {check?.unanswered.length ? (
@@ -297,14 +297,14 @@ export function PlanWishesPanel({
         ) : null}
       </div>
 
-      <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto" aria-label={view === "teachers" ? "Teachers" : "Broken wishes"}>
+      <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto" aria-label={view === "teachers" ? "Teachers" : "Broken preferences"}>
         {shown.map((item) => (
           <li key={item.key}>{line(item)}</li>
         ))}
         {!shown.length ? (
           <li className="px-3 py-6 text-center text-xs text-[#98a2b3]">
             {items.length
-              ? "No wish here matches."
+              ? "No preference here matches."
               : view === "teachers"
                 ? "No teacher with classes here has answered yet."
                 : collection || breaches.length

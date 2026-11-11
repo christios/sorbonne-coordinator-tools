@@ -338,6 +338,35 @@ describe("what a teacher takes", () => {
     expect(screen.getByRole("button", { name: "Sort by Cohorts" })).toBeTruthy();
   });
 
+  it("names the cohorts of the semester on screen only", async () => {
+    // On Semester 2 she showed Semester 1's cohorts too: every semester's sections were read.
+    window.localStorage.setItem("scen-remembered:schema-term", "term-2");
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710", "term-2": "262720" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-1", name: "Semester 1" },
+      { id: "term-2", name: "Semester 2" },
+    ] as unknown as timetables.TimetableTerm[]);
+    const spring = {
+      id: "s-spring", code: "CM", name: "Lectures", note: "", termId: "term-2", kind: "shared", parentScopeId: "", openToAll: false,
+      courses: [{ id: "c-spring", code: "ECON-102", name: "Economics II", component: "CM", request: database.EMPTY_REQUEST }],
+      groups: [{ id: "g-s", label: "A", capacity: 0, note: "", parentGroupId: "", assigned: 20, crns: { "c-spring": { ...database.EMPTY_SECTION, crn: "32001", teacherId: "act-1" } } }],
+    };
+    const [held] = await database.fetchCourseCards();
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+      held,
+      { cohort: { id: "c2", name: "L1-S2", term: "2026-27" }, scopes: [spring] },
+    ] as unknown as database.CohortCatalogue[]);
+    try {
+      show();
+      const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;
+
+      await waitFor(() => expect(within(row).getByText("L1-S2")).toBeTruthy());
+      expect(within(row).queryByText("L1-S1")).toBeNull();
+    } finally {
+      window.localStorage.removeItem("scen-remembered:schema-term");
+    }
+  });
+
   it("draws the portal's course codes as values of their own, not as a sentence", async () => {
     show();
     const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;

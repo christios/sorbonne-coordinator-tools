@@ -46,6 +46,21 @@ describe("the banner", () => {
     expect(screen.getByText(/4 h removed/)).toBeTruthy();
   });
 
+  it("is the semester on screen's, not the newest swept", async () => {
+    // Semester 2 swept, Semester 1 still taught: on Semester 1 the banner is Semester 1's.
+    vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262720", "262710"]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <ClassChangesBanner term="262710" />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText(/1 section/)).toBeTruthy();
+    expect(lists.fetchChangedClasses).toHaveBeenCalledWith("262710");
+    expect(lists.fetchChangedClasses).not.toHaveBeenCalledWith("262720");
+  });
+
   it("stays away when the registrar has changed nothing", async () => {
     vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([]);
     show();

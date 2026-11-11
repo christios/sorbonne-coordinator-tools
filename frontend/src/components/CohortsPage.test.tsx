@@ -1398,7 +1398,7 @@ describe("who is not in the cohort's Teams channels", () => {
     // In SCEN Students, so nothing about it; and Karim is in both.
     expect(row.queryByText("not in SCEN Students")).toBeNull();
     expect(within(rowOf("Karim Nasser")).queryByText(/^not in /)).toBeNull();
-    expect(check).toHaveBeenCalledWith("c1");
+    expect(check).toHaveBeenCalledWith("c1", "");
 
     // Dismissed like any other warning, under a key that names the cohort, channel and student.
     fireEvent.click(within(pill).getByRole("button", { name: /^Dismiss: Not in the L1 Students/ }));

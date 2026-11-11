@@ -78,6 +78,14 @@ _HELD_TERMS = """SELECT term_id FROM cohort_members WHERE cohort_id = :id AND te
                         WHERE a.cohort_id = :id AND s.term_id <> :term"""
 
 
+def _held_there(open_to_all: bool) -> str:
+    """SQL: the exempt student `e` is held in semester `:term` — by the set's cohort
+    (`:cohort`), or by any cohort for a set open to every cohort."""
+    return "SELECT 1 FROM cohort_members m WHERE m.student_id = e.student_id AND m.term_id = :term" + (
+        "" if open_to_all else " AND m.cohort_id = :cohort"
+    )
+
+
 class CohortSpansSemesters(ValueError):
     """A whole cohort asked to go while it still holds more than one semester, said in words."""
 
@@ -104,6 +112,15 @@ class CourseNotFound(Exception):
 
 class DuplicateLabel(Exception):
     """Two groups in one scope, or two scopes in one cohort, cannot share a name."""
+
+
+class SharedSetTaken(ValueError):
+    """A second set open to every cohort, under the same code in the same semester, said in words.
+
+    Every cohort's students are placed in a set open to every cohort, so two LANG sets in
+    one semester would split the languages between them, and each cohort's check would read
+    only the half its students happened to be filed under.
+    """
 
 
 class FilterNotFound(Exception):
@@ -554,6 +571,7 @@ class StudentDatabase:
                 connection,
                 [{"studentId": student, "kind": "cohort", "detail": {"from": "", "to": name}} for student in added],
                 actor=actor,
+                term_id=target,
             )
             self._touch(connection, cohort_id)
         return {"cohort": self.get_cohort(cohort_id), "added": len(added), "skipped": sorted(elsewhere)}
@@ -905,7 +923,7 @@ class StudentDatabase:
                 for student in present
                 if before.get(student, "") != (cohort_id or "") and (cohort_id is not None or student in before)
             )
-            self._record(connection, lines, actor=actor)
+            self._record(connection, lines, actor=actor, term_id=term)
             if cohort_id is not None:
                 self._touch(connection, cohort_id)
         return len(present)
@@ -2041,6 +2059,48 @@ class StudentDatabase:
             )
         return _dismissal(held)
 
+    def move_dismissals(self, from_term: str, to_term: str) -> int:
+        """Refile the dismissals made under one semester's id under another's, keeping who
+        made each and when.
+
+        A warning about a semester carries the semester's id in its key. Semester 1 moved
+        from the Student Hub's id to `plan:262710` on 9 Nov 2026, and 27 dismissals — "not
+        placed in LANG", decided by two coordinators — stayed under the old id, so the
+        warnings came back as though nobody had looked. A dismissal already held under the
+        new key is left as it is, and the old one goes.
+        """
+        source, target = _text(from_term), _text(to_term)
+        if not source or not target or source == target:
+            return 0
+        moved = 0
+        with self.engine.begin() as connection:
+            rows = (
+                connection.execute(
+                    text("""SELECT key, dismissed_by_email, dismissed_by_name, dismissed_at
+                            FROM warning_dismissals WHERE key LIKE :named"""),
+                    {"named": f"%{source}%"},
+                )
+                .mappings()
+                .all()
+            )
+            for row in rows:
+                parts = row["key"].split("|")
+                if source not in parts:
+                    continue
+                key = "|".join(target if part == source else part for part in parts)
+                moved += connection.execute(
+                    text("""INSERT INTO warning_dismissals (key, dismissed_by_email, dismissed_by_name, dismissed_at)
+                            VALUES (:key, :email, :name, :at) ON CONFLICT (key) DO NOTHING"""),
+                    {
+                        "key": key,
+                        "email": row["dismissed_by_email"],
+                        "name": row["dismissed_by_name"],
+                        "at": row["dismissed_at"],
+                    },
+                ).rowcount
+                connection.execute(text("DELETE FROM warning_dismissals WHERE key = :key"), {"key": row["key"]})
+        return moved
+
     def restore_warning(self, key: str) -> None:
         """Bring a warning back for everybody. Restoring one nobody dismissed is no error."""
         with self.engine.begin() as connection:
@@ -2282,6 +2342,27 @@ class StudentDatabase:
             ).scalar()
         )
 
+    def _shared_set_free(
+        self, connection: Connection, *, code: str, term_id: str, open_to_all: bool, scope_id: str = ""
+    ) -> None:
+        """Refuse a set open to every cohort whose code another cohort's open set has that semester.
+
+        A set with no semester is in none, so it has nothing to clash with.
+        """
+        if not open_to_all or not _text(term_id):
+            return
+        other = connection.execute(
+            text("""SELECT c.name FROM cohort_scopes s JOIN student_cohorts c ON c.id = s.cohort_id
+                    WHERE s.open_to_all AND s.term_id = :term AND upper(s.code) = upper(:code) AND s.id <> :id
+                    LIMIT 1"""),
+            {"term": _text(term_id), "code": _text(code), "id": scope_id},
+        ).scalar()
+        if other is not None:
+            raise SharedSetTaken(
+                f"{_text(code)} is already open to every cohort this semester, on {other}. "
+                "Add its groups there, so every cohort's students are in one set."
+            )
+
     def add_scope(  # noqa: PLR0913 - one argument per column of the block
         self,
         cohort_id: str,
@@ -2302,6 +2383,7 @@ class StudentDatabase:
         with self.engine.begin() as connection:
             if self._scope_id(connection, cohort_id, _text(code), _text(term_id)):
                 raise DuplicateLabel(code)
+            self._shared_set_free(connection, code=code, term_id=term_id, open_to_all=open_to_all)
             connection.execute(
                 text("""INSERT INTO cohort_scopes
                             (id, cohort_id, code, name, note, term_id, kind, parent_scope_id,
@@ -2351,6 +2433,10 @@ class StudentDatabase:
             )
             if standing and standing != scope_id:
                 raise DuplicateLabel(code)
+            if held:
+                self._shared_set_free(
+                    connection, code=code, term_id=held["term_id"] or "", open_to_all=open_to_all, scope_id=scope_id
+                )
             updated = connection.execute(
                 text("""UPDATE cohort_scopes SET code = :code, name = :name, note = :note,
                                                  kind = :kind, parent_scope_id = :parent,
@@ -2417,6 +2503,186 @@ class StudentDatabase:
             cohort_id = self._cohort_of_scope(connection, scope_id)
             connection.execute(text("DELETE FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
             self._touch(connection, cohort_id)
+
+    def carry_preview(self, scope_id: str, to_term: str) -> dict[str, Any]:
+        """The exemptions carrying a set would bring, counted by reason, before anybody asks.
+
+        A reason is a judgement — "LEA track" likely holds next semester, "Repeater" may
+        not — so the carry asks whether to bring them, and shows what it would bring. Those
+        of students in no cohort that semester stay behind, and are counted apart.
+        """
+        target = _text(to_term)
+        with self.engine.connect() as connection:
+            source = (
+                connection.execute(
+                    text("SELECT cohort_id, open_to_all FROM cohort_scopes WHERE id = :id"), {"id": scope_id}
+                )
+                .mappings()
+                .first()
+            )
+            if source is None:
+                raise ScopeNotFound(scope_id)
+            rows = connection.execute(
+                text(f"""SELECT e.reason, EXISTS ({_held_there(bool(source["open_to_all"]))}) AS held
+                         FROM course_exemptions e JOIN scope_courses c ON c.id = e.course_id
+                         WHERE c.scope_id = :id"""),  # noqa: S608 - fixed clauses
+                {"id": scope_id, "term": target, "cohort": source["cohort_id"]},
+            ).all()
+        reasons: dict[str, int] = {}
+        for reason, held in rows:
+            if held:
+                reasons[_text(reason)] = reasons.get(_text(reason), 0) + 1
+        return {
+            "exemptions": sum(reasons.values()),
+            "reasons": [
+                {"reason": reason, "count": count}
+                for reason, count in sorted(reasons.items(), key=lambda item: -item[1])
+            ],
+            "stayBehind": sum(1 for _, held in rows if not held),
+        }
+
+    def carry_scope(  # noqa: C901, PLR0912 - a pass per table
+        self, scope_id: str, to_term: str, *, exemptions: bool = True
+    ) -> dict[str, Any]:
+        """A set made again in another semester, the way it stands: Semester 1's LANG as
+        Semester 2's.
+
+        Its courses, with what each asks of the timetable; its groups, with their seats,
+        sub-rows, firsts and the groups each goes with or runs beside; and the students who
+        do not take one of its courses, where they are still held in that semester — 26
+        French exemptions had to be typed again by hand. Not its CRNs, which are the other
+        semester's sections, nor its placements: a group in Semester 2 is placed afresh.
+        Nor a teacher a course had chosen: who teaches is the semester's question.
+        """
+        target = _text(to_term)
+        with self.engine.begin() as connection:
+            source = (
+                connection.execute(text("SELECT * FROM cohort_scopes WHERE id = :id"), {"id": scope_id})
+                .mappings()
+                .first()
+            )
+            if source is None:
+                raise ScopeNotFound(scope_id)
+            if not target or target == (source["term_id"] or ""):
+                raise InvalidCohortMove("Carry the set into another semester than its own.")
+            cohort_id = source["cohort_id"]
+            if self._scope_id(connection, cohort_id, source["code"], target):
+                raise DuplicateLabel(source["code"])
+            self._shared_set_free(connection, code=source["code"], term_id=target, open_to_all=source["open_to_all"])
+            # A set inside another is inside that set's own counterpart there, if it has one.
+            parent = ""
+            if source["kind"] == "nested" and source["parent_scope_id"]:
+                parent_code = connection.execute(
+                    text("SELECT code FROM cohort_scopes WHERE id = :id"), {"id": source["parent_scope_id"]}
+                ).scalar()
+                parent = (self._scope_id(connection, cohort_id, parent_code, target) if parent_code else None) or ""
+            made = str(uuid4())
+            connection.execute(
+                text("""INSERT INTO cohort_scopes
+                            (id, cohort_id, code, name, note, term_id, kind, parent_scope_id, open_to_all,
+                             tab, group_column, group_column_index, position)
+                        SELECT :made, cohort_id, code, name, note, :term, :kind, :parent, open_to_all,
+                               tab, group_column, group_column_index,
+                               (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes WHERE cohort_id = :cohort)
+                        FROM cohort_scopes WHERE id = :id"""),
+                {
+                    "made": made,
+                    "term": target,
+                    "kind": source["kind"] if source["kind"] != "nested" or parent else "shared",
+                    "parent": parent,
+                    "cohort": cohort_id,
+                    "id": scope_id,
+                },
+            )
+            courses: dict[str, str] = {}
+            for (course_id,) in connection.execute(
+                text("SELECT id FROM scope_courses WHERE scope_id = :id ORDER BY position"), {"id": scope_id}
+            ):
+                courses[course_id] = str(uuid4())
+                connection.execute(
+                    text("""INSERT INTO scope_courses
+                                (id, scope_id, code, name, component, position, teacher_id, hours,
+                                 sessions_per_week, duration, weeks, room_pref, day_pref, time_pref,
+                                 constraints, comments, anticipated)
+                            SELECT :made, :scope, code, name, component, position, '', hours,
+                                   sessions_per_week, duration, weeks, room_pref, day_pref, time_pref,
+                                   constraints, comments, anticipated
+                            FROM scope_courses WHERE id = :id"""),
+                    {"made": courses[course_id], "scope": made, "id": course_id},
+                )
+            groups_held = (
+                connection.execute(
+                    text("SELECT * FROM scope_groups WHERE scope_id = :id ORDER BY position"), {"id": scope_id}
+                )
+                .mappings()
+                .all()
+            )
+            groups = {row["id"]: str(uuid4()) for row in groups_held}
+            # The groups a nested group goes with are its parent set's, found there by label.
+            parent_groups: dict[str, str] = {}
+            if parent:
+                theirs = dict(
+                    connection.execute(
+                        text("SELECT label, id FROM scope_groups WHERE scope_id = :id"), {"id": parent}
+                    ).all()
+                )
+                for old_id, label in connection.execute(
+                    text("SELECT id, label FROM scope_groups WHERE scope_id = :id"), {"id": source["parent_scope_id"]}
+                ):
+                    if label in theirs:
+                        parent_groups[old_id] = theirs[label]
+            for row in groups_held:
+                went_with = _ids(row["parent_group_ids"]) or [each for each in [row["parent_group_id"]] if each]
+                parents = [parent_groups[each] for each in went_with if each in parent_groups]
+                beside = [groups[each] for each in _ids(row["parallel_with"]) if each in groups]
+                connection.execute(
+                    text("""INSERT INTO scope_groups
+                                (id, scope_id, label, capacity, note, position, parent_group_id,
+                                 parallel_with, parent_group_ids, first_for)
+                            VALUES (:id, :scope, :label, :capacity, :note, :position, :parent,
+                                    :beside, :parents, :first_for)"""),
+                    {
+                        "id": groups[row["id"]],
+                        "scope": made,
+                        "label": row["label"],
+                        "capacity": row["capacity"],
+                        "note": row["note"],
+                        "position": row["position"],
+                        "parent": parents[0] if parents else "",
+                        "beside": json.dumps(beside),
+                        "parents": json.dumps(parents),
+                        "first_for": row["first_for"] or "",
+                    },
+                )
+                for program, seats, position in connection.execute(
+                    text("SELECT program, seats, position FROM group_majors WHERE group_id = :id ORDER BY position"),
+                    {"id": row["id"]},
+                ).all():
+                    connection.execute(
+                        text("""INSERT INTO group_majors (id, group_id, program, seats, position)
+                                VALUES (:id, :group, :program, :seats, :position)"""),
+                        {
+                            "id": str(uuid4()),
+                            "group": groups[row["id"]],
+                            "program": program,
+                            "seats": seats,
+                            "position": position,
+                        },
+                    )
+            # Who does not take a course of it, where they are still held that semester — when
+            # asked: a reason is a judgement the coordinator makes again, or not.
+            held_there = _held_there(bool(source["open_to_all"]))
+            carried = 0
+            for old_id, new_id in courses.items() if exemptions else ():
+                carried += connection.execute(
+                    text(f"""INSERT INTO course_exemptions (student_id, course_id, reason, created_at)
+                             SELECT e.student_id, :made, e.reason, :now FROM course_exemptions e
+                             WHERE e.course_id = :id AND EXISTS ({held_there})
+                             ON CONFLICT (student_id, course_id) DO NOTHING"""),  # noqa: S608 - fixed clauses
+                    {"made": new_id, "id": old_id, "now": _now(), "term": target, "cohort": cohort_id},
+                ).rowcount
+            self._touch(connection, cohort_id)
+        return {"scopeId": made, "courses": len(courses), "groups": len(groups), "exemptions": carried}
 
     def add_course(  # noqa: PLR0913 - one argument per column of the course being made
         self, scope_id: str, *, code: str, name: str = "", component: str = ""
@@ -2902,14 +3168,20 @@ class StudentDatabase:
 
     # -------------------------------------------------------------- history
 
-    def _record(self, connection: Connection, entries: list[dict[str, Any]], *, actor: str = "") -> None:
+    def _record(
+        self, connection: Connection, entries: list[dict[str, Any]], *, actor: str = "", term_id: str = ""
+    ) -> None:
         """Write what just happened to these students, one line each, signed and dated.
 
         Called inside the transaction that did the thing, so a placement that is rolled
-        back leaves no line saying it happened.
+        back leaves no line saying it happened. `term_id` is the semester it happened in,
+        kept on each line: a cohort is a year's, and "placed in TD 2" or "joined L1" said
+        nothing about which of its semesters.
         """
         if not entries:
             return
+        if term_id:
+            entries = [{**entry, "detail": {"termId": term_id, **entry.get("detail", {})}} for entry in entries]
         now = _now()
         connection.execute(
             text("""INSERT INTO student_history (id, student_id, kind, detail, author, happened_at)
@@ -2976,6 +3248,8 @@ class StudentDatabase:
         line: the history says what happened, not what was pressed.
         """
         scope_code, labels, programs = self._placement_facts(connection, scope_id)
+        # The set's semester, so the line says which one the placement was made in.
+        term = connection.execute(text("SELECT term_id FROM cohort_scopes WHERE id = :id"), {"id": scope_id}).scalar()
         lines: list[dict[str, Any]] = []
         for student, (group_id, major_id) in after.items():
             old = before.get(student)
@@ -2983,6 +3257,7 @@ class StudentDatabase:
                 continue
             detail = {
                 "scopeCode": scope_code,
+                "termId": term or "",
                 "from": labels.get(old[0], "") if old else "",
                 "fromProgram": programs.get(old[1], "") if old else "",
                 "to": labels.get(group_id or "", ""),

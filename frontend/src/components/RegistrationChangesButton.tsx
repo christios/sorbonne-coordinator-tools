@@ -48,6 +48,7 @@ export function RegistrationChangesButton({
   yearOf,
   warningsIn,
   selected,
+  semesterId = "",
 }: {
   cohorts: Cohort[];
   /** The cohort on screen, which is what "this cohort" means. */
@@ -71,6 +72,12 @@ export function RegistrationChangesButton({
    * advisory, which is not what ticking something means.
    */
   selected?: ReadonlySet<string>;
+  /**
+   * The semester on screen. The registrar's worklist is one semester's: once Semester 2's
+   * registrations are pulled, Semester 1's lines beside them would be copied to admissions
+   * as changes to make now.
+   */
+  semesterId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState("");
@@ -101,7 +108,12 @@ export function RegistrationChangesButton({
   const ready = open && checks.every((check) => !check.isPending);
   const byCohort = cohorts.map((cohort, index) =>
     [
-      ...registrationChanges(checks[index]?.data?.mismatches ?? [], nameOf, cohort.name, yearOf),
+      ...registrationChanges(
+        (checks[index]?.data?.mismatches ?? []).filter((mismatch) => !semesterId || mismatch.termId === semesterId),
+        nameOf,
+        cohort.name,
+        yearOf,
+      ),
       ...noteChanges(warningsIn(cohort.id), nameOf, cohort.name, yearOf),
     ].filter((change) => records.has(change.source)),
   );
