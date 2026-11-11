@@ -27,6 +27,7 @@ import {
   listEverySubmittedTimeSheet,
 } from "@/services/teachers";
 import type { TeacherRef } from "@/components/TeacherRecord";
+import { CohortLoads } from "@/components/CohortLoads";
 import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards, parentsOf } from "@/services/courseCards";
@@ -176,6 +177,12 @@ export function TeacherHours({
    * from a list, one at a time or a teacher at a time.
    */
   const [showDismissed, setShowDismissed] = usePageState("teacher-hours:show-dismissed", false);
+  /*
+   * Teacher by teacher, or cohort by cohort as the department's teaching-load sheet has it:
+   * every course and section of the academic year, and how its hours split between
+   * full-timers, part-timers, visiting professors and PhD students or postdocs.
+   */
+  const [view, setView] = usePageState<"teacher" | "cohort">("teacher-hours:view", "teacher");
   const [bringingBack, setBringingBack] = useState(false);
   const decided = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
   const periods = useMemo(() => periodChoices(new Date(), 14, 1, opensOn), [opensOn]);
@@ -226,6 +233,11 @@ export function TeacherHours({
    * every Semester 2 teacher as under-planned by their whole Semester 1.
    */
   const academicYear = academicYearOfTerm(termCode);
+  // The semesters of the chosen one's year, for the By cohort view; the chosen one alone when it has no year.
+  const yearTermIds = useMemo(
+    () => (academicYear ? termIds.filter((id) => academicYearOfTerm(links.data?.[id] ?? "") === academicYear) : [chosenTerm].filter(Boolean)),
+    [academicYear, termIds, links.data, chosenTerm],
+  );
   const year = useMemo(() => {
     if (!academicYear) return undefined;
     const planned = new Map<string, number>();
@@ -362,6 +374,53 @@ export function TeacherHours({
     />
   );
 
+  const viewSwitch = (
+    <div role="group" aria-label="View" className="inline-flex h-9 overflow-hidden rounded-md border border-[#d3d9e2] bg-white text-sm font-semibold">
+      {(
+        [
+          ["teacher", "By teacher"],
+          ["cohort", "By cohort"],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={view === value}
+          onClick={() => setView(value)}
+          className={`px-3 ${view === value ? "bg-[#1f4e79] text-white" : "text-[#475467] hover:bg-[#f6f8fb]"}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (view === "cohort") {
+    const termLabel = (id: string) => {
+      const shown = shownOf({ id, name: termName(id) });
+      return shown.short ? `${shown.short} · ${shown.label}` : shown.label;
+    };
+    return (
+      <section>
+        {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
+        <div className="mb-4 flex flex-wrap items-center gap-4">
+          {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
+          {viewSwitch}
+          <p className="text-sm text-[#667085]">
+            {academicYear ? `The academic year ${academicYear}, as planned` : `${termName(chosenTerm)}, as planned`}
+          </p>
+        </div>
+        <CohortLoads
+          cards={cards}
+          termIds={yearTermIds}
+          termLabel={termLabel}
+          teachers={teachers.data ?? []}
+          onOpenTeacher={onOpenTeacher}
+        />
+      </section>
+    );
+  }
+
   return (
     <section>
       {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
@@ -370,6 +429,7 @@ export function TeacherHours({
         */}
       <div className="mb-4 flex flex-wrap items-end gap-4">
         {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
+        {viewSwitch}
         <div className="min-w-0">
           <p className="mb-1 flex items-center text-xs font-semibold uppercase tracking-wide text-[#667085]">
             Counting

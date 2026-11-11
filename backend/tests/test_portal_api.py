@@ -504,6 +504,27 @@ def test_an_active_teacher_can_be_removed(client: TestClient):
     assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_404_NOT_FOUND
 
 
+
+def test_an_active_teacher_carries_the_department_s_status_for_the_budget(client: TestClient):
+    seed_teachers(client)
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A002"]})
+    [active] = client.get(f"{BASE}/active-teachers").json()["teachers"]
+    # Nobody has said, so the page goes by the portal's type.
+    assert active["staffStatus"] == ""
+
+    changed = client.patch(f"{BASE}/active-teachers/{active['id']}", json={"staffStatus": "phd"})
+
+    assert changed.status_code == status.HTTP_200_OK, changed.text
+    assert changed.json()["staffStatus"] == "PHD"
+    assert client.get(f"{BASE}/active-teachers").json()["teachers"][0]["staffStatus"] == "PHD"
+    # Back to the portal's word.
+    assert client.patch(f"{BASE}/active-teachers/{active['id']}", json={"staffStatus": ""}).json()["staffStatus"] == ""
+    refused = client.patch(f"{BASE}/active-teachers/{active['id']}", json={"staffStatus": "Adjunct"})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    missing = client.patch(f"{BASE}/active-teachers/nobody", json={"staffStatus": "FT"})
+    assert missing.status_code == status.HTTP_404_NOT_FOUND
+
+
 # ------------------------------------------------------------ active courses
 
 
@@ -786,6 +807,15 @@ def test_an_active_course_can_be_added_by_hand_and_given_its_ue(client: TestClie
     assert changed["ue"] == "UL1LA001"
     # Nobody has said whether it is mutualized, and that is a state of its own.
     assert changed["mutualized"] == ""
+
+    # A coefficient as the department writes it, kept when a page edits the UE alone.
+    assert held["coefficient"] == ""
+    assert client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA001", "coefficient": "1,5"}).json()[
+        "coefficient"
+    ] == "1.5"
+    assert client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA002"}).json()["coefficient"] == "1.5"
+    refused = client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA002", "coefficient": "high"})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
     assert client.delete(f"{BASE}/active-courses/{held['id']}").status_code == status.HTTP_204_NO_CONTENT
     assert client.get(f"{BASE}/active-courses").json() == {"courses": []}

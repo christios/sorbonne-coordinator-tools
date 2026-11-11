@@ -249,15 +249,20 @@ export function CourseRecord({
   );
 }
 
-/** The UE and whether both degrees sit in it together, written where they belong. */
+/**
+ * The UE, whether both degrees sit in it together, and the coefficient, written where they
+ * belong. The coefficient is the one the teaching-load sheet lists beside the course, and
+ * Teacher hours shows it there.
+ */
 function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () => void }) {
   const [ue, setUe] = useState(course.ue);
   const [mutualized, setMutualized] = useState<Mutualized>(course.mutualized);
+  const [coefficient, setCoefficient] = useState(course.coefficient ?? "");
   const save = useMutation({
-    mutationFn: () => updateActiveCourse(course.id, { ue: ue.trim(), mutualized }),
+    mutationFn: () => updateActiveCourse(course.id, { ue: ue.trim(), mutualized, coefficient: coefficient.trim() }),
     onSuccess: onSaved,
   });
-  const changed = ue.trim() !== course.ue || mutualized !== course.mutualized;
+  const changed = ue.trim() !== course.ue || mutualized !== course.mutualized || coefficient.trim() !== (course.coefficient ?? "");
 
   return (
     <div className="space-y-3">
@@ -272,6 +277,23 @@ function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () =>
           onChange={(event) => setUe(event.target.value)}
           placeholder="UL1MA001"
           className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal tabular-nums"
+        />
+      </label>
+      <label className="block text-sm font-semibold text-[#344054]">
+        <span className="flex items-center gap-1">
+          Coefficient
+          <InfoTip label="Where the coefficient is used">
+            The course&apos;s coefficient, as the department&apos;s teaching-load sheet lists it. Teacher hours shows it beside
+            the course in its By cohort view.
+          </InfoTip>
+        </span>
+        <input
+          aria-label={`Coefficient of ${course.courseCode}`}
+          value={coefficient}
+          inputMode="decimal"
+          onChange={(event) => setCoefficient(event.target.value)}
+          placeholder="15"
+          className="mt-1.5 block w-28 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal tabular-nums"
         />
       </label>
       <div>

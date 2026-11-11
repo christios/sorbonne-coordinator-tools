@@ -179,8 +179,18 @@ describe("the course's own facts", () => {
 
     await waitFor(() =>
       // The name is not sent: it is the portal's, and follows it on every sync.
-      expect(save).toHaveBeenCalledWith("a1", { ue: "LU3MA300", mutualized: "" }),
+      expect(save).toHaveBeenCalledWith("a1", { ue: "LU3MA300", mutualized: "", coefficient: "" }),
     );
+  });
+
+  it("is where the coefficient the teaching-load sheet lists is written", async () => {
+    const save = vi.spyOn(lists, "updateActiveCourse").mockResolvedValue(undefined as never);
+    show();
+
+    fireEvent.change(await screen.findByLabelText("Coefficient of MATH-351"), { target: { value: "15" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("a1", { ue: "LU3MA276", mutualized: "", coefficient: "15" }));
   });
 
   it("will not save until something has changed", async () => {
