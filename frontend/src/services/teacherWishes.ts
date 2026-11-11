@@ -1,15 +1,16 @@
 /**
- * Timetable wishes: when each teacher can and can't teach, asked once a semester.
+ * Timetable preferences: when each teacher can and can't teach, asked once a semester.
  *
- * An answer is a week painted "can't" and "prefer" a quarter of an hour at a time, a few limits on the
- * week, dates away, room needs and a note. Its *wishes* are the lines a teacher ranks: each
- * block of can't-teach hours (the same hours on several days are one line), their preferred
- * hours as one line, and each limit. A wish is a Must or a Would like; no more than the
- * semester's quota may be a Must. The server keeps the same rule (`wish_lines`). Any wish
- * may carry a comment — why it matters — which the plan shows beside it when it is broken.
+ * An answer is a set of *blocks* painted on the week, one week at a time: hours on one or more
+ * days that are a **constraint** (they can't teach then: the plan must keep to it) or a
+ * **preference** (they would like to teach then: the plan tries to). Each block repeats every
+ * week, every week from a given week on, or that one week only — a day away is a constraint for
+ * one week. Where blocks overlap in a week the one-week block is on top, then the latest-starting
+ * one, then the latest made. Then a few limits on the week, each a constraint or a preference,
+ * room needs and a note. The server keeps the same rules (`answer_lines`).
  *
- * The Semester plan reads the answers to shade a teacher's week and to flag every placed
- * class that breaks a wish — and a teacher's dates away, which are facts rather than wishes.
+ * The Semester plan reads the answers to shade a teacher's week and flag every placed class
+ * that goes against them: a constraint broken is held to as a Must, a preference as a Would like.
  */
 
 import { apiFetch } from "@/services/http";
@@ -19,14 +20,27 @@ import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const BASE = `${API_BASE_URL}/api/v1/wishes`;
 
-export type WishKind = "cant" | "prefer";
+/** What a block is: hours a teacher can't teach, or would like to. */
+export type WishKind = "constraint" | "preference";
+/** How hard the plan holds to a line: a constraint as a Must, a preference as a Would like. */
 export type WishLevel = "must" | "would";
+/** How a block repeats: every week, every week from its week on, or its week only. */
+export type WishRepeat = "all" | "from" | "once";
 /**
- * A quarter of an hour of the week painted: 1 is Monday, and `hour` is where the quarter
- * starts — 8 is 08:00–08:15, 14.25 is 14:15–14:30. The grid may be painted an hour or half
- * an hour at a time; each paints its quarters.
+ * Hours on one or more days of the week — 1 is Monday — from `from` to `to` (14.25 is 14:15),
+ * a constraint or a preference. `week` is the Monday of the week it starts (`from`) or is in
+ * (`once`); "" for every week.
  */
-export type WishCell = { day: number; hour: number; kind: WishKind };
+export type WishBlock = {
+  id: string;
+  kind: WishKind;
+  days: number[];
+  from: number;
+  to: number;
+  repeat: WishRepeat;
+  week: string;
+  comment: string;
+};
 
 /** A painted cell's length, in hours: a quarter. */
 export const STEP = 0.25;
@@ -58,78 +72,68 @@ export function teachingWeeks(calendar: WishCalendar | null | undefined): { numb
   }));
 }
 
-/** A quarter of a day away, as the form keeps it: "2026-09-15|14.25". */
-export const awaySpot = (date: string, hour: number) => `${date}|${hour}`;
+/** The Monday of the week a date is in. */
+export const mondayOfIso = (date: string) => isoPlus(date, 1 - isoWeekday(date));
 
-/**
- * Time away as the grid shows it: each quarter hour away, on its date, within the grid's days
- * and hours; and the reason given for each date. A whole day fills every hour of the grid.
- */
-export function awaySpots(
-  away: WishAway[],
-  collection: Pick<WishCollection, "days" | "firstHour" | "lastHour">,
-): { spots: Set<string>; reasons: Record<string, string> } {
-  const spots = new Set<string>();
-  const reasons: Record<string, string> = {};
-  for (const entry of away) {
-    for (let date = entry.from, guard = 0; date <= entry.to && guard < 400; date = isoPlus(date, 1), guard += 1) {
-      if (!collection.days.includes(isoWeekday(date))) continue;
-      const from = Math.max(entry.start ?? collection.firstHour, collection.firstHour);
-      const to = Math.min(entry.end ?? collection.lastHour, collection.lastHour);
-      for (let hour = from; hour < to; hour += STEP) spots.add(awaySpot(date, hour));
-      if (entry.reason && !reasons[date]) reasons[date] = entry.reason;
-    }
-  }
-  return { spots, reasons };
+/** Whether a block applies in the week starting on a Monday. */
+export function activeIn(block: WishBlock, monday: string): boolean {
+  if (block.repeat === "all") return true;
+  if (block.repeat === "from") return monday >= block.week;
+  return monday === block.week;
 }
 
 /**
- * The quarters away said as times away: a day with every hour of the grid is a whole day, and
- * whole days one after another (with only days off the grid between them) are one stretch, if
- * for the same reason; part of a day is each stretch of it, from one time to another.
+ * What each quarter hour of a week holds: the block on top there. A one-week block is on top,
+ * then the one starting latest, then the one made latest. Keyed "2:14.25".
  */
-export function awayEntries(
-  spots: Set<string>,
-  reasons: Record<string, string>,
-  collection: Pick<WishCollection, "days" | "firstHour" | "lastHour">,
-): WishAway[] {
-  const byDate = new Map<string, number[]>();
-  for (const spot of spots) {
-    const [date, hour] = spot.split("|");
-    byDate.set(date, [...(byDate.get(date) ?? []), Number(hour)]);
-  }
-  const quarters = Math.round((collection.lastHour - collection.firstHour) / STEP);
-  /** The next day the grid has, after a date. */
-  const nextGridDay = (date: string) => {
-    let next = isoPlus(date, 1);
-    for (let guard = 0; guard < 7 && !collection.days.includes(isoWeekday(next)); guard += 1) next = isoPlus(next, 1);
-    return next;
-  };
-  const entries: WishAway[] = [];
-  for (const date of [...byDate.keys()].sort()) {
-    const hours = byDate.get(date)!.sort((left, right) => left - right);
-    const reason = reasons[date] ?? "";
-    if (hours.length >= quarters) {
-      const last = entries[entries.length - 1];
-      if (last && last.start === undefined && last.reason === reason && nextGridDay(last.to) === date) last.to = date;
-      else entries.push({ from: date, to: date, reason });
-      continue;
-    }
-    let start = hours[0];
-    for (let index = 1; index <= hours.length; index += 1) {
-      if (index < hours.length && hours[index] === hours[index - 1] + STEP) continue;
-      entries.push({ from: date, to: date, reason, start, end: hours[index - 1] + STEP });
-      start = hours[index];
+export function weekOf(blocks: WishBlock[], monday: string): Map<string, WishBlock> {
+  const rank = (block: WishBlock) => (block.repeat === "once" ? 2 : block.repeat === "from" ? 1 : 0);
+  const ordered = blocks
+    .map((block, index) => ({ block, index }))
+    .filter(({ block }) => activeIn(block, monday))
+    .sort(
+      (left, right) =>
+        rank(left.block) - rank(right.block) || left.block.week.localeCompare(right.block.week) || left.index - right.index,
+    );
+  const held = new Map<string, WishBlock>();
+  for (const { block } of ordered) {
+    for (const day of block.days) {
+      for (let hour = block.from; hour < block.to; hour += STEP) held.set(`${day}:${hour}`, block);
     }
   }
-  return entries;
+  return held;
 }
 
-/** "Tue 15 Sep", "Tue 15 Sep, 14:00–16:30", "14 Sep–18 Sep": a time away in words, without its reason. */
-export function awayWords(entry: WishAway): string {
-  const day = (iso: string) => `${DAY_SHORT[isoWeekday(iso)]} ${formatDayAndMonth(iso)}`;
-  if (entry.from !== entry.to) return `${day(entry.from)}–${day(entry.to)}`;
-  return entry.start !== undefined && entry.end !== undefined ? `${day(entry.from)}, ${clockOf(entry.start)}–${clockOf(entry.end)}` : day(entry.from);
+/** Hours a week of constraints that repeat, against the semester's cap; a week's own blocks are not counted. */
+export function recurringConstraintHours(blocks: WishBlock[]): number {
+  const quarters = new Set<string>();
+  for (const block of blocks) {
+    if (block.kind !== "constraint" || block.repeat === "once") continue;
+    for (const day of block.days) for (let hour = block.from; hour < block.to; hour += STEP) quarters.add(`${day}:${hour}`);
+  }
+  return quarters.size * STEP;
+}
+
+/** "every week", "every week from 18 Jan", "this week only". */
+export function repeatWords(block: Pick<WishBlock, "repeat" | "week">): string {
+  if (block.repeat === "all") return "every week";
+  if (block.repeat === "from") return `every week from ${formatDayAndMonth(block.week)}`;
+  return "this week only";
+}
+
+/**
+ * A block in words: "Constraint · Tue, Thu 14:00–16:00 · every week", "Constraint · Fri 22 Jan,
+ * all day". A block of one week names its dates; given the grid, a whole day is "all day".
+ */
+export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week">, grid?: { firstHour: number; lastHour: number }): string {
+  const kind = block.kind === "constraint" ? "Constraint" : "Preference";
+  const whole = grid ? block.from <= grid.firstHour && block.to >= grid.lastHour : false;
+  const hours = whole ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
+  if (block.repeat === "once") {
+    const dates = block.days.map((day) => `${DAY_SHORT[day]} ${formatDayAndMonth(isoPlus(block.week, day - 1))}`).join(", ");
+    return `${kind} · ${dates}, ${hours}`;
+  }
+  return `${kind} · ${block.days.map((day) => DAY_SHORT[day]).join(", ")} ${hours} · ${repeatWords(block)}`;
 }
 
 export type WishLimits = { maxDays?: number | null; maxHoursDay?: number | null; maxInRow?: number | null; freeDay?: number | null };
@@ -137,7 +141,6 @@ export type WishLimits = { maxDays?: number | null; maxHoursDay?: number | null;
  * Time away: whole days from one date to another, or part of one day — `start` 14 and `end`
  * 16.5 is 14:00–16:30. Marked on the week it falls in, week by week.
  */
-export type WishAway = { from: string; to: string; reason: string; start?: number; end?: number };
 
 /** A semester's teaching weeks, as the plan keeps them: Week 1's date, how many, breaks and holidays. */
 export type WishCalendar = { weekOne: string; weeks: number; without: string[]; holidays: { date: string; label: string }[] };
@@ -155,21 +158,22 @@ export type WishCollection = {
   openedBy: string;
 };
 
+/** A line of an answer, as the plan reads it: a block, or a limit, with how hard it is held to. */
 export type WishLine =
-  | { key: string; kind: "cant"; days: number[]; from: number; to: number; level?: WishLevel; comment?: string }
+  | ({ key: string; kind: WishKind; level?: WishLevel; comment?: string } & Pick<WishBlock, "days" | "from" | "to" | "repeat" | "week">)
   | { key: "prefer"; kind: "prefer"; level?: WishLevel; comment?: string }
   | { key: keyof WishLimits; kind: keyof WishLimits; value: number; level?: WishLevel; comment?: string };
 
 export type Wishes = {
   status: "draft" | "submitted";
-  cells: WishCell[];
+  blocks: WishBlock[];
   limits: WishLimits;
-  away: WishAway[];
+  /** Each limit set, a constraint or a preference. */
+  limitKinds: Partial<Record<keyof WishLimits, WishKind>>;
+  /** Why a limit matters, by its name: "Lab days". A block keeps its own. */
+  comments: Record<string, string>;
   needs: string;
   note: string;
-  levels: Record<string, WishLevel>;
-  /** Why a wish matters, by its key: "School run", "Lab days". */
-  comments: Record<string, string>;
   lines: (WishLine & { level: WishLevel; comment: string })[];
   overCapReason: string;
   source: string;
@@ -195,7 +199,7 @@ export type WishTeacher = {
 export type AnswerWindow = { open: boolean; deadline: string; reopenedUntil: string };
 export type WishSemester = { collection: WishCollection | null; calendar?: WishCalendar | null; teachers: WishTeacher[] };
 
-export type WishesInput = Pick<Wishes, "cells" | "limits" | "away" | "needs" | "note" | "levels" | "comments" | "overCapReason"> & {
+export type WishesInput = Pick<Wishes, "blocks" | "limits" | "limitKinds" | "comments" | "needs" | "note" | "overCapReason"> & {
   submit: boolean;
 };
 
@@ -282,52 +286,35 @@ const LIMIT_KEYS = ["maxDays", "maxHoursDay", "maxInRow", "freeDay"] as const;
 export const DAY_NAMES = ["", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 export const DAY_SHORT = ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-/** The wishes an answer makes, as the server makes them: can't blocks, then prefer, then limits. */
-export function wishLines(cells: WishCell[], limits: WishLimits): WishLine[] {
-  const byDay = new Map<number, number[]>();
-  for (const cell of cells) {
-    if (cell.kind !== "cant") continue;
-    byDay.set(cell.day, [...(byDay.get(cell.day) ?? []), cell.hour]);
-  }
-  const blocks = new Map<string, { from: number; to: number; days: number[] }>();
-  for (const day of [...byDay.keys()].sort((a, b) => a - b)) {
-    const hours = [...new Set(byDay.get(day))].sort((a, b) => a - b);
-    let start = hours[0];
-    for (let index = 0; index < hours.length; index += 1) {
-      const hour = hours[index];
-      const next = hours[index + 1];
-      if (next !== hour + STEP) {
-        const key = `${start}-${hour + STEP}`;
-        const block = blocks.get(key) ?? { from: start, to: hour + STEP, days: [] };
-        block.days.push(day);
-        blocks.set(key, block);
-        start = next;
-      }
-    }
-  }
-  const lines: WishLine[] = [...blocks.values()]
-    .sort((left, right) => left.days[0] - right.days[0] || left.from - right.from || left.to - right.to)
-    .map((block) => ({ key: `cant:${block.from}-${block.to}:${block.days.join(",")}`, kind: "cant", ...block }));
-  if (cells.some((cell) => cell.kind === "prefer")) lines.push({ key: "prefer", kind: "prefer" });
+/** What an answer asks of the plan, one line each, as the server says it: blocks, constraints first, then limits. */
+export function answerLines(blocks: WishBlock[], limits: WishLimits, limitKinds: Wishes["limitKinds"]): WishLine[] {
+  const lines: WishLine[] = [...blocks]
+    .sort((left, right) => Number(left.kind !== "constraint") - Number(right.kind !== "constraint"))
+    .map((block) => ({
+      key: block.id,
+      kind: block.kind,
+      days: block.days,
+      from: block.from,
+      to: block.to,
+      repeat: block.repeat,
+      week: block.week,
+      level: block.kind === "constraint" ? ("must" as const) : ("would" as const),
+    }));
   for (const name of LIMIT_KEYS) {
     const value = limits[name];
-    if (value) lines.push({ key: name, kind: name, value });
+    if (value) lines.push({ key: name, kind: name, value, level: limitKinds[name] === "constraint" ? "must" : "would" });
   }
   return lines;
 }
 
-/** "Tue, Thu 14:00–18:00", the days and hours of a can't-teach block. */
-function daysAndHours(days: number[], from: number, to: number): string {
-  return `${days.map((day) => DAY_SHORT[day]).join(", ")} ${clockOf(from)}–${clockOf(to)}`;
-}
-
-/** A wish in the words of the panel and the flags: "Can't teach Tue 14:00–18:00". */
+/** A line in the words of the panel and the flags: "Constraint · Tue 14:00–18:00 · every week". */
 export function describeLine(line: WishLine): string {
   switch (line.kind) {
-    case "cant":
-      return `Can't teach ${daysAndHours(line.days, line.from, line.to)}`;
+    case "constraint":
+    case "preference":
+      return describeBlock(line);
     case "prefer":
-      return "Their preferred hours";
+      return "Outside their preferences";
     case "maxDays":
       return `At most ${line.value} day${line.value === 1 ? "" : "s"} on campus`;
     case "maxHoursDay":
@@ -381,70 +368,25 @@ export function periodShades(period: Period, date: string, weekday: number): { f
 }
 
 /**
- * The wish a painted hour is part of: its can't-teach block, or the preferred hours. Null for
- * an hour left white.
+ * A teacher's week as stretches to shade on the plan's grid, a day at a time, for the week
+ * starting on a Monday: `{2: [{from: "14:00", to: "18:00", kind: "constraint", block}]}`.
  */
-export function lineOfCell(lines: WishLine[], day: number, hour: number, kind: WishKind | undefined): WishLine | null {
-  if (kind === "prefer") return lines.find((line) => line.kind === "prefer") ?? null;
-  if (kind !== "cant") return null;
-  return lines.find((line) => line.kind === "cant" && line.days.includes(day) && line.from <= hour && hour < line.to) ?? null;
-}
-
-/**
- * Carry a ranking and its comment over to the wishes a repaint makes. Stretching Tuesday
- * 14:00–18:00 to 19:00, or adding Thursday to it, makes a wish with a new key; it is still
- * the same wish to the teacher, so it keeps its Must and its comment. Two wishes painted
- * into one keep the stronger rank; one cut in two gives its Must to the first half only, so
- * a repaint never takes an answer past its quota.
- */
-export function carryOver(
-  before: WishLine[],
-  after: WishLine[],
-  levels: Record<string, WishLevel>,
-  comments: Record<string, string>,
-): { levels: Record<string, WishLevel>; comments: Record<string, string> } {
-  const nextLevels: Record<string, WishLevel> = {};
-  const nextComments: Record<string, string> = {};
-  const given = new Set<string>();
-  const sameWish = (old: WishLine, now: WishLine) =>
-    old.kind === now.kind &&
-    (old.kind !== "cant" ||
-      (now.kind === "cant" && old.days.some((day) => now.days.includes(day)) && old.from < now.to && now.from < old.to));
-  for (const now of after) {
-    if (levels[now.key]) nextLevels[now.key] = levels[now.key];
-    if (comments[now.key]) nextComments[now.key] = comments[now.key];
-    // Only a can't-teach block changes its key as it is repainted; the others keep theirs.
-    if (now.kind !== "cant" || before.some((old) => old.key === now.key)) continue;
-    for (const old of before.filter((each) => sameWish(each, now))) {
-      if (!levels[now.key]) {
-        if (levels[old.key] === "must" && !given.has(old.key)) {
-          nextLevels[now.key] = "must";
-          given.add(old.key);
-        } else if (levels[old.key] && nextLevels[now.key] !== "must") {
-          nextLevels[now.key] = "would";
-        }
-      }
-      if (!comments[now.key] && comments[old.key] && !nextComments[now.key]) nextComments[now.key] = comments[old.key];
-    }
-  }
-  return { levels: nextLevels, comments: nextComments };
-}
-
-/** Hours painted can't-teach, against the semester's cap: four quarters an hour. */
-export const cantHours = (cells: WishCell[]) => cells.filter((cell) => cell.kind === "cant").length * STEP;
-
-/**
- * A teacher's week as stretches to shade on the plan's grid, a day at a time:
- * `{2: [{from: "14:00", to: "18:00", kind: "cant"}]}`.
- */
-export function shadingOf(wishes: Pick<Wishes, "cells">): Record<number, { from: string; to: string; kind: WishKind }[]> {
-  const shaded: Record<number, { from: string; to: string; kind: WishKind }[]> = {};
-  const sorted = [...wishes.cells].sort((a, b) => a.day - b.day || a.hour - b.hour);
-  for (const cell of sorted) {
-    const day = (shaded[cell.day] ??= []);
-    const last = day[day.length - 1];
-    if (last && last.kind === cell.kind && last.to === clockOf(cell.hour)) last.to = clockOf(cell.hour + STEP);
-    else day.push({ from: clockOf(cell.hour), to: clockOf(cell.hour + STEP), kind: cell.kind });
+export function shadingFor(
+  wishes: Pick<Wishes, "blocks">,
+  monday: string,
+): Record<number, { from: string; to: string; kind: WishKind; block: WishBlock }[]> {
+  const shaded: Record<number, { from: string; to: string; kind: WishKind; block: WishBlock }[]> = {};
+  const held = [...weekOf(wishes.blocks, monday).entries()]
+    .map(([key, block]) => {
+      const [day, hour] = key.split(":").map(Number);
+      return { day, hour, block };
+    })
+    .sort((a, b) => a.day - b.day || a.hour - b.hour);
+  for (const { day, hour, block } of held) {
+    const list = (shaded[day] ??= []);
+    const last = list[list.length - 1];
+    if (last && last.block === block && last.to === clockOf(hour)) last.to = clockOf(hour + STEP);
+    else list.push({ from: clockOf(hour), to: clockOf(hour + STEP), kind: block.kind, block });
   }
   return shaded;
 }
@@ -498,8 +440,6 @@ export type WishCheck = {
 };
 
 const minutes = (entry: { startsAt: string; endsAt: string }) => minutesOf(entry.endsAt) - minutesOf(entry.startsAt);
-const overlaps = (entry: { startsAt: string; endsAt: string }, from: number, to: number) =>
-  minutesOf(entry.startsAt) < to * 60 && minutesOf(entry.endsAt) > from * 60;
 const overlapsClock = (entry: { startsAt: string; endsAt: string }, from: string, to: string) =>
   minutesOf(entry.startsAt) < minutesOf(to) && minutesOf(entry.endsAt) > minutesOf(from);
 /** Two classes this close are one stretch of teaching, with no real break between them. */
@@ -545,10 +485,10 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       continue;
     }
     const wishes = row.wishes;
-    const lines = wishLines(wishes.cells, wishes.limits);
-    const levelOf = (key: string): WishLevel => wishes.levels[key] ?? "would";
-    const commentOf = (key: string) => wishes.comments?.[key] ?? "";
-    const prefer = new Set(wishes.cells.filter((cell) => cell.kind === "prefer").map((cell) => `${cell.day}:${cell.hour}`));
+    const blocks = wishes.blocks ?? [];
+    const lines = answerLines(blocks, wishes.limits, wishes.limitKinds ?? {});
+    const levelOf = (key: string): WishLevel => lines.find((line) => line.key === key)?.level ?? "would";
+    const commentOf = (key: string) => blocks.find((block) => block.id === key)?.comment || wishes.comments?.[key] || "";
     const add = (key: string, level: WishLevel, wish: string, how: string, week: number, classes: PlanClass[]) => {
       const same = breaches.find((each) => each.teacherId === teacherId && each.key === key && each.week === week);
       if (same) {
@@ -556,19 +496,17 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
         if (!same.how.includes(how)) same.how = `${same.how}; ${how}`;
         return;
       }
-      breaches.push({
-        about: "teacher",
-        teacherId,
-        teacherName: row.name,
-        key,
-        level,
-        wish,
-        // Dates away say theirs in the wish itself: "Away 15–19 Mar (Conference)".
-        comment: key.startsWith("away:") ? "" : commentOf(key),
-        how,
-        week,
-        classes: [...classes],
-      });
+      breaches.push({ about: "teacher", teacherId, teacherName: row.name, key, level, wish, comment: commentOf(key), how, week, classes: [...classes] });
+    };
+    // Each week's blocks on top, worked out once a week.
+    const weeks = new Map<string, Map<string, WishBlock>>();
+    const heldIn = (monday: string) => {
+      let held = weeks.get(monday);
+      if (!held) {
+        held = weekOf(blocks, monday);
+        weeks.set(monday, held);
+      }
+      return held;
     };
 
     const byWeek = new Map<number, PlanClass[]>();
@@ -577,26 +515,20 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
     for (const [week, inWeek] of byWeek) {
       for (const entry of inWeek) {
         const section = sections.get(entry.sectionId);
-        for (const line of lines) {
-          if (line.kind === "cant" && line.days.includes(entry.weekday) && overlaps(entry, line.from, line.to)) {
-            add(line.key, levelOf(line.key), describeLine(line), label(section, entry), week, [entry]);
-          }
+        const held = heldIn(mondayOfIso(entry.meetsOn));
+        // Every quarter the class takes: a constraint there is broken; outside every preference, so are they.
+        const hit = new Set<WishBlock>();
+        let inside = true;
+        const start = Math.floor(minutesOf(entry.startsAt) / 15);
+        const end = Math.ceil(minutesOf(entry.endsAt) / 15);
+        for (let quarter = start; quarter < end; quarter += 1) {
+          const block = held.get(`${entry.weekday}:${quarter * STEP}`);
+          if (block?.kind === "constraint") hit.add(block);
+          if (block?.kind !== "preference") inside = false;
         }
-        if (prefer.size) {
-          // Every quarter the class takes is a preferred one, or it is outside them.
-          const start = Math.floor(minutesOf(entry.startsAt) / 15);
-          const end = Math.ceil(minutesOf(entry.endsAt) / 15);
-          let inside = true;
-          for (let quarter = start; quarter < end; quarter += 1) if (!prefer.has(`${entry.weekday}:${quarter * STEP}`)) inside = false;
-          if (!inside) add("prefer", levelOf("prefer"), describeLine({ key: "prefer", kind: "prefer" }), label(section, entry), week, [entry]);
-        }
-        for (const away of wishes.away) {
-          const during = away.start === undefined || away.end === undefined || overlaps(entry, away.start, away.end);
-          if (entry.meetsOn >= away.from && entry.meetsOn <= away.to && during) {
-            const wish = `Away ${awayWords(away)}${away.reason ? ` (${away.reason})` : ""}`;
-            add(`away:${away.from}:${away.start ?? ""}`, "must", wish, label(section, entry), week, [entry]);
-          }
-        }
+        for (const block of hit) add(block.id, "must", describeBlock(block), label(section, entry), week, [entry]);
+        const prefers = [...held.values()].some((block) => block.kind === "preference");
+        if (prefers && !inside) add("prefer", "would", describeLine({ key: "prefer", kind: "prefer" }), label(section, entry), week, [entry]);
       }
 
       const days = new Map<number, PlanClass[]>();
@@ -726,7 +658,7 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       const words =
         breach.about === "period"
           ? `Everybody · ${breach.perClass?.get(entry) ?? breach.wish}`
-          : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}${
+          : `${breach.level === "must" ? "Constraint" : "Preference"} · ${breach.teacherName}: ${breach.wish.replace(/^(Constraint|Preference) · /, "")}${
               breach.comment ? ` — “${breach.comment}”` : ""
             }`;
       // What binds first, first: a Must or a period before a wish.
@@ -738,12 +670,16 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
   const tallies: Tally[] = [...answered.values()]
     .filter((row) => classesOf.has(row.teacherId) && row.wishes)
     .map((row) => {
-      const ranked = wishLines(row.wishes!.cells, row.wishes!.limits);
+      const wishes = row.wishes!;
+      const blocks = wishes.blocks ?? [];
+      const lines = answerLines(blocks, wishes.limits, wishes.limitKinds ?? {}).filter((line) => line.kind !== "preference");
+      // Preferences are kept, or not, together: a class outside all of them is outside "their preferences".
+      if (blocks.some((block) => block.kind === "preference")) lines.push({ key: "prefer", kind: "prefer", level: "would" });
       const broken = new Set(
         breaches.filter((each) => each.about === "teacher" && each.teacherId === row.teacherId).map((each) => each.key),
       );
-      const musts = ranked.filter((line) => (row.wishes!.levels[line.key] ?? "would") === "must");
-      const woulds = ranked.filter((line) => (row.wishes!.levels[line.key] ?? "would") === "would");
+      const musts = lines.filter((line) => line.level === "must");
+      const woulds = lines.filter((line) => line.level !== "must");
       return {
         teacherId: row.teacherId,
         teacherName: row.name,

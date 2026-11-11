@@ -79,7 +79,7 @@ def invited(client: TestClient, email: str = GMAIL) -> str:
     return made.json()["code"]
 
 
-WEEK = [{"day": 2, "hour": 14 + quarter / 4, "kind": "cant"} for quarter in range(8)]
+WEEK = [{"id": "tue", "kind": "constraint", "days": [2], "from": 14, "to": 16}]
 
 
 def test_only_a_teacher_of_the_semester_can_be_invited_and_only_while_collecting(client: TestClient):
@@ -132,7 +132,7 @@ def test_only_the_address_invited_signs_in(client: TestClient):
     assert client.post(f"{DOOR}/{code}/session", json={"credential": "not-google"}).status_code == 401
     # Without signing in, nothing of the answer is shown or taken.
     assert client.get(f"{DOOR}/{code}/form").status_code == status.HTTP_401_UNAUTHORIZED
-    assert client.put(f"{DOOR}/{code}/answer", json={"cells": WEEK}).status_code == status.HTTP_401_UNAUTHORIZED
+    assert client.put(f"{DOOR}/{code}/answer", json={"blocks": WEEK}).status_code == status.HTTP_401_UNAUTHORIZED
 
     signed = client.post(f"{DOOR}/{code}/session", json={"credential": GMAIL})
     assert signed.status_code == 200, signed.text
@@ -146,7 +146,7 @@ def test_the_teacher_answers_for_themself_and_the_coordinator_sees_it(client: Te
     code = invited(client)
     client.post(f"{DOOR}/{code}/session", json={"credential": GMAIL})
     saved = client.put(
-        f"{DOOR}/{code}/answer", json={"cells": WEEK, "levels": {"cant:14-16:2": "must"}, "submit": True}
+        f"{DOOR}/{code}/answer", json={"blocks": WEEK, "submit": True}
     )
     assert saved.status_code == 200, saved.text
     assert saved.json()["wishes"]["status"] == "submitted"
@@ -169,20 +169,20 @@ def test_after_the_deadline_only_a_coordinator_changes_the_answer_unless_reopene
     collecting(client, deadline="2020-01-10")
     code = invited(client)
     client.post(f"{DOOR}/{code}/session", json={"credential": GMAIL})
-    late = client.put(f"{DOOR}/{code}/answer", json={"cells": WEEK})
+    late = client.put(f"{DOOR}/{code}/answer", json={"blocks": WEEK})
     assert late.status_code == status.HTTP_409_CONFLICT
     assert "deadline has passed" in late.json()["detail"]
     # The coordinator may still answer for them.
-    assert client.put(f"{AT}/{TERM}/invite-test-joumana", json={"cells": WEEK}).status_code == 200
+    assert client.put(f"{AT}/{TERM}/invite-test-joumana", json={"blocks": WEEK}).status_code == 200
 
     reopened = client.put(f"{AT}/{TERM}/invite-test-joumana/reopen", json={"until": "2099-02-01"})
     assert reopened.json() == {"open": True, "deadline": "2020-01-10", "reopenedUntil": "2099-02-01"}
-    assert client.put(f"{DOOR}/{code}/answer", json={"cells": WEEK, "submit": True}).status_code == 200
+    assert client.put(f"{DOOR}/{code}/answer", json={"blocks": WEEK, "submit": True}).status_code == 200
     client.delete(f"{AT}/{TERM}/invite-test-joumana/reopen")
-    assert client.put(f"{DOOR}/{code}/answer", json={"cells": WEEK}).status_code == status.HTTP_409_CONFLICT
+    assert client.put(f"{DOOR}/{code}/answer", json={"blocks": WEEK}).status_code == status.HTTP_409_CONFLICT
 
 
-def test_last_semesters_answer_is_offered_to_start_from_without_its_dates_away(
+def test_last_semesters_answer_is_offered_to_start_from_with_only_its_weekly_blocks(
     client: TestClient, stores: tuple[WishStore, InvitationStore]
 ):
     wishes, _ = stores
@@ -195,8 +195,11 @@ def test_last_semesters_answer_is_offered_to_start_from_without_its_dates_away(
         "262710",
         "invite-test-joumana",
         {
-            "cells": WEEK,
-            "away": [{"from": "2026-10-01", "to": "2026-10-03", "reason": "Conference"}],
+            "blocks": [
+                *WEEK,
+                {"id": "away", "kind": "constraint", "days": [4], "from": 8, "to": 19, "repeat": "once",
+                 "week": "2026-09-28"},
+            ],
             "note": "Mornings",
         },
     )
@@ -206,5 +209,5 @@ def test_last_semesters_answer_is_offered_to_start_from_without_its_dates_away(
     assert form["wishes"] is None
     assert form["previous"]["termCode"] == "262710"
     assert form["previous"]["wishes"]["note"] == "Mornings"
-    assert form["previous"]["wishes"]["away"] == []
-    assert len(form["previous"]["wishes"]["cells"]) == len(WEEK)
+    # The weekly block carries over; the day away was that semester's.
+    assert [block["id"] for block in form["previous"]["wishes"]["blocks"]] == ["tue"]

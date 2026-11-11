@@ -8,7 +8,7 @@ const COURSE: CalendarCourse = {
   crn: "22229", code: "MATH-002", title: "Elements of Calculus", label: "MATH-002", group: "GA", staff: "Bilal Maaz",
   tone: "solid", color: "#1f4e79", openable: true,
 };
-const BROKEN = "Must · Bilal Maaz: Can't teach Tue 14:00–18:00 — “School run”\nWould like · Bilal Maaz: At most 2 days on campus";
+const BROKEN = "Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”\nPreference · Bilal Maaz: At most 2 days on campus";
 const SESSION: PlacedSession = {
   crn: "22229", date: "2027-01-12", start: "15:00", end: "16:30", room: "5.111", clashes: false, wish: { level: "must", said: BROKEN },
 };
@@ -32,13 +32,13 @@ describe("a class on the plan's week", () => {
     const { container } = week();
     const box = container.querySelector("[data-box]") as HTMLElement;
     expect(box.getAttribute("title")).toContain("MATH-002");
-    expect(box.getAttribute("title")).not.toContain("Can't teach");
+    expect(box.getAttribute("title")).not.toContain("Constraint");
     const flag = container.querySelector("[data-flag]") as HTMLElement;
     expect(flag.getAttribute("title")).toBeNull();
     fireEvent.focus(flag);
     const bubble = await screen.findByRole("tooltip");
-    expect(bubble.textContent).toContain("Breaks 2 preferences");
-    expect(bubble.textContent).toContain("Can't teach Tue 14:00–18:00 — “School run”");
+    expect(bubble.textContent).toContain("Breaks a constraint and a preference");
+    expect(bubble.textContent).toContain("Tue 14:00–18:00 · every week — “School run”");
     expect(bubble.textContent).toContain("At most 2 days on campus");
   });
 

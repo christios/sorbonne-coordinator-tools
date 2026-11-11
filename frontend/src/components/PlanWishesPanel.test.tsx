@@ -8,9 +8,9 @@ const tuesday = (week: number): Breach => ({
   about: "teacher",
   teacherId: "t-valerie",
   teacherName: "Valerie Le Guyon",
-  key: "cant:14-18:2",
+  key: "run",
   level: "must",
-  wish: "Can't teach Tue 14:00–18:00",
+  wish: "Constraint · Tue 14:00–18:00 · every week",
   comment: "",
   how: "PHYS-118 CM 1, Tue 15:00",
   week,
@@ -39,7 +39,7 @@ describe("the wishes the plan breaks", () => {
   it("shows a teacher's week when their line is pressed", () => {
     const onFocus = vi.fn();
     render(<PlanWishesPanel check={CHECK} collection={null} week={2} view="teachers" onFocus={onFocus} />);
-    expect(screen.getByText("0 of 1 Musts · 1 of 1 preferences")).toBeTruthy();
+    expect(screen.getByText("0 of 1 constraints kept · 1 of 1 preferences kept")).toBeTruthy();
     fireEvent.click(screen.getByText("Jad Tarsissi"));
     expect(onFocus).toHaveBeenCalledWith("t-jad");
   });
@@ -76,10 +76,10 @@ describe("the wishes the plan breaks", () => {
     expect(list().getByText(/Valerie Le Guyon/)).toBeTruthy();
   });
 
-  it("keeps Must to hand beside the search", () => {
+  it("keeps Constraint to hand beside the search", () => {
     render(<PlanWishesPanel check={CHECK} collection={null} week={2} view="week" onFocus={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Must/, pressed: false }));
-    expect(screen.getByRole("button", { name: /^Must/, pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Constraint/, pressed: false }));
+    expect(screen.getByRole("button", { name: /^Constraint/, pressed: true })).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Broken preferences" })).getAllByRole("listitem")).toHaveLength(1);
   });
 });

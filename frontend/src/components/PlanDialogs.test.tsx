@@ -136,6 +136,9 @@ const BARE: Plan = {
   ],
 };
 
+/** Every Tuesday afternoon, a constraint: the school run. */
+const RUN = { id: "run", kind: "constraint" as const, days: [2], from: 14, to: 18, repeat: "all" as const, week: "", comment: "School run" };
+
 describe("a class beside its teacher's wishes", () => {
   const bilal = (wishes: WishTeacher["wishes"]): WishTeacher => ({ teacherId: "t-bilal", name: "Bilal Maaz", email: "", wishes });
   const open = (teacher: WishTeacher, weekday: number) =>
@@ -153,43 +156,42 @@ describe("a class beside its teacher's wishes", () => {
       />,
     );
 
-  it("folds them to a line, and opens to the list, Musts first, the ones this time breaks marked", () => {
+  it("folds them to a line, and opens to the list, constraints first, the ones this time breaks marked", () => {
     open(
       bilal({
-        status: "submitted", cells: [], limits: { freeDay: 1 }, away: [{ from: "2027-02-01", to: "2027-02-05", reason: "conference" }],
-        needs: "A lab", note: "", levels: {}, comments: {}, overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
+        status: "submitted", blocks: [RUN], limits: { freeDay: 1 }, limitKinds: {},
+        needs: "A lab", note: "", comments: {}, overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
         lines: [
           { key: "freeDay", kind: "freeDay", value: 1, level: "would", comment: "" },
-          { key: "cant:14-18:2", kind: "cant", days: [2], from: 14, to: 18, level: "must", comment: "School run" },
+          { ...RUN, key: "run", level: "must" },
         ],
       }),
       2,
     );
-    expect(screen.getByText("1 Must · 1 Would like")).toBeTruthy();
+    expect(screen.getByText("1 constraint · 1 preference")).toBeTruthy();
     expect(screen.getByText("· 1 broken at this time")).toBeTruthy();
     expect(screen.queryByRole("list", { name: "Bilal Maaz's preferences" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     const items = within(screen.getByRole("list", { name: "Bilal Maaz's preferences" }))
       .getAllByRole("listitem")
       .map((item) => item.textContent);
-    expect(items).toEqual(["MustCan't teach Tue 14:00–18:00 — this time breaks it“School run”", "Would likeMonday free"]);
-    expect(screen.getByText(/Away Mon 1 Feb–Fri 5 Feb \(conference\)/)).toBeTruthy();
+    expect(items).toEqual(["ConstraintTue 14:00–18:00 · every week — this time breaks it“School run”", "PreferenceMonday free"]);
     expect(screen.getByText("Needs: A lab")).toBeTruthy();
   });
 
   it("says first what goes wrong at the time chosen", () => {
     open(
       bilal({
-        status: "submitted", cells: Array.from({ length: 16 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })), limits: {}, away: [],
-        needs: "", note: "", levels: { "cant:14-18:2": "must" }, comments: { "cant:14-18:2": "School run" }, overCapReason: "",
+        status: "submitted", blocks: [RUN], limits: {}, limitKinds: {},
+        needs: "", note: "", comments: {}, overCapReason: "",
         source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
-        lines: [{ key: "cant:14-18:2", kind: "cant", days: [2], from: 14, to: 18, level: "must", comment: "School run" }],
+        lines: [{ ...RUN, key: "run", level: "must" }],
       }),
       2,
     );
     const strip = screen.getByRole("status");
     expect(strip.textContent).toContain("1 problem at this time");
-    expect(within(strip).getByText("Must · Bilal Maaz: Can't teach Tue 14:00–18:00 — “School run”")).toBeTruthy();
+    expect(within(strip).getByText("Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”")).toBeTruthy();
   });
 
   it("says when the teacher hasn't answered", () => {

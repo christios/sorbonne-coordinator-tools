@@ -12,8 +12,8 @@ const COLLECTION: WishCollection = {
   mustQuota: 3, cantCap: 12, openedAt: "", openedBy: "",
 };
 const ANSWER: Wishes = {
-  status: "submitted", cells: Array.from({ length: 8 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })),
-  limits: {}, away: [], needs: "", note: "Mornings, please", levels: { "cant:14-16:2": "must" }, comments: {}, lines: [],
+  status: "submitted", blocks: [{ id: "run", kind: "constraint", days: [2], from: 14, to: 16, repeat: "all", week: "", comment: "" }],
+  limits: {}, limitKinds: {}, needs: "", note: "Mornings, please", comments: {}, lines: [],
   overCapReason: "", source: "invitation", submittedAt: "2026-11-10T10:00:00Z", updatedAt: "2026-11-10T10:00:00Z", updatedBy: "",
 };
 const FORM: invite.InviteeForm = {
@@ -23,7 +23,7 @@ const FORM: invite.InviteeForm = {
   collection: COLLECTION,
   wishes: null,
   window: { open: true, deadline: "2099-01-10", reopenedUntil: "" },
-  previous: { termCode: "262710", semesterName: "Semester 1 2026-27", wishes: { ...ANSWER, away: [] } },
+  previous: { termCode: "262710", semesterName: "Semester 1 2026-27", wishes: ANSWER },
 };
 
 const page = () =>
@@ -75,7 +75,11 @@ describe("an invited teacher's link", () => {
     expect(await screen.findByText(/You answered for Semester 1 2026-27 before/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Your week" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start from it" }));
-    expect(screen.getByRole("button", { name: /^Tuesday 14:00: can't teach, a Must/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Tuesday \d+ \w+ 14:00: constraint, every week/ })).toBeTruthy();
+    // Submit is on the last page, after the limits and the needs.
+    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Needs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith("the-code", expect.objectContaining({ submit: true, note: "Mornings, please" })));
     expect(await screen.findByText(/Thank you: your preferences and constraints are submitted/)).toBeTruthy();

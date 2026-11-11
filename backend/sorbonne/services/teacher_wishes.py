@@ -1,20 +1,19 @@
-"""Timetable wishes: when each teacher can and can't teach, asked once a semester.
+"""Timetable preferences: when each teacher can and can't teach, asked once a semester.
 
-A coordinator opens a semester's collection: a deadline, a message, the week the grid shows,
-how many wishes may be a Must (three) and how much can't-teach time a teacher may claim before
-having to say why (twelve hours). Each teacher then answers — in the SCEN Requests app, or on
-a page here once invited — or a coordinator answers for them after a call or an email.
+A coordinator opens a semester's collection: a deadline, a message, the week the grid shows and
+how many hours of constraints a teacher may mark in a week before having to say why (twelve).
+Each teacher then answers — in the SCEN Requests app, or on a page here once invited — or a
+coordinator answers for them after a call or an email.
 
-An answer is a week painted "can't" and "prefer" a quarter of an hour at a time (a cell's
-`hour` is where its quarter starts: 14.25 is 14:15-14:30), a few limits on the week,
-dates away, room needs and a note. From the painting and the limits come its *wishes*, the
-lines a teacher ranks: each block of can't-teach hours (the same hours on several days is
-one line), their preferred times as one line, and each limit. Each is a Must or a Would like,
-and no more than the collection's quota may be a Must: ranking is choosing, and a list of
-nothing but Musts says nothing about which matter.
+An answer is a set of *blocks* painted on the week, one week at a time: hours on one or more
+days that are a **constraint** (they can't teach then: the plan must keep to it) or a
+**preference** (they would like to teach then: the plan tries to). Each block repeats every
+week, every week from a given week on, or that one week only — a day away is a constraint for
+one week. Where blocks overlap in a week, the one-week block is on top, then the latest-starting
+one. Then a few limits on the week, each a constraint or a preference, room needs and a note.
 
-The Semester plan reads the answers to shade a teacher's week and flag the classes that
-break a wish. Nothing here blocks a placement.
+The Semester plan reads the answers to shade a teacher's week and flag the classes that go
+against them. Nothing here blocks a placement.
 """
 
 from __future__ import annotations
@@ -30,12 +29,14 @@ from sqlalchemy.engine import Engine
 from sorbonne.services.coordinator_directory import name_for
 
 _TERM = re.compile(r"^\d{6}$")
-KINDS = ("cant", "prefer")
-LEVELS = ("must", "would")
+#: What a block is: hours a teacher can't teach (the plan must keep to them), or would like to.
+KINDS = ("constraint", "preference")
+#: How a block repeats: every week, every week from its week on, or its week only.
+REPEATS = ("all", "from", "once")
 LIMITS = ("maxDays", "maxHoursDay", "maxInRow", "freeDay")
 _LIMIT_RANGES = {"maxDays": (1, 6), "maxHoursDay": (1, 12), "maxInRow": (1, 12), "freeDay": (1, 7)}
-# Marked week by week, a semester of Tuesday afternoons is fifteen of them.
-MOST_AWAY = 80
+# A semester of weekly blocks and days away, generously.
+MOST_BLOCKS = 400
 SUNDAY, MIDNIGHT = 7, 24
 MOST_MUSTS, MOST_CANT_HOURS = 10, 60
 COMMENT_LENGTH = 300
@@ -93,43 +94,122 @@ def _term(term_code: str) -> str:
 # ---------------------------------------------------------------------- wishes from an answer
 
 
-def wish_lines(cells: list[dict[str, Any]], limits: dict[str, Any]) -> list[dict[str, Any]]:
-    """The wishes an answer makes, in the order a teacher reads them: can't, prefer, limits.
+def answer_lines(
+    blocks: list[dict[str, Any]], limits: dict[str, Any], kinds: dict[str, str], comments: dict[str, str]
+) -> list[dict[str, Any]]:
+    """What an answer asks of the plan, one line each: its blocks, then its limits.
 
-    Can't-teach hours are joined into blocks a day at a time (Tuesday 14:00–18:00), and a block
-    of the same hours on several days is one wish (Tuesday and Thursday 14:00–18:00): one thing
-    to rank, as it is one thing to the teacher. Preferred hours, however many, are one wish:
-    where they would rather teach. The same rule is kept on the page (`wishLines`).
+    A constraint is held to as a Must, a preference as a Would like: the plan's words for how
+    hard a line is. Constraints come first, as a teacher reads them.
     """
-    blocks: dict[tuple[float, float], list[int]] = {}
-    by_day: dict[int, list[float]] = {}
-    for cell in cells:
-        if cell["kind"] == "cant":
-            by_day.setdefault(cell["day"], []).append(float(cell["hour"]))
-    for day, hours in sorted(by_day.items()):
-        run: list[float] = []
-        for hour in [*sorted(set(hours)), None]:
-            if run and (hour is None or hour != run[-1] + STEP):
-                blocks.setdefault((run[0], run[-1] + STEP), []).append(day)
-                run = []
-            if hour is not None:
-                run.append(hour)
+    ordered = sorted(blocks, key=lambda block: block["kind"] != "constraint")
     lines = [
         {
-            "key": f"cant:{_clock(start)}-{_clock(end)}:{','.join(str(day) for day in days)}",
-            "kind": "cant",
-            "days": days,
-            "from": start,
-            "to": end,
+            "key": block["id"],
+            "kind": block["kind"],
+            "days": block["days"],
+            "from": block["from"],
+            "to": block["to"],
+            "repeat": block["repeat"],
+            "week": block["week"],
+            "level": "must" if block["kind"] == "constraint" else "would",
+            "comment": block.get("comment", ""),
         }
-        for (start, end), days in sorted(blocks.items(), key=lambda item: (item[1][0], item[0]))
+        for block in ordered
     ]
-    if any(cell["kind"] == "prefer" for cell in cells):
-        lines.append({"key": "prefer", "kind": "prefer"})
     for name in LIMITS:
         if limits.get(name):
-            lines.append({"key": name, "kind": name, "value": limits[name]})
+            kind = kinds.get(name, "preference")
+            lines.append(
+                {
+                    "key": name,
+                    "kind": name,
+                    "value": limits[name],
+                    "level": "must" if kind == "constraint" else "would",
+                    "comment": comments.get(name, ""),
+                }
+            )
     return lines
+
+
+def recurring_constraint_hours(blocks: list[dict[str, Any]]) -> float:
+    """The hours a week a teacher marks as constraints that repeat: what the cap counts. A week's
+    own blocks — a day away — are not counted."""
+    quarters = {
+        (day, block["from"] + index * STEP)
+        for block in blocks
+        if block["kind"] == "constraint" and block["repeat"] != "once"
+        for day in block["days"]
+        for index in range(round((block["to"] - block["from"]) / STEP))
+    }
+    return len(quarters) * STEP
+
+
+def _monday(value: date) -> date:
+    return value - timedelta(days=value.weekday())
+
+
+def _from_old(row: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """An answer kept the way it was before blocks (10 Nov 2026): painted quarter hours, dates
+    away and Must / Would like, read as blocks and kinds. Never written back this way."""
+    cells = json.loads(row["cells"] or "[]")
+    levels = json.loads(row["levels"] or "{}")
+    comments = json.loads(row["comments"] or "{}")
+    blocks: list[dict[str, Any]] = []
+    for old_kind, kind in (("cant", "constraint"), ("prefer", "preference")):
+        by_day: dict[int, list[float]] = {}
+        for cell in cells:
+            if cell.get("kind") == old_kind:
+                by_day.setdefault(int(cell["day"]), []).append(float(cell["hour"]))
+        runs: dict[tuple[float, float], list[int]] = {}
+        for day, hours in sorted(by_day.items()):
+            run: list[float] = []
+            for hour in [*sorted(set(hours)), None]:
+                if run and (hour is None or hour != run[-1] + STEP):
+                    runs.setdefault((run[0], run[-1] + STEP), []).append(day)
+                    run = []
+                if hour is not None:
+                    run.append(hour)
+        for (start, end), days in sorted(runs.items()):
+            key = f"cant:{_clock(start)}-{_clock(end)}:{','.join(str(day) for day in days)}"
+            said = comments.get(key if old_kind == "cant" else "prefer", "")
+            blocks.append(
+                {
+                    "id": f"old-{len(blocks)}",
+                    "kind": kind,
+                    "days": days,
+                    "from": start,
+                    "to": end,
+                    "repeat": "all",
+                    "week": "",
+                    "comment": said,
+                }
+            )
+    for entry in json.loads(row["away"] or "[]"):
+        try:
+            first, last = date.fromisoformat(entry["from"]), date.fromisoformat(entry["to"])
+        except (KeyError, ValueError):
+            continue
+        weeks: dict[date, list[int]] = {}
+        day = first
+        while day <= last:
+            weeks.setdefault(_monday(day), []).append(day.isoweekday())
+            day += timedelta(days=1)
+        for monday, days in sorted(weeks.items()):
+            blocks.append(
+                {
+                    "id": f"old-{len(blocks)}",
+                    "kind": "constraint",
+                    "days": days,
+                    "from": float(entry.get("start") if entry.get("start") is not None else 0),
+                    "to": float(entry.get("end") if entry.get("end") is not None else HOURS_A_DAY),
+                    "repeat": "once",
+                    "week": monday.isoformat(),
+                    "comment": entry.get("reason", ""),
+                }
+            )
+    kinds = {name: ("constraint" if levels.get(name) == "must" else "preference") for name in LIMITS if name in levels}
+    return blocks, kinds
 
 
 # ---------------------------------------------------------------------- reading what was sent
@@ -164,50 +244,51 @@ def _collection_input(given: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _away(entry: dict[str, Any]) -> dict[str, Any]:
-    """A time away: whole days from one date to another, or part of one day, from one quarter
-    hour to another (`start` 14, `end` 18 is 14:00-18:00)."""
+def _block(entry: dict[str, Any], index: int, collection: dict[str, Any]) -> dict[str, Any]:
+    """A block, checked against the semester's grid: what it is, its days and hours, how it repeats."""
+    kind = str(entry.get("kind") or "")
+    if kind not in KINDS:
+        raise InvalidWishes("A block is a constraint or a preference.")
     try:
-        first, last = date.fromisoformat(str(entry.get("from"))), date.fromisoformat(str(entry.get("to")))
-    except ValueError as exc:
-        raise InvalidWishes("Dates away are dates: 2027-03-15 to 2027-03-19.") from exc
-    if last < first:
-        raise InvalidWishes("A time away ends on or after the day it starts.")
-    kept: dict[str, Any] = {
-        "from": first.isoformat(),
-        "to": last.isoformat(),
-        "reason": _words(entry.get("reason"), 160),
-    }
-    start, end = entry.get("start"), entry.get("end")
-    if start is None and end is None:
-        return kept
-    try:
-        start, end = float(start), float(end)  # type: ignore[arg-type]
+        days = sorted({int(day) for day in entry.get("days") or []})
+        start, end = float(entry.get("from")), float(entry.get("to"))  # type: ignore[arg-type]
     except (TypeError, ValueError) as exc:
-        raise InvalidWishes("Part of a day away has a start and an end: 14 to 18.") from exc
-    if first != last:
-        raise InvalidWishes("Part of a day away is on one day.")
-    if not (0 <= start < end <= HOURS_A_DAY) or (start / STEP) % 1 or (end / STEP) % 1:
-        raise InvalidWishes("Part of a day away starts and ends on a quarter hour, the end after the start.")
-    return {**kept, "start": start, "end": end}
+        raise InvalidWishes("A block has days, and hours from one to another: 14 to 16.") from exc
+    if not days or any(day not in collection["days"] for day in days):
+        raise InvalidWishes("A block is on the semester's days.")
+    # A whole day away reaches past the grid's hours: it is kept to them.
+    start, end = max(start, collection["firstHour"]), min(end, collection["lastHour"])
+    if not start < end or (start / STEP) % 1 or (end / STEP) % 1:
+        raise InvalidWishes("A block starts and ends on a quarter hour, within the grid, its end after its start.")
+    repeat = str(entry.get("repeat") or "all")
+    if repeat not in REPEATS:
+        raise InvalidWishes("A block repeats every week, every week from a week on, or one week only.")
+    week = ""
+    if repeat != "all":
+        try:
+            week = date.fromisoformat(str(entry.get("week"))).isoformat()
+        except ValueError as exc:
+            raise InvalidWishes("A block for some weeks says its week, by its Monday: 2027-01-11.") from exc
+        if date.fromisoformat(week).weekday() != 0:
+            raise InvalidWishes("A block's week is said by its Monday.")
+    ident = _words(entry.get("id"), 40) or f"block-{index}"
+    return {
+        "id": ident,
+        "kind": kind,
+        "days": days,
+        "from": int(start) if start.is_integer() else start,
+        "to": int(end) if end.is_integer() else end,
+        "repeat": repeat,
+        "week": week,
+        "comment": _words(entry.get("comment"), COMMENT_LENGTH),
+    }
 
 
 def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str, Any]:
-    """An answer, checked against its semester's grid, quota and cap."""
-    days, first, last = set(collection["days"]), collection["firstHour"], collection["lastHour"]
-    cells: dict[tuple[int, float], str] = {}
-    for cell in given.get("cells") or []:
-        day, hour, kind = int(cell.get("day", 0)), float(cell.get("hour", -1)), str(cell.get("kind", ""))
-        if day not in days or not first <= hour < last or kind not in KINDS:
-            raise InvalidWishes("A painted hour is outside this semester's grid.")
-        if hour / STEP != int(hour / STEP):
-            raise InvalidWishes("A painted cell starts on the hour or a quarter past, half past or a quarter to.")
-        cells[(day, hour)] = kind
-    # On the hour as a whole number, as before quarters: 14, not 14.0.
-    painted = [
-        {"day": day, "hour": int(hour) if hour.is_integer() else hour, "kind": kind}
-        for (day, hour), kind in sorted(cells.items())
-    ]
+    """An answer, checked against its semester's grid and cap."""
+    blocks = [_block(entry, index, collection) for index, entry in enumerate((given.get("blocks") or [])[:MOST_BLOCKS])]
+    if len({block["id"] for block in blocks}) != len(blocks):
+        raise InvalidWishes("Each block is named once.")
 
     limits: dict[str, int] = {}
     for name, (low, high) in _LIMIT_RANGES.items():
@@ -218,39 +299,31 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
         if not low <= number <= high:
             raise InvalidWishes(f"That limit is between {low} and {high}.")
         limits[name] = number
-
-    away = [_away(entry) for entry in (given.get("away") or [])[:MOST_AWAY]]
-
-    lines = wish_lines(painted, limits)
-    keys = {line["key"] for line in lines}
-    levels = {key: level for key, level in (given.get("levels") or {}).items() if key in keys and level in LEVELS}
-    # A comment says why a wish matters: kept only for a wish the answer still makes.
+    # Each limit set is a constraint or a preference; a preference unless said.
+    given_kinds = given.get("limitKinds") or {}
+    kinds = {name: ("constraint" if given_kinds.get(name) == "constraint" else "preference") for name in limits}
     comments = {
-        key: said
-        for key, value in (given.get("comments") or {}).items()
-        if key in keys and (said := _words(value, COMMENT_LENGTH))
+        name: said
+        for name, value in (given.get("comments") or {}).items()
+        if name in limits and (said := _words(value, COMMENT_LENGTH))
     }
-    musts = sum(1 for level in levels.values() if level == "must")
-    if musts > collection["mustQuota"]:
-        quota = collection["mustQuota"]
-        raise InvalidWishes(f"At most {quota} preferences can be a Must. Choose which {quota} matter most.")
-    cant_hours = sum(STEP for kind in cells.values() if kind == "cant")
+
+    hours = recurring_constraint_hours(blocks)
     reason = _words(given.get("overCapReason"), 1000)
     status = "submitted" if given.get("submit") else "draft"
-    if status == "submitted" and cant_hours > collection["cantCap"] and not reason:
+    if status == "submitted" and hours > collection["cantCap"] and not reason:
         raise InvalidWishes(
-            f"That is {cant_hours:g} hours you can't teach, over the {collection['cantCap']} a week a teacher may "
-            "mark. Say why, for the coordinator, or mark fewer."
+            f"That is {hours:g} hours a week of constraints, over the {collection['cantCap']} a teacher may mark. "
+            "Say why, for the coordinator, or mark fewer."
         )
     return {
-        "cells": painted,
+        "blocks": blocks,
         "limits": limits,
-        "away": away,
+        "kinds": kinds,
         "needs": _words(given.get("needs"), 1000),
         "note": str(given.get("note") or "").strip()[:2000],
-        "levels": levels,
         "comments": comments,
-        "overCapReason": reason if cant_hours > collection["cantCap"] else "",
+        "overCapReason": reason if hours > collection["cantCap"] else "",
         "status": status,
     }
 
@@ -294,23 +367,22 @@ def _invitation(row: Any) -> dict[str, Any]:
 
 
 def _answer(row: Any) -> dict[str, Any]:
-    cells = json.loads(row["cells"] or "[]")
+    stored = json.loads(row["cells"] or "[]")
+    if (stored and "hour" in stored[0]) or json.loads(row["away"] or "[]"):
+        blocks, kinds = _from_old(row)
+    else:
+        blocks, kinds = stored, json.loads(row["levels"] or "{}")
     limits = json.loads(row["limits"] or "{}")
-    levels = json.loads(row["levels"] or "{}")
-    comments = json.loads(row["comments"] or "{}")
+    comments = {name: said for name, said in json.loads(row["comments"] or "{}").items() if name in LIMITS}
     return {
         "status": row["status"],
-        "cells": cells,
+        "blocks": blocks,
         "limits": limits,
-        "away": json.loads(row["away"] or "[]"),
+        "limitKinds": kinds,
+        "comments": comments,
         "needs": row["needs"],
         "note": row["note"],
-        "levels": levels,
-        "comments": comments,
-        "lines": [
-            {**line, "level": levels.get(line["key"], "would"), "comment": comments.get(line["key"], "")}
-            for line in wish_lines(cells, limits)
-        ],
+        "lines": answer_lines(blocks, limits, kinds, comments),
         "overCapReason": row["over_cap_reason"],
         "source": row["source"],
         "submittedAt": row["submitted_at"],
@@ -415,9 +487,9 @@ class WishStore:
             )
 
     def previous(self, term_code: str, teacher_id: str) -> dict[str, Any] | None:
-        """The teacher's latest answer for another semester, to start this one from: their
-        week, limits, ranks, comments, needs and note — not their dates away, which were that
-        semester's."""
+        """The teacher's latest answer for another semester, to start this one from: the blocks
+        that repeat every week, limits, needs and note — not the blocks for some weeks, which were
+        that semester's."""
         term = _term(term_code)
         with self.engine.connect() as connection:
             row = (
@@ -434,7 +506,13 @@ class WishStore:
         if row is None:
             return None
         answer = _answer(row)
-        return {"termCode": row["term_code"], "semesterName": row["semester_name"], "wishes": {**answer, "away": []}}
+        # Only what repeats every week carries over: the rest was that semester's own weeks.
+        weekly = [block for block in answer["blocks"] if block["repeat"] == "all"]
+        return {
+            "termCode": row["term_code"],
+            "semesterName": row["semester_name"],
+            "wishes": {**answer, "blocks": weekly},
+        }
 
     # ------------------------------------------------------------------ the answers
 
@@ -546,12 +624,14 @@ class WishStore:
                     "term": term,
                     "id": teacher_id,
                     "status": values["status"],
-                    "cells": json.dumps(values["cells"]),
+                    # Blocks are kept where the painted cells were, and each limit's kind where its
+                    # Must or Would like was; dates away are blocks now.
+                    "cells": json.dumps(values["blocks"]),
                     "limits": json.dumps(values["limits"]),
-                    "away": json.dumps(values["away"]),
+                    "away": "[]",
                     "needs": values["needs"],
                     "note": values["note"],
-                    "levels": json.dumps(values["levels"]),
+                    "levels": json.dumps(values["kinds"]),
                     "comments": json.dumps(values["comments"]),
                     "reason": values["overCapReason"],
                     "source": source,

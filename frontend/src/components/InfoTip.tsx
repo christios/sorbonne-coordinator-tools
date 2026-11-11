@@ -125,13 +125,13 @@ export function TipWishes({ lines }: { lines: string[] }) {
     <span className="grid gap-1">
       {lines.map((line) => {
         const [tag, ...rest] = line.split(" · ");
-        const known = tag === "Must" || tag === "Would like" || tag === "Everybody";
+        const known = tag === "Constraint" || tag === "Preference" || tag === "Everybody";
         return (
           <span key={line} className="flex items-start gap-1.5">
             {known ? (
               <span
                 className={`mt-px shrink-0 rounded px-1.5 text-[11px] font-semibold leading-[18px] ${
-                  tag === "Must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
+                  tag === "Constraint" ? "bg-[#fdf3f3] text-[#a6292f]" : tag === "Preference" ? "bg-[#e7f4ec] text-[#2e7d55]" : "bg-[#fdf6e3] text-[#8a6116]"
                 }`}
               >
                 {tag}

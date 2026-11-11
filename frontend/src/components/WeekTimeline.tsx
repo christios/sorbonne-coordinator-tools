@@ -84,7 +84,7 @@ export type GridEditing = {
   /**
    * What would go wrong if a class sat at a slot — the one being moved, or (null) the one
    * dragged in — so the box that shows where it would land can say so: red for a clash or a
-   * Must broken, amber for a Would like.
+   * constraint broken, amber for a missed preference.
    */
   judge?: (slot: GridSlot, session: PlacedSession | null) => GhostJudgement | null;
 };
@@ -795,7 +795,7 @@ export function WeekTimeline({
               {(() => {
                 /*
                  * Where a class being drawn, moved or dragged in would land, dashed, under the
-                 * pointer — red where it would clash or break a Must, amber a Would like.
+                 * pointer — red where it would clash or break a constraint, amber a missed preference.
                  */
                 const dropped = dropGhost(line.key);
                 const ghost = dropped ? { start: minutesOf(dropped.start), end: minutesOf(dropped.end) } : ghostOn(line.key);
@@ -1040,8 +1040,21 @@ function Class({
           wide={false}
           side="right"
           title={(() => {
-            const count = session.wish.said.split("\n").length;
-            return `Breaks ${count === 1 ? "a preference" : `${count} preferences`}`;
+            // "Breaks a constraint and 2 preferences": each line says which it is.
+            const lines = session.wish.said.split("\n");
+            const parts = (
+              [
+                ["Constraint", "constraint"],
+                ["Preference", "preference"],
+                ["Everybody", "semester rule"],
+              ] as const
+            )
+              .map(([tag, word]) => {
+                const count = lines.filter((line) => line.startsWith(`${tag} ·`)).length;
+                return count === 1 ? `a ${word}` : count ? `${count} ${word}s` : "";
+              })
+              .filter(Boolean);
+            return `Breaks ${parts.length ? parts.join(" and ") : lines.length === 1 ? "a preference" : `${lines.length} preferences`}`;
           })()}
           icon={Flag}
           iconClassName={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}

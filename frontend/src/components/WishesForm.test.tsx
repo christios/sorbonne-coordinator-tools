@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WishesForm } from "@/components/WishesForm";
-import type { WishCalendar, WishCollection, Wishes } from "@/services/teacherWishes";
+import type { WishBlock, WishCalendar, WishCollection, Wishes } from "@/services/teacherWishes";
 
 const COLLECTION: WishCollection = {
   termCode: "262720",
@@ -16,236 +16,228 @@ const COLLECTION: WishCollection = {
   openedAt: "",
   openedBy: "",
 };
+/** Three teaching weeks from 11 Jan, the Wednesday of the first a holiday. */
+const CALENDAR: WishCalendar = { weekOne: "2027-01-11", weeks: 3, without: [], holidays: [{ date: "2027-01-13", label: "Holiday" }] };
 
-const cell = (day: string, clock: string) => screen.getByRole("button", { name: new RegExp(`^${day} ${clock}: `) });
+/** A cell of the week shown, by its day and time: "Tuesday 12 Jan 14:00". */
+const cell = (day: string, clock: string) => screen.getByRole("button", { name: new RegExp(`^${day} \\d+ \\w+ ${clock}: `) });
 const said = (day: string, clock: string) => cell(day, clock).getAttribute("aria-label") ?? "";
 /** A stroke from one cell to another, let go at the end. */
-const stroke = (day: string, from: string, to: string) => {
-  fireEvent.pointerDown(cell(day, from));
-  if (to !== from) fireEvent.pointerOver(cell(day, to));
+const stroke = (from: [string, string], to: [string, string] = from) => {
+  fireEvent.pointerDown(cell(...from));
+  if (to[0] !== from[0] || to[1] !== from[1]) fireEvent.pointerOver(cell(...to));
   fireEvent.pointerUp(window);
 };
-/** A press and a release on a painted cell, without moving: it opens that block. */
-const openBlock = (day: string, clock: string) => {
-  fireEvent.pointerDown(cell(day, clock));
-  fireEvent.pointerUp(window);
-  return screen.getByRole("dialog");
-};
+const box = () => screen.getByRole("dialog", { name: /^(Constraint|Preference) · / });
+const done = () => fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
+const answer = (blocks: WishBlock[], rest: Partial<Wishes> = {}): Wishes => ({
+  status: "draft",
+  blocks,
+  limits: {},
+  limitKinds: {},
+  comments: {},
+  needs: "",
+  note: "",
+  lines: [],
+  overCapReason: "",
+  source: "coordinator",
+  submittedAt: "",
+  updatedAt: "",
+  updatedBy: "",
+  ...rest,
+});
 
-describe("a teacher's wishes, filled in", () => {
+// The form opens on the first teaching week still to come: from here, Week 1.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date(2026, 10, 10));
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("a teacher's week, marked block by block", () => {
   beforeEach(() => {
     window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
   });
-  it("paints every hour a quick drag passes over, and opens the block it made when let go", () => {
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
-    // Straight from 14:00 to 17:00: the pointer never stopped on 15:00 or 16:00.
-    stroke("Tuesday", "14:00", "17:00");
-    for (const clock of ["14:00", "15:00", "16:00", "17:00"]) expect(said("Tuesday", clock)).toContain("can't teach");
-    expect(said("Tuesday", "18:00")).toContain("fine");
-    const block = screen.getByRole("dialog", { name: "Can't teach Tue 14:00–18:00" });
-    expect(block.textContent).toContain("One preference: the whole block");
+
+  it("shows one teaching week at a time, with its dates, a holiday not to be marked", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan" })).toBeTruthy();
+    expect((cell("Wednesday", "10:00") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
+    expect(screen.getByRole("table", { name: "Week 2 · 18 Jan–22 Jan" })).toBeTruthy();
   });
 
-  it("opens nothing after clearing", () => {
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
-    stroke("Tuesday", "14:00", "15:00");
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Done" }));
-    fireEvent.click(screen.getByRole("radio", { name: "Clear" }));
-    stroke("Tuesday", "14:00", "14:00");
+  it("makes one block of a stroke down the hours and across the days, every week, and opens it to choose how it repeats", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    // Straight from Tuesday 14:00 to Thursday 16:00: one rectangle.
+    stroke(["Tuesday", "14:00"], ["Thursday", "16:00"]);
+    for (const [day, clock] of [
+      ["Tuesday", "14:00"],
+      ["Thursday", "16:00"],
+      ["Tuesday", "16:00"],
+    ]) {
+      expect(said(day, clock)).toContain("constraint, every week");
+    }
+    expect(said("Tuesday", "17:00")).toContain("fine");
+    expect(said("Monday", "14:00")).toContain("fine");
+    const opened = screen.getByRole("dialog", { name: "Constraint · Tue, Wed, Thu 14:00–17:00 · every week" });
+    expect(within(opened).getByRole("radio", { name: /^Every week The whole semester/ }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.queryByRole("radio", { name: "Clear" })).toBeNull();
+  });
+
+  it("repeats a block that week only, or from that week on, as chosen, and shows it on those weeks", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
+    fireEvent.click(within(box()).getByRole("radio", { name: /^This week only/ }));
+    done();
+    expect(said("Tuesday", "14:00")).toContain("constraint, this week only");
+
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
     expect(said("Tuesday", "14:00")).toContain("fine");
-    expect(screen.queryByRole("dialog")).toBeNull();
+    stroke(["Monday", "09:00"]);
+    fireEvent.click(within(box()).getByRole("radio", { name: /^Every week from Week 2/ }));
+    done();
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
+    expect(said("Monday", "09:00")).toContain("every week from 18 Jan");
+    fireEvent.click(screen.getByRole("button", { name: "The week before" }));
+    fireEvent.click(screen.getByRole("button", { name: "The week before" }));
+    expect(said("Monday", "09:00")).toContain("fine");
   });
 
-  it("is painted from the keyboard too, and a painted hour opens its block from there", () => {
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
+  it("makes a whole day a constraint for that week only from the day's name, to say why", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: a constraint all day, this week only" }));
+    const day = screen.getByRole("dialog", { name: "Constraint · Thu 14 Jan, all day" });
+    expect(within(day).getByRole("radio", { name: /^This week only/ }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.change(within(day).getByRole("textbox"), { target: { value: "Conference" } });
+    done();
+    const list = screen.getByLabelText("Summary of constraints and preferences");
+    expect(list.textContent).toContain("Thu 14 Jan, all day");
+    expect(list.textContent).toContain("One week only");
+    expect(list.textContent).toContain("“Conference”");
+  });
+
+  it("is marked from the keyboard too, and a marked hour opens its block from there", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     // Enter or Space on a cell is a click with no pointer behind it.
     fireEvent.click(cell("Monday", "09:00"));
-    expect(said("Monday", "09:00")).toContain("can't teach");
+    expect(screen.getByRole("dialog", { name: "Constraint · Mon 09:00–10:00 · every week" })).toBeTruthy();
+    done();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(cell("Monday", "09:00"));
-    expect(screen.getByRole("dialog", { name: "Can't teach Mon 09:00–10:00" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Constraint · Mon 09:00–10:00 · every week" })).toBeTruthy();
   });
 
-  it("says what a click does over a painted block, and lights all of it", async () => {
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
-    fireEvent.click(cell("Tuesday", "14:00"));
-    fireEvent.click(cell("Thursday", "14:00"));
+  it("turns a block from a constraint to a preference in its box, and marks with either", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Monday", "09:00"]);
+    fireEvent.click(within(box()).getByRole("radio", { name: "Preference" }));
+    done();
+    expect(said("Monday", "09:00")).toContain("preference, every week");
+    fireEvent.click(within(screen.getByRole("radiogroup", { name: "Mark as" })).getByRole("radio", { name: "Preference" }));
+    stroke(["Friday", "10:00"]);
+    expect(screen.getByRole("dialog", { name: "Preference · Fri 10:00–11:00 · every week" })).toBeTruthy();
+  });
+
+  it("says what a click does over a block, and lights all of it", async () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Tuesday", "14:00"], ["Thursday", "14:00"]);
+    done();
     fireEvent.pointerOver(cell("Tuesday", "14:00"));
     const bubble = await screen.findByRole("tooltip");
-    expect(bubble.textContent).toContain("Click to set Must / Would like, comment or remove");
-    expect(bubble.textContent).toContain("on Tue and Thu: one preference");
-    // Both days of the block are lit, not only the hour under the pointer.
+    expect(bubble.textContent).toContain("Click to choose how it repeats, comment or remove");
+    // Every day of the block is lit, not only the hour under the pointer.
     for (const day of ["Tuesday", "Thursday"]) {
       expect(cell(day, "14:00").querySelector("[data-quarter]")?.className).toContain("brightness");
     }
   });
 
-  it("says on the week itself how much a block matters and why, and keeps both", () => {
-    const onSave = vi.fn();
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={onSave} />);
-    stroke("Tuesday", "14:00", "17:00");
-    expect(said("Tuesday", "15:00")).toContain("a Would like");
-
-    const block = screen.getByRole("dialog");
-    fireEvent.click(within(block).getByRole("radio", { name: "Must" }));
-    fireEvent.change(within(block).getByPlaceholderText("Why it matters (optional)"), { target: { value: "School run" } });
-    fireEvent.click(within(block).getByRole("button", { name: "Done" }));
-    expect(screen.queryByRole("dialog")).toBeNull();
-    // Drawn solid now, as a Must.
-    expect(said("Tuesday", "14:00")).toContain("a Must");
-    expect(screen.getByLabelText("1 of 2 Musts used")).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-    expect(onSave).toHaveBeenCalledWith(
-      expect.objectContaining({ levels: { "cant:14-18:2": "must" }, comments: { "cant:14-18:2": "School run" }, submit: false }),
-    );
-    // Kept to the quarter: four quarters an hour.
-    expect(onSave.mock.calls[0][0].cells).toHaveLength(16);
+  it("lists every block under the calendar, shows one from the list on its week, and takes one off", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
+    stroke(["Tuesday", "14:00"]);
+    fireEvent.click(within(box()).getByRole("radio", { name: /^This week only/ }));
+    done();
+    fireEvent.click(screen.getByRole("button", { name: "The week before" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show Constraint · Tue 19 Jan, 14:00–15:00" }));
+    expect(screen.getByRole("table", { name: "Week 2 · 18 Jan–22 Jan" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Constraint · Tue 19 Jan, 14:00–15:00" })).toBeTruthy();
+    done();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Constraint · Tue 19 Jan, 14:00–15:00" }));
+    expect(screen.getByLabelText("Summary of constraints and preferences").textContent).toContain("Nothing marked");
   });
 
-  it("is painted to the quarter hour with finer cells", () => {
-    const onSave = vi.fn();
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={onSave} />);
+  it("is marked to the quarter hour with finer cells, and opens an answer fine enough to show it", () => {
+    const { unmount } = render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(screen.getByRole("radio", { name: "15 min" }));
-    stroke("Wednesday", "12:15", "12:30");
-    expect(screen.getByRole("dialog", { name: "Can't teach Wed 12:15–12:45" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-    expect(onSave.mock.calls[0][0].cells).toEqual([
-      { day: 3, hour: 12.25, kind: "cant" },
-      { day: 3, hour: 12.5, kind: "cant" },
-    ]);
-  });
-
-  it("opens an answer painted to the quarter with cells fine enough to show it", () => {
-    const initial = {
-      status: "draft" as const, cells: [{ day: 3, hour: 12.5, kind: "cant" as const }], limits: {}, away: [], needs: "", note: "",
-      levels: {}, comments: {}, lines: [], overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
-    };
-    render(<WishesForm collection={COLLECTION} initial={initial} onSave={() => {}} />);
+    stroke(["Tuesday", "14:15"], ["Tuesday", "14:30"]);
+    expect(screen.getByRole("dialog", { name: "Constraint · Tue 14:15–14:45 · every week" })).toBeTruthy();
+    unmount();
+    const block: WishBlock = { id: "b", kind: "constraint", days: [2], from: 14.25, to: 15, repeat: "all", week: "", comment: "" };
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([block])} onSave={() => {}} />);
     expect(screen.getByRole("radio", { name: "15 min" }).getAttribute("aria-checked")).toBe("true");
-    expect(said("Wednesday", "12:30")).toContain("can't teach");
   });
 
-  it("takes a whole block away from its pop-over", () => {
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
-    stroke("Thursday", "10:00", "11:00");
-    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Remove the whole block" }));
-    expect(said("Thursday", "10:00")).toContain("fine");
-    expect(said("Thursday", "11:00")).toContain("fine");
-  });
-
-  it("keeps to the Must quota across the week and the limits, and asks why past the can't-teach cap", () => {
-    const onSave = vi.fn();
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={onSave} />);
-    // Four blocks at four different hours: four wishes (the same hours on two days would be one).
-    for (const [day, clock] of [["Monday", "09:00"], ["Wednesday", "11:00"], ["Friday", "13:00"], ["Thursday", "16:00"]] as const) {
-      fireEvent.click(cell(day, clock));
-    }
-    fireEvent.click(within(openBlock("Monday", "09:00")).getByRole("radio", { name: "Must" }));
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    fireEvent.click(within(openBlock("Wednesday", "11:00")).getByRole("radio", { name: "Must" }));
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
-    // Two of two used: a third block waits until one is let go.
-    const third = openBlock("Friday", "13:00");
-    expect((within(third).getByRole("radio", { name: "Must" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(within(third).getByText(/All 2 Musts are used/)).toBeTruthy();
-    fireEvent.click(within(third).getByRole("button", { name: "Done" }));
-
-    // Four hours can't be taught, over the cap of three: not without a reason.
-    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
-    expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByText(/Say why 4 hours can't be taught/)).toBeTruthy();
-    // A draft is kept as it stands.
-    fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ submit: false }));
-  });
-
-  it("tells whoever holds it when it has changed, and when it is back as it was", () => {
-    const onDirtyChange = vi.fn();
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} onDirtyChange={onDirtyChange} />);
-    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-    fireEvent.click(cell("Monday", "09:00"));
-    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
-    fireEvent.click(within(openBlock("Monday", "09:00")).getByRole("button", { name: "Remove the whole block" }));
-    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-  });
-});
-
-describe("time away, marked week by week", () => {
-  beforeEach(() => {
-    window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
-  });
-  // Week by week opens on the first teaching week still to come: from here, Week 1.
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date(2026, 10, 10));
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-  const CALENDAR: WishCalendar = { weekOne: "2027-01-11", weeks: 3, without: [], holidays: [{ date: "2027-01-13", label: "Holiday" }] };
-  /** A cell of a single week, by its day and date: "Tuesday 12 Jan 14:00". */
-  const dated = (day: string, clock: string) => screen.getByRole("button", { name: new RegExp(`^${day} ${clock}: `) });
-
-  it("paints the hours away on the week's own dates, a whole day from its name, and saves them with their hours", () => {
+  it("is three pages, Submit on the last, and asks why past the hours of constraints a week", () => {
     const onSave = vi.fn();
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={onSave} />);
-    fireEvent.click(screen.getByRole("radio", { name: "Week by week" }));
-    // The first teaching week still to come; its dates on the days, a holiday not to be painted.
-    expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan: time away" })).toBeTruthy();
-    expect((dated("Wednesday 13 Jan", "10:00") as HTMLButtonElement).disabled).toBe(true);
+    // Four hours every week, over the three: a day of one week does not count.
+    stroke(["Monday", "08:00"], ["Monday", "11:00"]);
+    done();
+    fireEvent.click(screen.getByRole("button", { name: "Friday 15 Jan: a constraint all day, this week only" }));
+    done();
+    expect(screen.getByLabelText("Constraints: 4 of 3 hours a week")).toBeTruthy();
 
-    fireEvent.pointerDown(dated("Tuesday 12 Jan", "14:00"));
-    fireEvent.pointerOver(dated("Tuesday 12 Jan", "15:00"));
-    fireEvent.pointerUp(window);
-    expect(dated("Tuesday 12 Jan", "15:00").getAttribute("aria-label")).toContain("away");
-    // Let go, the day opens to say why.
-    const tuesday = screen.getByRole("dialog", { name: "Away Tuesday 12 Jan" });
-    expect(tuesday.textContent).toContain("14:00–16:00");
-    fireEvent.change(within(tuesday).getByRole("textbox"), { target: { value: "Doctor" } });
-    fireEvent.click(within(tuesday).getByRole("button", { name: "Done" }));
-
-    fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: mark away all day" }));
-    const thursday = screen.getByRole("dialog", { name: "Away Thursday 14 Jan" });
-    expect(thursday.textContent).toContain("All day");
-    fireEvent.change(within(thursday).getByRole("textbox"), { target: { value: "Conference" } });
-    fireEvent.click(within(thursday).getByRole("button", { name: "Done" }));
-
-    // The usual week is not touched: back on it, nothing is painted.
-    fireEvent.click(screen.getByRole("radio", { name: "Every week" }));
-    expect(said("Tuesday", "14:00")).toContain("fine");
-    expect(screen.getByLabelText("Time away").textContent).toContain("Tue 12 Jan, 14:00–16:00");
-
+    expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
+    expect(screen.getByRole("region", { name: "Limits on their week" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Needs/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Note" }), { target: { value: "Mornings, please" } });
+    fireEvent.click(screen.getByRole("button", { name: "Submit" }));
+    // Not sent: back on the calendar, where the reason goes.
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole("alert").textContent).toContain("4 hours a week of constraints, over the 3");
+    fireEvent.change(screen.getByRole("textbox", { name: /say why, for the coordinator/ }), { target: { value: "Lab weeks" } });
+    fireEvent.click(screen.getByRole("button", { name: "Needs and a note" }));
+    expect((screen.getByRole("textbox", { name: "Note" }) as HTMLTextAreaElement).value).toBe("Mornings, please");
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        cells: [],
-        away: [
-          { from: "2027-01-12", to: "2027-01-12", reason: "Doctor", start: 14, end: 16 },
-          { from: "2027-01-14", to: "2027-01-14", reason: "Conference" },
+        submit: true,
+        overCapReason: "Lab weeks",
+        note: "Mornings, please",
+        blocks: [
+          expect.objectContaining({ kind: "constraint", days: [1], from: 8, to: 12, repeat: "all", week: "" }),
+          expect.objectContaining({ kind: "constraint", days: [5], from: 8, to: 19, repeat: "once", week: "2027-01-11" }),
         ],
       }),
     );
   });
 
-  it("opens an answer's time away on its week, and takes it off from the list", () => {
+  it("holds each limit as a preference unless made a constraint, with why", () => {
     const onSave = vi.fn();
-    const onDirtyChange = vi.fn();
-    const answer = {
-      status: "draft", cells: [], limits: {}, away: [{ from: "2027-01-18", to: "2027-01-22", reason: "Leave" }], needs: "", note: "",
-      levels: {}, comments: {}, lines: [], overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "",
-    } as Wishes;
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer} onSave={onSave} onDirtyChange={onDirtyChange} />);
-    // A week of leave reads as one stretch, and opening it changes nothing.
-    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
-    fireEvent.click(screen.getByRole("button", { name: "Mon 18 Jan–Fri 22 Jan" }));
-    expect(screen.getByRole("table", { name: "Week 2 · 18 Jan–22 Jan: time away" })).toBeTruthy();
-    expect(dated("Monday 18 Jan", "09:00").getAttribute("aria-label")).toContain("away");
-
-    fireEvent.click(screen.getByRole("button", { name: "Not away Mon 18 Jan–Fri 22 Jan" }));
-    expect(dated("Monday 18 Jan", "09:00").getAttribute("aria-label")).toContain("not away");
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([], { limits: { maxDays: 3 } })} onSave={onSave} />);
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
+    const kind = screen.getByRole("radiogroup", { name: "Most days on campus: constraint or preference" });
+    expect(within(kind).getByRole("radio", { name: "Preference" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(kind).getByRole("radio", { name: "Constraint" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Most days on campus: comment" }), { target: { value: "Childcare" } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ away: [] }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ submit: false, limitKinds: { maxDays: "constraint" }, comments: { maxDays: "Childcare" } }),
+    );
+  });
+
+  it("tells whoever holds it when it has changed, and when it is back as it was", () => {
+    const onDirtyChange = vi.fn();
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} onDirtyChange={onDirtyChange} />);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+    stroke(["Monday", "09:00"]);
+    expect(onDirtyChange).toHaveBeenLastCalledWith(true);
+    fireEvent.click(within(box()).getByRole("button", { name: /Remove/ }));
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
 });
 
@@ -254,7 +246,7 @@ describe("the guided tour", () => {
     window.localStorage.clear();
   });
   const step = (title: string) => screen.getByRole("dialog", { name: `Guided tour: ${title}` });
-  /** A step done says so, and offers Next: nothing moves on by itself. */
+  /** A step done says so, and offers Next. */
   const next = (title: string) => {
     const card = step(title);
     expect(within(card).getByText("Nicely done")).toBeTruthy();
@@ -265,22 +257,19 @@ describe("the guided tour", () => {
     act(() => {
       vi.advanceTimersByTime(ms);
     });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-  /** A press and a release on a painted cell: it opens its block. */
+  /** A press and a release on a marked cell: it opens its block. */
   const tap = (day: string, clock: string) => {
     fireEvent.pointerDown(cell(day, clock));
     fireEvent.pointerUp(window);
   };
+
   it("starts by itself the first time, cannot be skipped, holds the form, and asks before it is ended", () => {
     const onCancel = vi.fn();
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} onCancel={onCancel} />);
-    const first = step("Paint the week");
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} onCancel={onCancel} />);
+    const first = step("Mark a time");
     expect(first.textContent).toContain("Before you start");
     expect(within(first).queryByRole("button", { name: "Skip" })).toBeNull();
     expect(within(first).getByText("Try it to go on")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement).disabled).toBe(true);
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
 
     // The X, or Escape, asks first; and says the form waits for the tour.
@@ -288,110 +277,107 @@ describe("the guided tour", () => {
     const sure = screen.getByRole("dialog", { name: "End the guided tour?" });
     expect(sure.textContent).toContain("Save and Submit stay off until the tour is taken to its end");
     fireEvent.click(within(sure).getByRole("button", { name: "Keep going" }));
-    expect(step("Paint the week")).toBeTruthy();
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.getByRole("dialog", { name: "End the guided tour?" })).toBeTruthy();
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.queryByRole("dialog", { name: "End the guided tour?" })).toBeNull();
-    expect(step("Paint the week")).toBeTruthy();
     expect(onCancel).not.toHaveBeenCalled();
 
     // Ended: the form still waits, and the button starts it again.
-    fireEvent.click(within(first).getByRole("button", { name: "End the tour" }));
+    fireEvent.click(within(step("Mark a time")).getByRole("button", { name: "End the tour" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "End the guided tour?" })).getByRole("button", { name: "End the tour" }));
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
-    expect((screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
-    expect(step("Paint the week")).toBeTruthy();
+    expect(step("Mark a time")).toBeTruthy();
   });
 
-  it("is taught by doing each part, the block opened by a click, and clears what was tried if asked", () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
-    // How to paint, shown, and the brushes as their buttons look.
-    expect(document.querySelector('[data-tour-demo]')).not.toBeNull();
-    expect(within(step("Paint the week")).getByText("Can't teach").closest("span")?.className).toContain("rounded-full");
+  it("is taught by doing each part with one block only, opened by a click, and clears what was tried if asked", () => {
+    // The clock too, for the step that goes on by itself: faked afresh, as faking twice does nothing.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(2026, 10, 10));
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    // How to mark, shown, and the kinds as their buttons look.
+    expect(document.querySelector("[data-tour-demo]")).not.toBeNull();
+    expect(within(step("Mark a time")).getByText("Constraint").closest("span")?.className).toContain("rounded-full");
 
-    stroke("Tuesday", "14:00", "15:00");
-    // Painted: the block does not open by itself, while the tour is to teach opening it — nor
-    // when clicked, before the step that teaches it.
-    expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
-    // A press on it changes nothing, not even the tour's card while it is held.
-    fireEvent.pointerDown(cell("Tuesday", "14:00"));
-    expect(within(step("Paint the week")).getByText("Nicely done")).toBeTruthy();
-    expect(within(step("Paint the week")).getByRole("button", { name: "Next" })).toBeTruthy();
-    fireEvent.pointerUp(window);
-    fireEvent.click(cell("Tuesday", "15:00"), { detail: 0 });
-    expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
-    expect(within(step("Paint the week")).getByText("Nicely done")).toBeTruthy();
-    next("Paint the week");
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
+    // Made: the block does not open by itself, while the tour is to teach opening it.
+    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
+    expect(step("Mark a time").textContent).toContain("One block is enough for the tour");
+    // No second block, from a stroke or a day's name; and a press on the block is nothing yet.
+    stroke(["Thursday", "10:00"]);
+    expect(said("Thursday", "10:00")).toContain("fine");
+    fireEvent.click(screen.getByRole("button", { name: /^Friday 15 Jan: a constraint all day/ }));
+    expect(said("Friday", "10:00")).toContain("fine");
+    tap("Tuesday", "14:00");
+    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
+    next("Mark a time");
 
-    expect(step("Open a block").textContent).toContain("Click the block you painted");
     expect(document.querySelector('[data-tour-demo="tap"]')).not.toBeNull();
     tap("Tuesday", "15:00");
     // Clicked: said so first, with no Next — the block opens a moment later, and the tour goes on.
     expect(within(step("Open a block")).getByText("Nicely done: opening it…")).toBeTruthy();
-    expect(within(step("Open a block")).queryByRole("button", { name: "Next" })).toBeNull();
-    expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
     wait(2000);
 
-    const block = screen.getByRole("dialog", { name: "Can't teach Tue 14:00–16:00" });
-    expect(block.className).toContain("tour-pop-in");
-    expect(step("How much it matters").textContent).toContain("Your click opened this box.");
-    expect(step("How much it matters").textContent).toContain("Comment box");
-    // The block cannot be removed while the tour is about it.
-    expect((within(block).getByRole("button", { name: /Remove the whole block/ }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(within(block).getByRole("radio", { name: "Must" }));
-    // Done pressed: straight on, with no "Nicely done" and no Next.
-    fireEvent.click(within(block).getByRole("button", { name: "Done" }));
+    const opened = screen.getByRole("dialog", { name: "Constraint · Tue 14:00–16:00 · every week" });
+    expect(opened.className).toContain("tour-pop-in");
+    expect(step("How it repeats").textContent).toContain("Your click opened this box.");
+    expect(step("How it repeats").textContent).toContain("Comment box");
+    expect((within(opened).getByRole("button", { name: /Remove/ }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(opened).getByRole("radio", { name: /^This week only/ }));
+    // Done pressed: straight on.
+    done();
 
-    expect(step("Away on some dates?")).toBeTruthy();
-    fireEvent.click(screen.getByRole("radio", { name: "Week by week" }));
-    expect(step("Mark the time away")).toBeTruthy();
-    fireEvent.click(screen.getAllByRole("button", { name: /: mark away all day$/ })[0]);
-    fireEvent.click(within(screen.getByRole("dialog", { name: /^Away / })).getByRole("button", { name: "Done" }));
-    // Done: the light takes in the list of time away, the day marked in it.
-    expect(step("Your time away").textContent).toContain("Every time away shows in this list");
-    expect(step("Your time away").textContent).toContain("You can switch between Every weekWeek by week at any time.");
-    expect(screen.getByLabelText("Time away").textContent).toMatch(/[A-Z][a-z]{2} \d+ [A-Z][a-z]{2}/);
-    fireEvent.click(within(step("Your time away")).getByRole("button", { name: "Next" }));
-    fireEvent.click(within(step("Limits and needs")).getByRole("button", { name: "Next" }));
+    expect(step("Move between weeks")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
+    // The one-week block stays on its week.
+    expect(said("Tuesday", "14:00")).toContain("fine");
+    fireEvent.click(within(step("Away for a day?")).getByRole("button", { name: "Next" }));
+    expect(step("Summary of constraints and preferences").textContent).toContain("Click one to go to its week");
+    fireEvent.click(within(step("Summary of constraints and preferences")).getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
+    fireEvent.click(within(step("Limits on their week")).getByRole("button", { name: "Next" }));
 
     // At the end the form is free, and what was tried can go.
-    expect((screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(within(step("Save or submit")).getByRole("button", { name: "Clear what I tried" }));
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
+    expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan" })).toBeTruthy();
     expect(said("Tuesday", "14:00")).toContain("fine");
-    expect(screen.queryByLabelText("Time away")).toBeNull();
-    expect(screen.getByRole("radio", { name: "Every week" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByLabelText("Summary of constraints and preferences").textContent).toContain("Nothing marked");
   });
 
   it("goes back a step when asked, without the press on Back counting as the step done", () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
-    stroke("Tuesday", "14:00", "15:00");
-    next("Paint the week");
+    // The clock too, for the step that goes on by itself: faked afresh, as faking twice does nothing.
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(2026, 10, 10));
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
+    next("Mark a time");
     tap("Tuesday", "14:00");
     wait(2000);
-    // On "How much it matters", with the block open: pressing Back leaves the block open.
-    const back = within(step("How much it matters")).getByRole("button", { name: "Back" });
+    // On "How it repeats", with the block open: pressing Back leaves the block open.
+    const back = within(step("How it repeats")).getByRole("button", { name: "Back" });
     fireEvent.pointerDown(back);
-    expect(screen.getByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeTruthy();
-    expect(within(step("How much it matters")).queryByText("Nicely done")).toBeNull();
+    expect(box()).toBeTruthy();
     fireEvent.click(back);
     // Back on "Open a block", the block closed, waiting to be clicked again.
-    expect(step("Open a block").textContent).toContain("Click the block you painted");
+    expect(step("Open a block").textContent).toContain("Click a block to open its box");
     expect(within(step("Open a block")).queryByRole("button", { name: "Next" })).toBeNull();
-    expect(screen.queryByRole("dialog", { name: "Can't teach Tue 14:00–16:00" })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
   });
 
   it("once taken, starts only from its button, and ending it early clears what was tried", () => {
     window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
-    render(<WishesForm collection={COLLECTION} initial={null} onSave={() => {}} />);
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
-    expect((screen.getByRole("button", { name: "Submit" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
-    stroke("Tuesday", "14:00", "15:00");
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     const escaped = vi.fn();
     document.addEventListener("keydown", escaped);
     fireEvent.keyDown(document.body, { key: "Escape" });

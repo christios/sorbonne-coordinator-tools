@@ -2,44 +2,80 @@ import { describe, expect, it } from "vitest";
 
 import type { Plan, PlanClass, PlanSection } from "@/services/semesterPlans";
 import {
-  awayEntries,
-  awaySpots,
-  awayWords,
-  carryOver,
+  answerLines,
   checkWishes,
-  lineOfCell,
-  shadingOf,
+  describeBlock,
+  isoPlus,
+  recurringConstraintHours,
+  shadingFor,
   teachingWeeks,
-  wishLines,
-  type WishCell,
+  weekOf,
+  type WishBlock,
   type WishTeacher,
   type Wishes,
 } from "@/services/teacherWishes";
 
-/** Every quarter of an hour from `from` to `to` on a day, painted can't-teach. */
-const cant = (day: number, from: number, to: number): WishCell[] =>
-  Array.from({ length: (to - from) * 4 }, (_, index) => ({ day, hour: from + index / 4, kind: "cant" as const }));
+/** A block: every week unless told otherwise. */
+const block = (id: string, kind: WishBlock["kind"], days: number[], from: number, to: number, rest: Partial<WishBlock> = {}): WishBlock => ({
+  id,
+  kind,
+  days,
+  from,
+  to,
+  repeat: "all",
+  week: "",
+  comment: "",
+  ...rest,
+});
 
-describe("the wishes an answer makes", () => {
-  it("joins can't hours into blocks, and the same block on several days is one wish, as the server does", () => {
-    const cells = [...cant(2, 14, 18), ...cant(4, 14, 18), ...cant(5, 8, 10), { day: 1, hour: 8, kind: "prefer" as const }];
-    expect(wishLines(cells, { maxDays: 2, freeDay: 5 }).map((line) => line.key)).toEqual([
-      "cant:14-18:2,4",
-      "cant:8-10:5",
-      "prefer",
-      "maxDays",
-      "freeDay",
+describe("the lines an answer makes", () => {
+  it("puts the constraints first, then the preferences, then the limits, each held as hard as its kind", () => {
+    const lines = answerLines(
+      [block("p", "preference", [1], 8, 12), block("c", "constraint", [2, 4], 14, 18)],
+      { maxDays: 3, freeDay: 5 },
+      { freeDay: "constraint" },
+    );
+    expect(lines.map((line) => [line.key, line.level])).toEqual([
+      ["c", "must"],
+      ["p", "would"],
+      ["maxDays", "would"],
+      ["freeDay", "must"],
     ]);
   });
 
-  it("shades a teacher's week as stretches a day at a time", () => {
-    expect(shadingOf({ cells: [...cant(2, 14, 16), { day: 2, hour: 9, kind: "prefer" }] })).toEqual({
-      2: [
-        // A single cell is a quarter of an hour.
-        { from: "09:00", to: "09:15", kind: "prefer" },
-        { from: "14:00", to: "16:00", kind: "cant" },
-      ],
-    });
+  it("says a block in words, a week's own by its dates", () => {
+    expect(describeBlock(block("c", "constraint", [2, 4], 14, 18))).toBe("Constraint · Tue, Thu 14:00–18:00 · every week");
+    expect(describeBlock(block("c", "preference", [1], 8, 10, { repeat: "from", week: "2027-02-01" }))).toBe("Preference · Mon 08:00–10:00 · every week from 1 Feb");
+    expect(describeBlock(block("d", "constraint", [5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
+      "Constraint · Fri 22 Jan, all day",
+    );
+  });
+});
+
+describe("a week, as its blocks make it", () => {
+  const usual = block("usual", "constraint", [2], 14, 18);
+  const later = block("later", "preference", [2], 16, 18, { repeat: "from", week: "2027-02-01" });
+  const once = block("once", "constraint", [2], 8, 19, { repeat: "once", week: "2027-02-08" });
+
+  it("shows a one-week block over one from a week on, over one every week", () => {
+    const blocks = [once, later, usual];
+    expect(weekOf(blocks, "2027-01-25").get("2:16")?.id).toBe("usual");
+    expect(weekOf(blocks, "2027-02-01").get("2:16")?.id).toBe("later");
+    expect(weekOf(blocks, "2027-02-01").get("2:14")?.id).toBe("usual");
+    expect(weekOf(blocks, "2027-02-08").get("2:16")?.id).toBe("once");
+    expect(weekOf(blocks, "2027-02-15").get("2:16")?.id).toBe("later");
+  });
+
+  it("shades a week a day at a time, block by block", () => {
+    const shaded = shadingFor({ blocks: [usual, later] }, "2027-02-01");
+    expect(shaded[2].map((stretch) => [stretch.from, stretch.to, stretch.kind])).toEqual([
+      ["14:00", "16:00", "constraint"],
+      ["16:00", "18:00", "preference"],
+    ]);
+  });
+
+  it("counts the hours of repeating constraints once each, and not a week's own", () => {
+    expect(recurringConstraintHours([usual, block("again", "constraint", [2], 16, 19), once])).toBe(5);
   });
 });
 
@@ -57,7 +93,7 @@ const at = (sectionId: string, weekday: number, startsAt: string, endsAt: string
     startsAt,
     endsAt,
     week,
-    meetsOn: `2027-01-${String(24 + weekday + (week - 1) * 7).padStart(2, "0")}`,
+    meetsOn: isoPlus("2027-01-25", weekday - 1 + (week - 1) * 7),
     seriesId: `${sectionId}-${weekday}`,
     room: "",
     teacherName: "",
@@ -68,48 +104,40 @@ const answered = (teacherId: string, name: string, wishes: Partial<Wishes>): Wis
   teacherId,
   name,
   email: "",
-  wishes: { status: "submitted", cells: [], limits: {}, away: [], needs: "", note: "", levels: {}, comments: {}, lines: [], overCapReason: "", source: "coordinator", submittedAt: "", updatedAt: "", updatedBy: "", ...wishes },
-});
-
-describe("a painted hour and the wish it is part of", () => {
-  const lines = wishLines([...cant(2, 14, 18), ...cant(4, 14, 18), { day: 1, hour: 9, kind: "prefer" }], {});
-
-  it("finds the block an hour belongs to, on any of its days, or the preferred hours", () => {
-    expect(lineOfCell(lines, 4, 16, "cant")?.key).toBe("cant:14-18:2,4");
-    expect(lineOfCell(lines, 1, 9, "prefer")?.key).toBe("prefer");
-    expect(lineOfCell(lines, 3, 16, undefined)).toBeNull();
-  });
-
-  it("keeps a block's Must and comment when it is painted longer, and gives a split Must to one half only", () => {
-    const before = wishLines(cant(2, 14, 18), {});
-    const longer = wishLines(cant(2, 14, 19), {});
-    expect(carryOver(before, longer, { "cant:14-18:2": "must" }, { "cant:14-18:2": "School run" })).toEqual({
-      levels: { "cant:14-19:2": "must" },
-      comments: { "cant:14-19:2": "School run" },
-    });
-    const split = wishLines([...cant(2, 14, 15), ...cant(2, 16, 18)], {});
-    expect(carryOver(before, split, { "cant:14-18:2": "must" }, {}).levels).toEqual({ "cant:14-15:2": "must", "cant:16-18:2": "would" });
-  });
+  wishes: {
+    status: "submitted",
+    blocks: [],
+    limits: {},
+    limitKinds: {},
+    comments: {},
+    needs: "",
+    note: "",
+    lines: [],
+    overCapReason: "",
+    source: "coordinator",
+    submittedAt: "",
+    updatedAt: "",
+    updatedBy: "",
+    ...wishes,
+  },
 });
 
 describe("a plan read against the teachers' wishes", () => {
-  it("says why a broken wish matters, in the teacher's words, on the class's flag", () => {
+  it("says why a broken constraint matters, in the teacher's words, on the class's flag", () => {
     const tuesday = at("td2", 2, "15:00", "17:00");
     const plan = { sections: SECTIONS, classes: [tuesday], periods: [] } as unknown as Plan;
-    const check = checkWishes(plan, [
-      answered("bilal", "Bilal Maaz", { cells: cant(2, 14, 18), levels: { "cant:14-18:2": "must" }, comments: { "cant:14-18:2": "School run" } }),
-    ]);
+    const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("run", "constraint", [2], 14, 18, { comment: "School run" })] })]);
     expect(check.breaches[0].comment).toBe("School run");
-    expect(check.flags.get(tuesday)?.said).toEqual(["Must · Bilal Maaz: Can't teach Tue 14:00–18:00 — “School run”"]);
+    expect(check.flags.get(tuesday)?.said).toEqual(["Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”"]);
   });
 
-  it("flags a class in a teacher's can't-teach hours red when it is a Must", () => {
+  it("flags a class in a teacher's constraint red", () => {
     const tuesday = at("td2", 2, "15:00", "17:00");
     const plan = { sections: SECTIONS, classes: [tuesday], periods: [] } as unknown as Plan;
-    const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { cells: cant(2, 14, 18), levels: { "cant:14-18:2": "must" } })]);
+    const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("run", "constraint", [2], 14, 18)] })]);
 
     expect(check.breaches.map((breach) => [breach.teacherName, breach.level, breach.wish, breach.how])).toEqual([
-      ["Bilal Maaz", "must", "Can't teach Tue 14:00–18:00", "MATH-114 TD 2, Tue 15:00"],
+      ["Bilal Maaz", "must", "Constraint · Tue 14:00–18:00 · every week", "MATH-114 TD 2, Tue 15:00"],
     ]);
     expect(check.flags.get(tuesday)?.level).toBe("must");
     expect(check.tallies[0]).toMatchObject({ teacherName: "Bilal Maaz", musts: 1, mustsKept: 0 });
@@ -123,11 +151,14 @@ describe("a plan read against the teachers' wishes", () => {
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { limits: { maxDays: 2 } })]);
 
     const [breach] = check.breaches;
+    // A limit is a preference unless made a constraint.
     expect([breach.level, breach.wish, breach.how]).toEqual(["would", "At most 2 days on campus", "3 days: Mon, Tue, Wed"]);
     // Tuesday has least teaching, so it is the day to clear.
     expect(breach.classes).toEqual([tuesday]);
     expect(check.flags.get(tuesday)?.level).toBe("would");
     expect(check.flags.has(monday)).toBe(false);
+    const firm = checkWishes(plan, [answered("bilal", "Bilal Maaz", { limits: { maxDays: 2 }, limitKinds: { maxDays: "constraint" } })]);
+    expect(firm.breaches[0].level).toBe("must");
   });
 
   it("flags a stretch of teaching longer than a teacher's most hours in a row, and not one with a break", () => {
@@ -141,37 +172,28 @@ describe("a plan read against the teachers' wishes", () => {
     expect(check.breaches[0].classes).toEqual([first, second]);
   });
 
-  it("counts a class outside a teacher's preferred hours against their preference", () => {
+  it("counts a class outside a teacher's preferences against them, amber, as one line", () => {
     const morning = at("cm", 1, "08:00", "10:00");
     const afternoon = at("td1", 3, "14:00", "16:00");
     const plan = { sections: SECTIONS, classes: [morning, afternoon] } as unknown as Plan;
-    // 08:00 to 12:00 on Monday and Wednesday, a quarter at a time.
-    const prefer: WishCell[] = [1, 3].flatMap((day) => Array.from({ length: 16 }, (_, quarter) => ({ day, hour: 8 + quarter / 4, kind: "prefer" as const })));
-    const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { cells: prefer })]);
+    const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("mornings", "preference", [1, 3], 8, 12)] })]);
 
-    expect(check.breaches.map((breach) => [breach.wish, breach.classes])).toEqual([["Their preferred hours", [afternoon]]]);
+    expect(check.breaches.map((breach) => [breach.level, breach.wish, breach.classes])).toEqual([["would", "Outside their preferences", [afternoon]]]);
+    expect(check.tallies[0]).toMatchObject({ musts: 0, woulds: 1, wouldsKept: 0 });
   });
 
-  it("flags a class in a teacher's dates away as a Must, dates away being facts", () => {
-    const away = at("cm", 2, "08:00", "10:00");
-    const plan = { sections: SECTIONS, classes: [away] } as unknown as Plan;
-    const check = checkWishes(plan, [
-      answered("bilal", "Bilal Maaz", { away: [{ from: "2027-01-25", to: "2027-01-29", reason: "Conference" }] }),
-    ]);
+  it("holds a one-week constraint only in its week, and one from a week on from then", () => {
+    const first = at("cm", 2, "08:00", "10:00", 1);
+    const second = at("cm", 2, "08:00", "10:00", 2);
+    const third = at("cm", 2, "08:00", "10:00", 3);
+    const plan = { sections: SECTIONS, classes: [first, second, third] } as unknown as Plan;
+    const away = block("conf", "constraint", [2], 8, 19, { repeat: "once", week: "2027-02-01", comment: "Conference" });
+    const later = block("later", "constraint", [2], 8, 9, { repeat: "from", week: "2027-02-08" });
+    const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [away, later] })]);
 
-    expect(check.breaches[0].level).toBe("must");
-    expect(check.breaches[0].wish).toMatch(/^Away .*\(Conference\)$/);
-  });
-
-  it("flags only the classes inside part of a day away", () => {
-    const morning = at("cm", 2, "08:00", "10:00");
-    const afternoon = at("td1", 2, "15:00", "17:00");
-    const plan = { sections: SECTIONS, classes: [morning, afternoon] } as unknown as Plan;
-    const check = checkWishes(plan, [
-      answered("bilal", "Bilal Maaz", { away: [{ from: "2027-01-26", to: "2027-01-26", reason: "Doctor", start: 14, end: 16 }] }),
-    ]);
-
-    expect(check.breaches.map((breach) => [breach.wish, breach.classes])).toEqual([["Away Tue 26 Jan, 14:00–16:00 (Doctor)", [afternoon]]]);
+    expect(check.flags.has(first)).toBe(false);
+    expect(check.flags.get(second)?.said).toEqual(["Constraint · Bilal Maaz: Tue 2 Feb, 08:00–19:00 — “Conference”"]);
+    expect(check.flags.get(third)?.level).toBe("must");
   });
 
   it("names the teachers with classes who have not answered", () => {
@@ -229,38 +251,7 @@ describe("a plan read against the teachers' wishes", () => {
   });
 });
 
-describe("time away, as the week shows it and as it is kept", () => {
-  const GRID = { days: [1, 2, 3, 4, 5], firstHour: 8, lastHour: 19 };
-  const roundTrip = (away: Wishes["away"]) => {
-    const { spots, reasons } = awaySpots(away, GRID);
-    return awayEntries(spots, reasons, GRID);
-  };
-
-  it("keeps whole days as one stretch across the weekend, and part of a day as its hours", () => {
-    const away = [
-      { from: "2027-01-14", to: "2027-01-19", reason: "Conference" },
-      { from: "2027-01-21", to: "2027-01-21", reason: "Doctor", start: 9, end: 10.5 },
-      { from: "2027-01-21", to: "2027-01-21", reason: "Doctor", start: 14, end: 15 },
-    ];
-    expect(roundTrip(away)).toEqual(away);
-  });
-
-  it("splits a stretch where the reason changes, and drops the days off the grid", () => {
-    const { spots, reasons } = awaySpots([{ from: "2027-01-15", to: "2027-01-18", reason: "Leave" }], GRID);
-    // Saturday and Sunday are not on the grid: Friday and Monday only.
-    expect([...new Set([...spots].map((spot) => spot.split("|")[0]))].sort()).toEqual(["2027-01-15", "2027-01-18"]);
-    expect(awayEntries(spots, { ...reasons, "2027-01-18": "Travel" }, GRID)).toEqual([
-      { from: "2027-01-15", to: "2027-01-15", reason: "Leave" },
-      { from: "2027-01-18", to: "2027-01-18", reason: "Travel" },
-    ]);
-  });
-
-  it("words it with the day of the week", () => {
-    expect(awayWords({ from: "2027-01-12", to: "2027-01-12", reason: "" })).toBe("Tue 12 Jan");
-    expect(awayWords({ from: "2027-01-12", to: "2027-01-12", reason: "", start: 14.25, end: 16 })).toBe("Tue 12 Jan, 14:15–16:00");
-    expect(awayWords({ from: "2027-01-11", to: "2027-01-15", reason: "" })).toBe("Mon 11 Jan–Fri 15 Jan");
-  });
-
+describe("the semester's weeks", () => {
   it("numbers the teaching weeks, a break taking no number", () => {
     expect(teachingWeeks({ weekOne: "2027-01-13", weeks: 3, without: ["2027-01-18"], holidays: [] })).toEqual([
       { number: 1, monday: "2027-01-11" },

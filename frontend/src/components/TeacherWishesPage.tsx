@@ -14,10 +14,10 @@ import { WishesSummary, answeredBy } from "@/components/WishesSummary";
 import {
   COLLECTION_DEFAULTS,
   DAY_SHORT,
-  cantHours,
   closeAgain,
   fetchWishSemester,
   openCollection,
+  recurringConstraintHours,
   reopenFor,
   saveWishes,
   withdrawInvitation,
@@ -138,12 +138,8 @@ function CollectionSettings({
               ))}
             </select>
           </label>
-          <label className="block">
-            <span className={label}>Most Musts a teacher may mark</span>
-            <input type="number" min={0} max={10} value={draft.mustQuota} onChange={(event) => set({ mustQuota: Number(event.target.value) })} className={`mt-1 ${field}`} />
-          </label>
-          <label className="block">
-            <span className={label}>Can&rsquo;t-teach hours a week, before a reason is asked</span>
+          <label className="col-span-2 block">
+            <span className={label}>Hours of constraints a week, before a reason is asked</span>
             <input type="number" min={0} max={60} value={draft.cantCap} onChange={(event) => set({ cantCap: Number(event.target.value) })} className={`mt-1 ${field}`} />
           </label>
         </div>
@@ -264,7 +260,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
       </TipPoint>
       <TipUsage
         when={<>Bilal Maaz emails to say Tuesday afternoons are impossible.</>}
-        todo={<>Press <TipButton>Fill in</TipButton> on Bilal&rsquo;s row, paint Tuesday 14:00–18:00 red, mark it a Must, and submit.</>}
+        todo={<>Press <TipButton>Fill in</TipButton> on Bilal&rsquo;s row, mark Tuesday 14:00–18:00 as a constraint every week, and submit.</>}
         then={<>On the plan, Bilal&rsquo;s classes on Tuesday afternoon are flagged red.</>}
       />
     </InfoTip>
@@ -310,7 +306,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
               {submitted} of {teachers.length} submitted{drafts ? ` · ${drafts} draft${drafts === 1 ? "" : "s"}` : ""}
             </span>
             <span className="text-xs text-[#98a2b3]">
-              {collection.mustQuota} Musts · {collection.cantCap} h can&rsquo;t-teach cap
+              {collection.cantCap} h of constraints a week before a reason
             </span>
             <button
               type="button"
@@ -331,8 +327,8 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                 <tr>
                   <th className="px-4 py-2 font-semibold">Teacher</th>
                   <th className="px-3 py-2 font-semibold">Status</th>
-                  <th className="px-3 py-2 font-semibold">Musts</th>
-                  <th className="px-3 py-2 font-semibold">Can&rsquo;t teach</th>
+                  <th className="px-3 py-2 font-semibold">Constraints</th>
+                  <th className="px-3 py-2 font-semibold">Preferences</th>
                   <th className="px-3 py-2 font-semibold">Last change</th>
                   <th className="px-3 py-2 font-semibold">Invitation</th>
                   <th className="px-4 py-2" />
@@ -341,8 +337,10 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
               <tbody>
                 {teachers.map((row) => {
                   const status = STATUS[row.wishes?.status ?? "none"];
-                  const musts = row.wishes ? row.wishes.lines.filter((line) => line.level === "must").length : 0;
-                  const cant = row.wishes ? cantHours(row.wishes.cells) : 0;
+                  const blocks = row.wishes?.blocks ?? [];
+                  const constraints = blocks.filter((block) => block.kind === "constraint").length;
+                  const preferences = blocks.filter((block) => block.kind === "preference").length;
+                  const cant = row.wishes ? recurringConstraintHours(blocks) : 0;
                   return (
                     <tr key={row.teacherId} className="border-t border-[#f2f4f7]">
                       <td className="px-4 py-2 font-semibold text-[#344054]">{row.name}</td>
@@ -362,10 +360,13 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                           </span>
                         ) : null}
                       </td>
-                      <td className="px-3 py-2 tabular-nums text-[#667085]">{row.wishes ? `${musts} of ${collection.mustQuota}` : ""}</td>
-                      <td className={`px-3 py-2 tabular-nums ${cant > collection.cantCap ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}>
-                        {row.wishes ? `${cant} h` : ""}
+                      <td
+                        className={`whitespace-nowrap px-3 py-2 tabular-nums ${cant > collection.cantCap ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}
+                        title={row.wishes ? `${cant} h a week marked as constraints, every week` : undefined}
+                      >
+                        {row.wishes ? `${constraints} · ${cant} h a week` : ""}
                       </td>
+                      <td className="px-3 py-2 tabular-nums text-[#667085]">{row.wishes ? preferences : ""}</td>
                       <td className="px-3 py-2 text-xs text-[#667085]">
                         {row.wishes ? (
                           <>

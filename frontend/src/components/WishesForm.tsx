@@ -1,15 +1,16 @@
 import {
+  ArrowLeft,
   ArrowRight,
-  CalendarRange,
+  CalendarX2,
+  Check,
   ChevronLeft,
   ChevronRight,
   Compass,
   MessageSquare,
-  MessageSquareText,
-  MousePointerClick,
   MoveDown,
   Paintbrush,
   Pointer,
+  Repeat,
   Trash2,
   X,
   type LucideIcon,
@@ -24,62 +25,54 @@ import {
   DAY_NAMES,
   DAY_SHORT,
   STEP,
-  awayEntries,
-  awaySpot,
-  awaySpots,
-  awayWords,
-  cantHours,
-  carryOver,
   clockOf,
-  describeLine,
+  describeBlock,
   isoPlus,
-  isoWeekday,
-  lineOfCell,
+  recurringConstraintHours,
   teachingWeeks,
-  wishLines,
-  type WishAway,
+  weekOf,
+  type WishBlock,
   type WishCalendar,
-  type WishCell,
   type WishCollection,
   type WishKind,
-  type WishLevel,
   type WishLimits,
-  type WishLine,
+  type WishRepeat,
   type Wishes,
   type WishesInput,
 } from "@/services/teacherWishes";
 import { formatDayAndMonth, mondayOf, toIsoDate } from "@/services/weekSchedule";
 
-type Brush = WishKind | "erase" | "away";
-
-/** Time away, in the colour calendars give "out of office". */
-export const AWAY_TONE: CSSProperties = { backgroundColor: "#8e6bbf" };
-const AWAY_BRUSHES: { value: "away" | "erase"; label: string; on: string; swatch: CSSProperties }[] = [
-  { value: "away", label: "Away", on: "border-[#6b4fa0] bg-[#f5f1fa] text-[#6b4fa0]", swatch: AWAY_TONE },
-  { value: "erase", label: "Clear", on: "border-[#667085] bg-[#f2f4f7] text-[#344054]", swatch: { backgroundColor: "#ffffff", border: "1px solid #d0d5dd" } },
-];
-
-const BRUSHES: { value: Brush; label: string; on: string; swatch: CSSProperties }[] = [
-  { value: "cant", label: "Can't teach", on: "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]", swatch: { backgroundColor: "#d9646a" } },
-  { value: "prefer", label: "Would rather", on: "border-[#2e7d55] bg-[#f2f9f4] text-[#2e7d55]", swatch: { backgroundColor: "#4f9f74" } },
-  { value: "erase", label: "Clear", on: "border-[#667085] bg-[#f2f4f7] text-[#344054]", swatch: { backgroundColor: "#ffffff", border: "1px solid #d0d5dd" } },
-];
+/** Who the form speaks to: a coordinator about a teacher, or the teacher themself. */
+export type Voice = "they" | "you";
 
 /*
- * A painted hour says how much it matters: a Must solid, a Would like light and striped in
- * the same colour. One look at the week says which hours the teacher holds to.
+ * Two kinds of block, two colours: red for a constraint (can't teach then), green for a
+ * preference (would like to teach then). A block of one week only is striped over its colour,
+ * to tell it at a glance from the usual week.
  */
 const stripes = (line: string) => `repeating-linear-gradient(135deg, ${line} 0 1.5px, transparent 1.5px 6px)`;
-export const CELL_TONES: Record<WishKind, Record<WishLevel, CSSProperties>> = {
-  cant: {
-    must: { backgroundColor: "#d9646a" },
-    would: { backgroundColor: "#f8dfe0", backgroundImage: stripes("rgba(217, 100, 106, 0.55)") },
-  },
-  prefer: {
-    must: { backgroundColor: "#4f9f74" },
-    would: { backgroundColor: "#dcefe4", backgroundImage: stripes("rgba(79, 159, 116, 0.55)") },
-  },
+export const KIND_TONE: Record<WishKind, CSSProperties> = {
+  constraint: { backgroundColor: "#d9646a" },
+  preference: { backgroundColor: "#4f9f74" },
 };
+export function toneOf(block: Pick<WishBlock, "kind" | "repeat">): CSSProperties {
+  const tone = KIND_TONE[block.kind];
+  return block.repeat === "once" ? { ...tone, backgroundImage: stripes("rgba(255, 255, 255, 0.6)") } : tone;
+}
+/** A stroke under way, before it is let go: the brush's colour, see-through. */
+const PREVIEW: Record<WishKind, CSSProperties> = {
+  constraint: { backgroundColor: "rgba(217, 100, 106, 0.5)" },
+  preference: { backgroundColor: "rgba(79, 159, 116, 0.5)" },
+};
+
+const KINDS: { value: WishKind; label: string; on: string; solid: string }[] = [
+  { value: "constraint", label: "Constraint", on: "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]", solid: "bg-[#a6292f] text-white" },
+  { value: "preference", label: "Preference", on: "border-[#2e7d55] bg-[#f2f9f4] text-[#2e7d55]", solid: "bg-[#2e7d55] text-white" },
+];
+
+/** What each kind means, in the form's voice. */
+const meaning = (kind: WishKind, voice: Voice) =>
+  kind === "constraint" ? `${voice === "you" ? "you" : "they"} can't teach then` : `${voice === "you" ? "you'd" : "they'd"} like to teach then`;
 
 /** How finely the week is painted: an hour, half an hour or a quarter a cell, and how tall each row is. */
 export type Fineness = 1 | 0.5 | 0.25;
@@ -89,36 +82,49 @@ const FINENESS: { value: Fineness; label: string; row: number }[] = [
   { value: 0.25, label: "15 min", row: 12 },
 ];
 
-/** The coarsest cells that say an answer exactly: an hour unless something starts on the half or a quarter. */
-export function finenessOf(cells: WishCell[]): Fineness {
-  const kinds = new Map(cells.map((cell) => [`${cell.day}:${cell.hour}`, cell.kind]));
-  const fits = (size: number) =>
-    cells.every((cell) => {
-      const start = Math.floor(cell.hour / size) * size;
-      for (let hour = start; hour < start + size; hour += STEP) if (kinds.get(`${cell.day}:${hour}`) !== cell.kind) return false;
-      return true;
-    });
+/** The coarsest cells that say every block exactly: an hour, unless one starts or ends on the half or a quarter. */
+export function finenessOf(blocks: Pick<WishBlock, "from" | "to">[]): Fineness {
+  const on = (value: number, size: number) => Math.abs(value / size - Math.round(value / size)) < 1e-9;
+  const fits = (size: number) => blocks.every((block) => on(block.from, size) && on(block.to, size));
   return fits(1) ? 1 : fits(0.5) ? 0.5 : 0.25;
 }
 
-/** A brush as its button looks, inside a sentence: the tour names them so they are found at a glance. */
-function BrushLook({ value }: { value: Brush }) {
-  const option = [...BRUSHES, ...AWAY_BRUSHES].find((each) => each.value === value);
-  if (!option) return null;
+/** A kind as its button looks, inside a sentence: the tour names them so they are found at a glance. */
+function KindLook({ kind }: { kind: WishKind }) {
+  const option = KINDS.find((each) => each.value === kind)!;
   return (
     <span className={`mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px align-middle text-[11px] font-semibold ${option.on}`}>
-      <span className="inline-block h-2 w-2 rounded-sm" style={option.swatch} /> {option.label}
+      <span className="inline-block h-2 w-2 rounded-sm" style={KIND_TONE[kind]} /> {option.label}
     </span>
   );
 }
 
-/** The Every week | Week by week switch as it looks, inside a sentence. */
-function WeekSwitchLook() {
+/** "Constraint" or "Preference", as a small tag in its colour. */
+export function KindTag({ kind }: { kind: WishKind }) {
+  return kind === "constraint" ? (
+    <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Constraint</span>
+  ) : (
+    <span className="shrink-0 rounded bg-[#e7f4ec] px-1.5 text-[11px] font-semibold text-[#2e7d55]">Preference</span>
+  );
+}
+
+/** Constraint or Preference, side by side, for a block or a limit. */
+export function KindToggle({ name, kind, onChange }: { name: string; kind: WishKind; onChange: (kind: WishKind) => void }) {
   return (
-    <span className="mx-0.5 inline-flex items-center whitespace-nowrap rounded-md bg-[#f2f4f7] p-0.5 align-middle text-[11px] font-semibold">
-      <span className="rounded bg-white px-1.5 py-px text-[#1f4e79] shadow-sm">Every week</span>
-      <span className="px-1.5 py-px text-[#667085]">Week by week</span>
-    </span>
+    <div role="radiogroup" aria-label={name} className="inline-flex shrink-0 rounded-md border border-[#d0d5dd] p-0.5 text-xs font-semibold">
+      {KINDS.map((option) => (
+        <button
+          key={option.value}
+          type="button"
+          role="radio"
+          aria-checked={kind === option.value}
+          onClick={() => onChange(option.value)}
+          className={`rounded px-2 py-0.5 ${kind === option.value ? option.solid : "text-[#344054] hover:bg-[#f8fafc]"}`}
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -164,149 +170,202 @@ export function RowTime({ time, size }: { time: number; size: number }) {
 }
 
 /** The plain words under a week: what the colours and the stripes mean. */
-export function WishesLegend() {
+export function WishesLegend({ voice = "they" }: { voice?: Voice }) {
   const swatch = (style: CSSProperties) => <span className="inline-block h-3 w-3 rounded-sm" style={style} />;
   return (
     <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
       <span className="inline-flex items-center gap-1.5">
-        {swatch(CELL_TONES.cant.must)}
-        {swatch(CELL_TONES.prefer.must)}
+        {swatch(KIND_TONE.constraint)}
         <span>
-          <b className="font-semibold text-[#344054]">Solid</b> = Must
+          <b className="font-semibold text-[#344054]">Constraint</b>: {meaning("constraint", voice)}
         </span>
       </span>
       <span className="inline-flex items-center gap-1.5">
-        {swatch(CELL_TONES.cant.would)}
-        {swatch(CELL_TONES.prefer.would)}
+        {swatch(KIND_TONE.preference)}
         <span>
-          <b className="font-semibold text-[#344054]">Striped</b> = Would like
+          <b className="font-semibold text-[#344054]">Preference</b>: {meaning("preference", voice)}
         </span>
       </span>
-      <span>Red: can&rsquo;t teach · Green: would rather</span>
+      <span className="inline-flex items-center gap-1.5">
+        {swatch(toneOf({ kind: "constraint", repeat: "once" }))}
+        {swatch(toneOf({ kind: "preference", repeat: "once" }))}
+        <span>
+          <b className="font-semibold text-[#344054]">Striped</b>: that week only
+        </span>
+      </span>
     </p>
   );
 }
 
-/** Each part of the form on a canvas of its own: the week, the limits, the needs. */
-const section = "rounded-xl border border-[#d5dde8] bg-[#edf1f6] p-4 sm:p-5";
-const hint = "mt-1 pl-7 text-xs text-[#667085]";
-const field = "w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1.5 text-sm";
+/** "Every week", "From 18 Jan", "One week only": how a block repeats, as a list says it. */
+function repeatTag(block: Pick<WishBlock, "repeat" | "week">): string {
+  if (block.repeat === "all") return "Every week";
+  if (block.repeat === "from") return `Every week from ${formatDayAndMonth(block.week)}`;
+  return "One week only";
+}
 
-/** A part's title, after its number in a badge: "② Limits on your week". */
-function SectionTitle({ number, children }: { number: number; children: ReactNode }) {
-  return (
-    <h3 className="flex items-center gap-2 text-sm font-semibold text-[#171717]">
-      <span aria-hidden="true" className="grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#1f4e79] text-[11px] font-semibold text-white">
-        {number}
-      </span>
-      {children}
-    </h3>
+/** "Tue, Thu 14:00–16:00", "Fri 22 Jan, all day": when a block is, without its kind or how it repeats. */
+export function whenWords(block: WishBlock, grid: { firstHour: number; lastHour: number }): string {
+  const hours = block.from <= grid.firstHour && block.to >= grid.lastHour ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
+  if (block.repeat === "once") {
+    return `${block.days.map((day) => `${DAY_SHORT[day]} ${formatDayAndMonth(isoPlus(block.week, day - 1))}`).join(", ")}, ${hours}`;
+  }
+  return `${block.days.map((day) => DAY_SHORT[day]).join(", ")} ${hours}`;
+}
+
+const REPEAT_RANK: Record<WishRepeat, number> = { all: 0, from: 1, once: 2 };
+/** Blocks as a list reads them: every week first, then from a week on, then single weeks; by day and hour. */
+export function inListOrder(blocks: WishBlock[]): WishBlock[] {
+  return [...blocks].sort(
+    (left, right) =>
+      REPEAT_RANK[left.repeat] - REPEAT_RANK[right.repeat] ||
+      left.week.localeCompare(right.week) ||
+      Math.min(...left.days) - Math.min(...right.days) ||
+      left.from - right.from,
   );
 }
-const COMMENT_LENGTH = 300;
 
-const NONE = "";
-
-/** Must or Would like, side by side. Past the quota, Must waits until another is let go. */
-export function LevelToggle({
-  name,
-  level,
-  full,
-  quota,
-  onChange,
+/**
+ * Everything marked on the calendar, said in words: the constraints, then the preferences,
+ * each with when it is, how it repeats and why. Clicked, a block is shown on its week; × takes
+ * it off.
+ */
+export function BlockList({
+  blocks,
+  grid,
+  voice = "they",
+  onPick,
+  onRemove,
+  removeOff,
+  onHover,
 }: {
-  name: string;
-  level: WishLevel;
-  /** Every Must is used, by other wishes. */
-  full: boolean;
-  quota: number;
-  onChange: (level: WishLevel) => void;
+  blocks: WishBlock[];
+  grid: { firstHour: number; lastHour: number };
+  voice?: Voice;
+  onPick?: (block: WishBlock) => void;
+  onRemove?: (block: WishBlock) => void;
+  /** Why × is off for now, if it is. */
+  removeOff?: string;
+  onHover?: (id: string | null) => void;
 }) {
+  if (!blocks.length) return <p className="text-sm text-[#98a2b3]">Nothing marked: every hour is fine.</p>;
   return (
-    <div role="radiogroup" aria-label={name} className="inline-flex shrink-0 rounded-md border border-[#d0d5dd] p-0.5 text-xs font-semibold">
-      <button
-        type="button"
-        role="radio"
-        aria-checked={level === "must"}
-        disabled={full && level !== "must"}
-        title={full && level !== "must" ? `All ${quota} Musts are used: let another go first` : undefined}
-        onClick={() => onChange("must")}
-        className={`rounded px-2 py-0.5 ${level === "must" ? "bg-[#a6292f] text-white" : "text-[#344054] disabled:text-[#c8d0da]"}`}
-      >
-        Must
-      </button>
-      <button
-        type="button"
-        role="radio"
-        aria-checked={level === "would"}
-        onClick={() => onChange("would")}
-        className={`rounded px-2 py-0.5 ${level === "would" ? "bg-[#d99b1c] text-white" : "text-[#344054]"}`}
-      >
-        Would like
-      </button>
+    <div className="grid gap-3 sm:grid-cols-2">
+      {(["constraint", "preference"] as const).map((kind) => {
+        const these = inListOrder(blocks.filter((block) => block.kind === kind));
+        return (
+          <div key={kind} className="min-w-0">
+            <p className="flex items-center gap-1.5 text-xs font-semibold text-[#344054]">
+              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={KIND_TONE[kind]} />
+              {kind === "constraint" ? "Constraints" : "Preferences"}
+              <span className="font-normal text-[#98a2b3]">
+                · {meaning(kind, voice).replace(" then", "")} · {these.length}
+              </span>
+            </p>
+            {these.length ? (
+              <ul className="mt-1.5 grid gap-1">
+                {these.map((block) => (
+                  <li
+                    key={block.id}
+                    className="flex items-start gap-2 rounded-md border border-[#e3e8ef] bg-white px-2.5 py-1.5 text-xs"
+                    onMouseEnter={() => onHover?.(block.id)}
+                    onMouseLeave={() => onHover?.(null)}
+                  >
+                    <span className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-sm" style={toneOf(block)} />
+                    <span className="min-w-0 flex-1">
+                      {onPick ? (
+                        <button
+                          type="button"
+                          onClick={() => onPick(block)}
+                          aria-label={`Show ${describeBlock(block, grid)}`}
+                          className="text-left font-semibold text-[#344054] hover:text-[#1f4e79] hover:underline"
+                        >
+                          {whenWords(block, grid)}
+                        </button>
+                      ) : (
+                        <span className="font-semibold text-[#344054]">{whenWords(block, grid)}</span>
+                      )}
+                      <span className="ml-1.5 whitespace-nowrap rounded bg-[#f2f4f7] px-1.5 text-[10px] font-semibold text-[#667085]">
+                        {repeatTag(block)}
+                      </span>
+                      {block.comment ? <span className="mt-0.5 block text-[#667085]">&ldquo;{block.comment}&rdquo;</span> : null}
+                    </span>
+                    {onRemove ? (
+                      <button
+                        type="button"
+                        aria-label={`Remove ${describeBlock(block, grid)}`}
+                        disabled={Boolean(removeOff)}
+                        title={removeOff || undefined}
+                        onClick={() => onRemove(block)}
+                        className="rounded p-0.5 text-[#98a2b3] hover:bg-[#fdf3f3] hover:text-[#a6292f] disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
+                      >
+                        <X size={12} aria-hidden="true" />
+                      </button>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1.5 text-xs text-[#98a2b3]">None.</p>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
-/** Who the form speaks to: a coordinator about a teacher, or the teacher themself. */
-export type Voice = "they" | "you";
-
-/** "One wish: the whole block, on Tuesday and Thursday." What a choice in the pop-over reaches. */
-function reach(line: WishLine, voice: Voice): string {
-  if (line.kind === "prefer") return `One preference: every hour ${voice === "you" ? "you" : "they"} would rather teach, all of it.`;
-  if (line.kind !== "cant") return "";
-  const days = line.days.map((day) => DAY_NAMES[day]);
-  const said = days.length > 1 ? `${days.slice(0, -1).join(", ")} and ${days[days.length - 1]}` : days[0];
-  return `One preference: the whole block, ${clockOf(line.from)}–${clockOf(line.to)}${days.length > 1 ? ` on ${said}` : ""}. What you choose here applies to all of it.`;
-}
+/** Each page of the form on a canvas of its own: the week, the limits, the needs. */
+const section = "rounded-xl border border-[#d5dde8] bg-[#edf1f6] p-4 sm:p-5";
+const hint = "mt-1 text-xs text-[#667085]";
+const field = "w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1.5 text-sm";
+const COMMENT_LENGTH = 300;
+const NONE = "";
+const LIMIT_NAMES: (keyof WishLimits)[] = ["maxDays", "maxHoursDay", "maxInRow", "freeDay"];
 
 /** What the form holds, said the same way whatever order it was entered in: to tell a change. */
 function snapshot(parts: {
-  cells: WishCell[];
+  blocks: WishBlock[];
   limits: WishLimits;
-  away: WishAway[];
+  limitKinds: Wishes["limitKinds"];
+  comments: Record<string, string>;
   needs: string;
   note: string;
-  levels: Record<string, WishLevel>;
-  comments: Record<string, string>;
   reason: string;
 }): string {
-  const lines = wishLines(parts.cells, parts.limits);
   return JSON.stringify({
-    cells: [...parts.cells].sort((a, b) => a.day - b.day || a.hour - b.hour).map((cell) => `${cell.day}:${cell.hour}:${cell.kind}`),
-    limits: Object.fromEntries(Object.entries(parts.limits).filter(([, value]) => value)),
-    away: parts.away,
+    blocks: [...parts.blocks]
+      .sort((left, right) => left.id.localeCompare(right.id))
+      .map((block) => [block.id, block.kind, block.days.join(","), block.from, block.to, block.repeat, block.week, block.comment.trim()]),
+    limits: LIMIT_NAMES.filter((name) => parts.limits[name]).map(
+      (name) => `${name}=${parts.limits[name]}:${parts.limitKinds[name] ?? "preference"}:${(parts.comments[name] ?? "").trim()}`,
+    ),
     needs: parts.needs.trim(),
     note: parts.note.trim(),
-    levels: lines.map((line) => `${line.key}=${parts.levels[line.key] ?? "would"}`),
-    comments: lines.map((line) => `${line.key}=${(parts.comments[line.key] ?? "").trim()}`),
     reason: parts.reason.trim(),
   });
 }
 
-/** The guided tour's steps, in order (their words are in the form, which they act on). */
-const TOUR = ["paint", "open", "matters", "away", "mark", "listed", "limits", "save"] as const;
+/** A new block's name: unique in the answer, and never one used before in it. */
+let made = 0;
+const newId = () => `b${Date.now().toString(36)}${(made += 1).toString(36)}`;
 
-/** A cell of the grid: a day, and where its stretch of the day starts. */
+/** The guided tour's steps, in order (their words are in the form, which they act on). */
+const TOUR = ["paint", "open", "repeat", "weeks", "day", "summary", "next", "limits", "save"] as const;
+
+/** A cell of the grid: a day, where its stretch of the day starts, and the cell on the page. */
 type Spot = { day: number; time: number; cell: HTMLElement };
 
-
-/** The Monday of the week a date falls in. */
-const mondayOfIso = (date: string) => isoPlus(date, 1 - isoWeekday(date));
-
 /**
- * One teacher's timetable preferences and constraints for a semester: the week painted,
- * limits, time away and needs. How much each preference matters is said where it is: a
- * painted block opens when the stroke that painted it ends, or when it is clicked, to make it
- * a Must or a Would like, comment on it, or take it away; each limit has its own. The Must
- * quota is kept as it is chosen, not after.
+ * One teacher's timetable preferences and constraints for a semester, on three pages: the
+ * calendar, limits on the week, needs and a note.
  *
- * The week is painted an hour, half an hour or a quarter at a time; whatever the cells, it is
- * kept to the quarter. A block reads as one: hovered or opened, all of it lights up.
- *
- * Time away is marked on the weeks it falls in: "Week by week" shows one teaching week at a
- * time, its dates on the days, and paints the hours away — a day's name, all of it. Each day
- * away may say why.
+ * The calendar shows one teaching week at a time, with its dates. A stroke across it — down
+ * the hours, across the days — makes a block, a constraint (can't teach then) or a preference
+ * (would like to teach then). A new block repeats every week; its box, which opens as it is
+ * made or when it is clicked, makes it repeat from that week on, or only that week, says why,
+ * or takes it off. A day's name makes the whole day a constraint for that week. Under the
+ * calendar, every block is listed in words.
  *
  * The same parts wherever a teacher answers — here for a coordinator answering for them, and
  * on the page an invited teacher opens.
@@ -326,7 +385,7 @@ export function WishesForm({
   tourButtonIn,
 }: {
   collection: WishCollection;
-  /** The semester's teaching weeks, to mark time away on; without them, weeks of the calendar. */
+  /** The semester's teaching weeks, shown one at a time; without them, weeks of the calendar. */
   calendar?: WishCalendar | null;
   initial: Wishes | null;
   busy?: boolean;
@@ -344,163 +403,114 @@ export function WishesForm({
   /** Where the Guided tour button goes: top right of whatever holds the form, outside it. Above the form if not given. */
   tourButtonIn?: HTMLElement | null;
 }) {
-  const [cells, setCells] = useState<Map<string, WishKind>>(
-    () => new Map((initial?.cells ?? []).map((cell) => [`${cell.day}:${cell.hour}`, cell.kind])),
-  );
+  const [blocks, setBlocks] = useState<WishBlock[]>(initial?.blocks ?? []);
   const [limits, setLimits] = useState<WishLimits>(initial?.limits ?? {});
-  const [startAway] = useState(() => awaySpots(initial?.away ?? [], collection));
-  // Each quarter hour away, on its date; and why, date by date.
-  const [awayAt, setAwayAt] = useState<Set<string>>(startAway.spots);
-  const [awayWhy, setAwayWhy] = useState<Record<string, string>>(startAway.reasons);
+  const [limitKinds, setLimitKinds] = useState<Wishes["limitKinds"]>(initial?.limitKinds ?? {});
+  const [comments, setComments] = useState<Record<string, string>>(initial?.comments ?? {});
   const [needs, setNeeds] = useState(initial?.needs ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
-  const [levels, setLevels] = useState<Record<string, WishLevel>>(initial?.levels ?? {});
-  const [comments, setComments] = useState<Record<string, string>>(initial?.comments ?? {});
   const [reason, setReason] = useState(initial?.overCapReason ?? "");
-  const [brush, setBrush] = useState<Brush>("cant");
-  const [awayBrush, setAwayBrush] = useState<"away" | "erase">("away");
-  const [fineness, setFineness] = useState<Fineness>(() => finenessOf(initial?.cells ?? []));
-  // The week on screen, by its Monday: null for every week, the usual one.
-  const [week, setWeek] = useState<string | null>(null);
+  const [brush, setBrush] = useState<WishKind>("constraint");
+  const [fineness, setFineness] = useState<Fineness>(() => finenessOf(initial?.blocks ?? []));
+  // The page on screen: the calendar, the limits, the needs.
+  const [page, setPage] = useState(0);
+  const weeks = useMemo(() => teachingWeeks(calendar), [calendar]);
+  /** The week to start from: the first teaching week still to come, else Week 1, else this one. */
+  const firstWeek = () => {
+    const now = toIsoDate(mondayOf(new Date()));
+    return weeks.find((each) => each.monday >= now)?.monday ?? weeks[0]?.monday ?? now;
+  };
+  // The week on screen, by its Monday.
+  const [week, setWeek] = useState<string>(firstWeek);
   const [problem, setProblem] = useState("");
-  // What is open over the grid — a painted block by its key, or a day away as `away:<date>` —
-  // and where its pop-over sits.
-  const [open, setOpen] = useState<{ key: string; left: number; top: number; cell: HTMLElement } | null>(null);
-  // The cell the pointer rests on, for its bubble and its block lit up; and a stroke under way.
+  // The block open over the grid, by its name, and where its pop-over sits.
+  const [open, setOpen] = useState<{ id: string; left: number; top: number; cell: HTMLElement } | null>(null);
+  // The cell the pointer rests on, for its bubble and its block lit up; a block hovered in the list.
   const [resting, setResting] = useState<{ day: number; time: number; box: { left: number; top: number; width: number; height: number } } | null>(null);
-  const [stroking, setStroking] = useState(false);
-  // A block to open once the stroke that painted it, or the click on it, has been drawn.
-  const [toOpen, setToOpen] = useState<Spot | null>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
+  // A stroke under way, as the rectangle it covers: [a day's place among the grid's days, a row].
+  const [drag, setDrag] = useState<{ from: [number, number]; to: [number, number] } | null>(null);
+  // A block to open once it is on the page: made a moment ago, or picked from the list.
+  const [toOpen, setToOpen] = useState<{ id: string; cell?: HTMLElement } | null>(null);
   const gridBox = useRef<HTMLDivElement>(null);
   const popover = useRef<HTMLDivElement>(null);
-  // The guided tour: the step it is on, if it is on; offered the first time the form opens in a browser.
+  const root = useRef<HTMLDivElement>(null);
+  /*
+   * The stroke under way: where it started and reached, the block it started on, and whether it
+   * moved. Let go where it was pressed on a block, it opens that block; else it makes one.
+   */
+  const stroke = useRef<{ from: [number, number]; to: [number, number]; on: WishBlock | null; moved: boolean; kind: WishKind; last: Spot } | null>(null);
+
+  // ---------------------------------------------------------------- the guided tour's state
   const [tourAt, setTourAt] = useState<number | null>(null);
   // Taken once, to its end, before the form is used in a browser; then again whenever wanted.
   const [tourRequired, setTourRequired] = useState(() => !tourTaken());
-  // Where each step started from — how much was painted, how much away — to tell when its "Try it" is done.
-  const [tourBase, setTourBase] = useState({ painted: "", away: "", sawOpen: false });
-  // The cell a stroke was last let go on, for the tour to show where to click.
-  const lastStroke = useRef<{ day: number; time: number } | null>(null);
-  // While the tour teaches clicking a block, painting one does not open it by itself.
-  const quietPaint = useRef(false);
-  // And clicking it opens it a moment later, once the tour has said so: the block clicked, and
-  // whether the pop-over came from it (it grows out of the block).
-  const clickOpensLater = useRef(false);
-  // And before that, on the step about painting, a click on a block opens nothing yet.
-  const noOpenYet = useRef(false);
-  const [tourClicked, setTourClicked] = useState<Spot | null>(null);
+  // Where each step started from — the week shown, whether its box was seen open — to tell when its "Try it" is done.
+  const [tourBase, setTourBase] = useState({ week: "", sawOpen: false });
+  // The one block made during the tour: after it, the tour makes no more.
+  const [tourMade, setTourMade] = useState("");
+  // The block clicked while the tour teaches clicking, opened once the tour has said so.
+  const [tourClicked, setTourClicked] = useState<{ id: string; cell: HTMLElement } | null>(null);
   const [popFromTour, setPopFromTour] = useState(false);
-  const root = useRef<HTMLDivElement>(null);
   const tourStepId = tourAt === null ? "" : TOUR[tourAt];
-  // Where the tour shows a stroke being painted, over the grid: a few hours of one afternoon.
+  // Where the tour shows a stroke being painted, or where to click, over the grid.
   const [demo, setDemo] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
-  /*
-   * The stroke under way: its colour, the cell it last reached, and that cell on the page. A
-   * press on a painted cell waits: let go where it was pressed, it opens that block; dragged
-   * on, it paints.
-   */
-  const stroke = useRef<{ with_: Brush; at: [number, number]; last: Spot; waiting: boolean } | null>(null);
 
   const rows = Array.from({ length: Math.round((collection.lastHour - collection.firstHour) / fineness) }, (_, index) => collection.firstHour + index * fineness);
   const quartersOf = (time: number) => Array.from({ length: Math.round(fineness / STEP) }, (_, index) => time + index * STEP);
-  const dayQuarters = Array.from({ length: Math.round((collection.lastHour - collection.firstHour) / STEP) }, (_, index) => collection.firstHour + index * STEP);
+  const rowOf = (hour: number) => collection.firstHour + Math.floor((hour - collection.firstHour) / fineness) * fineness;
   const rowHeight = FINENESS.find((option) => option.value === fineness)?.row ?? 24;
-  const asList: WishCell[] = useMemo(
-    () =>
-      [...cells.entries()].map(([key, kind]) => {
-        const [day, hour] = key.split(":").map(Number);
-        return { day, hour, kind };
-      }),
-    [cells],
-  );
-  const lines = useMemo(() => wishLines(asList, limits), [asList, limits]);
-  // The week and the time away as they stand, said once: a tour step watches them change.
-  const cellsKey = useMemo(() => [...cells].map(([key, kind]) => `${key}=${kind}`).sort().join(","), [cells]);
-  const awayKey = useMemo(() => [...awayAt].sort().join(","), [awayAt]);
-  const painted = lines.some((line) => line.kind === "cant" || line.kind === "prefer");
-  const away = useMemo(() => awayEntries(awayAt, awayWhy, collection), [awayAt, awayWhy, collection]);
-  const levelOf = (key: string): WishLevel => levels[key] ?? "would";
-  const musts = lines.filter((line) => levelOf(line.key) === "must").length;
-  const full = musts >= collection.mustQuota;
-  const cant = cantHours(asList);
-  const overCap = cant > collection.cantCap;
-  /** The preference a cell of the grid is part of: the block of its first painted quarter. */
-  const lineAt = (day: number, time: number): WishLine | null => {
+  const grid = { firstHour: collection.firstHour, lastHour: collection.lastHour };
+  const held = useMemo(() => weekOf(blocks, week), [blocks, week]);
+  /** The block a cell of the grid shows: the one on top at its first marked quarter. */
+  const blockAt = (day: number, time: number): WishBlock | null => {
     for (const hour of quartersOf(time)) {
-      const kind = cells.get(`${day}:${hour}`);
-      if (kind) return lineOfCell(lines, day, hour, kind);
+      const block = held.get(`${day}:${hour}`);
+      if (block) return block;
     }
     return null;
   };
+  const cant = recurringConstraintHours(blocks);
+  const overCap = cant > collection.cantCap;
+  const yours = voice === "you" ? "your" : "their";
+  const Yours = voice === "you" ? "Your" : "Their";
 
-  // ---------------------------------------------------------------- the weeks, for time away
-  const weeks = useMemo(() => teachingWeeks(calendar), [calendar]);
+  // ---------------------------------------------------------------- the weeks
   const holidays = new Map((calendar?.holidays ?? []).map((entry) => [entry.date, entry.label]));
-  const dateOf = (day: number) => (week ? isoPlus(week, day - 1) : "");
-  const awayOn = (date: string) => dayQuarters.some((hour) => awayAt.has(awaySpot(date, hour)));
-  const awayWeeks = new Set([...awayAt].map((spot) => mondayOfIso(spot.split("|")[0])));
+  const dateOf = (day: number) => isoPlus(week, day - 1);
   const lastDay = Math.max(...collection.days);
   const weekName = (monday: string) => {
     const number = weeks.find((each) => each.monday === monday)?.number;
     const dates = `${formatDayAndMonth(monday)}–${formatDayAndMonth(isoPlus(monday, lastDay - 1))}`;
     return number ? `Week ${number} · ${dates}` : `Week of ${dates}`;
   };
-  /** The week to start from: the first teaching week still to come, else Week 1, else this one. */
-  const firstWeek = () => {
-    const now = toIsoDate(mondayOf(new Date()));
-    return weeks.find((each) => each.monday >= now)?.monday ?? weeks[0]?.monday ?? now;
+  const weekShort = (monday: string) => {
+    const number = weeks.find((each) => each.monday === monday)?.number;
+    return number ? `Week ${number} (${formatDayAndMonth(monday)})` : formatDayAndMonth(monday);
   };
-  const showWeek = (monday: string | null) => {
+  const ownWeeks = new Map<string, number>();
+  for (const block of blocks) if (block.repeat !== "all") ownWeeks.set(block.week, (ownWeeks.get(block.week) ?? 0) + 1);
+  const showWeek = (monday: string) => {
     setOpen(null);
     setWeek(monday);
   };
-  const before_ = week ? (weeks.length ? [...weeks].reverse().find((each) => each.monday < week)?.monday : isoPlus(week, -7)) : undefined;
-  const after_ = week ? (weeks.length ? weeks.find((each) => each.monday > week)?.monday : isoPlus(week, 7)) : undefined;
-  const brushNow: Brush = week ? awayBrush : brush;
+  const before_ = weeks.length ? [...weeks].reverse().find((each) => each.monday < week)?.monday : isoPlus(week, -7);
+  const after_ = weeks.length ? weeks.find((each) => each.monday > week)?.monday : isoPlus(week, 7);
 
-  // A block repainted keeps its rank and its comment under its new key (see `carryOver`).
-  const before = useRef(lines);
-  useEffect(() => {
-    const was = before.current;
-    before.current = lines;
-    if (was === lines) return;
-    setLevels((current) => {
-      const next = carryOver(was, lines, current, {}).levels;
-      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
-    });
-    setComments((current) => {
-      const next = carryOver(was, lines, {}, current).comments;
-      return JSON.stringify(next) === JSON.stringify(current) ? current : next;
-    });
-  }, [lines]);
-
+  // ---------------------------------------------------------------- changed or not
   const [opened] = useState(() =>
     snapshot({
-      cells: initial?.cells ?? [],
+      blocks: initial?.blocks ?? [],
       limits: initial?.limits ?? {},
-      away: awayEntries(startAway.spots, startAway.reasons, collection),
+      limitKinds: initial?.limitKinds ?? {},
+      comments: initial?.comments ?? {},
       needs: initial?.needs ?? "",
       note: initial?.note ?? "",
-      levels: initial?.levels ?? {},
-      comments: initial?.comments ?? {},
       reason: initial?.overCapReason ?? "",
     }),
   );
-  const current = snapshot({ cells: asList, limits, away, needs, note, levels, comments, reason });
+  const current = snapshot({ blocks, limits, limitKinds, comments, needs, note, reason });
   const dirty = current !== opened;
-  /** The form as the tour found it, to go back to if what was tried is not wanted. */
-  const tourFrom = useRef<{
-    said: string;
-    cells: Map<string, WishKind>;
-    limits: WishLimits;
-    awayAt: Set<string>;
-    awayWhy: Record<string, string>;
-    needs: string;
-    note: string;
-    levels: Record<string, WishLevel>;
-    comments: Record<string, string>;
-    reason: string;
-  } | null>(null);
   const told = useRef(onDirtyChange);
   useEffect(() => {
     told.current = onDirtyChange;
@@ -509,143 +519,107 @@ export function WishesForm({
     told.current?.(dirty);
   }, [dirty]);
 
-  /** Open what a cell of the grid holds — a painted block, or a day away — under the cell. */
-  const openAt = ({ cell, day, time }: Spot) => {
+  // ---------------------------------------------------------------- blocks
+  const canMake = tourAt === null || !tourMade;
+  // While the tour is on, a block made does not open by itself: opening it is a step.
+  const quiet = tourAt !== null;
+  const change = (id: string, patch: Partial<WishBlock>) => setBlocks((current) => current.map((block) => (block.id === id ? { ...block, ...patch } : block)));
+  const remove = (id: string) => {
+    setBlocks((current) => current.filter((block) => block.id !== id));
+    setOpen((now) => (now?.id === id ? null : now));
+  };
+  const make = (block: Omit<WishBlock, "id" | "comment">, at?: HTMLElement) => {
+    if (!canMake) return;
+    const id = newId();
+    setBlocks((current) => [...current, { ...block, id, comment: "" }]);
+    if (tourAt !== null) setTourMade(id);
+    if (!quiet) setToOpen({ id, cell: at });
+  };
+
+  /** Open a block's box under a cell of it. */
+  const openAt = (id: string, cell: HTMLElement) => {
     const box = gridBox.current;
     if (!box) return;
-    let key: string;
-    if (week) {
-      const date = dateOf(day);
-      if (!awayOn(date)) return;
-      key = `away:${date}`;
-      // A day marked after one away says the same, until it is told otherwise: a week of leave.
-      if (!awayWhy[date]) {
-        let earlier = isoPlus(date, -1);
-        for (let guard = 0; guard < 6 && !collection.days.includes(isoWeekday(earlier)); guard += 1) earlier = isoPlus(earlier, -1);
-        if (awayOn(earlier) && awayWhy[earlier]) setAwayWhy((current) => ({ ...current, [date]: awayWhy[earlier] }));
-      }
-    } else {
-      const line = lineAt(day, time);
-      if (!line) return;
-      key = line.key;
-    }
     const at = cell.getBoundingClientRect();
     const frame = box.getBoundingClientRect();
-    const width = 288;
-    setOpen({ key, left: Math.max(0, Math.min(at.left - frame.left, frame.width - width)), top: at.bottom - frame.top + 4, cell });
+    const width = 300;
+    setOpen({ id, left: Math.max(0, Math.min(at.left - frame.left, frame.width - width)), top: at.bottom - frame.top + 4, cell });
   };
-  const opener = useRef(openAt);
-  useEffect(() => {
-    opener.current = openAt;
-  });
-  // Opened only once what was painted is on the page, so it is the block as it now stands.
+  // Opened only once it is on the page, in the week shown: under the cell it was made or clicked
+  // on, else under its first cell.
   useEffect(() => {
     if (!toOpen) return;
     setToOpen(null);
-    opener.current(toOpen);
+    const block = blocks.find((each) => each.id === toOpen.id);
+    if (!block) return;
+    const cell =
+      toOpen.cell?.isConnected
+        ? toOpen.cell
+        : gridBox.current?.querySelector<HTMLElement>(`[data-cell="${block.days[0]}:${rowOf(Math.max(block.from, collection.firstHour))}"]`);
+    if (cell) openAt(block.id, cell);
+    // Once, for the block asked for.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [toOpen]);
 
-  // A tour step starts from the form as it is, and from the view it is about.
-  const entering = useRef<(id: string) => void>(() => {});
-  entering.current = (id: string) => {
-    // Only the steps about a pop-over keep one open: come back to an earlier step, and it is closed.
-    const keepsOpen = id === "matters" || id === "mark";
-    if (!keepsOpen) setOpen(null);
-    setTourBase({ painted: cellsKey, away: awayKey, sawOpen: keepsOpen && Boolean(open) });
-    if (id === "paint" || id === "away") {
-      if (week) showWeek(null);
-      if (brush === "erase") setBrush("cant");
-    }
-    if (id === "mark") {
-      if (!week) showWeek(firstWeek());
-      setAwayBrush("away");
-    }
-    if (id === "open") setTourClicked(null);
-    // The block clicked on the step before opens now, growing out of it.
-    if (id === "matters" && tourClicked) {
-      setPopFromTour(true);
-      setToOpen(tourClicked);
-      setTourClicked(null);
-    }
-    // Come to the end, the tour has been taken: the form is free to use.
-    if (id === "save") {
-      rememberTourTaken();
-      setTourRequired(false);
-    }
+  /** The block on the list, shown: its week, and its box open. */
+  const pick = (block: WishBlock) => {
+    if (block.repeat !== "all" && !(block.repeat === "from" && week >= block.week)) setWeek(block.week);
+    setOpen(null);
+    setToOpen({ id: block.id });
   };
-  useEffect(() => {
-    if (tourStepId) entering.current(tourStepId);
-  }, [tourStepId]);
-  // The painting shown while the tour asks for it, until somebody paints: Tuesday from 14:00, three hours.
-  const showDemo = tourStepId === "paint" && cellsKey === tourBase.painted && !stroking;
-  // And where to click, once there is a block: a hand tapping on it.
-  const showTap = tourStepId === "open" && !open && !tourClicked && painted;
-  quietPaint.current = tourStepId === "paint" || tourStepId === "open";
-  clickOpensLater.current = tourStepId === "open";
-  noOpenYet.current = tourStepId === "paint";
-  useLayoutEffect(() => {
-    if (!showDemo && !showTap) {
-      setDemo(null);
+
+  /** A whole day a constraint, this week only, from its name; or that day's own block, if it has one. */
+  const wholeDay = (day: number, header: HTMLElement) => {
+    const there = blocks.find(
+      (block) =>
+        block.repeat === "once" &&
+        block.week === week &&
+        block.kind === "constraint" &&
+        block.days.length === 1 &&
+        block.days[0] === day &&
+        block.from <= collection.firstHour &&
+        block.to >= collection.lastHour,
+    );
+    if (there) {
+      if (tourStepId !== "paint") openAt(there.id, header);
       return;
     }
-    const measure = () => {
-      const box = gridBox.current;
-      let first: Element | null | undefined;
-      let last: Element | null | undefined;
-      if (showTap) {
-        // The cell last painted, else any painted one, by the row it starts.
-        const rowOf = (hour: number) => collection.firstHour + Math.floor((hour - collection.firstHour) / fineness) * fineness;
-        const any = asList.find((cell) => cell.kind === "cant" || cell.kind === "prefer");
-        const at = lastStroke.current && cells.get(`${lastStroke.current.day}:${lastStroke.current.time}`) ? lastStroke.current : any ? { day: any.day, time: rowOf(any.hour) } : null;
-        first = last = at ? box?.querySelector(`[data-cell="${at.day}:${at.time}"]`) : null;
-      } else {
-        const day = collection.days.includes(2) ? 2 : collection.days[Math.min(1, collection.days.length - 1)];
-        const from = Math.max(collection.firstHour, Math.min(14, collection.lastHour - 1));
-        const to = Math.min(from + 3, collection.lastHour);
-        first = box?.querySelector(`[data-cell="${day}:${from}"]`);
-        last = box?.querySelector(`[data-cell="${day}:${to - fineness}"]`);
-      }
-      if (!box || !first || !last) return setDemo(null);
-      const frame = box.getBoundingClientRect();
-      const top = first.getBoundingClientRect();
-      const bottom = last.getBoundingClientRect();
-      setDemo({ left: top.left - frame.left, top: top.top - frame.top, width: top.width, height: bottom.bottom - top.top });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-    // Measured again when the cells change: a block painted, or the cells made finer.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showDemo, showTap, fineness, collection, cellsKey]);
+    make({ kind: "constraint", days: [day], from: collection.firstHour, to: collection.lastHour, repeat: "once", week }, header);
+  };
 
+  // Let go: a press on a block that did not move opens it; any other stroke makes a block.
+  const letGo = useRef<() => void>(() => {});
+  letGo.current = () => {
+    const was = stroke.current;
+    stroke.current = null;
+    setDrag(null);
+    if (!was) return;
+    if (was.on && !was.moved) {
+      // On the tour's painting step, a click on a block is nothing at all: opening it comes next.
+      if (tourStepId === "paint") return;
+      // While the tour teaches clicking, it opens once the tour has said so.
+      if (tourStepId === "open") setTourClicked({ id: was.on.id, cell: was.last.cell });
+      else setToOpen({ id: was.on.id, cell: was.last.cell });
+      return;
+    }
+    const [left, right] = [Math.min(was.from[0], was.to[0]), Math.max(was.from[0], was.to[0])];
+    const [top, bottom] = [Math.min(was.from[1], was.to[1]), Math.max(was.from[1], was.to[1])];
+    make(
+      {
+        kind: was.kind,
+        days: collection.days.slice(left, right + 1),
+        from: collection.firstHour + top * fineness,
+        to: collection.firstHour + (bottom + 1) * fineness,
+        repeat: "all",
+        week: "",
+      },
+      was.last.cell,
+    );
+  };
   useEffect(() => {
-    if (!open) setPopFromTour(false);
-  }, [open]);
-
-  // The block opened while the tour is on how much it matters: closing it is what was to try.
-  useEffect(() => {
-    if (open && (tourStepId === "matters" || tourStepId === "mark")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
-  }, [open, tourStepId]);
-
-  useEffect(() => {
-    const stop = () => {
-      const held = stroke.current;
-      stroke.current = null;
-      setStroking(false);
-      if (held && !held.waiting && held.with_ !== "erase" && held.with_ !== "away") lastStroke.current = { day: held.last.day, time: held.last.time };
-      // A block clicked before the tour teaches it opens nothing; clicked while it does, it opens
-      // once the tour has said so.
-      if (held?.waiting && noOpenYet.current) return;
-      if (held?.waiting && clickOpensLater.current) {
-        setTourClicked(held.last);
-        return;
-      }
-      // Let go: the block painted opens, to say how much it matters. Not after clearing, and not
-      // while the tour is teaching to click it open.
-      if (held && (held.waiting || (held.with_ !== "erase" && !quietPaint.current))) setToOpen(held.last);
-    };
-    window.addEventListener("pointerup", stop);
-    return () => window.removeEventListener("pointerup", stop);
+    const up = () => letGo.current();
+    window.addEventListener("pointerup", up);
+    return () => window.removeEventListener("pointerup", up);
   }, []);
 
   // A press anywhere but the pop-over closes it — caught first, before the dialog keeps it to itself.
@@ -659,107 +633,21 @@ export function WishesForm({
     document.addEventListener("pointerdown", elsewhere, true);
     return () => document.removeEventListener("pointerdown", elsewhere, true);
   }, [open]);
-  // Opened, the pop-over takes the keyboard: on the rank a preference has now, or on why a day is away.
-  const openKey = open?.key;
+  // Opened, the pop-over takes the keyboard: on how the block repeats.
+  const openId = open?.id;
   useEffect(() => {
-    if (openKey) popover.current?.querySelector<HTMLElement>("[role=radio][aria-checked=true], [data-first]")?.focus();
-  }, [openKey]);
+    if (openId) popover.current?.querySelector<HTMLElement>("[data-first]")?.focus();
+  }, [openId]);
 
-  /**
-   * Paint every cell on the way from one cell to another, each cell all its quarters. A quick
-   * drag reaches cells the pointer never stopped on — from 14:00 straight to 17:00 — and those
-   * are painted too. A cell is [its place among the grid's days, its row]. On a single week,
-   * the paint is time away, on that week's dates; a holiday takes none.
-   */
-  const paint = (from: [number, number], to: [number, number], with_: Brush) => {
-    const reached: [number, number][] = [];
-    const steps = Math.max(Math.abs(to[0] - from[0]), Math.abs(to[1] - from[1]));
-    for (let step = 0; step <= steps; step += 1) {
-      const share = steps ? step / steps : 0;
-      reached.push([
-        collection.days[Math.round(from[0] + (to[0] - from[0]) * share)],
-        collection.firstHour + Math.round(from[1] + (to[1] - from[1]) * share) * fineness,
-      ]);
-    }
-    if (week) {
-      setAwayAt((current) => {
-        const next = new Set(current);
-        for (const [day, time] of reached) {
-          const date = isoPlus(week, day - 1);
-          if (holidays.has(date)) continue;
-          for (const hour of quartersOf(time)) {
-            if (with_ === "erase") next.delete(awaySpot(date, hour));
-            else next.add(awaySpot(date, hour));
-          }
-        }
-        return next;
-      });
-      return;
-    }
-    setCells((current) => {
-      const next = new Map(current);
-      for (const [day, time] of reached) {
-        for (const hour of quartersOf(time)) {
-          if (with_ === "erase") next.delete(`${day}:${hour}`);
-          else if (with_ !== "away") next.set(`${day}:${hour}`, with_);
-        }
-      }
-      return next;
-    });
-  };
-
-  /** A whole day away, from its name over the grid — or, all of it away already, not away. */
-  const wholeDay = (day: number, header: HTMLElement) => {
-    const date = dateOf(day);
-    const every = dayQuarters.every((hour) => awayAt.has(awaySpot(date, hour)));
-    setAwayAt((current) => {
-      const next = new Set(current);
-      for (const hour of dayQuarters) {
-        if (every) next.delete(awaySpot(date, hour));
-        else next.add(awaySpot(date, hour));
-      }
-      return next;
-    });
-    if (every) setOpen(null);
-    else setToOpen({ day, time: collection.firstHour, cell: header });
-  };
-
-  /** Not away after all: every quarter of a time away, on each of its days. */
-  const removeAway = (entry: WishAway) => {
-    setAwayAt((current) => {
-      const next = new Set(current);
-      for (let date = entry.from, guard = 0; date <= entry.to && guard < 400; date = isoPlus(date, 1), guard += 1) {
-        for (const hour of dayQuarters) {
-          if (hour >= (entry.start ?? 0) && hour < (entry.end ?? 24)) next.delete(awaySpot(date, hour));
-        }
-      }
-      return next;
-    });
-  };
-
-  /** Take a whole preference off the week: a can't-teach block on each of its days, or every preferred hour. */
-  const removeLine = (line: WishLine) => {
-    setCells((current) => {
-      const next = new Map(current);
-      for (const [key, kind] of current) {
-        const [day, hour] = key.split(":").map(Number);
-        if (line.kind === "prefer" ? kind === "prefer" : line.kind === "cant" && kind === "cant" && line.days.includes(day) && line.from <= hour && hour < line.to) {
-          next.delete(key);
-        }
-      }
-      return next;
-    });
-  };
-
-  const setLevel = (key: string, level: WishLevel) => setLevels((current) => ({ ...current, [key]: level }));
+  const setLimitKind = (name: keyof WishLimits, kind: WishKind) => setLimitKinds((current) => ({ ...current, [name]: kind }));
   const setComment = (key: string, said: string) => setComments((current) => ({ ...current, [key]: said.slice(0, COMMENT_LENGTH) }));
 
   const limitBlock = (name: keyof WishLimits, label: string, options: { value: string; label: string }[]) => {
     const set = Boolean(limits[name]);
     return (
-      <div className="grid content-start gap-1.5">
+      <div className="grid content-start gap-1.5 rounded-lg border border-[#e3e8ef] bg-white px-3 py-2.5">
         <span className="text-xs font-semibold text-[#344054]">{label}</span>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 max-w-xs flex-1">
             <SelectMenu
               label={label}
@@ -768,15 +656,7 @@ export function WishesForm({
               options={[{ value: NONE, label: "No limit" }, ...options]}
             />
           </div>
-          {set ? (
-            <LevelToggle
-              name={`${label}: how much it matters`}
-              level={levelOf(name)}
-              full={full}
-              quota={collection.mustQuota}
-              onChange={(level) => setLevel(name, level)}
-            />
-          ) : null}
+          {set ? <KindToggle name={`${label}: constraint or preference`} kind={limitKinds[name] ?? "preference"} onChange={(kind) => setLimitKind(name, kind)} /> : null}
         </div>
         {set ? (
           <input
@@ -794,82 +674,65 @@ export function WishesForm({
   const counts = (from: number, to: number, unit: string) =>
     Array.from({ length: to - from + 1 }, (_, index) => ({ value: String(from + index), label: `${from + index} ${unit}${from + index === 1 ? "" : "s"}` }));
 
+  const goTo = (next: number) => {
+    setOpen(null);
+    setProblem("");
+    setPage(next);
+    const top = root.current?.getBoundingClientRect().top ?? 0;
+    if (top < 0) root.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  };
+
   const submit = (finished: boolean) => {
     setProblem("");
     if (finished && overCap && !reason.trim()) {
-      // The reason is asked for under the usual week: back to it.
-      showWeek(null);
-      setProblem(`Say why ${cant} hours can't be taught, over the ${collection.cantCap} a week, or mark fewer.`);
+      // The reason is asked for under the calendar: back to it.
+      goTo(0);
+      setProblem(`That's ${cant} hours a week of constraints, over the ${collection.cantCap}: say why under the calendar, or mark fewer.`);
       return;
     }
+    const set = LIMIT_NAMES.filter((name) => limits[name]);
     onSave({
-      cells: asList,
+      blocks: blocks.map((block) => ({ ...block, comment: block.comment.trim() })),
       limits,
-      away,
+      limitKinds: Object.fromEntries(set.map((name) => [name, limitKinds[name] ?? "preference"])),
+      comments: Object.fromEntries(set.filter((name) => (comments[name] ?? "").trim()).map((name) => [name, comments[name].trim()])),
       needs,
       note,
-      levels: Object.fromEntries(lines.map((line) => [line.key, levelOf(line.key)])),
-      comments: Object.fromEntries(
-        lines.filter((line) => (comments[line.key] ?? "").trim()).map((line) => [line.key, comments[line.key].trim()]),
-      ),
       overCapReason: overCap ? reason : "",
       submit: finished,
     });
   };
 
-  const openLine = open ? lines.find((line) => line.key === open.key) : undefined;
-  const openDate = open?.key.startsWith("away:") ? open.key.slice(5) : "";
-  // The block lit up: the one open, the one being painted, else the one the pointer rests on.
-  const strokeAt = stroking ? stroke.current?.last : undefined;
-  const litKey = week
-    ? undefined
-    : (open?.key ??
-      (tourClicked ? lineAt(tourClicked.day, tourClicked.time)?.key : undefined) ??
-      (strokeAt ? lineAt(strokeAt.day, strokeAt.time)?.key : resting ? lineAt(resting.day, resting.time)?.key : undefined));
-  // On a single week, the day away open or rested on lights up.
-  const litDate = week ? openDate || (resting ? dateOf(resting.day) : "") : "";
-  const yours = voice === "you" ? "your" : "their";
-  // What the bubble says, for the cell the pointer rests on: its painted block, or its time away.
-  const restingLine = !week && resting ? lineAt(resting.day, resting.time) : null;
-  const restingDate = week && resting ? dateOf(resting.day) : "";
-  const restingAway = restingDate
-    ? away.find(
-        (entry) =>
-          entry.from <= restingDate &&
-          restingDate <= entry.to &&
-          (entry.start ?? 0) < resting!.time + fineness &&
-          resting!.time < (entry.end ?? 24),
-      )
-    : undefined;
-  const bubbleTitle = restingAway ? `Away · ${awayWords(restingAway)}` : restingLine ? describeLine(restingLine) : undefined;
-  const restingComment = restingLine ? comments[restingLine.key] : "";
-  const bubble = restingAway ? (
-    <>
-      {restingAway.reason ? <span className="mb-1.5 block">&ldquo;{restingAway.reason}&rdquo;</span> : null}
-      <TipDo>Click to say why, or remove</TipDo>
-    </>
-  ) : restingLine ? (
-    <>
-      <span className="mb-1.5 block">
-        <b className="font-semibold text-[#344054]">{levelOf(restingLine.key) === "must" ? "Must" : "Would like"}</b>
-        {restingComment ? <> · &ldquo;{restingComment}&rdquo;</> : null}
-      </span>
-      <TipDo>Click to set Must / Would like, comment or remove</TipDo>
-      {restingLine.kind === "cant" && restingLine.days.length > 1 ? (
-        <span className="block text-[#667085]">
-          The whole block, on {restingLine.days.map((each) => DAY_SHORT[each]).join(" and ")}: one preference.
-        </span>
-      ) : null}
-    </>
-  ) : null;
+  const openBlock = open ? blocks.find((block) => block.id === open.id) : undefined;
+  // The block lit up: the one open, clicked in the tour, hovered in the list, or under the pointer.
+  const litId = open?.id ?? tourClicked?.id ?? hovered ?? (resting && !drag ? blockAt(resting.day, resting.time)?.id : undefined);
+  const restingBlock = resting && !drag ? blockAt(resting.day, resting.time) : null;
+  const inDrag = (column: number, row: number) =>
+    drag !== null &&
+    column >= Math.min(drag.from[0], drag.to[0]) &&
+    column <= Math.max(drag.from[0], drag.to[0]) &&
+    row >= Math.min(drag.from[1], drag.to[1]) &&
+    row <= Math.max(drag.from[1], drag.to[1]);
 
   // ---------------------------------------------------------------- the guided tour
   const part = (name: string) => root.current?.querySelector(`[data-tour="${name}"]`) ?? null;
-  const parts = (name: string) => [...(root.current?.querySelectorAll(`[data-tour="${name}"]`) ?? [])];
+  const tourFrom = useRef<{
+    said: string;
+    week: string;
+    blocks: WishBlock[];
+    limits: WishLimits;
+    limitKinds: Wishes["limitKinds"];
+    comments: Record<string, string>;
+    needs: string;
+    note: string;
+    reason: string;
+  } | null>(null);
   const tried = tourFrom.current !== null && current !== tourFrom.current.said;
   const startTour = () => {
-    tourFrom.current = { said: current, cells, limits, awayAt, awayWhy, needs, note, levels, comments, reason };
+    tourFrom.current = { said: current, week, blocks, limits, limitKinds, comments, needs, note, reason };
     setOpen(null);
+    setTourMade("");
+    setTourClicked(null);
     setTourAt(0);
   };
   // Not taken yet in this browser: it starts as the form opens, and the form waits for it.
@@ -882,29 +745,95 @@ export function WishesForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   const endTour = () => {
+    const from = tourFrom.current;
     tourFrom.current = null;
     setTourAt(null);
-    showWeek(null);
+    setTourClicked(null);
+    setOpen(null);
+    setPage(0);
+    if (from) setWeek(from.week);
   };
   const clearTried = () => {
     const from = tourFrom.current;
     if (from) {
-      setCells(from.cells);
+      setBlocks(from.blocks);
       setLimits(from.limits);
-      setAwayAt(from.awayAt);
-      setAwayWhy(from.awayWhy);
+      setLimitKinds(from.limitKinds);
+      setComments(from.comments);
       setNeeds(from.needs);
       setNote(from.note);
-      setLevels(from.levels);
-      setComments(from.comments);
       setReason(from.reason);
     }
     endTour();
   };
-  const saveWords =
-    voice === "you"
-      ? "Save a draft to come back to it, or Submit when you're done. You can change your answer until the deadline."
-      : "Save a draft to come back to it, or Submit when it's complete. It's kept as entered by you.";
+
+  // A tour step starts from the form as it is, on the page it is about.
+  const entering = useRef<(id: string) => void>(() => {});
+  entering.current = (id: string) => {
+    // Only the step about the box keeps one open: come back to an earlier step, and it is closed.
+    const keepsOpen = id === "repeat";
+    if (!keepsOpen) setOpen(null);
+    setTourBase({ week, sawOpen: keepsOpen && Boolean(open) });
+    setPage(id === "limits" || id === "save" ? 1 : 0);
+    if (id === "open") setTourClicked(null);
+    // The block clicked on the step before opens now, growing out of it.
+    if (id === "repeat" && tourClicked) {
+      setPopFromTour(true);
+      setToOpen(tourClicked);
+      setTourClicked(null);
+    }
+    // Come to the end, the tour has been taken: the form is free to use.
+    if (id === "save") {
+      rememberTourTaken();
+      setTourRequired(false);
+    }
+  };
+  useEffect(() => {
+    if (tourStepId) entering.current(tourStepId);
+  }, [tourStepId]);
+  useEffect(() => {
+    if (!open) setPopFromTour(false);
+  }, [open]);
+  // The box opened while the tour is on how a block repeats: closing it is what was to try.
+  useEffect(() => {
+    if (open && tourStepId === "repeat") setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
+  }, [open, tourStepId]);
+
+  // The painting shown while the tour asks for it, until somebody paints: Tuesday from 14:00, three hours.
+  const showDemo = tourStepId === "paint" && !tourMade && !drag;
+  // And where to click, once there is a block: a hand tapping on it.
+  const tapOn = tourStepId === "open" && !open && !tourClicked ? (blocks.find((block) => block.id === tourMade && held.has(`${block.days[0]}:${block.from}`)) ?? [...held.values()][0]) : undefined;
+  useLayoutEffect(() => {
+    if (!showDemo && !tapOn) {
+      setDemo(null);
+      return;
+    }
+    const measure = () => {
+      const box = gridBox.current;
+      let first: Element | null | undefined;
+      let last: Element | null | undefined;
+      if (tapOn) {
+        first = last = box?.querySelector(`[data-cell="${tapOn.days[0]}:${rowOf(Math.max(tapOn.from, collection.firstHour))}"]`);
+      } else {
+        const day = collection.days.includes(2) ? 2 : collection.days[Math.min(1, collection.days.length - 1)];
+        const from = Math.max(collection.firstHour, Math.min(14, collection.lastHour - 1));
+        const to = Math.min(from + 3, collection.lastHour);
+        first = box?.querySelector(`[data-cell="${day}:${from}"]`);
+        last = box?.querySelector(`[data-cell="${day}:${to - fineness}"]`);
+      }
+      if (!box || !first || !last) return setDemo(null);
+      const frame = box.getBoundingClientRect();
+      const top = first.getBoundingClientRect();
+      const bottom = last.getBoundingClientRect();
+      setDemo({ left: top.left - frame.left, top: top.top - frame.top, width: top.width, height: bottom.bottom - top.top });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Measured again when the cells change: a block made, the cells made finer, another week.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showDemo, tapOn?.id, fineness, collection, week, page]);
+
   const tourButton = (
     <button
       type="button"
@@ -915,101 +844,109 @@ export function WishesForm({
       <Compass size={14} aria-hidden="true" /> Guided tour
     </button>
   );
+  const saveWords =
+    voice === "you"
+      ? "Save draft, on every page, keeps your answer to come back to. Submit is on the last page, after Needs; you can change your answer until the deadline."
+      : "Save draft, on every page, keeps it to come back to. Submit is on the last page, after Needs. It's kept as entered by you.";
   const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
     {
       id: "paint",
-      title: "Paint the week",
+      title: "Mark a time",
       body: (
         <>
           {tourRequired ? (
             <span className="mb-1.5 block">Before you start: a one-minute tour, trying each part as you go. You can clear it all at the end.</span>
           ) : null}
-          Pick <BrushLook value="cant" /> or <BrushLook value="prefer" />, then paint across the hours. Hours left white are fine.
+          Pick <KindLook kind="constraint" /> for hours {voice === "you" ? "you" : "they"} can&rsquo;t teach, or <KindLook kind="preference" /> for
+          hours {voice === "you" ? "you'd" : "they'd"} like to. Then drag across the hours, and across days if you like. Hours left white are fine.
+          {tourMade ? <span className="mt-1.5 block font-semibold text-[#1f4e79]">One block is enough for the tour: add more after it.</span> : null}
         </>
       ),
       tryIt: "Drag down a few hours on any day.",
-      done: cellsKey !== tourBase.painted && !stroking,
+      done: Boolean(tourMade) && !drag,
       target: () => [part("toolbar"), gridBox.current],
     },
     {
       id: "open",
       title: "Open a block",
-      body: <>Click a painted block to open its box: there you say how much it matters, write a comment, or remove it.</>,
-      tryIt: painted ? "Click the block you painted." : "Paint a few hours, then click them.",
-      done: Boolean(tourClicked || (open && openLine)),
+      body: <>Click a block to open its box: there you choose how it repeats, switch between constraint and preference, add a comment, or remove it.</>,
+      tryIt: "Click the block you made.",
+      done: Boolean(tourClicked || (open && openBlock)),
       doneWords: "Nicely done: opening it…",
       // Clicked: a moment to see the block chosen, then it opens and the tour goes on by itself.
       autoNext: 2000,
       target: () => gridBox.current,
     },
     {
-      id: "matters",
-      title: "How much it matters",
+      id: "repeat",
+      title: "How it repeats",
       body: (
         <>
-          {open && openLine ? <span className="mb-1.5 block font-semibold text-[#1f4e79]">Your click opened this box.</span> : null}
-          Choose <b>Must</b> or <b>Would like</b>, and watch the block: solid for a Must, striped for a Would like. Only{" "}
-          {collection.mustQuota} can be Musts, so keep them for what really counts. Then type in the <b>Comment</b> box why it
-          matters, e.g. &ldquo;School run&rdquo;: the coordinator sees it.
+          {open && openBlock ? <span className="mb-1.5 block font-semibold text-[#1f4e79]">Your click opened this box.</span> : null}
+          A new block repeats <b>every week</b>. Choose <b>from this week on</b> for a change partway through the semester, or <b>this week only</b>{" "}
+          for a one-off, like a conference. Then type in the <b>Comment</b> box why, e.g. &ldquo;School run&rdquo;: the coordinator sees it.
         </>
       ),
-      tryIt: open && openLine ? "Choose Must or Would like, write a comment if you like, then press Done." : painted ? "Click a painted block to open it again." : "Paint a few hours, then click them.",
+      tryIt: open && openBlock ? "Choose how it repeats, write a comment if you like, then press Done." : "Click your block to open it again.",
       done: tourBase.sawOpen && !open,
       // Done pressed: straight on.
       instantNext: true,
-      // The whole calendar with the box, to see the block change as Must or Would like is chosen.
+      // The whole calendar with the box, to see the block change as it is chosen.
       target: () => [part("toolbar"), gridBox.current, open ? popover.current : null],
-      pointAt: () => popover.current?.querySelector('[role="radiogroup"]'),
-      // Beside the switch, outside its box: over it would cover the box's words.
+      pointAt: () => popover.current?.querySelector('[aria-label="How it repeats"]'),
+      // Beside the choice, outside its box: over it would cover the box's words.
       pointFrom: "left",
     },
     {
-      id: "away",
-      title: "Away on some dates?",
-      body: <>A conference or a few days&rsquo; leave go on the weeks they fall in, not on the usual week. Switch, and watch the calendar turn into one week with its dates.</>,
-      tryIt: (
-        <>
-          Switch to <b>Week by week</b>.
-        </>
-      ),
-      done: Boolean(week),
+      id: "weeks",
+      title: "Move between weeks",
+      body: <>The calendar shows one teaching week at a time, with its dates. A block that repeats shows on every week it is in; a one-week block, only on its week.</>,
+      tryIt: <>Go to {after_ ? "the next" : "the week before"} with the arrow, and watch the calendar.</>,
+      done: week !== tourBase.week,
       instantNext: true,
-      target: () => [part("which-week"), part("toolbar"), gridBox.current],
-      pointAt: () => part("which-week")?.querySelectorAll('[role="radio"]')[1],
+      target: () => [part("toolbar"), gridBox.current],
+      pointAt: () => part(after_ || !before_ ? "week-after" : "week-before"),
     },
     {
-      id: "mark",
-      title: "Mark the time away",
-      body: <>Find the week with the arrows. Paint the hours away, or click a day&rsquo;s name for all of it, and say why if you like.</>,
-      tryIt: open ? "Say why, if you like, then press Done." : "Click a day's name.",
-      // Marked, its box opened (to say why) and closed: a mark alone is a moment before its box opens.
-      done: awayKey !== tourBase.away && tourBase.sawOpen && !open && !stroking,
-      instantNext: true,
-      target: () => [part("which-week"), part("toolbar"), gridBox.current, open ? popover.current : null],
-      pointAt: () =>
-        open ? popover.current?.querySelector("input") : gridBox.current?.querySelector('thead button[aria-label$="mark away all day"]'),
-      pointFrom: "left",
-    },
-    {
-      id: "listed",
-      title: "Your time away",
+      id: "day",
+      title: "Away for a day?",
       body: (
         <>
-          Every time away shows in this list, with its reason. Click one to go back to its week; <b>×</b> takes it off.
-          <span className="mt-1.5 block">
-            You can switch between <WeekSwitchLook /> at any time.
-          </span>
+          A conference or a day&rsquo;s leave: click the day&rsquo;s name over the calendar, and the whole day becomes a <KindLook kind="constraint" /> for that
+          week only. Say why in its box. Not now: the tour keeps to one block.
         </>
       ),
+      target: () => [part("toolbar"), gridBox.current],
+      pointAt: () => gridBox.current?.querySelector('thead button[data-day-name]'),
+    },
+    {
+      id: "summary",
+      title: "Summary of constraints and preferences",
+      body: <>Everything marked is listed under the calendar, constraints then preferences, with how each repeats and why. Click one to go to its week and open it.</>,
       // The light grows from the calendar to take in the list under it.
-      target: () => [part("which-week"), part("toolbar"), gridBox.current, part("away-list")],
-      pointAt: () => part("away-list"),
+      target: () => [gridBox.current, part("summary")],
+      pointAt: () => part("summary"),
       pointFrom: "left",
+    },
+    {
+      id: "next",
+      title: "Two more pages",
+      body: <>Next come limits on {yours} week, then needs and a note. Back brings the calendar again, as it was left.</>,
+      tryIt: "Press Next.",
+      done: page >= 1,
+      instantNext: true,
+      target: () => part("nav"),
+      pointAt: () => part("next"),
     },
     {
       id: "limits",
-      title: "Limits and needs",
-      body: <>All optional: the most days on campus, hours in a day, a day off. Each one set is a preference too. Room needs and a note go just below.</>,
+      title: `Limits on ${yours} week`,
+      body: (
+        <>
+          All optional: the most days on campus, hours in a day or in a row, a day free. Each one set is a <KindLook kind="preference" /> unless you make it a{" "}
+          <KindLook kind="constraint" />.
+        </>
+      ),
       target: () => part("limits"),
     },
     {
@@ -1023,7 +960,7 @@ export function WishesForm({
       ) : (
         saveWords
       ),
-      target: () => parts("save"),
+      target: () => part("nav"),
       actions: tried
         ? [
             { label: "Clear what I tried", onClick: clearTried },
@@ -1032,6 +969,27 @@ export function WishesForm({
         : undefined,
     },
   ];
+
+  const PAGES = [`${Yours} week`, "Limits", "Needs and a note"];
+  const repeatChoices = (block: WishBlock): { value: WishRepeat; label: string; hint: string }[] => {
+    const fromWeek = block.repeat === "from" ? block.week : week;
+    const onceWeek = block.repeat === "once" ? block.week : week;
+    return [
+      { value: "all", label: "Every week", hint: "The whole semester" },
+      { value: "from", label: `Every week from ${weekShort(fromWeek)}`, hint: "From that week to the end" },
+      { value: "once", label: "This week only", hint: weekName(onceWeek) },
+    ];
+  };
+  const setRepeat = (block: WishBlock, repeat: WishRepeat) => {
+    const weekFor = repeat === "all" ? "" : repeat === block.repeat ? block.week : week;
+    change(block.id, { repeat, week: weekFor });
+  };
+  const closeBox = () => {
+    if (!open) return;
+    const cell = open.cell;
+    setOpen(null);
+    if (cell.isConnected) cell.focus();
+  };
 
   return (
     <div ref={root} className="space-y-4">
@@ -1062,80 +1020,63 @@ export function WishesForm({
         </div>
       ) : null}
 
-      {/* -------------------------------------------------------------- their week */}
-      <section aria-label={voice === "you" ? "Your week" : "Their week"} className={section}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <SectionTitle number={1}>{voice === "you" ? "Your" : "Their"} week</SectionTitle>
-          <div role="radiogroup" aria-label="Which week" data-tour="which-week" className="inline-flex rounded-md bg-[#f2f4f7] p-0.5 text-xs font-semibold">
-            {[
-              { value: false, label: "Every week" },
-              { value: true, label: "Week by week" },
-            ].map((option) => (
-              <button
-                key={option.label}
-                type="button"
-                role="radio"
-                aria-checked={Boolean(week) === option.value}
-                onClick={() => {
-                  if (Boolean(week) !== option.value) showWeek(option.value ? firstWeek() : null);
-                }}
-                className={`rounded px-2.5 py-1 ${Boolean(week) === option.value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+      {/* -------------------------------------------------------------- which page */}
+      <ol data-tour="stepper" aria-label="Parts of the form" className="flex flex-wrap items-center gap-1.5">
+        {PAGES.map((title, index) => (
+          <li key={title} className="flex items-center gap-1.5">
+            {index ? <span aria-hidden="true" className="h-px w-5 bg-[#c8d0db]" /> : null}
+            <button
+              type="button"
+              aria-current={page === index ? "step" : undefined}
+              onClick={() => goTo(index)}
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                page === index ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+              }`}
+            >
+              <span
+                aria-hidden="true"
+                className={`grid h-4 w-4 place-items-center rounded-full text-[10px] ${page === index ? "bg-white text-[#1f4e79]" : index < page ? "bg-[#e7f4ec] text-[#2e7d55]" : "bg-[#eef1f5] text-[#667085]"}`}
               >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {week ? (
-          <HowTo
-            steps={[
-              { icon: CalendarRange, title: "Find the week", hint: "With the arrows, or from the list" },
-              { icon: Paintbrush, title: "Paint the hours away", hint: "Or click a day's name for all of it" },
-              { icon: MessageSquareText, title: "Say why", hint: "A conference, leave… (optional)" },
-            ]}
-          >
-            <button
-              type="button"
-              onClick={() => showWeek(null)}
-              className="inline-flex items-center gap-1.5 self-center rounded-lg px-2.5 py-2 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa]"
-            >
-              Back to every week
-            </button>
-          </HowTo>
-        ) : (
-          <HowTo
-            steps={[
-              { icon: Paintbrush, title: "Pick a colour", hint: "Red: can't teach · green: would rather" },
-              { icon: MoveDown, title: "Drag across the hours", hint: "Hours left white are fine" },
-              { icon: MousePointerClick, title: "Say how much it matters", hint: "It opens when you let go; click a block to change it" },
-            ]}
-          >
-            <button
-              type="button"
-              onClick={() => showWeek(firstWeek())}
-              className="flex flex-col items-start justify-center gap-0.5 rounded-lg border border-dashed border-[#c9b8e3] bg-[#faf8fd] px-3 py-2 text-left hover:bg-[#f5f1fa]"
-            >
-              <span className="text-[11px] text-[#6b4fa0]">Away on some dates?</span>
-              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#6b4fa0]">
-                Week by week <ArrowRight size={12} aria-hidden="true" />
+                {index < page ? <Check size={10} strokeWidth={3} /> : index + 1}
               </span>
+              {title}
             </button>
+          </li>
+        ))}
+      </ol>
+
+      {/* -------------------------------------------------------------- the week */}
+      {page === 0 ? (
+        <section aria-label={`${Yours} week`} className={section}>
+          <h3 className="text-sm font-semibold text-[#171717]">{Yours} week</h3>
+          <HowTo
+            steps={[
+              { icon: Paintbrush, title: "Pick Constraint or Preference", hint: `Red: ${meaning("constraint", voice)} · green: ${meaning("preference", voice)}` },
+              { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
+              { icon: Repeat, title: "Choose how it repeats", hint: "Every week, from a week on, or one week only" },
+            ]}
+          >
+            <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
+              <span className="text-[11px] text-[#a6292f]">Away for a day?</span>
+              <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
+                <CalendarX2 size={12} aria-hidden="true" /> Click its name
+              </span>
+            </div>
           </HowTo>
-        )}
-        <div data-tour="toolbar" className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-          {week ? (
+          <div data-tour="toolbar" className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
             <div className="flex items-center gap-1">
               <button
                 type="button"
+                data-tour="week-before"
                 aria-label="The week before"
                 disabled={!before_}
                 onClick={() => before_ && showWeek(before_)}
-                className="rounded p-1 text-[#344054] hover:bg-[#f2f4f7] disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
+                className="rounded p-1 text-[#344054] hover:bg-white disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
               >
                 <ChevronLeft size={16} aria-hidden="true" />
               </button>
               {weeks.length ? (
-                <div className="w-56">
+                <div className="w-72">
                   <SelectMenu
                     label="Week"
                     size="small"
@@ -1146,7 +1087,7 @@ export function WishesForm({
                       ...weeks.map((each) => ({
                         value: each.monday,
                         label: weekName(each.monday),
-                        badge: awayWeeks.has(each.monday) ? "away" : undefined,
+                        badge: ownWeeks.get(each.monday) ? `${ownWeeks.get(each.monday)} own` : undefined,
                       })),
                     ]}
                   />
@@ -1156,629 +1097,473 @@ export function WishesForm({
               )}
               <button
                 type="button"
+                data-tour="week-after"
                 aria-label="The week after"
                 disabled={!after_}
                 onClick={() => after_ && showWeek(after_)}
-                className="rounded p-1 text-[#344054] hover:bg-[#f2f4f7] disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
+                className="rounded p-1 text-[#344054] hover:bg-white disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
               >
                 <ChevronRight size={16} aria-hidden="true" />
               </button>
             </div>
-          ) : null}
-          <div role="radiogroup" aria-label="Paint with" className="flex flex-wrap gap-1.5">
-            {(week ? AWAY_BRUSHES : BRUSHES).map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={brushNow === option.value}
-                onClick={() => (week ? setAwayBrush(option.value as "away" | "erase") : setBrush(option.value))}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                  brushNow === option.value ? option.on : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+            <div role="radiogroup" aria-label="Mark as" className="flex flex-wrap gap-1.5">
+              {KINDS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={brush === option.value}
+                  onClick={() => setBrush(option.value)}
+                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    brush === option.value ? option.on : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                  }`}
+                >
+                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={KIND_TONE[option.value]} /> {option.label}
+                </button>
+              ))}
+            </div>
+            <div role="radiogroup" aria-label="Cells" className="inline-flex rounded-md bg-white/70 p-0.5 text-xs font-semibold">
+              {FINENESS.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="radio"
+                  aria-checked={fineness === option.value}
+                  onClick={() => setFineness(option.value)}
+                  className={`rounded px-2 py-0.5 ${fineness === option.value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <Tip
+              side="bottom"
+              wide={false}
+              content={`Hours a week marked as constraints that repeat; a one-week block is not counted. Over ${collection.cantCap}, say why for the coordinator.`}
+            >
+              <span
+                aria-label={`Constraints: ${cant} of ${collection.cantCap} hours a week`}
+                className={`ml-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs tabular-nums ${
+                  overCap ? "border-[#e8b4b7] bg-[#fdf3f3] text-[#a6292f]" : "border-[#e3e8ef] bg-white text-[#475467]"
                 }`}
               >
-                <span className="inline-block h-2.5 w-2.5 rounded-sm" style={option.swatch} /> {option.label}
-              </button>
-            ))}
-          </div>
-          <div role="radiogroup" aria-label="Cells" className="inline-flex rounded-md bg-[#f2f4f7] p-0.5 text-xs font-semibold">
-            {FINENESS.map((option) => (
-              <button
-                key={option.value}
-                type="button"
-                role="radio"
-                aria-checked={fineness === option.value}
-                onClick={() => setFineness(option.value)}
-                className={`rounded px-2 py-0.5 ${fineness === option.value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-          {week ? null : (
-            <span className="ml-auto flex flex-wrap items-center gap-2 text-xs tabular-nums">
-              <Tip
-                side="bottom"
-                wide={false}
-                content={`At most ${collection.mustQuota} preferences can be a Must: keep them for what really counts.`}
-              >
-                <span
-                  aria-label={`${musts} of ${collection.mustQuota} Musts used`}
-                  className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 ${
-                    full ? "border-[#b9cde3] bg-[#eef4fa] text-[#1f4e79]" : "border-[#e3e8ef] bg-white text-[#475467]"
-                  }`}
-                >
-                  <span className="font-semibold">Musts</span>
-                  <span className="flex items-center gap-1" aria-hidden="true">
-                    {Array.from({ length: collection.mustQuota }, (_, index) => (
-                      <span
-                        key={index}
-                        className={`h-2 w-2 rounded-full ${index < musts ? "bg-[#a6292f]" : "border border-[#c8d0db] bg-white"}`}
-                      />
-                    ))}
-                  </span>
-                  <span aria-hidden="true">
-                    {musts}/{collection.mustQuota}
-                  </span>
+                <span className="font-semibold">Constraints</span>
+                <span className="relative h-1.5 w-14 overflow-hidden rounded-full bg-[#eef1f5]" aria-hidden="true">
+                  <span
+                    className={`absolute inset-y-0 left-0 rounded-full motion-safe:transition-[width] ${overCap ? "bg-[#a6292f]" : "bg-[#d9646a]"}`}
+                    style={{ width: `${collection.cantCap ? Math.min(100, (cant / collection.cantCap) * 100) : cant ? 100 : 0}%` }}
+                  />
                 </span>
-              </Tip>
-              <Tip
-                side="bottom"
-                wide={false}
-                content={`Hours a week painted can't teach. Over ${collection.cantCap}, say why for the coordinator.`}
-              >
-                <span
-                  aria-label={`Can't teach: ${cant} of ${collection.cantCap} hours a week`}
-                  className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 ${
-                    overCap ? "border-[#e8b4b7] bg-[#fdf3f3] text-[#a6292f]" : "border-[#e3e8ef] bg-white text-[#475467]"
-                  }`}
-                >
-                  <span className="font-semibold">Can&rsquo;t teach</span>
-                  <span className="relative h-1.5 w-14 overflow-hidden rounded-full bg-[#eef1f5]" aria-hidden="true">
-                    <span
-                      className={`absolute inset-y-0 left-0 rounded-full motion-safe:transition-[width] ${overCap ? "bg-[#a6292f]" : "bg-[#d9646a]"}`}
-                      style={{ width: `${collection.cantCap ? Math.min(100, (cant / collection.cantCap) * 100) : cant ? 100 : 0}%` }}
-                    />
-                  </span>
-                  <span aria-hidden="true">
-                    {cant} / {collection.cantCap} h{overCap ? " · over" : ""}
-                  </span>
+                <span aria-hidden="true">
+                  {cant} / {collection.cantCap} h a week{overCap ? " · over" : ""}
                 </span>
-              </Tip>
-            </span>
-          )}
-        </div>
-        <div ref={gridBox} className="relative mt-3">
-          <div className="overflow-x-auto pt-1.5">
-            <table
-              className="w-full table-fixed border-collapse select-none text-[11px]"
-              aria-label={week ? `${weekName(week)}: time away` : "The week"}
-            >
-              <thead>
-                <tr>
-                  <th className="w-12" />
-                  {collection.days.map((day) => {
-                    if (!week) {
-                      return (
-                        <th key={day} className="pb-1 font-semibold text-[#344054]">
-                          {DAY_SHORT[day]}
-                        </th>
-                      );
-                    }
-                    const date = dateOf(day);
-                    const holiday = holidays.get(date);
-                    const allDay = dayQuarters.every((hour) => awayAt.has(awaySpot(date, hour)));
-                    return (
-                      <th key={day} className="pb-1 align-bottom font-semibold text-[#344054]">
-                        {holiday !== undefined ? (
-                          <span className="block leading-tight">
-                            {DAY_SHORT[day]} <span className="font-normal text-[#667085]">{formatDayAndMonth(date)}</span>
-                            <span className="block text-[10px] font-normal text-[#98a2b3]">{holiday || "Holiday"}</span>
-                          </span>
-                        ) : (
-                          <Tip
-                            side="top"
-                            wide={false}
-                            content={allDay ? "Click: not away this day after all." : `Click: away all ${DAY_NAMES[day]}.`}
-                          >
-                            <button
-                              type="button"
-                              aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)}: ${allDay ? "away all day" : "mark away all day"}`}
-                              aria-pressed={allDay}
-                              onClick={(event) => wholeDay(day, event.currentTarget)}
-                              className={`rounded px-1.5 py-0.5 hover:bg-[#f5f1fa] hover:text-[#6b4fa0] ${allDay ? "bg-[#f5f1fa] text-[#6b4fa0]" : ""}`}
-                            >
-                              {DAY_SHORT[day]} <span className="font-normal">{formatDayAndMonth(date)}</span>
-                            </button>
-                          </Tip>
-                        )}
-                      </th>
-                    );
-                  })}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((time, row) => (
-                  <tr key={time}>
-                    <th className="pr-1.5 text-right align-top font-normal tabular-nums leading-none">
-                      <RowTime time={time} size={fineness} />
-                    </th>
-                    {collection.days.map((day, column) => {
-                      const here: [number, number] = [column, row];
+              </span>
+            </Tip>
+          </div>
+          <div ref={gridBox} className="relative mt-3">
+            <div className="overflow-x-auto rounded-md bg-white pt-1.5">
+              <table className="w-full table-fixed border-collapse select-none text-[11px]" aria-label={weekName(week)}>
+                <thead>
+                  <tr>
+                    <th className="w-12" />
+                    {collection.days.map((day) => {
                       const date = dateOf(day);
-                      const holiday = week ? holidays.has(date) : false;
-                      const quarters = quartersOf(time).map((hour) => {
-                        const kind = cells.get(`${day}:${hour}`);
-                        const line = kind ? lineOfCell(lines, day, hour, kind) : null;
-                        const isAway = week ? awayAt.has(awaySpot(date, hour)) : false;
-                        return { hour, kind, line, isAway, level: line ? levelOf(line.key) : ("would" as WishLevel) };
-                      });
-                      const painted = quarters.filter((quarter) => quarter.kind);
-                      const line = painted[0]?.line ?? null;
-                      const awayHere = quarters.some((quarter) => quarter.isAway);
-                      const same = painted.length === quarters.length && painted.every((quarter) => quarter.kind === painted[0].kind);
-                      const said = week
-                        ? holiday
-                          ? "holiday"
-                          : awayHere
-                            ? "away"
-                            : "not away"
-                        : !painted.length
-                          ? "fine"
-                          : !same
-                            ? "partly painted"
-                            : `${painted[0].kind === "cant" ? "can't teach" : "would rather"}, ${painted[0].level === "must" ? "a Must" : "a Would like"}`;
-                      // What the cell holds, to open: a painted block, or on a single week, a day away.
-                      const holds = week ? awayHere : Boolean(line);
-                      const button = (
-                        <button
-                          type="button"
-                          disabled={holiday}
-                          data-cell={`${day}:${time}`}
-                          aria-label={`${DAY_NAMES[day]}${week ? ` ${formatDayAndMonth(date)}` : ""} ${clockOf(time)}: ${said}`}
-                          aria-haspopup={holds ? "dialog" : undefined}
-                          onPointerDown={(event) => {
-                            event.preventDefault();
-                            // On the tour's painting step a press on a block is nothing at all:
-                            // opening it is the next step, and painting starts on a white hour.
-                            if (holds && brushNow !== "erase" && noOpenYet.current) return;
-                            const last = { day, time, cell: event.currentTarget };
-                            setStroking(true);
-                            setResting(null);
-                            if (holds && brushNow !== "erase") {
-                              // Let go here and it opens; drag on and it paints from here.
-                              stroke.current = { with_: brushNow, at: here, last, waiting: true };
-                              return;
-                            }
-                            stroke.current = { with_: brushNow, at: here, last, waiting: false };
-                            paint(here, here, brushNow);
-                          }}
-                          onPointerEnter={(event) => {
-                            const held = stroke.current;
-                            if (!held) {
-                              // Where the cell sits in the grid, for the one bubble to open beside it.
-                              const at = event.currentTarget.getBoundingClientRect();
-                              const frame = gridBox.current?.getBoundingClientRect();
-                              setResting({
-                                day,
-                                time,
-                                box: { left: at.left - (frame?.left ?? 0), top: at.top - (frame?.top ?? 0), width: at.width, height: at.height },
-                              });
-                              return;
-                            }
-                            held.waiting = false;
-                            paint(held.at, here, held.with_);
-                            held.at = here;
-                            held.last = { day, time, cell: event.currentTarget };
-                          }}
-                          onPointerLeave={() => setResting((current) => (current?.day === day && current.time === time ? null : current))}
-                          onClick={(event) => {
-                            // Enter or Space on a cell: the pointer acts on press, the keyboard here.
-                            if (event.detail !== 0) return;
-                            if (holds && noOpenYet.current) return;
-                            if (holds && clickOpensLater.current) setTourClicked({ day, time, cell: event.currentTarget });
-                            else if (holds) openAt({ day, time, cell: event.currentTarget });
-                            else paint(here, here, brushNow);
-                          }}
-                          className="flex w-full flex-col overflow-hidden bg-white disabled:cursor-default"
-                          style={
-                            holiday
-                              ? { height: rowHeight, backgroundColor: "#f2f4f7", backgroundImage: stripes("rgba(152, 162, 179, 0.25)") }
-                              : { height: rowHeight }
-                          }
-                        >
-                          {quarters.map((quarter) => {
-                            const tone = quarter.isAway
-                              ? AWAY_TONE
-                              : quarter.kind
-                                ? week
-                                  ? { ...CELL_TONES[quarter.kind][quarter.level], opacity: 0.3 }
-                                  : CELL_TONES[quarter.kind][quarter.level]
-                                : undefined;
-                            const lit = week ? quarter.isAway && date === litDate : Boolean(quarter.line) && quarter.line?.key === litKey;
-                            return (
-                              <span
-                                key={quarter.hour}
-                                data-quarter={quarter.hour}
-                                className={`block min-h-0 w-full flex-1 ${tone || holiday || quarter.hour !== time ? "" : ruleOf(quarter.hour)} ${lit ? "brightness-[0.85]" : ""}`}
-                                style={tone}
-                              />
-                            );
-                          })}
-                        </button>
-                      );
+                      const holiday = holidays.get(date);
                       return (
-                        <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
-                          {button}
-                        </td>
+                        <th key={day} className="pb-1 align-bottom font-semibold text-[#344054]">
+                          {holiday !== undefined ? (
+                            <span className="block leading-tight">
+                              {DAY_SHORT[day]} <span className="font-normal text-[#667085]">{formatDayAndMonth(date)}</span>
+                              <span className="block text-[10px] font-normal text-[#98a2b3]">{holiday || "Holiday"}</span>
+                            </span>
+                          ) : (
+                            <Tip side="top" wide={false} content={`Click: a constraint all ${DAY_NAMES[day]} ${formatDayAndMonth(date)}, this week only.`}>
+                              <button
+                                type="button"
+                                data-day-name
+                                aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a constraint all day, this week only`}
+                                onClick={(event) => wholeDay(day, event.currentTarget)}
+                                className="rounded px-1.5 py-0.5 hover:bg-[#fdf3f3] hover:text-[#a6292f]"
+                              >
+                                {DAY_SHORT[day]} <span className="font-normal">{formatDayAndMonth(date)}</span>
+                              </button>
+                            </Tip>
+                          )}
+                        </th>
                       );
                     })}
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {showTap && demo ? (
-            // Where to click: a hand tapping on the block painted.
-            <div
-              aria-hidden="true"
-              data-tour-demo="tap"
-              className="pointer-events-none absolute z-10"
-              style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height }}
-            >
-              <span className="absolute left-1/2 top-1/2 -ml-4 -mt-4 h-8 w-8">
-                <span className="tour-tap-press block h-8 w-8 rounded-full border-2 border-[#1f4e79]" />
-              </span>
-              <span className="absolute left-1/2 top-1/2 -ml-[9px] -mt-[3px]">
-                <span className="tour-tap-hand block">
-                  <Pointer size={24} strokeWidth={1.75} className="fill-white text-[#171717] drop-shadow-[0_1px_2px_rgba(16,24,40,0.35)]" />
+                </thead>
+                <tbody>
+                  {rows.map((time, row) => (
+                    <tr key={time}>
+                      <th className="pr-1.5 text-right align-top font-normal tabular-nums leading-none">
+                        <RowTime time={time} size={fineness} />
+                      </th>
+                      {collection.days.map((day, column) => {
+                        const here: [number, number] = [column, row];
+                        const date = dateOf(day);
+                        const holiday = holidays.has(date);
+                        const quarters = quartersOf(time).map((hour) => ({ hour, block: held.get(`${day}:${hour}`) ?? null }));
+                        const first = quarters.find((quarter) => quarter.block)?.block ?? null;
+                        const previewing = inDrag(column, row);
+                        const said = holiday
+                          ? "holiday"
+                          : first
+                            ? `${first.kind}, ${first.repeat === "all" ? "every week" : first.repeat === "from" ? `every week from ${formatDayAndMonth(first.week)}` : "this week only"}`
+                            : "fine";
+                        return (
+                          <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
+                            <button
+                              type="button"
+                              disabled={holiday}
+                              data-cell={`${day}:${time}`}
+                              aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)} ${clockOf(time)}: ${said}`}
+                              aria-haspopup={first ? "dialog" : undefined}
+                              onPointerDown={(event) => {
+                                event.preventDefault();
+                                const last = { day, time, cell: event.currentTarget };
+                                // The tour's one block made, a press off it does nothing.
+                                if (!first && !canMake) return;
+                                // On the tour's painting step a press on a block is nothing at all.
+                                if (first && tourStepId === "paint") return;
+                                setResting(null);
+                                stroke.current = { from: here, to: here, on: first, moved: false, kind: brush, last };
+                                if (!first) setDrag({ from: here, to: here });
+                              }}
+                              onPointerEnter={(event) => {
+                                const was = stroke.current;
+                                if (!was) {
+                                  // Where the cell sits in the grid, for the one bubble to open beside it.
+                                  const at = event.currentTarget.getBoundingClientRect();
+                                  const frame = gridBox.current?.getBoundingClientRect();
+                                  setResting({
+                                    day,
+                                    time,
+                                    box: { left: at.left - (frame?.left ?? 0), top: at.top - (frame?.top ?? 0), width: at.width, height: at.height },
+                                  });
+                                  return;
+                                }
+                                // Dragged on from a block, it makes a new one from there — when one may be made.
+                                if (!canMake) return;
+                                was.moved = true;
+                                was.to = here;
+                                was.last = { day, time, cell: event.currentTarget };
+                                setDrag({ from: was.from, to: here });
+                              }}
+                              onPointerLeave={() => setResting((now) => (now?.day === day && now.time === time ? null : now))}
+                              onClick={(event) => {
+                                // Enter or Space on a cell: the pointer acts on press, the keyboard here.
+                                if (event.detail !== 0) return;
+                                const cell = event.currentTarget;
+                                if (first) {
+                                  if (tourStepId === "paint") return;
+                                  if (tourStepId === "open") setTourClicked({ id: first.id, cell });
+                                  else openAt(first.id, cell);
+                                  return;
+                                }
+                                make({ kind: brush, days: [day], from: time, to: time + fineness, repeat: "all", week: "" }, cell);
+                              }}
+                              className="flex w-full flex-col overflow-hidden bg-white disabled:cursor-default"
+                              style={
+                                holiday
+                                  ? { height: rowHeight, backgroundColor: "#f2f4f7", backgroundImage: stripes("rgba(152, 162, 179, 0.25)") }
+                                  : { height: rowHeight }
+                              }
+                            >
+                              {quarters.map((quarter) => {
+                                const tone = holiday ? undefined : previewing ? PREVIEW[brush] : quarter.block ? toneOf(quarter.block) : undefined;
+                                const lit = Boolean(quarter.block) && quarter.block?.id === litId && !previewing;
+                                return (
+                                  <span
+                                    key={quarter.hour}
+                                    data-quarter={quarter.hour}
+                                    className={`block min-h-0 w-full flex-1 ${tone || holiday || quarter.hour !== time ? "" : ruleOf(quarter.hour)} ${lit ? "brightness-[0.82]" : ""}`}
+                                    style={tone}
+                                  />
+                                );
+                              })}
+                            </button>
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {tapOn && demo ? (
+              // Where to click: a hand tapping on the block made.
+              <div
+                aria-hidden="true"
+                data-tour-demo="tap"
+                className="pointer-events-none absolute z-10"
+                style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height }}
+              >
+                <span className="absolute left-1/2 top-1/2 -ml-4 -mt-4 h-8 w-8">
+                  <span className="tour-tap-press block h-8 w-8 rounded-full border-2 border-[#1f4e79]" />
                 </span>
-              </span>
-            </div>
-          ) : null}
-          {showDemo && demo ? (
-            // How to paint, shown and not told: a hand presses, drags down, and the stroke fills behind it.
-            <div
-              aria-hidden="true"
-              data-tour-demo
-              className="pointer-events-none absolute z-10"
-              style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height, ["--tour-drag" as string]: `${demo.height - 6}px` }}
-            >
-              {/* In the colour of the brush picked: red for can't teach, green for would rather. */}
-              <span
-                className="tour-paint-stroke absolute inset-x-1 top-0 h-full rounded-sm"
-                style={{ backgroundColor: brush === "prefer" ? "rgba(79, 159, 116, 0.6)" : "rgba(217, 100, 106, 0.6)" }}
-              />
-              <span className="absolute left-1/2 top-0 -ml-3 -mt-3 h-6 w-6">
-                <span className={`tour-paint-press block h-6 w-6 rounded-full border-2 ${brush === "prefer" ? "border-[#2e7d55]" : "border-[#a6292f]"}`} />
-              </span>
-              <span className="absolute left-1/2 top-0 -ml-[9px] -mt-[3px]">
-                <span className="tour-paint-hand block">
-                  <Pointer size={24} strokeWidth={1.75} className="fill-white text-[#171717] drop-shadow-[0_1px_2px_rgba(16,24,40,0.35)]" />
-                </span>
-              </span>
-            </div>
-          ) : null}
-          {/*
-           * One bubble for the whole grid, beside the cell the pointer rests on: a bubble on
-           * every cell made a week of quarter hours slow to draw, and only one is ever open.
-           */}
-          {resting ? (
-            <Tip
-              // Not on the tour's painting step: the bubble says to click, which comes next.
-              open={Boolean(restingLine || restingAway) && !stroking && !open && tourStepId !== "paint"}
-              side="right"
-              wide={false}
-              title={bubbleTitle}
-              content={bubble}
-            >
-              <span aria-hidden="true" className="pointer-events-none absolute" style={resting.box} />
-            </Tip>
-          ) : null}
-          {open && openLine ? (
-            <div
-              ref={popover}
-              role="dialog"
-              aria-label={describeLine(openLine)}
-              onKeyDown={(event) => {
-                if (event.key !== "Escape") return;
-                // This pop-over only, not the window round it.
-                event.stopPropagation();
-                setOpen(null);
-                open.cell.focus();
-              }}
-              className={`absolute z-20 grid w-72 gap-2.5 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg ${popFromTour ? "tour-pop-in" : ""}`}
-              style={{ left: open.left, top: open.top }}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="grid gap-0.5">
-                  <p className="text-sm font-semibold text-[#171717]">{describeLine(openLine)}</p>
-                  <p className="text-xs text-[#667085]">{reach(openLine, voice)}</p>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  onClick={() => {
-                    setOpen(null);
-                    open.cell.focus();
-                  }}
-                  className="-mr-1 -mt-1 rounded p-1 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#344054]"
-                >
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </div>
-              <LevelToggle
-                name="How much it matters"
-                level={levelOf(openLine.key)}
-                full={full}
-                quota={collection.mustQuota}
-                onChange={(level) => setLevel(openLine.key, level)}
-              />
-              {full && levelOf(openLine.key) !== "must" ? (
-                <p className="-mt-1 text-xs text-[#667085]">All {collection.mustQuota} Musts are used: let one go to make this a Must.</p>
-              ) : null}
-              <label className="grid gap-1">
-                <span className="text-xs font-semibold text-[#344054]">Comment</span>
-                <input
-                  value={comments[openLine.key] ?? ""}
-                  maxLength={COMMENT_LENGTH}
-                  onChange={(event) => setComment(openLine.key, event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      // Not to reach the cell the focus goes back to, and press it.
-                      event.preventDefault();
-                      setOpen(null);
-                      open.cell.focus();
-                    }
-                  }}
-                  placeholder="Why it matters (optional)"
-                  className={field}
-                />
-              </label>
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  // Not while the tour is on: the block is what its steps are about.
-                  disabled={tourAt !== null}
-                  title={tourAt !== null ? "Not during the guided tour" : undefined}
-                  onClick={() => {
-                    removeLine(openLine);
-                    setOpen(null);
-                  }}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:text-[#d0a5a8] disabled:hover:bg-transparent"
-                >
-                  <Trash2 size={13} aria-hidden="true" /> Remove the whole block
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(null);
-                    open.cell.focus();
-                  }}
-                  className="rounded-md bg-[#1f4e79] px-3 py-1 text-xs font-semibold text-white"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {open && openDate ? (
-            <div
-              ref={popover}
-              role="dialog"
-              aria-label={`Away ${DAY_NAMES[isoWeekday(openDate)]} ${formatDayAndMonth(openDate)}`}
-              onKeyDown={(event) => {
-                if (event.key !== "Escape") return;
-                event.stopPropagation();
-                setOpen(null);
-                open.cell.focus();
-              }}
-              className="absolute z-20 grid w-72 gap-2.5 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg"
-              style={{ left: open.left, top: open.top }}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="grid gap-0.5">
-                  <p className="flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
-                    <span className="inline-block h-2.5 w-2.5 rounded-sm" style={AWAY_TONE} /> Away · {DAY_NAMES[isoWeekday(openDate)]}{" "}
-                    {formatDayAndMonth(openDate)}
-                  </p>
-                  <p className="text-xs text-[#667085]">
-                    {away
-                      .filter((entry) => entry.from <= openDate && openDate <= entry.to)
-                      .map((entry) => (entry.start === undefined || entry.end === undefined ? "All day" : `${clockOf(entry.start)}–${clockOf(entry.end)}`))
-                      .join(", ")}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label="Close"
-                  onClick={() => {
-                    setOpen(null);
-                    open.cell.focus();
-                  }}
-                  className="-mr-1 -mt-1 rounded p-1 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#344054]"
-                >
-                  <X size={14} aria-hidden="true" />
-                </button>
-              </div>
-              <label className="grid gap-1">
-                <span className="text-xs font-semibold text-[#344054]">Why (optional)</span>
-                <input
-                  data-first
-                  value={awayWhy[openDate] ?? ""}
-                  maxLength={160}
-                  onChange={(event) => setAwayWhy((current) => ({ ...current, [openDate]: event.target.value }))}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") {
-                      // Not to reach the cell the focus goes back to, and press it.
-                      event.preventDefault();
-                      setOpen(null);
-                      open.cell.focus();
-                    }
-                  }}
-                  placeholder="Conference, leave…"
-                  className={field}
-                />
-              </label>
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  disabled={tourAt !== null}
-                  title={tourAt !== null ? "Not during the guided tour" : undefined}
-                  onClick={() => {
-                    removeAway({ from: openDate, to: openDate, reason: "" });
-                    setAwayWhy((current) => {
-                      const next = { ...current };
-                      delete next[openDate];
-                      return next;
-                    });
-                    setOpen(null);
-                  }}
-                  className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:text-[#d0a5a8] disabled:hover:bg-transparent"
-                >
-                  <Trash2 size={13} aria-hidden="true" /> Not away this day
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setOpen(null);
-                    open.cell.focus();
-                  }}
-                  className="rounded-md bg-[#1f4e79] px-3 py-1 text-xs font-semibold text-white"
-                >
-                  Done
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
-        <div className="mt-2">
-          {week ? (
-            <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm" style={AWAY_TONE} />
-                <b className="font-semibold text-[#344054]">Away</b> this week
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="inline-block h-3 w-3 rounded-sm" style={{ ...CELL_TONES.cant.must, opacity: 0.3 }} />
-                <span className="inline-block h-3 w-3 rounded-sm" style={{ ...CELL_TONES.prefer.must, opacity: 0.3 }} />
-                Faint: {yours} usual week
-              </span>
-            </p>
-          ) : (
-            <WishesLegend />
-          )}
-        </div>
-        {away.length ? (
-          <div data-tour="away-list" className="mt-3 rounded-md bg-[#faf8fd] px-3 py-2" aria-label="Time away">
-            <p className="text-xs font-semibold text-[#6b4fa0]">Time away</p>
-            <ul className="mt-1 grid gap-0.5">
-              {away.map((entry) => (
-                <li key={`${entry.from}-${entry.to}-${entry.start ?? ""}`} className="flex items-center gap-2 text-xs text-[#344054]">
-                  <span className="inline-block h-2 w-2 shrink-0 rounded-sm" style={AWAY_TONE} />
-                  <button
-                    type="button"
-                    onClick={() => showWeek(mondayOfIso(entry.from))}
-                    className="text-left hover:text-[#6b4fa0] hover:underline"
-                  >
-                    {awayWords(entry)}
-                  </button>
-                  {entry.reason ? <span className="min-w-0 truncate text-[#667085]">· {entry.reason}</span> : null}
-                  <button
-                    type="button"
-                    aria-label={`Not away ${awayWords(entry)}`}
-                    onClick={() => removeAway(entry)}
-                    className="ml-auto rounded p-0.5 text-[#98a2b3] hover:bg-[#fdf3f3] hover:text-[#a6292f]"
-                  >
-                    <X size={12} aria-hidden="true" />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
-        {!week && lines.some((line) => (line.kind === "cant" || line.kind === "prefer") && comments[line.key]) ? (
-          <ul className="mt-2 grid gap-0.5 text-xs text-[#667085]" aria-label="Comments on the week">
-            {lines
-              .filter((line) => (line.kind === "cant" || line.kind === "prefer") && comments[line.key])
-              .map((line) => (
-                <li key={line.key} className="flex items-start gap-1.5">
-                  <MessageSquare size={12} className="mt-0.5 shrink-0 text-[#98a2b3]" aria-hidden="true" />
-                  <span>
-                    <span className="font-semibold text-[#344054]">{describeLine(line)}:</span> {comments[line.key]}
+                <span className="absolute left-1/2 top-1/2 -ml-[9px] -mt-[3px]">
+                  <span className="tour-tap-hand block">
+                    <Pointer size={24} strokeWidth={1.75} className="fill-white text-[#171717] drop-shadow-[0_1px_2px_rgba(16,24,40,0.35)]" />
                   </span>
-                </li>
-              ))}
-          </ul>
-        ) : null}
-        {overCap && !week ? (
-          <label className="mt-3 block">
-            <span className="text-xs font-semibold text-[#a6292f]">
-              {cant} hours can&rsquo;t be taught, over the {collection.cantCap} a week: say why, for the coordinator
-            </span>
-            <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} className={`mt-1 ${field}`} />
-          </label>
-        ) : null}
-      </section>
+                </span>
+              </div>
+            ) : null}
+            {showDemo && demo ? (
+              // How to paint, shown and not told: a hand presses, drags down, and the stroke fills behind it.
+              <div
+                aria-hidden="true"
+                data-tour-demo
+                className="pointer-events-none absolute z-10"
+                style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height, ["--tour-drag" as string]: `${demo.height - 6}px` }}
+              >
+                {/* In the colour of the kind picked: red for a constraint, green for a preference. */}
+                <span
+                  className="tour-paint-stroke absolute inset-x-1 top-0 h-full rounded-sm"
+                  style={{ backgroundColor: brush === "preference" ? "rgba(79, 159, 116, 0.6)" : "rgba(217, 100, 106, 0.6)" }}
+                />
+                <span className="absolute left-1/2 top-0 -ml-3 -mt-3 h-6 w-6">
+                  <span className={`tour-paint-press block h-6 w-6 rounded-full border-2 ${brush === "preference" ? "border-[#2e7d55]" : "border-[#a6292f]"}`} />
+                </span>
+                <span className="absolute left-1/2 top-0 -ml-[9px] -mt-[3px]">
+                  <span className="tour-paint-hand block">
+                    <Pointer size={24} strokeWidth={1.75} className="fill-white text-[#171717] drop-shadow-[0_1px_2px_rgba(16,24,40,0.35)]" />
+                  </span>
+                </span>
+              </div>
+            ) : null}
+            {/*
+             * One bubble for the whole grid, beside the cell the pointer rests on: a bubble on
+             * every cell made a week of quarter hours slow to draw, and only one is ever open.
+             */}
+            {resting ? (
+              <Tip
+                // Not on the tour's painting step: the bubble says to click, which comes next.
+                open={Boolean(restingBlock) && !open && tourStepId !== "paint"}
+                side="right"
+                wide={false}
+                title={restingBlock ? describeBlock(restingBlock, grid) : undefined}
+                content={
+                  restingBlock ? (
+                    <>
+                      {restingBlock.comment ? <span className="mb-1.5 block">&ldquo;{restingBlock.comment}&rdquo;</span> : null}
+                      <TipDo>Click to choose how it repeats, comment or remove</TipDo>
+                    </>
+                  ) : null
+                }
+              >
+                <span aria-hidden="true" className="pointer-events-none absolute" style={resting.box} />
+              </Tip>
+            ) : null}
+            {open && openBlock ? (
+              <div
+                ref={popover}
+                role="dialog"
+                aria-label={describeBlock(openBlock, grid)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  // This pop-over only, not the window round it.
+                  event.stopPropagation();
+                  closeBox();
+                }}
+                className={`absolute z-20 grid w-[300px] gap-3 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg ${popFromTour ? "tour-pop-in" : ""}`}
+                style={{ left: open.left, top: open.top }}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <p className="flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
+                    <span className="inline-block h-3 w-3 shrink-0 rounded-sm" style={toneOf(openBlock)} />
+                    {whenWords(openBlock, grid)}
+                  </p>
+                  <button
+                    type="button"
+                    aria-label="Close"
+                    onClick={closeBox}
+                    className="-mr-1 -mt-1 rounded p-1 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#344054]"
+                  >
+                    <X size={14} aria-hidden="true" />
+                  </button>
+                </div>
+                <KindToggle name="Constraint or preference" kind={openBlock.kind} onChange={(kind) => change(openBlock.id, { kind })} />
+                <div role="radiogroup" aria-label="How it repeats" className="grid gap-1">
+                  <span className="text-xs font-semibold text-[#344054]">How it repeats</span>
+                  {repeatChoices(openBlock).map((choice) => {
+                    const on = openBlock.repeat === choice.value;
+                    return (
+                      <button
+                        key={choice.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        data-first={on ? "" : undefined}
+                        onClick={() => setRepeat(openBlock, choice.value)}
+                        className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left ${
+                          on ? "border-[#1f4e79] bg-[#eef4fa]" : "border-[#e3e8ef] bg-white hover:bg-[#f8fafc]"
+                        }`}
+                      >
+                        <span
+                          aria-hidden="true"
+                          className={`mt-0.5 grid h-3.5 w-3.5 shrink-0 place-items-center rounded-full border ${on ? "border-[#1f4e79]" : "border-[#c8d0db]"}`}
+                        >
+                          {on ? <span className="h-1.5 w-1.5 rounded-full bg-[#1f4e79]" /> : null}
+                        </span>
+                        <span className="min-w-0">
+                          <span className={`block text-xs font-semibold ${on ? "text-[#1f4e79]" : "text-[#344054]"}`}>{choice.label}</span>
+                          <span className="block text-[11px] text-[#667085]">{choice.hint}</span>
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <label className="grid gap-1">
+                  <span className="text-xs font-semibold text-[#344054]">Comment, for the coordinator</span>
+                  <input
+                    value={openBlock.comment}
+                    maxLength={COMMENT_LENGTH}
+                    onChange={(event) => change(openBlock.id, { comment: event.target.value.slice(0, COMMENT_LENGTH) })}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        // Not to reach the cell the focus goes back to, and press it.
+                        event.preventDefault();
+                        closeBox();
+                      }
+                    }}
+                    placeholder="Why: school run, lab day… (optional)"
+                    className={field}
+                  />
+                </label>
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    // Not while the tour is on: the block is what its steps are about.
+                    disabled={tourAt !== null}
+                    title={tourAt !== null ? "Not during the guided tour" : undefined}
+                    onClick={() => remove(openBlock.id)}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:text-[#d0a5a8] disabled:hover:bg-transparent"
+                  >
+                    <Trash2 size={13} aria-hidden="true" /> Remove
+                  </button>
+                  <button type="button" onClick={closeBox} className="rounded-md bg-[#1f4e79] px-3 py-1 text-xs font-semibold text-white">
+                    Done
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className="mt-2">
+            <WishesLegend voice={voice} />
+          </div>
+          {overCap ? (
+            <label className="mt-3 block">
+              <span className="text-xs font-semibold text-[#a6292f]">
+                {cant} hours a week of constraints, over the {collection.cantCap}: say why, for the coordinator
+              </span>
+              <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} className={`mt-1 ${field}`} />
+            </label>
+          ) : null}
+          <div data-tour="summary" aria-label="Summary of constraints and preferences" className="mt-4 rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-3">
+            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">
+              <MessageSquare size={12} aria-hidden="true" /> Summary of constraints and preferences
+            </p>
+            <BlockList
+              blocks={blocks}
+              grid={grid}
+              voice={voice}
+              onPick={pick}
+              onRemove={(block) => remove(block.id)}
+              removeOff={tourAt !== null ? "Not during the guided tour" : ""}
+              onHover={setHovered}
+            />
+          </div>
+        </section>
+      ) : null}
 
       {/* -------------------------------------------------------------- limits */}
-      <section data-tour="limits" aria-label={`Limits on ${yours} week`} className={section}>
-        <SectionTitle number={2}>Limits on {yours} week</SectionTitle>
-        <p className={hint}>Only those that matter. Each one set is a preference of its own: a Must or a Would like.</p>
-        <div className="mt-2 grid gap-4">
-          {limitBlock("maxDays", "Most days on campus", counts(1, Math.max(1, collection.days.length - 1), "day"))}
-          {limitBlock("maxHoursDay", "Most hours in a day", counts(2, 10, "hour"))}
-          {limitBlock("maxInRow", "Most hours in a row", counts(1, 8, "hour"))}
-          {limitBlock(
-            "freeDay",
-            voice === "you" ? "A day you'd like free" : "A day they'd like free",
-            collection.days.map((day) => ({ value: String(day), label: DAY_NAMES[day] })),
-          )}
-        </div>
-      </section>
+      {page === 1 ? (
+        <section data-tour="limits" aria-label={`Limits on ${yours} week`} className={section}>
+          <h3 className="text-sm font-semibold text-[#171717]">Limits on {yours} week</h3>
+          <p className={hint}>
+            Only those that matter. Each one set is a preference unless you make it a constraint; a constraint is held to, a preference only if it can be.
+          </p>
+          <div className="mt-3 grid gap-2">
+            {limitBlock("maxDays", "Most days on campus", counts(1, Math.max(1, collection.days.length - 1), "day"))}
+            {limitBlock("maxHoursDay", "Most hours in a day", counts(2, 10, "hour"))}
+            {limitBlock("maxInRow", "Most hours in a row", counts(1, 8, "hour"))}
+            {limitBlock(
+              "freeDay",
+              voice === "you" ? "A day you'd like free" : "A day they'd like free",
+              collection.days.map((day) => ({ value: String(day), label: DAY_NAMES[day] })),
+            )}
+          </div>
+        </section>
+      ) : null}
 
       {/* -------------------------------------------------------------- needs */}
-      <section data-tour="needs" aria-label="Needs" className={section}>
-        <SectionTitle number={3}>Needs</SectionTitle>
-        <label className="mt-2 block">
-          <span className="text-xs font-semibold text-[#344054]">Room or equipment needs</span>
-          <input value={needs} onChange={(event) => setNeeds(event.target.value)} placeholder="Lab, PC room, ground floor…" className={`mt-1 ${field}`} />
-        </label>
-        <label className="mt-3 block">
-          <span className="text-xs font-semibold text-[#344054]">Note</span>
-          <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={2} className={`mt-1 ${field}`} />
-        </label>
-      </section>
+      {page === 2 ? (
+        <section data-tour="needs" aria-label="Needs and a note" className={section}>
+          <h3 className="text-sm font-semibold text-[#171717]">Needs and a note</h3>
+          <label className="mt-3 block">
+            <span className="text-xs font-semibold text-[#344054]">Room or equipment needs</span>
+            <input value={needs} onChange={(event) => setNeeds(event.target.value)} placeholder="Lab, PC room, ground floor…" className={`mt-1 ${field}`} />
+          </label>
+          <label className="mt-3 block">
+            <span className="text-xs font-semibold text-[#344054]">Note</span>
+            <textarea value={note} onChange={(event) => setNote(event.target.value)} rows={3} className={`mt-1 ${field}`} />
+          </label>
+        </section>
+      ) : null}
 
-      <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
+      <div data-tour="nav" className="flex flex-wrap items-center gap-3 pt-1">
+        {page > 0 ? (
+          <button
+            type="button"
+            onClick={() => goTo(page - 1)}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f2f4f7]"
+          >
+            <ArrowLeft size={14} aria-hidden="true" /> Back
+          </button>
+        ) : null}
         {problem || error ? (
-          <span role="alert" className="mr-auto text-sm text-[#a6292f]">
+          <span role="alert" className="text-sm text-[#a6292f]">
             {problem || error}
           </span>
         ) : null}
-        {onCancel ? (
-          <button type="button" onClick={onCancel} className="text-sm font-semibold text-[#667085]">
-            Cancel
+        <span className="ml-auto flex flex-wrap items-center gap-3">
+          {onCancel ? (
+            <button type="button" onClick={onCancel} className="text-sm font-semibold text-[#667085]">
+              Cancel
+            </button>
+          ) : null}
+          <button
+            type="button"
+            data-tour="save"
+            disabled={busy || tourRequired}
+            onClick={() => submit(false)}
+            className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+          >
+            Save draft
           </button>
-        ) : null}
-        <button
-          type="button"
-          data-tour="save"
-          disabled={busy || tourRequired}
-          onClick={() => submit(false)}
-          className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
-        >
-          Save draft
-        </button>
-        <button
-          type="button"
-          data-tour="save"
-          disabled={busy || tourRequired}
-          onClick={() => submit(true)}
-          className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-        >
-          {busy ? "Saving…" : "Submit"}
-        </button>
+          {page < PAGES.length - 1 ? (
+            <button
+              type="button"
+              data-tour="next"
+              onClick={() => goTo(page + 1)}
+              className="inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white"
+            >
+              Next: {PAGES[page + 1]} <ArrowRight size={14} aria-hidden="true" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              data-tour="save"
+              disabled={busy || tourRequired}
+              onClick={() => submit(true)}
+              className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+            >
+              {busy ? "Saving…" : "Submit"}
+            </button>
+          )}
+        </span>
       </div>
     </div>
   );

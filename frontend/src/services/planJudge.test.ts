@@ -33,13 +33,12 @@ const bilal: WishTeacher = {
   email: "",
   wishes: {
     status: "submitted",
-    cells: Array.from({ length: 16 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })),
+    blocks: [{ id: "run", kind: "constraint", days: [2], from: 14, to: 18, repeat: "all", week: "", comment: "School run" }],
     limits: {},
-    away: [],
+    limitKinds: {},
     needs: "",
     note: "",
-    levels: { "cant:14-18:2": "must" },
-    comments: { "cant:14-18:2": "School run" },
+    comments: {},
     lines: [],
     overCapReason: "",
     source: "coordinator",
@@ -50,7 +49,7 @@ const bilal: WishTeacher = {
 };
 
 describe("what would go wrong if a class sat at a time", () => {
-  it("is a clash with the same teacher's other class, and a Must broken, with why it matters", () => {
+  it("is a clash with the same teacher's other class, and a constraint broken, with why it matters", () => {
     const judged = judgeSlot(plan([tuesdayClass("chem", "15:00", "16:00")]), [bilal], {
       sectionId: "td2",
       weekday: 2,
@@ -62,7 +61,7 @@ describe("what would go wrong if a class sat at a time", () => {
     expect(judged.worst).toBe("must");
     expect(judged.problems.map((problem) => problem.said)).toEqual([
       "Same teacher as CHEM-101 · CM (15:00–16:00)",
-      "Must · Bilal Maaz: Can't teach Tue 14:00–18:00 — “School run”",
+      "Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”",
     ]);
   });
 

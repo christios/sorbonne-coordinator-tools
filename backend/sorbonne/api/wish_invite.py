@@ -165,8 +165,7 @@ def answer(
     found: dict[str, Any] = Depends(signed_in_invitation),
     wishes: WishStore = Depends(get_wishes),
 ) -> dict[str, Any]:
-    given = body.model_dump()
-    given["away"] = [entry.given() for entry in body.away]
+    given = body.given()
     try:
         wishes.save(found["term_code"], found["teacher_id"], given, actor=found["email"], source=SOURCE)
     except ClosedForAnswers as exc:

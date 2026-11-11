@@ -103,12 +103,20 @@ const sameBox = (left: Box | null, right: Box | null) =>
   (left !== null && right !== null && left.left === right.left && left.top === right.top && left.width === right.width && left.height === right.height);
 
 /**
+ * What a press outside the lit part may still reach during a tour: the card, and a menu opened
+ * from the lit part. Not any dialog: the form may itself sit in one, close button and all.
+ */
+const STILL_REACHED = '[data-tour-card], [role="listbox"], [data-tour-allow]';
+
+/**
  * A guided tour over a page: the part a step is about lit up, everything else dimmed, and a
- * small card beside it. The page stays usable — the dim does not catch the pointer — so a
- * step can ask to try the very thing it shows, and watch for it being done.
+ * card beside it. The lit part stays usable, so a step can ask to try the very thing it shows
+ * and watch for it being done; a press on the dimmed rest does nothing but shake the card,
+ * which says the tour is where to look. The card asks to be read: a coloured band, and each
+ * step arrives with a glow round it.
  *
  * Drawn over everything but menus and bubbles, and kept in step with the page as it moves:
- * a pop-over opening, the window scrolling.
+ * a pop-over opening, the window scrolling. Scrolling is never stopped.
  */
 export function FormTour({
   steps,
@@ -134,6 +142,11 @@ export function FormTour({
   // The X pressed: are you sure?
   const [asking, setAsking] = useState(false);
   const last = at === steps.length - 1;
+  // The card glides from step to step, but not on its first showing: it appears where it goes.
+  const [gliding, setGliding] = useState(false);
+  // Presses on the dimmed page, counted to shake the card each time; and whether to say why.
+  const [nudges, setNudges] = useState(0);
+  const [saying, setSaying] = useState(false);
 
   // Where the lit part is, and the control the arrow points at, every frame while the tour is on:
   // they move as the page does. Read from the step as it is now, not as it was when it began.
@@ -159,6 +172,42 @@ export function FormTour({
       stopped = true;
     };
   }, []);
+
+  // A press outside the lit part reaches nothing: caught before the page sees it, it shakes the card.
+  const boxNow = useRef(box);
+  boxNow.current = box;
+  const askingNow = useRef(asking);
+  askingNow.current = asking;
+  useEffect(() => {
+    const outside = (event: MouseEvent) => {
+      const lit = boxNow.current;
+      // Not measured (yet), or asking whether to end the tour: nothing is held back.
+      if (!lit || askingNow.current) return;
+      if ((event.target as Element | null)?.closest?.(STILL_REACHED)) return;
+      // A click from the keyboard (Enter, Space) has no place on the screen: it acts where the focus is.
+      if (event.type === "click" && event.detail === 0) return;
+      const { clientX: x, clientY: y } = event;
+      if (x >= lit.left - PAD && x <= lit.left + lit.width + PAD && y >= lit.top - PAD && y <= lit.top + lit.height + PAD) return;
+      event.preventDefault();
+      event.stopPropagation();
+      // A pointer's press, or a mouse's where there is no pointer event before it.
+      if (event.type === "pointerdown" || event.type === "mousedown") {
+        setNudges((count) => count + 1);
+        setSaying(true);
+      }
+    };
+    // Not the let-go: a stroke started in the lit part may end outside it, and must still end.
+    const kinds = ["pointerdown", "mousedown", "click"] as const;
+    for (const kind of kinds) window.addEventListener(kind, outside, true);
+    return () => {
+      for (const kind of kinds) window.removeEventListener(kind, outside, true);
+    };
+  }, []);
+  useEffect(() => {
+    if (!saying) return;
+    const timer = window.setTimeout(() => setSaying(false), 3500);
+    return () => window.clearTimeout(timer);
+  }, [saying, nudges]);
 
   const stepId = step?.id;
   // A part lit up is brought into view if it is not — on a new step, and when the part changes
@@ -243,11 +292,16 @@ export function FormTour({
     else next = { left: roomX - width - GAP, top: roomY - height - GAP };
     setPlace((current) => (current && current.left === next.left && current.top === next.top ? current : next));
   }, [box, at, done]);
+  useEffect(() => {
+    if (!place || gliding) return;
+    const timer = window.setTimeout(() => setGliding(true), 50);
+    return () => window.clearTimeout(timer);
+  }, [place, gliding]);
 
   if (!step) return null;
   return createPortal(
     <>
-      {/* The dim, with the lit part cut out of it; it lets the pointer through to the page. */}
+      {/* The dim, with the lit part cut out of it; presses on it are caught above, not by it. */}
       <div
         aria-hidden="true"
         className="pointer-events-none fixed z-[95] rounded-lg ring-2 ring-[#5b8fc4] motion-safe:transition-all motion-safe:duration-300"
@@ -290,92 +344,106 @@ export function FormTour({
         role="dialog"
         aria-modal="false"
         aria-label={`Guided tour: ${step.title}`}
-        className="pointer-events-auto fixed z-[105] w-[min(20rem,calc(100vw-1.5rem))] rounded-xl border border-[#d9dee7] bg-white p-4 shadow-xl motion-safe:transition-[left,top] motion-safe:duration-300"
+        className={`pointer-events-auto fixed z-[105] w-[min(22rem,calc(100vw-1.5rem))] ${gliding ? "motion-safe:transition-[left,top] motion-safe:duration-300" : ""}`}
         style={place ?? { left: -9999, top: 0 }}
         // Inside a window that closes on a press outside it, the card counts as inside.
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <div className="flex items-center gap-2">
-          <Compass size={14} className="text-[#1f4e79]" aria-hidden="true" />
-          <span className="flex items-center gap-1" aria-hidden="true">
-            {steps.map((each, index) => (
-              <span
-                key={each.id}
-                className={`h-1.5 rounded-full motion-safe:transition-all ${index === at ? "w-4 bg-[#1f4e79]" : index < at ? "w-1.5 bg-[#7fa6cc]" : "w-1.5 bg-[#d9dee7]"}`}
-              />
-            ))}
-          </span>
-          <span className="mr-auto text-[11px] font-semibold tabular-nums text-[#98a2b3]">
-            {at + 1} of {steps.length}
-          </span>
-          <button
-            type="button"
-            aria-label="End the tour"
-            onClick={() => setAsking(true)}
-            className="-mr-1 rounded p-1 text-[#98a2b3] hover:bg-[#f2f4f7] hover:text-[#344054]"
-          >
-            <X size={14} aria-hidden="true" />
-          </button>
-        </div>
-        <div aria-live="polite">
-          <p className="mt-2 text-sm font-semibold text-[#171717]">{step.title}</p>
-          <div className="mt-1 text-[13px] leading-5 text-[#475467]">{step.body}</div>
-          {step.tryIt ? (
-            done && !instant ? (
-              <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-1.5 text-xs font-semibold text-[#2e7d55]">
-                <Check size={14} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
-                {autoNext ? <Countdown key={at} ms={autoNext} /> : null}
-              </p>
-            ) : (
-              <p className="mt-3 flex items-start gap-1.5 rounded-md bg-[#eef4fa] px-2.5 py-1.5 text-xs font-semibold text-[#1f4e79]">
-                <MousePointerClick size={14} className="mt-px shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
-                <span>
-                  <span className="font-normal text-[#5b7a99]">Try it: </span>
-                  {step.tryIt}
+        {/* Each step arrives: the card rises in, a glow spreading round it. */}
+        <div key={step.id} className="tour-card-in">
+          <div key={nudges} className={`relative rounded-xl border-2 border-[#1f4e79] bg-white shadow-2xl ${nudges ? "tour-card-shake" : ""}`}>
+            <span aria-hidden="true" key={`glow-${step.id}`} className="tour-card-glow pointer-events-none absolute -inset-0.5 rounded-xl" />
+            <div className="flex items-center gap-2 rounded-t-[10px] bg-[#1f4e79] px-3.5 py-2 text-white">
+              <Compass size={15} aria-hidden="true" />
+              <span className="text-xs font-semibold">Guided tour</span>
+              <span className="ml-1 flex items-center gap-1" aria-hidden="true">
+                {steps.map((each, index) => (
+                  <span
+                    key={each.id}
+                    className={`h-1.5 rounded-full motion-safe:transition-all ${index === at ? "w-4 bg-white" : index < at ? "w-1.5 bg-white/70" : "w-1.5 bg-white/30"}`}
+                  />
+                ))}
+              </span>
+              <span className="mr-auto text-[11px] font-semibold tabular-nums text-white/80">
+                {at + 1} of {steps.length}
+              </span>
+              <button
+                type="button"
+                aria-label="End the tour"
+                onClick={() => setAsking(true)}
+                className="-mr-1 rounded p-1 text-white/80 hover:bg-white/15 hover:text-white"
+              >
+                <X size={14} aria-hidden="true" />
+              </button>
+            </div>
+            <div className="px-4 pb-4 pt-3">
+              <div aria-live="polite">
+                <p className="text-base font-semibold text-[#171717]">{step.title}</p>
+                <div className="mt-1 text-[13px] leading-5 text-[#475467]">{step.body}</div>
+                {step.tryIt ? (
+                  done && !instant ? (
+                    <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-2 text-[13px] font-semibold text-[#2e7d55]">
+                      <Check size={15} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
+                      {autoNext ? <Countdown key={at} ms={autoNext} /> : null}
+                    </p>
+                  ) : (
+                    <p className="mt-3 flex items-start gap-2 rounded-md border border-[#9cc0e4] bg-[#eef4fa] px-2.5 py-2 text-[13px] font-semibold text-[#1f4e79]">
+                      <MousePointerClick size={15} className="mt-0.5 shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
+                      <span>
+                        <span className="font-normal text-[#5b7a99]">Try it: </span>
+                        {step.tryIt}
+                      </span>
+                    </p>
+                  )
+                ) : null}
+                {saying ? (
+                  <p role="status" className="mt-2 rounded-md bg-[#fdf6e3] px-2.5 py-1.5 text-xs text-[#7a5d00]">
+                    During the tour, only the lit part works. Follow the card, or end the tour with ×.
+                  </p>
+                ) : null}
+              </div>
+              <div className="mt-4 flex items-center gap-2">
+                {at > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => onStep(at - 1)}
+                    className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
+                  >
+                    <ArrowLeft size={13} aria-hidden="true" /> Back
+                  </button>
+                ) : null}
+                <span className="ml-auto flex items-center gap-2">
+                  {step.actions?.length ? (
+                    step.actions.map((action) => (
+                      <button
+                        key={action.label}
+                        type="button"
+                        onClick={action.onClick}
+                        className={
+                          action.primary
+                            ? "rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white"
+                            : "rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
+                        }
+                      >
+                        {action.label}
+                      </button>
+                    ))
+                  ) : last ? (
+                    <button type="button" onClick={onClose} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
+                      Finish
+                    </button>
+                  ) : autoNext ? null : step.tryIt && !done ? (
+                    // Nothing to skip: a step with something to try offers Next once it is tried.
+                    <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
+                  ) : (
+                    <button type="button" onClick={() => onStep(at + 1)} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
+                      Next
+                    </button>
+                  )}
                 </span>
-              </p>
-            )
-          ) : null}
-        </div>
-        <div className="mt-4 flex items-center gap-2">
-          {at > 0 ? (
-            <button
-              type="button"
-              onClick={() => onStep(at - 1)}
-              className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
-            >
-              <ArrowLeft size={13} aria-hidden="true" /> Back
-            </button>
-          ) : null}
-          <span className="ml-auto flex items-center gap-2">
-            {step.actions?.length ? (
-              step.actions.map((action) => (
-                <button
-                  key={action.label}
-                  type="button"
-                  onClick={action.onClick}
-                  className={
-                    action.primary
-                      ? "rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white"
-                      : "rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
-                  }
-                >
-                  {action.label}
-                </button>
-              ))
-            ) : last ? (
-              <button type="button" onClick={onClose} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
-                Finish
-              </button>
-            ) : autoNext ? null : step.tryIt && !done ? (
-              // Nothing to skip: a step with something to try offers Next once it is tried.
-              <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
-            ) : (
-              <button type="button" onClick={() => onStep(at + 1)} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
-                Next
-              </button>
-            )}
-          </span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <ConfirmDialog

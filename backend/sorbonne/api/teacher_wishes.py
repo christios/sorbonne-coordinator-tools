@@ -44,38 +44,47 @@ class CollectionInput(BaseModel):
     cantCap: int = Field(default=12, ge=0, le=60)
 
 
-class Cell(BaseModel):
-    """A quarter of an hour of the week painted: 14.25 is 14:15-14:30."""
-
-    day: int = Field(ge=1, le=7)
-    hour: float = Field(ge=0, lt=24)
-    kind: str = Field(max_length=10)
-
-
-class Away(BaseModel):
-    """Whole days away, `from` one date `to` another; or part of one day, `start` to `end` (14 to 18)."""
+class Block(BaseModel):
+    """Hours on one or more days, a constraint or a preference, repeating every week, every week
+    from `week` (a Monday) on, or in `week` only."""
 
     model_config = {"populate_by_name": True}
-    first: str = Field(alias="from", max_length=10)
-    last: str = Field(alias="to", max_length=10)
-    reason: str = Field(default="", max_length=160)
-    start: float | None = Field(default=None, ge=0, le=24)
-    end: float | None = Field(default=None, ge=0, le=24)
+    id: str = Field(default="", max_length=40)
+    kind: str = Field(max_length=12)
+    days: list[int] = Field(min_length=1, max_length=7)
+    start: float = Field(alias="from", ge=0, le=24)
+    end: float = Field(alias="to", ge=0, le=24)
+    repeat: str = Field(default="all", max_length=4)
+    week: str = Field(default="", max_length=10)
+    comment: str = Field(default="", max_length=300)
 
     def given(self) -> dict[str, object]:
-        return {"from": self.first, "to": self.last, "reason": self.reason, "start": self.start, "end": self.end}
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "days": self.days,
+            "from": self.start,
+            "to": self.end,
+            "repeat": self.repeat,
+            "week": self.week,
+            "comment": self.comment,
+        }
 
 
 class AnswerInput(BaseModel):
-    cells: list[Cell] = Field(default_factory=list, max_length=7 * 24 * 4)
+    blocks: list[Block] = Field(default_factory=list, max_length=400)
     limits: dict[str, int | None] = Field(default_factory=dict)
-    away: list[Away] = Field(default_factory=list, max_length=80)
+    limitKinds: dict[str, str] = Field(default_factory=dict)
     needs: str = Field(default="", max_length=1000)
     note: str = Field(default="", max_length=2000)
-    levels: dict[str, str] = Field(default_factory=dict)
     comments: dict[str, str] = Field(default_factory=dict)
     overCapReason: str = Field(default="", max_length=1000)
     submit: bool = False
+
+    def given(self) -> dict[str, object]:
+        given = self.model_dump()
+        given["blocks"] = [block.given() for block in self.blocks]
+        return given
 
 
 def _refused(exc: Exception) -> HTTPException:
@@ -111,8 +120,7 @@ def open_collection(
 def save(
     term: str, teacher_id: str, body: AnswerInput, request: Request, wishes: WishStore = Depends(get_wishes)
 ) -> dict[str, Any]:
-    given = body.model_dump()
-    given["away"] = [entry.given() for entry in body.away]
+    given = body.given()
     try:
         return wishes.save(term, teacher_id, given, _actor(request))
     except (InvalidWishes, NoCollection, UnknownTeacher) as exc:

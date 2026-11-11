@@ -18,15 +18,15 @@ type WishShow = "must" | "would" | "everybody" | "submitted" | "draft" | "commen
 type WishSort = "must" | "teacher" | "week" | "classes";
 
 const WISH_SHOW: { value: WishShow; label: string }[] = [
-  { value: "must", label: "Must" },
-  { value: "would", label: "Would like" },
+  { value: "must", label: "Constraint" },
+  { value: "would", label: "Preference" },
   { value: "everybody", label: "Everybody" },
   { value: "submitted", label: "Submitted" },
   { value: "draft", label: "Draft" },
   { value: "comment", label: "With a comment" },
 ];
 const WISH_SORT: { value: WishSort; label: string }[] = [
-  { value: "must", label: "Musts first" },
+  { value: "must", label: "Constraints first" },
   { value: "teacher", label: "Teacher" },
   { value: "week", label: "Week" },
   { value: "classes", label: "Classes affected" },
@@ -38,9 +38,9 @@ function Level({ about, level }: { about: Breach["about"]; level: WishLevel | nu
     return <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Everybody</span>;
   }
   return level === "must" ? (
-    <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Must</span>
+    <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Constraint</span>
   ) : (
-    <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Would like</span>
+    <span className="shrink-0 rounded bg-[#e7f4ec] px-1.5 text-[11px] font-semibold text-[#2e7d55]">Preference</span>
   );
 }
 
@@ -82,7 +82,7 @@ type Item = {
  * The teachers' wishes the plan breaks, beside the week: this week's, every week's, or how
  * well each teacher is served — the least served first, so broken wishes are spread rather
  * than always landing on the same people. Searched, sorted and filtered as the classes to
- * place are, in the same layout: the filters behind one button, "Must" to hand. Which of
+ * place are, in the same layout: the filters behind one button, "Constraint" to hand. Which of
  * the three views is the panel's header's to say. A line is pressed to show that teacher's week.
  */
 export function PlanWishesPanel({
@@ -222,8 +222,8 @@ export function PlanWishesPanel({
             {tally.status === "draft" ? <span className="ml-1 font-normal text-[#98a2b3]">(draft)</span> : null}
           </span>
           <span className="shrink-0 tabular-nums text-[#667085]">
-            {tally.musts ? `${tally.mustsKept} of ${tally.musts} Musts` : "no Musts"} ·{" "}
-            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} preferences` : "no preferences"}
+            {tally.musts ? `${tally.mustsKept} of ${tally.musts} constraints kept` : "no constraints"} ·{" "}
+            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} preferences kept` : "no preferences"}
           </span>
         </button>
       );
@@ -274,7 +274,7 @@ export function PlanWishesPanel({
           />
         </div>
         <FilterPills
-          shortcut={{ label: "Must", count: counts.must }}
+          shortcut={{ label: "Constraint", count: counts.must }}
           on={chosen.includes("must")}
           onShortcut={() => toggle("must")}
           pills={[

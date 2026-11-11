@@ -21,8 +21,8 @@ const SEMESTER: wishes.WishSemester = {
       name: "Valerie Le Guyon",
       email: "",
       wishes: {
-        status: "submitted", cells: Array.from({ length: 8 }, (_, quarter) => ({ day: 2, hour: 14 + quarter / 4, kind: "cant" as const })), limits: { maxDays: 3 }, away: [],
-        needs: "", note: "Mornings are best", levels: { "cant:14-16:2": "must" }, comments: { "cant:14-16:2": "School run" },
+        status: "submitted", blocks: [{ id: "run", kind: "constraint", days: [2], from: 14, to: 16, repeat: "all", week: "", comment: "School run" }],
+        limits: { maxDays: 3 }, limitKinds: {}, needs: "", note: "Mornings are best", comments: {},
         lines: [], overCapReason: "", source: "teacher", submittedAt: "2026-11-09T10:00:00Z", updatedAt: "2026-11-09T10:00:00Z", updatedBy: "",
       },
     },
@@ -58,7 +58,9 @@ describe("a teacher's answer, opened from the list", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Edit their answer" }));
     expect(screen.getByRole("note").textContent).toMatch(/You’re changing Valerie Le Guyon’s answer/);
-    expect(screen.getByRole("button", { name: "Submit" })).toBeTruthy();
+    // The form opens on the calendar: Save draft on every page, Submit on the last.
+    expect(screen.getByRole("button", { name: "Save draft" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Next: Limits/ })).toBeTruthy();
   });
 
   it("is answered on the teacher's behalf when they have not, and says so", async () => {
@@ -80,13 +82,13 @@ describe("closing the wishes window", () => {
   it("asks first when something has, and keeps editing or lets it go", async () => {
     page();
     fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Monday 09:00: / }));
+    fireEvent.click(screen.getByRole("button", { name: /^Monday \d+ \w+ 09:00: fine/ }));
     fireEvent.mouseDown(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" }).parentElement as HTMLElement);
     expect(screen.getByRole("dialog", { name: "Discard your changes?" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.queryByRole("dialog", { name: "Discard your changes?" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Monday 09:00: can't teach/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Monday \d+ \w+ 09:00: constraint, every week/ })).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));

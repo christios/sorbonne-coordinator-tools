@@ -109,7 +109,7 @@ export function judgeSlot(plan: Plan, teachers: WishTeacher[] | undefined, candi
       said:
         breach.about === "period"
           ? `Everybody · ${breach.perClass?.get(ghosts.find((ghost) => breach.classes.includes(ghost)) as PlanClass) ?? breach.wish}`
-          : `${breach.level === "must" ? "Must" : "Would like"} · ${breach.teacherName}: ${breach.wish}${
+          : `${breach.level === "must" ? "Constraint" : "Preference"} · ${breach.teacherName}: ${breach.wish.replace(/^(Constraint|Preference) · /, "")}${
               breach.comment ? ` — “${breach.comment}”` : ""
             }`,
     });

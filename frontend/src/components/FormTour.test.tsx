@@ -51,6 +51,36 @@ describe("a guided tour's card", () => {
     expect(screen.queryByText("Nicely done")).toBeNull();
   });
 
+  it("lets a press reach only the lit part: elsewhere it does nothing but shake the card and say why", () => {
+    const lit = placed(300, 400, 120, 24);
+    // Outside the lit part, in the window that holds the form: its close button, say.
+    const window_ = document.createElement("div");
+    window_.setAttribute("role", "dialog");
+    window_.setAttribute("aria-modal", "true");
+    const outside = document.createElement("button");
+    window_.appendChild(outside);
+    document.body.appendChild(window_);
+    const pressed = vi.fn();
+    outside.addEventListener("click", pressed);
+    lit.addEventListener("click", pressed);
+    render(<FormTour steps={[{ id: "one", title: "First", body: "", target: () => lit }]} at={0} onStep={() => {}} onClose={() => {}} />);
+    expect(screen.queryByRole("status")).toBeNull();
+
+    fireEvent.mouseDown(outside, { clientX: 20, clientY: 20 });
+    fireEvent.click(outside, { clientX: 20, clientY: 20, detail: 1 });
+    expect(pressed).not.toHaveBeenCalled();
+    expect(screen.getByRole("status").textContent).toContain("only the lit part works");
+    expect(document.querySelector("[data-tour-card] .tour-card-shake")).not.toBeNull();
+
+    fireEvent.click(lit, { clientX: 320, clientY: 410, detail: 1 });
+    expect(pressed).toHaveBeenCalledTimes(1);
+    // Enter on a focused control is a click with no place: it is not held back.
+    fireEvent.click(outside, { detail: 0 });
+    expect(pressed).toHaveBeenCalledTimes(2);
+    lit.remove();
+    window_.remove();
+  });
+
   it("asks before it ends", () => {
     const onClose = vi.fn();
     render(<FormTour steps={[{ id: "one", title: "First", body: "" }]} at={0} onStep={() => {}} onClose={onClose} endWords="Nothing is lost." />);

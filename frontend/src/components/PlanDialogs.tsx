@@ -21,7 +21,7 @@ import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portal
 import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import { fetchPayCycles, setPayCycle } from "@/services/teachers";
 import { judgeSlot } from "@/services/planJudge";
-import { awayWords, describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
+import { activeIn, describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
 import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
@@ -124,20 +124,23 @@ const hoursWords = (minutes: number) => {
 };
 
 /**
- * The wishes of the teacher of a class, folded to one line: how many, and whether the time
- * chosen keeps them. Opened, the whole list — Musts first, each with why it matters, the ones
- * this time breaks marked — and their dates away, needs and note.
+ * The preferences of the teacher of a class, folded to one line: how many, and whether the
+ * time chosen keeps them. Opened, the whole list — constraints first, each with why it matters,
+ * the ones this time breaks marked — and their needs and note.
  */
 function WishesStrip({
   teacher,
   weekday,
   startsAt,
   endsAt,
+  mondays,
 }: {
   teacher: WishTeacher;
   weekday: number;
   startsAt: string;
   endsAt: string;
+  /** The weeks the class meets in, by their Mondays: a block for some weeks counts only in them. */
+  mondays: string[];
 }) {
   const [open, setOpen] = useState(false);
   const wishes = teacher.wishes;
@@ -148,17 +151,21 @@ function WishesStrip({
   const end = minutesOf(endsAt);
   const lines = [...wishes.lines].sort((left, right) => Number(left.level !== "must") - Number(right.level !== "must"));
   const brokenHere = (line: (typeof lines)[number]) =>
-    (line.kind === "cant" && line.days.includes(weekday) && start < line.to * 60 && end > line.from * 60) ||
+    (line.kind === "constraint" &&
+      line.days.includes(weekday) &&
+      start < line.to * 60 &&
+      end > line.from * 60 &&
+      mondays.some((monday) => activeIn({ ...line, id: line.key, comment: "" }, monday))) ||
     (line.kind === "freeDay" && line.value === weekday);
-  const musts = lines.filter((line) => line.level === "must").length;
+  const constraints = lines.filter((line) => line.level === "must").length;
   const broken = lines.filter(brokenHere).length;
-  const extras = wishes.away.length + (wishes.needs ? 1 : 0) + (wishes.note ? 1 : 0);
+  const extras = (wishes.needs ? 1 : 0) + (wishes.note ? 1 : 0);
   return (
     <div className="grid gap-2 pt-2 text-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-[#344054]">
           {lines.length
-            ? `${musts} Must${musts === 1 ? "" : "s"} · ${lines.length - musts} Would like${lines.length - musts === 1 ? "" : "s"}`
+            ? `${constraints} constraint${constraints === 1 ? "" : "s"} · ${lines.length - constraints} preference${lines.length - constraints === 1 ? "" : "s"}`
             : "No preferences on the week"}
         </span>
         {lines.length ? (
@@ -189,25 +196,19 @@ function WishesStrip({
                 <li key={line.key} className="flex items-start gap-2">
                   <span
                     className={`mt-px shrink-0 rounded px-1.5 text-[11px] font-semibold ${
-                      line.level === "must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
+                      line.level === "must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#e7f4ec] text-[#2e7d55]"
                     }`}
                   >
-                    {line.level === "must" ? "Must" : "Would like"}
+                    {line.level === "must" ? "Constraint" : "Preference"}
                   </span>
                   <span className="min-w-0">
-                    <span className="text-[#344054]">{describeLine(line)}</span>
+                    <span className="text-[#344054]">{describeLine(line).replace(/^(Constraint|Preference) · /, "")}</span>
                     {brokenHere(line) ? <span className="font-medium text-[#a6292f]"> — this time breaks it</span> : null}
                     {line.comment ? <span className="block text-xs text-[#667085]">&ldquo;{line.comment}&rdquo;</span> : null}
                   </span>
                 </li>
               ))}
             </ul>
-          ) : null}
-          {wishes.away.length ? (
-            <p className="text-[#667085]">
-              Away{" "}
-              {wishes.away.map((entry) => `${awayWords(entry)}${entry.reason ? ` (${entry.reason})` : ""}`).join(", ")}
-            </p>
           ) : null}
           {wishes.needs ? <p className="text-[#667085]">Needs: {wishes.needs}</p> : null}
           {wishes.note ? <p className="text-[#667085]">Note: {wishes.note}</p> : null}
@@ -465,7 +466,13 @@ export function PlanClassDialog({
 
         {teacherWishes ? (
           <Part label="Preferences">
-            <WishesStrip teacher={teacherWishes} weekday={draft.weekday} startsAt={draft.startsAt} endsAt={draft.endsAt} />
+            <WishesStrip
+              teacher={teacherWishes}
+              weekday={draft.weekday}
+              startsAt={draft.startsAt}
+              endsAt={draft.endsAt}
+              mondays={draft.weeks.map((week) => toIsoDate(weekStartOf(week, calendar)))}
+            />
           </Part>
         ) : null}
 

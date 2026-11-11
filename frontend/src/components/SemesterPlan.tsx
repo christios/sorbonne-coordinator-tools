@@ -61,7 +61,7 @@ import {
 } from "@/services/weekSchedule";
 import { fetchSemesterShortNames } from "@/services/portalLists";
 import { judgeSlot } from "@/services/planJudge";
-import { checkWishes, clockOf, fetchWishSemester, periodShades, shadingOf } from "@/services/teacherWishes";
+import { checkWishes, describeBlock, fetchWishSemester, mondayOfIso, periodShades, shadingFor } from "@/services/teacherWishes";
 import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
@@ -534,7 +534,6 @@ export function SemesterPlan({
   const focusId = held || picked || filteredTeacher;
   const focusRow = wishTeachers.find((row) => row.teacherId === focusId) ?? null;
   const focusName = focusRow?.name ?? data.sections.find((section) => section.teacherId === focusId)?.teacherName ?? "";
-  const focusShades = focusRow?.wishes ? shadingOf(focusRow.wishes) : {};
   const shading = (date: string): Shade[] => {
     const weekday = weekdayOf(date);
     const shades: Shade[] = [];
@@ -544,24 +543,14 @@ export function SemesterPlan({
       for (const stretch of periodShades(period, date, weekday)) shades.push({ ...stretch, tone: "period" });
     }
     if (focusRow?.wishes) {
-      for (const stretch of focusShades[weekday] ?? []) {
+      // The teacher's blocks as they stand that week: every week's, and the week's own on top.
+      for (const stretch of shadingFor(focusRow.wishes, mondayOfIso(date))[weekday] ?? []) {
         shades.push({
           from: stretch.from,
           to: stretch.to,
-          tone: stretch.kind,
-          title: `${focusRow.name} ${stretch.kind === "cant" ? "can't teach" : "would rather teach"} ${stretch.from}–${stretch.to}`,
+          tone: stretch.kind === "constraint" ? "cant" : "prefer",
+          title: `${focusRow.name}: ${describeBlock(stretch.block)}${stretch.block.comment ? ` — “${stretch.block.comment}”` : ""}`,
         });
-      }
-      for (const away of focusRow.wishes.away) {
-        if (date >= away.from && date <= away.to) {
-          const part = away.start !== undefined && away.end !== undefined;
-          shades.push({
-            from: part ? clockOf(away.start!) : "00:00",
-            to: part ? clockOf(away.end!) : "23:59",
-            tone: "cant",
-            title: `${focusRow.name} is away${part ? ` ${clockOf(away.start!)}–${clockOf(away.end!)}` : ""}${away.reason ? `: ${away.reason}` : ""}`,
-          });
-        }
       }
     }
     return shades;
@@ -587,7 +576,7 @@ export function SemesterPlan({
     const clash = problems.some((problem) => problem.kind === "clash");
     return {
       worst,
-      label: clash ? "Clash" : worst === "must" ? "Breaks a Must" : worst ? "Breaks a preference" : "",
+      label: clash ? "Clash" : worst === "must" ? "Breaks a constraint" : worst ? "Breaks a preference" : "",
       said: problems.map((problem) => problem.said).join("\n"),
     };
   };
@@ -893,10 +882,10 @@ export function SemesterPlan({
                 <>
                   <span className="font-semibold text-[#344054]">{focusName}&rsquo;s preferences:</span>
                   <span className="inline-flex items-center gap-1">
-                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#a6292f]/40 bg-[#a6292f]/[0.15]" /> can&rsquo;t teach
+                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#a6292f]/40 bg-[#a6292f]/[0.15]" /> constraint
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#2e7d55]/40 bg-[#2e7d55]/[0.15]" /> would rather
+                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#2e7d55]/40 bg-[#2e7d55]/[0.15]" /> preference
                   </span>
                   {focusRow.wishes.status === "draft" ? <span>(a draft)</span> : null}
                 </>
