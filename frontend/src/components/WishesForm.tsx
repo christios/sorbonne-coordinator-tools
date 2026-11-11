@@ -853,12 +853,32 @@ export function WishesForm({
   };
 
   // A tour step starts from the form as it is, on the page it is about.
-  const entering = useRef<(id: string) => void>(() => {});
-  entering.current = (id: string) => {
+  /*
+   * The form as each step of the tour found it, by the step's place: Back to a step puts the form
+   * back as it was then, so what was done on the way — on the step left, and on the step come
+   * back to — is undone, and that step is tried afresh.
+   */
+  type StepStart = {
+    blocks: WishBlock[];
+    limits: WishLimits;
+    limitKinds: Wishes["limitKinds"];
+    comments: Record<string, string>;
+    needs: string;
+    note: string;
+    reason: string;
+    week: string;
+    made: string;
+    day: string;
+    wholeWeek: string;
+  };
+  const stepStarts = useRef(new Map<number, StepStart>());
+  const lastStep = useRef<number | null>(null);
+  const entering = useRef<(id: string, weekNow: string) => void>(() => {});
+  entering.current = (id: string, weekNow: string) => {
     // Only the step about the box keeps one open: come back to an earlier step, and it is closed.
     const keepsOpen = id === "repeat";
     if (!keepsOpen) setOpen(null);
-    setTourBase({ week, sawOpen: keepsOpen && Boolean(open) });
+    setTourBase({ week: weekNow, sawOpen: keepsOpen && Boolean(open) });
     setPage(id === "limits" || id === "save" || id === "again" ? 1 : 0);
     if (id === "open") setTourClicked(null);
     // The block clicked on the step before opens now, growing out of it.
@@ -874,8 +894,35 @@ export function WishesForm({
     }
   };
   useEffect(() => {
-    if (tourStepId) entering.current(tourStepId);
-  }, [tourStepId]);
+    if (tourAt === null) {
+      lastStep.current = null;
+      stepStarts.current.clear();
+      return;
+    }
+    const back = lastStep.current !== null && tourAt < lastStep.current;
+    lastStep.current = tourAt;
+    const then = back ? stepStarts.current.get(tourAt) : undefined;
+    if (then) {
+      setBlocks(then.blocks);
+      setLimits(then.limits);
+      setLimitKinds(then.limitKinds);
+      setComments(then.comments);
+      setNeeds(then.needs);
+      setNote(then.note);
+      setReason(then.reason);
+      setWeek(then.week);
+      setTourMade(then.made);
+      setTourDay(then.day);
+      setTourWeek(then.wholeWeek);
+      setTourClicked(null);
+      setOpen(null);
+    } else {
+      stepStarts.current.set(tourAt, { blocks, limits, limitKinds, comments, needs, note, reason, week, made: tourMade, day: tourDay, wholeWeek: tourWeek });
+    }
+    entering.current(TOUR[tourAt], then ? then.week : week);
+    // On a new step only: the form as it is then is read here, not followed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourAt]);
   useEffect(() => {
     if (!open) setPopFromTour(false);
   }, [open]);

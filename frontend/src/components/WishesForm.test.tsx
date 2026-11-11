@@ -512,6 +512,32 @@ describe("the guided tour", () => {
     expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
   });
 
+  it("undoes, going back, what was done since the step gone back to began: that step is tried afresh", () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+    vi.setSystemTime(new Date(2026, 10, 10));
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    begin();
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
+    next("Mark a time");
+    // Back from step 2 to step 1: the block drawn on step 1 is gone, and step 1 waits for one again.
+    fireEvent.click(within(step("Open a block")).getByRole("button", { name: "Back" }));
+    expect(said("Tuesday", "14:00")).toContain("fine");
+    expect(within(step("Mark a time")).getByText("Your turn")).toBeTruthy();
+    stroke(["Thursday", "10:00"]);
+    next("Mark a time");
+    expect(said("Thursday", "10:00")).toContain("constraint, every week");
+    expect(said("Tuesday", "14:00")).toContain("fine");
+
+    // A block set in its box, then Back: as it was before it was set.
+    tap("Thursday", "10:00");
+    wait(2000);
+    fireEvent.click(within(box()).getByRole("radio", { name: /^This week only/ }));
+    fireEvent.click(within(box()).getByRole("radio", { name: "Preference" }));
+    fireEvent.click(within(step("Set the block")).getByRole("button", { name: "Back" }));
+    expect(said("Thursday", "10:00")).toContain("constraint, every week");
+  });
+
   it("once taken, starts only from its button, and ending it early clears what was tried", () => {
     window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
