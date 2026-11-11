@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type 
 import { AddEntryButton } from "@/components/AddEntryButton";
 import { type HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
+import { ScrollPane } from "@/components/ScrollPane";
 
 /** A column of the CLO–PLO matrix: one PLO the curriculum mapping expects of the course. */
 export type MatrixPlo = { id: string; code: string; outcome: string; /** "code: outcome", what a CLO stores. */ value: string };
@@ -55,7 +56,8 @@ const RULE = "border-l border-[#c3cbd6]";
  * whole section scrolling as one page. They share the height by what they hold, and neither
  * shrinks below a heading and a couple of rows.
  */
-const PANE = "min-w-0 overflow-auto rounded-lg border border-[#c3cbd6] bg-white text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1f4e79] lg:min-h-36 lg:flex-[0_1_auto]";
+const PANE_SIZE = "lg:min-h-36 lg:flex-[0_1_auto]";
+const PANE = "min-w-0 overflow-auto rounded-lg border border-[#c3cbd6] bg-white text-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1f4e79]";
 
 type Reference = "plos" | "scen" | "suad";
 /** What the pointer or keyboard is on in the competency matrix, to light up what it links to. */
@@ -104,13 +106,13 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
   const competencyWidth = `(8rem + ${competencies.length + graduates.length} * 2rem + 1.5rem)`;
   const sideBySide = {
     "--matrix-min": `calc(14rem + ${plos.length + 1} * 2.25rem)`,
-    "--panel-max": `clamp(15rem, 100cqw - ${competencyWidth} - 1rem, 30rem)`,
+    "--panel-max": `clamp(15rem, 100cqw - ${competencyWidth} - 2rem, 30rem)`,
   } as CSSProperties;
 
   const matrix = (
-    <div role="region" aria-label="Alignment to the programme learning outcomes" tabIndex={0} className={PANE}>
+    <ScrollPane role="region" aria-label="Alignment to the programme learning outcomes" tabIndex={0} outerClassName={PANE_SIZE} className={PANE}>
       <div role="table" aria-label="Course learning outcomes and the programme learning outcomes each is aligned to" style={style}>
-        <div role="row" className={`${GRID} sticky top-0 z-10 border-b border-[#c3cbd6] bg-[#e6ecf4] font-semibold text-[#1d2939]`}>
+        <div role="row" data-pane-head className={`${GRID} sticky top-0 z-10 border-b border-[#c3cbd6] bg-[#e6ecf4] font-semibold text-[#1d2939]`}>
           <div role="columnheader" className="px-4 py-2.5">Course learning outcome</div>
           {plos.map((plo) => (
             <ColumnHead key={plo.id} code={plo.code} short={trailingNumber(plo.code) || plo.code} stackedOver={trailingNumber(plo.code) ? "PLO" : undefined} title={plo.outcome} onReveal={() => reveal("plos", plo.id)} />
@@ -170,7 +172,7 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
         {rows.length === 0 ? <div role="row" className="px-4 py-4 text-[#475467]"><span role="cell">No course learning outcomes yet.</span></div> : null}
         {plos.length ? (
           // The coverage stays in view at the foot of the pane while the outcomes scroll.
-          <div role="row" className={`${GRID} sticky bottom-0 z-10 border-t border-[#c3cbd6] bg-[#f1f4f8]`}>
+          <div role="row" data-pane-foot className={`${GRID} sticky bottom-0 z-10 border-t border-[#c3cbd6] bg-[#f1f4f8]`}>
             <div role="rowheader" className="px-4 py-2 text-xs font-medium text-[#475467]">Each PLO aligned to at least one CLO</div>
             {plos.map((plo) => (
               <div key={plo.id} role="cell" className={`${RULE} flex items-center justify-center py-2`}>
@@ -183,7 +185,7 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
           </div>
         ) : null}
       </div>
-    </div>
+    </ScrollPane>
   );
 
   return (
@@ -259,9 +261,9 @@ function CompetencyMatrix({
   const suadColumn = (index: number) => ({ gridColumn: scenCount + 3 + index });
 
   return (
-    <div role="region" aria-label="Competencies each outcome develops" tabIndex={0} className={PANE} onMouseLeave={() => setTrace(null)} onBlur={leave}>
+    <ScrollPane role="region" aria-label="Competencies each outcome develops" tabIndex={0} outerClassName={PANE_SIZE} className={PANE} onMouseLeave={() => setTrace(null)} onBlur={leave}>
       <div role="table" aria-label="SCEN graduate competencies each course learning outcome develops, and the SUAD graduate competencies they bring" style={style} className="min-w-fit">
-        <div className={`${COMPETENCY_GRID} sticky top-0 z-10 border-b border-[#c3cbd6] bg-[#e6ecf4] text-[#1d2939]`}>
+        <div data-pane-head className={`${COMPETENCY_GRID} sticky top-0 z-10 border-b border-[#c3cbd6] bg-[#e6ecf4] text-[#1d2939]`}>
           <div aria-hidden="true" className={`${RULE} row-start-1 px-2 pb-1 pt-2 text-xs leading-4`} style={{ gridColumn: `2 / span ${scenCount}` }}>
             <span className="block font-semibold">SCEN graduate competencies</span>
             <span className="block text-[11px] text-[#475467]">{onChange ? "Tick what each CLO develops" : "What each CLO develops"}</span>
@@ -272,11 +274,11 @@ function CompetencyMatrix({
           {graduates.length ? (
             <div aria-hidden="true" className={`${RULE} row-start-1 px-2 pb-1 pt-2 text-xs leading-4`} style={{ gridColumn: `${scenCount + 3} / span ${graduates.length}` }}>
               <span className="block font-semibold">SUAD graduate competencies</span>
-              <span className="block text-[11px] text-[#475467]">Follow from the ticks</span>
+              <span className="block text-[11px] text-[#475467]">Equivalent competencies</span>
             </div>
           ) : null}
           <div role="row" className="contents">
-            <div role="columnheader" className="sticky left-0 z-[1] col-start-1 row-span-2 row-start-1 flex items-end bg-[#e6ecf4] px-3 py-2 text-sm font-semibold">Outcome</div>
+            <div role="columnheader" data-pane-sticky-col className="sticky left-0 z-[1] col-start-1 row-span-2 row-start-1 flex items-end bg-[#e6ecf4] px-3 py-2 text-sm font-semibold">Outcome</div>
             {competencies.map((competency, index) => (
               <ColumnHead
                 key={competency.id}
@@ -361,7 +363,7 @@ function CompetencyMatrix({
         })}
         {rows.length === 0 ? <div role="row" className="px-4 py-4 text-[#475467]"><span role="cell">No course learning outcomes yet.</span></div> : null}
         {rows.length ? (
-          <div role="row" className={`${COMPETENCY_GRID} sticky bottom-0 z-10 border-t border-[#c3cbd6] bg-[#f1f4f8] text-[11px]`}>
+          <div role="row" data-pane-foot className={`${COMPETENCY_GRID} sticky bottom-0 z-10 border-t border-[#c3cbd6] bg-[#f1f4f8] text-[11px]`}>
             <div role="rowheader" className="sticky left-0 z-[1] bg-[#f1f4f8] px-3 py-2 text-xs font-medium text-[#475467]">Number of CLOs</div>
             {competencies.map((competency) => (
               <Count key={competency.id} value={rows.filter((row) => chosenOf.get(row.id)?.includes(competency.id)).length} />
@@ -373,7 +375,7 @@ function CompetencyMatrix({
           </div>
         ) : null}
       </div>
-    </div>
+    </ScrollPane>
   );
 }
 
@@ -510,7 +512,7 @@ function ReferencePanel({
           </button>
         ))}
       </div>
-      <div role="tabpanel" tabIndex={0} className="min-h-0 flex-1 overflow-y-auto p-3 focus-visible:outline-2 focus-visible:outline-[#1f4e79]">
+      <ScrollPane role="tabpanel" tabIndex={0} outerClassName="lg:min-h-0 lg:flex-1" className="overflow-y-auto p-3 focus-visible:outline-2 focus-visible:outline-[#1f4e79] lg:flex-1">
         {tab === "plos" ? (
           <>
             <h4 className="text-sm font-semibold text-[#1d2939]">Programme learning outcomes</h4>
@@ -572,7 +574,7 @@ function ReferencePanel({
             </ol>
           </>
         )}
-      </div>
+      </ScrollPane>
     </aside>
   );
 }
