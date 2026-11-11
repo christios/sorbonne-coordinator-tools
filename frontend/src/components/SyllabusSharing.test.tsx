@@ -83,6 +83,26 @@ describe("submitting a syllabus for review", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("keeps the last count while a save asks again, instead of blinking to Submit for review", async () => {
+    const spy = vi.spyOn(syllabi, "getSyllabusCompleteness").mockResolvedValue({
+      complete: false,
+      missing: [{ section: "schedule", message: 'Give "Essay" a week.' }],
+    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const view = (syllabus: syllabi.Syllabus) => (
+      <QueryClientProvider client={client}><SyllabusSharing syllabus={syllabus} sections={SECTIONS} /></QueryClientProvider>
+    );
+    const { rerender } = render(view(SYLLABUS));
+    expect(await screen.findByRole("button", { name: "1 to fill in before review" })).toBeTruthy();
+
+    // A save: the next revision is asked about, and the answer has not come yet.
+    spy.mockReturnValue(new Promise(() => {}));
+    rerender(view({ ...SYLLABUS, revision: SYLLABUS.revision + 1 }));
+
+    expect(screen.getByRole("button", { name: "1 to fill in before review" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Submit for review/ })).toBeNull();
+  });
+
   it("offers Submit for review once nothing is missing", async () => {
     vi.spyOn(syllabi, "getSyllabusCompleteness").mockResolvedValue({ complete: true, missing: [] });
     const submit = vi.spyOn(syllabi, "setSyllabusReview").mockResolvedValue({ ...SYLLABUS, submittedAt: "2026-11-10T10:00:00Z" });

@@ -91,7 +91,7 @@ export function SyllabusSharing({
       ) : (
         <button
           type="button"
-          disabled={busy || (!syllabus.submittedAt && !completeness.data)}
+          disabled={busy || (!syllabus.submittedAt && (!completeness.data || completeness.isPlaceholderData))}
           onClick={() => review.mutate(!syllabus.submittedAt)}
           className={button}
         >

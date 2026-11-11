@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 
 import { useStaffUser } from "@/components/useStaffUser";
 import { getSyllabusCompleteness, type Syllabus } from "@/services/syllabi";
@@ -18,6 +18,10 @@ export function useSyllabusCompleteness(syllabus: Syllabus) {
     queryKey: ["syllabus-completeness", syllabus.id, syllabus.revision],
     queryFn: () => getSyllabusCompleteness(syllabus.id),
     enabled: canEdit,
+    // Each save asks again; until the answer comes the last one stands, so the counts in the
+    // menu and the header do not vanish and come back with every save (11 Nov 2026: "the
+    // number pills flicker").
+    placeholderData: keepPreviousData,
   });
   const missing = canEdit ? completeness.data?.missing ?? [] : [];
   return { canEdit, completeness, missing };
