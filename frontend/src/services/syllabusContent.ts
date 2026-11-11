@@ -68,6 +68,75 @@ export function rubricEntries(value: unknown): Rubric[] {
   return [...grouped.values()];
 }
 
+/** Content written since November 2026 keeps its graded activities in the schedule. */
+export const SCHEDULE_HOLDS_GRADED_ACTIVITIES = 2;
+
+export function schemaVersion(content: Record<string, unknown>): number {
+  return typeof content.schemaVersion === "number" ? content.schemaVersion : 1;
+}
+
+/**
+ * The syllabus's graded activities, wherever this syllabus keeps them: the schedule's graded
+ * cards (schemaVersion 2), or `assessment.items` on a syllabus written before. Every feature
+ * that needs them asks here (as the backend's graded_activities does), so the move happens once.
+ */
+export function gradedActivities(content: Record<string, unknown>): AssessmentEntry[] {
+  if (schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES) {
+    return sortGraded(objectEntries<AssessmentEntry>(content.schedule, "legacy-session").filter((card) => card.kind === "graded"));
+  }
+  const assessment = isRecord(content.assessment) ? content.assessment : {};
+  return assessmentEntries(assessment.items);
+}
+
+export type RubricInUse = {
+  id: string;
+  label: string;
+  criteria: Array<{ name: string; inadequate: string; meets: string; exceeds: string }>;
+};
+
+/**
+ * The rubrics a syllabus prints: one per kind of graded activity it has, as the export does
+ * (resolve_rubrics). A catalogue assessment type brings its approved rubric; a rubric an
+ * older syllabus wrote by hand is kept only while an activity of that kind still exists.
+ */
+export function rubricsInUse(
+  activities: AssessmentEntry[],
+  writtenRubrics: unknown,
+  assessmentTypes: Array<{ id: string; label: string; payload: Record<string, unknown> }>,
+): RubricInUse[] {
+  const used: string[] = [];
+  const typed: string[] = [];
+  for (const entry of activities) {
+    const typeId = typeof entry.assessmentTypeId === "string" ? entry.assessmentTypeId : "";
+    if (typeId) {
+      if (!used.includes(typeId)) used.push(typeId);
+      continue;
+    }
+    const kind = normalisedKind(entry.type);
+    if (kind && !typed.includes(kind)) typed.push(kind);
+  }
+  const fromCatalogue = used.flatMap((id) => {
+    const type = assessmentTypes.find((item) => item.id === id);
+    if (!type) return [];
+    const criteria = Array.isArray(type.payload.criteria) ? (type.payload.criteria as Array<Record<string, unknown>>) : [];
+    return [{ id: type.id, label: type.label, criteria: criteria.map((item) => ({ name: text(item.name), inadequate: text(item.inadequate), meets: text(item.meets), exceeds: text(item.exceeds) })) }];
+  });
+  const written = new Map(rubricEntries(writtenRubrics).map((rubric) => [normalisedKind(rubric.assignment), rubric]));
+  const byHand = typed.flatMap((kind) => {
+    const rubric = written.get(kind);
+    return rubric ? [{ id: rubric.id, label: rubric.assignment ?? "", criteria: rubric.criteria.map((item) => ({ name: text(item.criterion), inadequate: text(item.inadequate), meets: text(item.meets), exceeds: text(item.exceeds) })) }] : [];
+  });
+  return [...fromCatalogue, ...byHand];
+}
+
+function normalisedKind(value: unknown): string {
+  return typeof value === "string" ? value.split(/\s+/).filter(Boolean).join(" ").toLocaleLowerCase() : "";
+}
+
+function text(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
 export function deliveryPercentageError(faceToFace: string, online: string): string | null {
   const values = [faceToFace, online].filter((value) => value.trim() !== "");
   if (values.some((value) => !/^\d+(?:\.\d+)?$/.test(value) || Number(value) < 0 || Number(value) > 100)) {
@@ -92,3 +161,173 @@ function objectEntries<T extends { id: string; legacyText?: string }>(value: unk
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
+
+/**
+ * The stored content parts one screen section edits, in the order the document prints
+ * them. Description and delivery became one section in November 2026 while keeping
+ * their own keys, so history and older syllabi are unaffected.
+ */
+export function sectionParts(
+  sections: Array<{ id: string; parts?: string[] }>,
+  active: string,
+): string[] {
+  const section = sections.find((item) => item.id === active);
+  return section?.parts?.length ? section.parts : [active];
+}
+
+function weekOrder(row: Record<string, unknown>): number {
+  const week = typeof row.week === "string" ? row.week.trim() : typeof row.week === "number" ? String(row.week) : "";
+  return /^\d+$/.test(week) ? Number(week) : Number.POSITIVE_INFINITY;
+}
+
+/** Graded activities in the order the schedule shows them: by week, then by date, undated last. */
+function sortGraded<T extends Record<string, unknown>>(cards: T[]): T[] {
+  const dateOf = (card: T) => (typeof card.date === "string" ? card.date : "");
+  return [...cards].sort((left, right) =>
+    weekOrder(left) - weekOrder(right) ||
+    Number(!dateOf(left)) - Number(!dateOf(right)) ||
+    dateOf(left).localeCompare(dateOf(right)));
+}
+
+function displayDate(value: unknown): string {
+  const text = typeof value === "string" ? value.trim() : "";
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? `${text.slice(8, 10)}/${text.slice(5, 7)}/${text.slice(0, 4)}` : text;
+}
+
+function lines(...parts: unknown[]): string {
+  return parts.filter((part): part is string => typeof part === "string" && Boolean(part.trim())).map((part) => part.trim()).join("\n");
+}
+
+export type PrintedScheduleRow = Record<string, unknown> & { session: string; ownRow?: boolean };
+
+/**
+ * The course schedule as the document prints it (document_schedule on the server): each row
+ * with the session label it shows. Once the schedule holds the graded activities, sessions go
+ * in week order and each graded activity joins the last session of its week, or has a row
+ * of its own in a week with no session.
+ */
+export function documentSchedule(content: Record<string, unknown>): PrintedScheduleRow[] {
+  const stored = (Array.isArray(content.schedule) ? content.schedule : []).filter(isRecord);
+  const converted = schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES;
+  let sessions = converted ? stored.filter((row) => row.kind !== "graded") : stored;
+  if (converted) sessions = [...sessions].sort((left, right) => weekOrder(left) - weekOrder(right));
+  const counts = new Map<string, number>();
+  const printed: PrintedScheduleRow[] = sessions.map((row) => {
+    const kind = (typeof row.sessionType === "string" && row.sessionType.trim()) || "CM";
+    const next = (counts.get(kind) ?? 0) + 1;
+    counts.set(kind, next);
+    return { ...row, session: `${kind} ${next}` };
+  });
+  if (!converted) return printed;
+  for (const card of sortGraded(stored.filter((row) => row.kind === "graded"))) {
+    const name = (typeof card.name === "string" && card.name.trim()) || (typeof card.type === "string" && card.type.trim()) || "Graded activity";
+    const when = displayDate(card.date);
+    const week = typeof card.week === "string" ? card.week.trim() : "";
+    const home = [...printed].reverse().find((row) => !row.ownRow && week && String(row.week ?? "").trim() === week);
+    if (!home) {
+      printed.push({ week, session: "", topic: name, ownRow: true, assessments: name, deadline: when });
+      continue;
+    }
+    home.assessments = lines(home.assessments, name);
+    home.deadline = lines(home.deadline, when);
+  }
+  return [...printed].sort((left, right) => weekOrder(left) - weekOrder(right));
+}
+
+type ScheduleCard = Record<string, unknown> & { id: string };
+
+/**
+ * Cards in the order the schedule is read: by week; in a week, its sessions as they were
+ * placed, then its graded activities by date (an undated one last). Nobody drags them.
+ */
+export function scheduleOrder<T extends ScheduleCard>(cards: T[]): T[] {
+  const dateOf = (card: T) => String(card.date ?? "");
+  return cards
+    .map((card, position) => ({ card, position }))
+    .sort((left, right) =>
+      weekOrder(left.card) - weekOrder(right.card) ||
+      Number(left.card.kind === "graded") - Number(right.card.kind === "graded") ||
+      (left.card.kind === "graded"
+        ? Number(!dateOf(left.card)) - Number(!dateOf(right.card)) || dateOf(left.card).localeCompare(dateOf(right.card))
+        : 0) ||
+      left.position - right.position)
+    .map(({ card }) => card);
+}
+
+/** The Foundation Year form's assessment rows a graded card can fill (fys_component_rows on the server). */
+export const FYS_CONTINUOUS_ROWS = ["In class assignment", "In class presentation", "Report / homework assignment", "Other"] as const;
+export const FYS_LABORATORY_ROWS = ["Report / homework assignment", "Lab exam"] as const;
+
+export const FYS_COMPONENTS: Array<{ value: string; label: string }> = [
+  ...FYS_CONTINUOUS_ROWS.map((row) => ({ value: `continuous:${row}`, label: `Continuous assessment — ${row === "Other" ? "Other (specify)" : row}` })),
+  { value: "final", label: "Final assessment" },
+  ...FYS_LABORATORY_ROWS.map((row) => ({ value: `laboratory:${row}`, label: `Laboratory — ${row}` })),
+];
+
+export type FysTableRow = { component?: string; description: string; clos: string; weight: string };
+
+/** The Foundation Year assessment tables as the form prints them, from its graded cards. */
+export function fysComponentRows(activities: Array<Record<string, unknown>>): { continuous: FysTableRow[]; final: FysTableRow[]; laboratory: FysTableRow[] } {
+  const joined = (cards: Array<Record<string, unknown>>): FysTableRow => {
+    const weights = cards.map((card) => String(card.weight ?? "").trim()).filter((weight) => weight && !Number.isNaN(Number(weight))).map(Number);
+    const clos: string[] = [];
+    for (const card of cards) {
+      for (const number of Array.isArray(card.cloNumbers) ? card.cloNumbers : []) {
+        const label = `CLO ${String(number)}`;
+        if (!clos.includes(label)) clos.push(label);
+      }
+    }
+    return {
+      description: lines(...cards.map((card) => String(card.description ?? card.name ?? ""))),
+      clos: clos.join(", "),
+      weight: weights.length ? `${weights.reduce((total, weight) => total + weight, 0)}%` : "",
+    };
+  };
+  const of = (component: string) => activities.filter((card) => card.component === component);
+  return {
+    continuous: FYS_CONTINUOUS_ROWS.map((row) => ({ component: row, ...joined(of(`continuous:${row}`)) })),
+    final: of("final").map((card) => joined([card])),
+    laboratory: FYS_LABORATORY_ROWS.map((row) => ({ component: row, ...joined(of(`laboratory:${row}`)) })),
+  };
+}
+
+/** The template's contact-hour rows, in its order (November 2026: they come from the course schedule). */
+export const CONTACT_HOUR_ROWS = ["Lectures", "Tutorials", "Workshops", "Seminars", "Laboratory", "Other"] as const;
+/** The row each session type adds its hours to. */
+export const SESSION_TYPE_ROWS: Record<string, (typeof CONTACT_HOUR_ROWS)[number]> = {
+  CM: "Lectures",
+  TD: "Tutorials",
+  Workshop: "Workshops",
+  Seminar: "Seminars",
+  TP: "Laboratory",
+  Other: "Other",
+};
+
+/** A session's length in hours, or null when it has none (a comma reads as a decimal point). */
+export function sessionHours(row: Record<string, unknown>): number | null {
+  const raw = String(row.duration ?? "").trim().replace(",", ".");
+  const hours = raw ? Number(raw) : NaN;
+  return Number.isFinite(hours) && hours > 0 ? hours : null;
+}
+
+/**
+ * The contact hours the document prints, row by row: the course schedule's sessions added up
+ * by type; graded activities do not count. A syllabus none of whose sessions has a length yet
+ * keeps the hours typed into section 1 before November 2026. The server's contact_hours says
+ * the same.
+ */
+export function contactHours(content: Record<string, unknown>): Record<(typeof CONTACT_HOUR_ROWS)[number], string> {
+  const schedule = Array.isArray(content.schedule) ? (content.schedule as Array<Record<string, unknown>>) : [];
+  const sessions = schedule.filter((row) => row && typeof row === "object" && row.kind !== "graded");
+  const timed = sessions.flatMap((row) => { const hours = sessionHours(row); return hours === null ? [] : [{ row, hours }]; });
+  type Hours = Record<(typeof CONTACT_HOUR_ROWS)[number], string>;
+  if (!timed.length) {
+    const identification = content.identification && typeof content.identification === "object" ? (content.identification as Record<string, unknown>) : {};
+    const typed = identification.contactHours && typeof identification.contactHours === "object" ? (identification.contactHours as Record<string, unknown>) : {};
+    return Object.fromEntries(CONTACT_HOUR_ROWS.map((row) => [row, String(typed[row] ?? "").trim()])) as Hours;
+  }
+  const totals = Object.fromEntries(CONTACT_HOUR_ROWS.map((row) => [row, 0])) as Record<(typeof CONTACT_HOUR_ROWS)[number], number>;
+  for (const { row, hours } of timed) totals[SESSION_TYPE_ROWS[String(row.sessionType || "CM")] ?? "Other"] += hours;
+  return Object.fromEntries(CONTACT_HOUR_ROWS.map((row) => [row, totals[row] ? String(Number(totals[row].toFixed(4))) : ""])) as Hours;
+}
+

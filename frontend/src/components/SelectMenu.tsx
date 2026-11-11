@@ -151,10 +151,20 @@ type Props = {
    * the full-height field would make every row twice as tall as its neighbours.
    */
   size?: "default" | "small";
+  /** Open as soon as it appears: the first thing to do on the screen it is on. */
+  defaultOpen?: boolean;
 };
 
-export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center", size = "default" }: Props) {
-  const [isOpen, setIsOpen] = useState(false);
+/** Which side of its trigger a menu opens on, and how tall it may be there. */
+function measurePlacement(trigger: HTMLElement | null): MenuPlacement {
+  const box = trigger?.getBoundingClientRect();
+  const availableAbove = Math.max(0, (box?.top ?? 0) - MENU_GAP);
+  const availableBelow = Math.max(0, window.innerHeight - (box?.bottom ?? window.innerHeight) - MENU_GAP);
+  return chooseMenuPlacement({ availableAbove, availableBelow });
+}
+
+export function SelectMenu({ label, value, onChange, options, placeholder, trailing, multiple = false, itemNoun = "item", searchable = false, searchPlaceholder = "Search options", disabled = false, required = false, variant = "default", wrap = false, showSelection = true, align = "center", size = "default", defaultOpen = false }: Props) {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
   const [query, setQuery] = useState("");
   const triggerRef = useRef<HTMLButtonElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -255,12 +265,16 @@ export function SelectMenu({ label, value, onChange, options, placeholder, trail
       setIsOpen(false);
       return;
     }
-    const trigger = triggerRef.current?.getBoundingClientRect();
-    const availableAbove = Math.max(0, (trigger?.top ?? 0) - MENU_GAP);
-    const availableBelow = Math.max(0, window.innerHeight - (trigger?.bottom ?? window.innerHeight) - MENU_GAP);
-    setPlacement(chooseMenuPlacement({ availableAbove, availableBelow }));
+    setPlacement(measurePlacement(triggerRef.current));
     setIsOpen(true);
   };
+
+  // Opened without a click (defaultOpen): measure the room around it once it is drawn, as a
+  // click would have. Without this the list had no height limit, ran off the page and could
+  // not be scrolled.
+  useLayoutEffect(() => {
+    if (isOpen && !placement && triggerRef.current) setPlacement(measurePlacement(triggerRef.current));
+  }, [isOpen, placement]);
 
   return (
     <Popover.Root open={isOpen} onOpenChange={handleOpenChange}>

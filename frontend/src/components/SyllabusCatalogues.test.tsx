@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SyllabusCatalogues } from "./SyllabusCatalogues";
@@ -90,6 +90,87 @@ describe("SyllabusCatalogues", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
     expect(screen.queryByDisplayValue("Dr. Grace Murray Hopper")).toBeNull();
+  });
+
+  it("shows an AI policy's stored wording when it is opened, and saves it back to the same place", async () => {
+    // The policies were seeded from the Provost's template with their wording under
+    // `description`; the form used to read `details`, so the wording looked empty.
+    vi.mocked(listCatalogueEntries).mockResolvedValue([
+      { id: "ai-policy-1", category: "ai-policies", parentId: null, label: "AI Prohibited", payload: { description: "The use of generative AI is prohibited." }, sortOrder: 1, isRetired: false, retiredAt: null, revision: 3, createdAt: "2026-08-31T00:00:00Z", updatedAt: "2026-08-31T00:00:00Z" },
+    ]);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SyllabusCatalogues onBack={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "AI policies" }));
+    fireEvent.click(await screen.findByText("AI Prohibited"));
+
+    const wording = await screen.findByDisplayValue("The use of generative AI is prohibited.");
+    fireEvent.change(wording, { target: { value: "Generative AI may not be used." } });
+    fireEvent.submit(wording.closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(updateCatalogueEntry).toHaveBeenCalledWith("ai-policies", "ai-policy-1", expect.objectContaining({ payload: { description: "Generative AI may not be used." } })));
+    vi.mocked(listCatalogueEntries).mockResolvedValue([]);
+  });
+
+  it("keeps the AI policies to the template's five, in its order, editable but never added or retired", async () => {
+    const policy = (id: string, label: string, templateRow: number, extra: Record<string, unknown> = {}) => ({ id, category: "ai-policies" as const, parentId: null, label, payload: { description: `${label} wording`, templateRow, ...extra }, sortOrder: templateRow, isRetired: false, retiredAt: null, revision: 2, createdAt: "2026-08-31T00:00:00Z", updatedAt: "2026-08-31T00:00:00Z" });
+    vi.mocked(listCatalogueEntries).mockResolvedValue([
+      policy("ai-policy-5", "Other (Specify)", 5),
+      policy("ai-policy-2", "AI Permitted as a Support Tool", 2, { permittedUses: ["Brainstorming or generating initial ideas"] }),
+      policy("ai-policy-1", "AI Prohibited", 1),
+    ]);
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SyllabusCatalogues onBack={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "AI policies" }));
+    await screen.findByText("Other (Specify)");
+    expect(screen.queryByRole("button", { name: /New AI policy/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /^Retire / })).toBeNull();
+    const titles = screen.getAllByRole("heading", { level: 4 }).map((heading) => heading.textContent);
+    expect(titles).toEqual(["AI Prohibited", "AI Permitted as a Support Tool", "Other (Specify)"]);
+
+    fireEvent.click(screen.getByText("AI Permitted as a Support Tool"));
+    fireEvent.click(await screen.findByRole("button", { name: "+ Add permitted use" }));
+    fireEvent.change(screen.getByLabelText("Permitted use 2"), { target: { value: "Translating sources" } });
+    fireEvent.submit(screen.getByLabelText("Permitted use 2").closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(updateCatalogueEntry).toHaveBeenCalledWith("ai-policies", "ai-policy-2", expect.objectContaining({
+      label: "AI Permitted as a Support Tool",
+      payload: expect.objectContaining({ templateRow: 2, permittedUses: ["Brainstorming or generating initial ideas", "Translating sources"] }),
+    })));
+    vi.mocked(listCatalogueEntries).mockResolvedValue([]);
+  });
+
+  it("writes a course's own learning outcomes in the curriculum mapping, aligned only to the PLOs it is expected to serve", async () => {
+    const at = { sortOrder: 0, isRetired: false, retiredAt: null, revision: 1, createdAt: "2026-11-10T00:00:00Z", updatedAt: "2026-11-10T00:00:00Z" };
+    vi.mocked(listCatalogueEntries).mockImplementation(async (category) => {
+      if (category === "programmes") return [{ id: "programme-physics", category: "programmes", parentId: null, label: "Bachelor in Physics", payload: {}, ...at }];
+      if (category === "plos") return [
+        { id: "plo-1", category: "plos", parentId: "programme-physics", label: "PLO 1", payload: { code: "PLO 1", outcome: "Model physical systems." }, ...at },
+        { id: "plo-2", category: "plos", parentId: "programme-physics", label: "PLO 2", payload: { code: "PLO 2", outcome: "Communicate results." }, ...at },
+        { id: "plo-3", category: "plos", parentId: "programme-physics", label: "PLO 3", payload: { code: "PLO 3", outcome: "Not expected of this course." }, ...at },
+      ];
+      if (category === "curriculum-mapping") return [{ id: "map-118", category: "curriculum-mapping", parentId: "programme-physics", label: "PHYS-118", payload: { courseTitle: "Geometric Optics", semester: "L1-S1", ploIds: ["plo-1", "plo-2"] }, ...at }];
+      return [];
+    });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><SyllabusCatalogues onBack={vi.fn()} /></QueryClientProvider>);
+
+    fireEvent.click(screen.getByRole("button", { name: "Curriculum mapping" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Edit PHYS-118" }));
+    fireEvent.click(await screen.findByRole("button", { name: "+ Add course learning outcome" }));
+    fireEvent.change(screen.getByLabelText("CLO 1"), { target: { value: "Trace rays through thin lenses." } });
+    // With no PLO aligned yet, both expected ones are still to align.
+    expect(screen.getByRole("status").textContent).toContain("PLO 1, PLO 2");
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Align CLO 1 to a PLO" }));
+    const offered = within(await screen.findByRole("listbox", { name: "Align CLO 1 to a PLO" })).getAllByRole("option").map((option) => option.textContent);
+    expect(offered.some((text) => text?.includes("Not expected of this course"))).toBe(false);
+    fireEvent.click(screen.getByRole("option", { name: /Model physical systems/ }));
+    fireEvent.submit(screen.getByLabelText("CLO 1").closest("form") as HTMLFormElement);
+
+    await waitFor(() => expect(updateCatalogueEntry).toHaveBeenCalledWith("curriculum-mapping", "map-118", expect.objectContaining({
+      payload: expect.objectContaining({ clos: [expect.objectContaining({ clo: "Trace rays through thin lenses.", ploIds: ["plo-1"] })] }),
+    })));
+    vi.mocked(listCatalogueEntries).mockReset();
+    vi.mocked(listCatalogueEntries).mockResolvedValue([]);
   });
 
   it("wraps long catalogue labels inside their cards", async () => {

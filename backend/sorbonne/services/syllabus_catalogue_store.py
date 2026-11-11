@@ -12,6 +12,7 @@ from uuid import uuid4
 from sqlalchemy import Engine, text
 from sqlalchemy.engine import RowMapping
 
+from sorbonne.services.syllabus_content import graded_activities, preset_applies, schedule_kinds
 from sorbonne.services.engine import engine_for
 
 
@@ -27,6 +28,8 @@ CATALOGUE_CATEGORIES = frozenset(
         "teaching-presets",
         "assessment-types",
         "bibliography-types",
+        # The ranks a person's "Academic rank / status" is chosen from (Christian, 10 Nov 2026).
+        "academic-ranks",
     }
 )
 
@@ -292,6 +295,127 @@ class SyllabusCatalogueStore:
         resolved["learningOutcomes"] = outcomes
         return resolved
 
+    def resolve_outcomes(
+        self, content: dict[str, Any], *, course_code: str, mode: str, programme_title: str = ""
+    ) -> dict[str, Any]:
+        """When the Head of Department writes the outcomes, the course's come from the catalogue.
+
+        November 2026 review: in that mode a course's CLOs and their aligned PLOs are written
+        once in the curriculum mapping and every syllabus of the course shows them; the graded
+        activities assess them by the ids they picked (`catalogueCloIds`). The SCEN
+        competencies each CLO develops are always the teacher's (Christian, 10 Nov 2026): the
+        syllabus keeps them in `learningOutcomes.cloCompetencies`, competency ids by catalogue
+        CLO id. The CLOs a teacher wrote stay stored, untouched, for the day the department
+        switches back. In teacher mode nothing changes.
+        """
+        if mode != "hod":
+            return content
+        resolved = deepcopy(content)
+        identification = _record(resolved.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        if not programme_id and programme_title:
+            # A Foundation Year syllabus names no programme: its courses are mapped under the
+            # catalogue programme of that name, which has no PLOs.
+            wanted_title = " ".join(programme_title.split()).casefold()
+            programme_id = next(
+                (
+                    item["id"]
+                    for item in self.list("programmes")
+                    if " ".join(_text(item.get("label")).split()).casefold() == wanted_title
+                ),
+                "",
+            )
+        wanted = _course_key(course_code)
+        entry = next(
+            (
+                item
+                for item in (self.list("curriculum-mapping", parent_id=programme_id) if programme_id else [])
+                if wanted and _course_key(item.get("label")) == wanted
+            ),
+            None,
+        )
+        written = _record(entry.get("payload")).get("clos") if entry else None
+        plos = (
+            {item["id"]: item for item in self.list("plos", parent_id=programme_id, include_retired=True)}
+            if programme_id
+            else {}
+        )
+        competencies = {item["id"]: item for item in self.list("competencies", include_retired=True)} if written else {}
+        picks = _record(_record(resolved.get("learningOutcomes")).get("cloCompetencies"))
+        rows = []
+        for item in written if isinstance(written, list) else []:
+            clo = _record(item)
+            plo_ids = [str(plo_id) for plo_id in clo.get("ploIds") or [] if str(plo_id) in plos]
+            chosen = picks.get(_text(clo.get("id")))
+            chosen = chosen if isinstance(chosen, list) else []
+            skill_ids = [str(skill_id) for skill_id in chosen if str(skill_id) in competencies]
+            rows.append(
+                {
+                    "id": _text(clo.get("id")),
+                    "clo": _text(clo.get("clo")),
+                    # The Foundation Year form reads a course outcome as "outcome".
+                    "outcome": _text(clo.get("clo")),
+                    "plo": "\n".join(_coded(plos[plo_id]) for plo_id in plo_ids),
+                    "ploIds": "\n".join(plo_ids),
+                    "skills": "\n".join(_coded(competencies[skill_id]) for skill_id in skill_ids),
+                    "skillIds": "\n".join(skill_ids),
+                }
+            )
+        outcomes = _record(resolved.get("learningOutcomes"))
+        outcomes["clos"] = rows
+        resolved["learningOutcomes"] = outcomes
+        for activity in graded_activities(resolved):
+            picked = activity.get("catalogueCloIds")
+            activity["cloIds"] = [str(item) for item in picked] if isinstance(picked, list) else []
+            activity["clos"] = ""
+        return resolved
+
+    def programme_has_plos(self, content: dict[str, Any]) -> bool:
+        """Whether the syllabus's programme gives a CLO anything to align to.
+
+        A programme typed in by hand, or the Foundation Year's, has no catalogue PLOs; the
+        editor then offers none, so a CLO cannot be asked to name one.
+        """
+        identification = _record(content.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        return bool(programme_id and self.list("plos", parent_id=programme_id, limit=1))
+
+    def expected_plos(self, content: dict[str, Any], *, course_code: str) -> dict[str, str]:
+        """The current PLOs the curriculum mapping expects of the course: id to code, in its order.
+
+        The same list the editor offers a CLO (outcomes.ts, alignablePlos); empty when the
+        syllabus names no catalogue programme or the mapping does not list the course.
+        """
+        identification = _record(content.get("identification"))
+        programme_id = _text(identification.get("cataloguePloProgrammeId")) or _text(
+            identification.get("catalogueProgrammeId")
+        )
+        wanted = _course_key(course_code)
+        if not (programme_id and wanted):
+            return {}
+        entry = next(
+            (
+                item
+                for item in self.list("curriculum-mapping", parent_id=programme_id)
+                if _course_key(item.get("label")) == wanted
+            ),
+            None,
+        )
+        expected = _record(entry.get("payload")).get("ploIds") if entry else None
+        if not isinstance(expected, list):
+            return {}
+        current = {item["id"]: item for item in self.list("plos", parent_id=programme_id)}
+        return {
+            str(plo_id): _text(_record(current[str(plo_id)].get("payload")).get("code"))
+            or _text(current[str(plo_id)].get("label"))
+            for plo_id in expected
+            if str(plo_id) in current
+        }
+
     def resolve_competencies(self, content: dict[str, Any]) -> dict[str, Any]:
         """Fill each outcome's SUAD competencies from the SCEN ones it develops.
 
@@ -322,7 +446,12 @@ class SyllabusCatalogueStore:
         return resolved
 
     def resolve_teaching_approach(self, content: dict[str, Any]) -> dict[str, Any]:
-        """Compose section 8 from the approved presets the course selected.
+        """Compose section 8 from the department's texts for the kinds of session the course uses.
+
+        Since 10 Nov 2026 nobody ticks them: a syllabus prints the text of each current preset
+        its course schedule brings in (see `preset_applies`), in the catalogue's order. Only a
+        syllabus whose schedule is still empty keeps the presets it ticked before, so its
+        export does not go blank before its teacher has written the schedule.
 
         Each subsection names the kind of session it describes, so a course taught as
         lectures and tutorials reads as two labelled blocks rather than one run-on
@@ -330,11 +459,13 @@ class SyllabusCatalogueStore:
         """
         resolved = deepcopy(content)
         approach = _record(resolved.get("teachingApproach"))
-        preset_ids = [item for item in approach.get("teachingPresetIds") or [] if isinstance(item, str)]
-        if not preset_ids:
-            return resolved
-        presets = {item["id"]: item for item in self.list("teaching-presets", include_retired=True)}
-        chosen = [presets[item] for item in preset_ids if item in presets]
+        kinds = schedule_kinds(resolved)
+        if any(kinds):
+            chosen = [preset for preset in self.list("teaching-presets") if preset_applies(preset, kinds)]
+        else:
+            preset_ids = [item for item in approach.get("teachingPresetIds") or [] if isinstance(item, str)]
+            presets = {item["id"]: item for item in self.list("teaching-presets", include_retired=True)}
+            chosen = [presets[item] for item in preset_ids if item in presets]
         if not chosen:
             return resolved
         for key in ("methods", "engagement", "feedback"):
@@ -349,21 +480,30 @@ class SyllabusCatalogueStore:
         return resolved
 
     def resolve_rubrics(self, content: dict[str, Any]) -> dict[str, Any]:
-        """Attach the approved rubric for each assessment type the course uses.
+        """The rubrics the syllabus prints: exactly one per kind of graded activity it has.
 
-        A course does not write its own rubrics: the ones that belong in the syllabus
-        follow from the assessment types named in the graded activities.
+        A course does not write its own rubrics: an activity of a catalogue assessment type
+        brings that type's approved rubric. Older syllabi named the type in their own words
+        and wrote a rubric by hand; such a rubric is kept only while an activity of that
+        kind still exists (November 2026 review: the preview must be faithful to the
+        graded activities), and with no activities there is no rubric at all.
         """
         resolved = deepcopy(content)
+        if "assessment" not in resolved:
+            return resolved
         assessment = _record(resolved.get("assessment"))
         used: list[str] = []
-        for item in assessment.get("items") or []:
+        typed: list[str] = []
+        for item in graded_activities(resolved):
             type_id = _text(_record(item).get("assessmentTypeId"))
-            if type_id and type_id not in used:
-                used.append(type_id)
-        if not used:
-            return resolved
-        types = {item["id"]: item for item in self.list("assessment-types", include_retired=True)}
+            if type_id:
+                if type_id not in used:
+                    used.append(type_id)
+                continue
+            kind = _normalised_kind(_record(item).get("type"))
+            if kind and kind not in typed:
+                typed.append(kind)
+        types = {item["id"]: item for item in self.list("assessment-types", include_retired=True)} if used else {}
         rubrics = []
         for type_id in used:
             preset = types.get(type_id)
@@ -385,9 +525,12 @@ class SyllabusCatalogueStore:
                     ],
                 }
             )
-        if rubrics:
-            assessment["rubrics"] = rubrics
-            resolved["assessment"] = assessment
+        written = {
+            _normalised_kind(_record(rubric).get("assignment")): rubric for rubric in assessment.get("rubrics") or []
+        }
+        rubrics.extend(written[kind] for kind in typed if kind in written)
+        assessment["rubrics"] = rubrics
+        resolved["assessment"] = assessment
         return resolved
 
     def _person(self, item_id: str) -> dict[str, Any]:
@@ -466,3 +609,21 @@ def _text(value: Any) -> str:
 
 def _timestamp() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _normalised_kind(value: Any) -> str:
+    """How an activity's kind is matched with a hand-written rubric: case and spacing aside."""
+    return " ".join(_text(value).split()).casefold()
+
+
+def _course_key(value: Any) -> str:
+    """A course code as the curriculum mapping is matched on: letters and digits, upper case."""
+    return "".join(character for character in _text(value) if character.isalnum()).upper()
+
+
+def _coded(entry: dict[str, Any]) -> str:
+    """A PLO or competency the way a syllabus quotes it: "CODE: outcome"."""
+    payload = _record(entry.get("payload"))
+    code = _text(payload.get("code")) or _text(entry.get("label"))
+    outcome = _text(payload.get("outcome"))
+    return f"{code}: {outcome}" if outcome else code

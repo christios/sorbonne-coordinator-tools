@@ -43,6 +43,28 @@ export function setSyllabusReview(id: string, submitted: boolean): Promise<Sylla
   });
 }
 
+/** Something the syllabus must still say before it can be submitted, and the section it is in. */
+export type MissingForReview = {
+  section: string;
+  /** The whole sentence: "Give 15 sessions a week: …". */
+  message: string;
+  /** The schedule cards it concerns, to open each one (11 Nov 2026). */
+  items?: Array<{ id: string; label: string }>;
+  /** What is missing in a word or two: "week", "CLOs assessed". */
+  need?: string;
+  /** Said shortly for many cards at once: "15 sessions without a week". */
+  summary?: string;
+};
+export type SyllabusCompleteness = { complete: boolean; missing: MissingForReview[] };
+
+/**
+ * What the syllabus must still say before it can be submitted for review. The server keeps the
+ * rules (syllabus_completeness.py) and checks them again when the syllabus is submitted.
+ */
+export function getSyllabusCompleteness(id: string): Promise<SyllabusCompleteness> {
+  return request<SyllabusCompleteness>(`/syllabi/${id}/completeness`);
+}
+
 export type SyllabusFolder = {
   id: string;
   name: string;
@@ -61,7 +83,10 @@ export type SyllabusTemplate = {
   name: string;
   description: string;
   documentPath: string;
-  sections: Array<{ id: string; label: string }>;
+  /** `parts` are the stored content keys a screen section edits, in document order. */
+  sections: Array<{ id: string; label: string; parts?: string[] }>;
+  /** False for a template new syllabi no longer start on (the Foundation Year form, since November 2026). */
+  offered?: boolean;
 };
 
 export type SyllabusChange = {
@@ -82,6 +107,24 @@ export type SyllabusComparisonRow = {
   kind: "changed" | "unchanged";
   operations?: WordDiffOperation[];
 };
+
+/**
+ * What a new syllabus is called until its course is chosen. Since November 2026 "New syllabus"
+ * opens the editor straight away, and choosing the course in section 1 names it.
+ */
+export const UNTITLED_SYLLABUS = "Untitled syllabus";
+
+/** "2026-2027": the academic year a day falls in; August opens it. */
+export function currentAcademicYear(today: Date = new Date()): string {
+  const first = today.getMonth() >= 7 ? today.getFullYear() : today.getFullYear() - 1;
+  return `${first}-${first + 1}`;
+}
+
+/** "2027-2028" after "2026-2027"; anything not written as two years comes back as it was. */
+export function followingAcademicYear(year: string): string {
+  const match = /^(\d{4})-(\d{4})$/.exec(year.trim());
+  return match ? `${Number(match[1]) + 1}-${Number(match[2]) + 1}` : year;
+}
 
 export type CreateSyllabusInput = {
   courseTitle: string;

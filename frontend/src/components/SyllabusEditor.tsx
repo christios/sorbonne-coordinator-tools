@@ -1,17 +1,15 @@
 import {
-  ArrowDownUp,
   CheckCircle2,
-  ChevronDown,
   Download,
   FileText,
   GitCompareArrows,
   Loader2,
-  Trash2,
   TriangleAlert,
+  X,
   } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
+import { createPortal } from "react-dom";
 import {
-  Fragment,
   type ReactNode,
   useEffect,
   useLayoutEffect,
@@ -44,14 +42,17 @@ import {
 import { ScheduleEditor } from "@/components/ScheduleEditor";
 import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
-import { AddEntryButton } from "@/components/AddEntryButton";
 import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
 import { listAcademicYears, listCoursesByCode } from "@/services/courses";
-import { PloAlignmentField } from "@/components/PloAlignmentField";
+import { OutcomeAlignmentMatrix, OutcomeViewToggle, type MatrixCompetency, type MatrixGraduate, type MatrixPlo } from "@/components/OutcomeAlignmentMatrix";
+import { useOutcomeView } from "@/services/outcomeView";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
 import { SyllabusSharing } from "@/components/SyllabusSharing";
+import { SyllabusStatusPill } from "@/components/SyllabusStatusPill";
+import { useSyllabusCompleteness } from "@/components/useSyllabusCompleteness";
+import { dropLocalDraft, keepLocalDraft, restoredDraft } from "@/services/syllabusLocalDraft";
 import { SyllabusSubsection } from "@/components/SyllabusSubsection";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import {
@@ -62,8 +63,19 @@ import {
   BibliographyEditor,
 } from "@/components/StructuredEntryEditors";
 import {
+  SCHEDULE_HOLDS_GRADED_ACTIVITIES,
+  contactHours,
   deliveryPercentageError,
+  fysComponentRows,
+  gradedActivities,
+  schemaVersion,
+  sectionParts,
+  type FysTableRow,
 } from "@/services/syllabusContent";
+import { courseAiFallback } from "@/services/aiPolicy";
+import { alignablePlos, catalogueCloRows, mappingEntryFor, type CatalogueCloRow } from "@/services/outcomes";
+import { useOutcomeMode } from "@/services/syllabusOutcomeMode";
+import { presetsForSchedule } from "@/services/teachingApproach";
 import {
   CatalogueEntry,
   listCatalogueEntries,
@@ -80,6 +92,10 @@ type Props = {
   onCompare: () => void;
   onHeaderCollapseChange?: (collapsed: boolean) => void;
   compactHeaderActions?: ReactNode;
+  /** The section the address names, so a refresh reopens it. */
+  section?: string;
+  /** Told whenever another section opens, to write it into the address. */
+  onSectionChange?: (section: string) => void;
 };
 type Row = Record<string, string> & { id: string };
 
@@ -91,12 +107,19 @@ export function SyllabusEditor({
   onCompare,
   onHeaderCollapseChange,
   compactHeaderActions,
+  section,
+  onSectionChange,
 }: Props) {
-  const [draft, setDraft] = useState(syllabus);
+  // Edits this browser kept but never saved — a refresh inside the moment before a save —
+  // are picked up again and saved (11 Nov 2026).
+  const [restored] = useState(() => restoredDraft(syllabus));
+  const [draft, setDraft] = useState(restored ?? syllabus);
+  const known = (id: string | undefined) => Boolean(id && template.sections.some((item) => item.id === id));
   const [active, setActive] = useState(
-    template.sections[0]?.id ?? "identification",
+    known(section) ? (section as string) : template.sections[0]?.id ?? "identification",
   );
-  const [dirty, setDirty] = useState(false);
+  const [dirty, setDirty] = useState(Boolean(restored));
+  const [showRestored, setShowRestored] = useState(Boolean(restored));
   const [saveState, setSaveState] = useState<SyllabusSaveState>("saved");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [reloadConfirmationOpen, setReloadConfirmationOpen] = useState(false);
@@ -105,12 +128,50 @@ export function SyllabusEditor({
     "idle" | "exporting" | "error"
   >("idle");
   const [historyField, setHistoryField] = useState<HistoryField | null>(null);
+  // A schedule card asked for from the list of what is still to fill in: its section opens
+  // and the card unfolds in view. The count makes asking for the same card again count.
+  const [reveal, setReveal] = useState<{ id: string; section: string; count: number } | null>(null);
+  const openItem = (section: string, id: string) => {
+    setActive(section);
+    setReveal((current) => ({ id, section, count: (current?.count ?? 0) + 1 }));
+  };
+  // Asked for once: another section opened forgets it, so coming back does not ask again.
+  useEffect(() => {
+    if (reveal && reveal.section !== active) setReveal(null);
+  }, [active, reveal]);
   const requestId = useRef(0);
-  const draftRef = useRef(syllabus);
+  const draftRef = useRef(restored ?? syllabus);
   const saveInFlight = useRef(false);
   const saveConflict = useRef(false);
   const editorRef = useRef<HTMLDivElement>(null);
+  // The section menu counts what each section still lacks, from the header list's answer.
+  const { missing } = useSyllabusCompleteness(draft);
+  const sectionCounts: Record<string, number> = {};
+  for (const item of missing) sectionCounts[item.section] = (sectionCounts[item.section] ?? 0) + 1;
 
+  // Whatever is not saved yet is also kept in this browser; once saved, it is let go. Kept
+  // as the change is committed, before the page could be refreshed away from under it.
+  useLayoutEffect(() => {
+    if (dirty) keepLocalDraft(draft);
+    else dropLocalDraft(draft.id);
+  }, [dirty, draft]);
+  useEffect(() => {
+    if (!showRestored) return;
+    const timer = window.setTimeout(() => setShowRestored(false), 8000);
+    return () => window.clearTimeout(timer);
+  }, [showRestored]);
+  // The section follows the address (Back, a link) and the address follows the section.
+  useEffect(() => {
+    if (known(section) && section !== active) setActive(section as string);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only an address change moves the section
+  }, [section]);
+  const reportSection = useRef(onSectionChange);
+  useEffect(() => {
+    reportSection.current = onSectionChange;
+  });
+  useEffect(() => {
+    reportSection.current?.(active);
+  }, [active]);
   useEffect(() => {
     if (draftRef.current.id !== syllabus.id || !dirty) {
       draftRef.current = syllabus;
@@ -281,6 +342,10 @@ export function SyllabusEditor({
     }
   }
 
+  // The learning outcomes fill the screen, their matrices and panel each scrolling on their
+  // own (11 Nov 2026); a Foundation Year syllabus's outcomes are a plain list and scroll as a page.
+  const fillSection = active === "learningOutcomes" && draft.templateId !== "fys-2025-26";
+
   // Guidance belongs to the field, not to one syllabus, so every syllabus shows it.
   return (
     <FieldInfoProvider
@@ -303,20 +368,34 @@ export function SyllabusEditor({
           title={draft.courseTitle}
           subtitle={draft.courseCode || "Course code not set"}
           titleMeta={
-            <a
-              href={syllabusTemplateDocumentUrl(template)}
-              className="mt-1 inline-flex items-center gap-1 text-sm font-medium text-[#1f4e79] hover:underline"
-            >
-              <FileText size={15} aria-hidden="true" /> {template.name}
-            </a>
+            <>
+              <SyllabusStatusPill syllabus={draft} className="py-0!" />
+              <span aria-hidden="true" className="text-[#c0c6cf]">·</span>
+              <a
+                href={syllabusTemplateDocumentUrl(template)}
+                title={template.name}
+                aria-label={`Download the template: ${template.name}`}
+                className="inline-flex items-center gap-1 font-medium text-[#1f4e79] hover:underline"
+              >
+                <FileText size={15} aria-hidden="true" /> <span className="lg:max-xl:sr-only">Word template</span>
+              </a>
+            </>
           }
           sections={template.sections}
           activeSection={active}
           onSectionChange={setActive}
+          sectionCounts={sectionCounts}
+          compactMenu
+          fill={fillSection}
           onHeaderCollapseChange={onHeaderCollapseChange}
           compactHeaderActions={compactHeaderActions}
           actions={
             <>
+              {showRestored ? (
+                <span role="status" className="text-sm text-[#475467]">
+                  Restored your unsaved changes
+                </span>
+              ) : null}
               <SaveStatus
                 state={saveState}
                 error={saveError}
@@ -327,7 +406,7 @@ export function SyllabusEditor({
                 onClick={() => setPreviewOpen(true)}
                 className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
               >
-                <FileText size={17} /> Preview export
+                <FileText size={17} aria-hidden="true" /> <span>Preview<span className="lg:max-xl:sr-only"> export</span></span>
               </button>
               <button
                 type="button"
@@ -349,9 +428,9 @@ export function SyllabusEditor({
                 onClick={onCompare}
                 className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
               >
-                <GitCompareArrows size={17} /> Compare years
+                <GitCompareArrows size={17} aria-hidden="true" /> <span>Compare<span className="lg:max-xl:sr-only"> years</span></span>
               </button>
-              <SyllabusSharing syllabus={draft} />
+              <SyllabusSharing syllabus={draft} sections={template.sections} onOpenSection={setActive} onOpenItem={openItem} showStatus={false} />
               {exportState === "error" ? (
                 <span
                   role="alert"
@@ -363,13 +442,22 @@ export function SyllabusEditor({
             </>
           }
         >
-          <SectionForm
-            active={active}
-            draft={draft}
-            editContent={editContent}
-            editMetadata={editMetadata}
-            onOpenHistory={setHistoryField}
-          />
+          {/* A section can edit more than one part of the stored content (description
+              and delivery are one section since November 2026); each part keeps its key. */}
+          <div className={`grid grid-cols-[minmax(0,1fr)] gap-6 ${fillSection ? "lg:min-h-0 lg:flex-1 lg:[grid-template-rows:minmax(0,1fr)]" : ""}`}>
+            {sectionParts(template.sections, active).map((part) => (
+              <SectionForm
+                key={part}
+                active={part}
+                draft={draft}
+                editContent={editContent}
+                editMetadata={editMetadata}
+                onOpenHistory={setHistoryField}
+                onOpenSection={setActive}
+                reveal={reveal}
+              />
+            ))}
+          </div>
           <FieldHistorySidebar
             field={historyField}
             onClose={() => setHistoryField(null)}
@@ -385,16 +473,66 @@ export function SyllabusEditor({
         </SectionEditorShell>
       </FieldHistoryProvider>
       {previewOpen ? (
-        <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#0f172a]/40 p-4" role="dialog" aria-label="Export preview" onClick={() => setPreviewOpen(false)}>
-          <div className="mx-auto max-w-[56rem]" onClick={(event) => event.stopPropagation()}>
-            <div className="mb-3 flex justify-end">
-              <button type="button" onClick={() => setPreviewOpen(false)} className="rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm">Close preview</button>
-            </div>
-            <SyllabusExportPreview syllabusId={draft.id} />
-          </div>
-        </div>
+        <ExportPreviewDialog onClose={() => setPreviewOpen(false)}>
+          <SyllabusExportPreview syllabusId={draft.id} />
+        </ExportPreviewDialog>
       ) : null}
     </FieldInfoProvider>
+  );
+}
+
+/**
+ * Which of the department's texts this schedule brings into section 8 of the document, the
+ * teaching and learning approach. Nothing to tick since 10 Nov 2026: the kinds of session in
+ * the schedule decide it.
+ */
+function TeachingApproachNote({ presets }: { presets: CatalogueEntry[] }) {
+  return (
+    <div role="note" className="mt-4 rounded-md border border-[#c3cbd6] bg-[#f1f4f8] px-3 py-2 text-sm text-[#475467]">
+      <span className="font-medium text-[#344054]">Teaching and learning approach (section 8 of the document):</span>{" "}
+      {presets.length
+        ? <>the department&apos;s text for {presets.map((preset) => preset.label).join(", ")}, from the kinds of session in this schedule.</>
+        : "the department's texts for the kinds of session in this schedule, once it has sessions."}
+    </div>
+  );
+}
+
+/**
+ * The export preview over the editor: a long document, so its Close stays at the top while it
+ * scrolls, Escape closes it, and keyboard focus starts on Close and returns where it was.
+ */
+function ExportPreviewDialog({ onClose, children }: { onClose: () => void; children: ReactNode }) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  // The editor hands a new function each render; opening is what focuses Close, once.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
+  useEffect(() => {
+    const returnTo = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    closeRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCloseRef.current();
+    };
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("keydown", closeOnEscape);
+      returnTo?.focus();
+    };
+  }, []);
+  return createPortal(
+    <div className="fixed inset-0 z-[120] overflow-y-auto bg-[#0f172a]/40 px-4 pb-6" onMouseDown={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="export-preview-title" className="mx-auto max-w-[56rem]" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="sticky top-0 z-10 -mx-4 mb-3 flex items-center justify-between gap-3 bg-[#0f172a]/70 px-4 py-3 backdrop-blur-sm">
+          <h2 id="export-preview-title" className="text-sm font-semibold text-white">Export preview</h2>
+          <button ref={closeRef} type="button" onClick={onClose} className="inline-flex items-center gap-1.5 rounded-md bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79] shadow-sm hover:bg-[#f2f7fb] focus:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[#1f4e79]">
+            <X size={16} aria-hidden="true" /> Close preview
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -409,7 +547,7 @@ export function SaveStatus({
 }) {
   if (state === "saving")
     return (
-      <span className="inline-flex items-center gap-2 text-sm text-[#667085]">
+      <span className="inline-flex items-center gap-2 text-sm text-[#475467]">
         <Loader2 className="animate-spin" size={16} /> Saving
       </span>
     );
@@ -443,8 +581,8 @@ export function SaveStatus({
       </span>
     );
   return (
-    <span className="inline-flex items-center gap-2 text-sm text-[#24805a]">
-      <CheckCircle2 size={16} /> Saved
+    <span className="inline-flex items-center gap-2 text-sm text-[#24805a]" title="Saved">
+      <CheckCircle2 size={16} aria-hidden="true" /> <span className="lg:max-xl:sr-only">Saved</span>
     </span>
   );
 }
@@ -455,6 +593,8 @@ function SectionForm({
   editContent,
   editMetadata,
   onOpenHistory,
+  onOpenSection,
+  reveal,
 }: {
   active: string;
   draft: Syllabus;
@@ -464,8 +604,16 @@ function SectionForm({
     value: string,
   ) => void;
   onOpenHistory: (field: HistoryField) => void;
+  /** Takes the teacher to another section, as the table of contents does. */
+  onOpenSection?: (section: string) => void;
+  /** A schedule card to unfold and bring into view. */
+  reveal?: { id: string; count: number } | null;
 }) {
   const content = draft.content as Record<string, unknown>;
+  const ranks = useQuery({
+    queryKey: ["syllabus-catalogues", "academic-ranks", "editor"],
+    queryFn: () => listCatalogueEntries("academic-ranks"),
+  });
   const people = useQuery({
     queryKey: ["syllabus-catalogues", "people", "editor"],
     // The directory now holds everyone teaching, not the handful somebody typed: ask for all of them.
@@ -476,10 +624,19 @@ function SectionForm({
     queryFn: () => listCatalogueEntries("programmes"),
   });
   const identification = sectionFrom(content.identification);
-  const catalogueProgrammeId = stringify(
-    identification.cataloguePloProgrammeId ||
-      identification.catalogueProgrammeId,
-  );
+  // A Foundation Year syllabus names no programme: its courses are mapped under the
+  // catalogue programme of that name (it has no PLOs).
+  const foundationYearProgrammeId =
+    draft.templateId === "fys-2025-26"
+      ? (programmes.data ?? []).find(
+          (programme) => programme.label.trim().toLocaleLowerCase() === FOUNDATION_YEAR_PROGRAMME.toLocaleLowerCase(),
+        )?.id ?? ""
+      : "";
+  const catalogueProgrammeId =
+    stringify(
+      identification.cataloguePloProgrammeId ||
+        identification.catalogueProgrammeId,
+    ) || foundationYearProgrammeId;
   const cataloguePlos = useQuery({
     queryKey: ["syllabus-catalogues", "plos", catalogueProgrammeId],
     queryFn: () =>
@@ -529,6 +686,16 @@ function SectionForm({
   const section = (
     Array.isArray(content[active]) ? {} : (content[active] ?? {})
   ) as Record<string, unknown>;
+  // Who writes the course learning outcomes (Settings → Department, November 2026): in
+  // Head-of-Department mode they are the curriculum mapping's, shown read-only.
+  const outcomeMode = useOutcomeMode();
+  const mappingEntry = mappingEntryFor(curriculumMap.data ?? [], draft.courseCode);
+  // The Head of Department's outcomes, with the competencies this syllabus's teacher chose.
+  const competencyPicks = sectionFrom(sectionFrom(content.learningOutcomes).cloCompetencies);
+  const hodClos = catalogueCloRows(mappingEntry, cataloguePlos.data ?? [], scenCompetencies.data ?? [], competencyPicks);
+  // The outcomes a graded activity can say it assesses, wherever it is edited.
+  const courseOutcomes: Row[] =
+    outcomeMode === "hod" ? hodClos : ((sectionFrom(content.learningOutcomes).clos as Row[]) ?? []);
   const history = (label: string) => ({
     syllabusId: draft.id,
     revision: draft.revision,
@@ -542,15 +709,16 @@ function SectionForm({
     multiline = false,
     size: FieldSize = "full",
     hint?: string,
+    required = false,
   ) => (
     <Field
       label={label}
+      required={required}
       value={stringify(value)}
       onChange={onChange}
       multiline={multiline}
       size={size}
       hint={hint}
-      isDate={isDateField(active, label)}
       history={history(label)}
     />
   );
@@ -564,10 +732,12 @@ function SectionForm({
       step?: number;
       invalid?: boolean;
       size?: FieldSize;
+      required?: boolean;
     } = {},
   ) => (
     <Field
       label={label}
+      required={options.required}
       value={stringify(value)}
       onChange={onChange}
       size={options.size ?? "full"}
@@ -659,6 +829,8 @@ function SectionForm({
           )}
         </Section>
       );
+    if (active === "learningOutcomes" && outcomeMode === "hod")
+      return <HeadOfDepartmentOutcomes clos={hodClos} scenCompetencies={scenCompetencies.data ?? []} graduateCompetencies={graduateCompetencies.data ?? []} />;
     if (active === "learningOutcomes")
       return (
         <Section title="Course learning outcomes">
@@ -712,6 +884,48 @@ function SectionForm({
             (notes) => save({ ...section, notes }),
             true,
           )}
+        </Section>
+      );
+    // Since November 2026 a Foundation Year syllabus keeps its graded activities in the
+    // teaching schedule too; its outcomes are numbered as the form numbers them.
+    const fysOutcomes: Row[] =
+      outcomeMode === "hod"
+        ? hodClos
+        : String(sectionFrom(content.learningOutcomes).closText ?? "")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((clo, index) => ({ id: `fys-clo-${index + 1}`, clo }));
+    if (active === "assessment" && schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES)
+      return (
+        <Section title="Course assessment">
+          <FoundationYearAssessmentSummary
+            activities={gradedActivities(content)}
+            earlier={section}
+            onOpenSchedule={onOpenSection ? () => onOpenSection("schedule") : undefined}
+          />
+        </Section>
+      );
+    if (active === "schedule" && schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES)
+      return (
+        <Section title="Teaching schedule">
+          {stringify(sectionFrom(content.earlierSchedule).scheduleText) ? (
+            <p role="note" className="mb-4 whitespace-pre-line rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+              <span className="font-semibold">Written before the schedule had cards: </span>
+              {stringify(sectionFrom(content.earlierSchedule).scheduleText)}
+            </p>
+          ) : null}
+          <ScheduleEditor
+            rows={((content.schedule as Row[]) ?? [])}
+            onChange={(schedule) => editContent(active, schedule)}
+            syllabusId={draft.id}
+            revision={draft.revision}
+            onOpenHistory={onOpenHistory}
+            holdsGradedActivities
+            foundationYear
+            outcomes={fysOutcomes}
+            reveal={reveal}
+          />
         </Section>
       );
     if (active === "assessment")
@@ -769,6 +983,8 @@ function SectionForm({
         academicYears={academicYears.data ?? []}
         semesters={curriculumSemesters(curriculumMap.data ?? [])}
         semesterByCourse={semesterByCourse(curriculumMap.data ?? [])}
+        contactHours={contactHours(draft.content)}
+        onOpenSchedule={onOpenSection ? () => onOpenSection("schedule") : undefined}
       />
     );
   if (active === "contacts")
@@ -780,7 +996,8 @@ function SectionForm({
         revision={draft.revision}
         onOpenHistory={onOpenHistory}
         people={people.data ?? []}
-          courseTeachers={courseTeachers}
+        ranks={ranks.data ?? []}
+        courseTeachers={courseTeachers}
       />
     );
   if (active === "description")
@@ -790,6 +1007,9 @@ function SectionForm({
           "Course description",
           section.overview,
           (value) => editContent(active, { overview: value }),
+          true,
+          undefined,
+          undefined,
           true,
         )}
       </Section>
@@ -803,6 +1023,7 @@ function SectionForm({
         <FieldRow>
           <SelectField
             label="Delivery mode"
+            required
             value={stringify(section.mode)}
             onChange={(value) =>
               editContent(active, { ...section, mode: value })
@@ -818,14 +1039,16 @@ function SectionForm({
             faceToFace,
             (value) =>
               editContent(active, { ...section, faceToFacePercent: value }),
-            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter" },
+            // Required only for blended delivery, where the two must add up to 100%.
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter", required: section.mode === "Blended Learning Delivery" },
           )}
           {numeric(
             "Online (%)",
             online,
             (value) =>
               editContent(active, { ...section, onlinePercent: value }),
-            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter" },
+            // Required only for blended delivery, where the two must add up to 100%.
+            { min: 0, max: 100, step: 1, invalid: Boolean(percentageError), size: "counter", required: section.mode === "Blended Learning Delivery" },
           )}
         </FieldRow>
         {percentageError ? (
@@ -841,14 +1064,13 @@ function SectionForm({
       <LearningOutcomesEditor
         section={section}
         onChange={(next) => editContent(active, next)}
-        syllabusId={draft.id}
-        revision={draft.revision}
         onOpenHistory={onOpenHistory}
         cataloguePlos={cataloguePlos.data ?? []}
         catalogueProgrammeId={catalogueProgrammeId}
-        requiredPlos={requiredPloIds(curriculumMap.data ?? [], draft.courseCode)}
+        mappingEntry={mappingEntry}
         scenCompetencies={scenCompetencies.data ?? []}
         graduateCompetencies={graduateCompetencies.data ?? []}
+        headOfDepartmentClos={outcomeMode === "hod" ? hodClos : undefined}
       />
     );
   if (active === "schedule") {
@@ -865,7 +1087,14 @@ function SectionForm({
           syllabusId={draft.id}
           revision={draft.revision}
           onOpenHistory={onOpenHistory}
+          holdsGradedActivities={schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES}
+          outcomes={courseOutcomes}
+          cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
+          assessmentTypes={assessmentTypes.data ?? []}
+          aiPolicies={aiPolicies.data ?? []}
+          reveal={reveal}
         />
+        <TeachingApproachNote presets={presetsForSchedule(teachingPresets.data ?? [], sessions)} />
       </Section>
     );
   }
@@ -881,23 +1110,18 @@ function SectionForm({
         />
       </Section>
     );
-  if (active === "teachingApproach")
-    return (
-      <TeachingApproachSection
-        value={section}
-        presets={teachingPresets.data ?? []}
-        onChange={(next) => editContent(active, next)}
-      />
-    );
   if (active === "assessment")
     return (
       <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
         <SyllabusSubsection title="Course assessment">
           <AssessmentTabs
             value={section}
-            outcomes={
-              (sectionFrom(content.learningOutcomes).clos as Row[]) ?? []
-            }
+            outcomes={courseOutcomes}
+            cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
+            activities={gradedActivities(content)}
+            holdsGradedActivities={schemaVersion(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES}
+            onOpenSchedule={onOpenSection ? () => onOpenSection("schedule") : undefined}
+            aiFallback={courseAiFallback(content)}
             onChange={(assessment) => editContent(active, assessment)}
             syllabusId={draft.id}
             revision={draft.revision}
@@ -912,53 +1136,9 @@ function SectionForm({
         />
       </div>
     );
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-      <SyllabusSubsection title="Document details">
-        <FieldRow>
-          {text(
-            "Document creation date",
-            section.creationDate,
-            (value) => editContent(active, { ...section, creationDate: value }),
-            false,
-            "code",
-          )}
-          {text(
-            "Department name",
-            section.departmentName,
-            (value) => editContent(active, { ...section, departmentName: value }),
-            false,
-            "name",
-          )}
-          {text(
-            "Version number",
-            section.versionNumber,
-            (value) => editContent(active, { ...section, versionNumber: value }),
-            false,
-            "counter",
-          )}
-        </FieldRow>
-      </SyllabusSubsection>
-      <SyllabusSubsection title="Approval">
-        <FieldRow>
-          {text(
-            "Syllabus approval date",
-            section.approvalDate,
-            (value) => editContent(active, { ...section, approvalDate: value }),
-            false,
-            "code",
-          )}
-          {text(
-            "Name and status of approver",
-            section.approver,
-            (value) => editContent(active, { ...section, approver: value }),
-            false,
-            "name",
-          )}
-        </FieldRow>
-      </SyllabusSubsection>
-    </div>
-  );
+  // Document control was removed from the syllabus in the November 2026 review; any
+  // section without an editor of its own has nothing to show.
+  return null;
 }
 
 function Section({
@@ -970,82 +1150,6 @@ function Section({
 }) {
   return <SyllabusSubsection title={title}>{children}</SyllabusSubsection>;
 }
-
-function TeachingApproachSection({
-  value,
-  presets,
-  onChange,
-}: {
-  value: Record<string, unknown>;
-  presets: CatalogueEntry[];
-  onChange: (value: Record<string, unknown>) => void;
-}) {
-  const selected = Array.isArray(value.teachingPresetIds)
-    ? value.teachingPresetIds.filter((item): item is string => typeof item === "string")
-    : [];
-  const chosen = presets.filter((preset) => selected.includes(preset.id));
-  const toggle = (id: string) => {
-    const next = selected.includes(id) ? selected.filter((item) => item !== id) : [...selected, id];
-    // Keep the catalogue's own order, so the syllabus reads lectures before tutorials.
-    onChange({ ...value, teachingPresetIds: presets.filter((preset) => next.includes(preset.id)).map((preset) => preset.id) });
-  };
-  return (
-    <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-      <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
-          Teaching and learning approach
-          <InfoTip label="How the teaching approach is chosen">
-            Choose the kinds of session this course uses. Each one brings its own methods, engagement and feedback,
-            written by the department.
-          </InfoTip>
-        </h3>
-        {/* Four short choices: across the card, not stacked down a tenth of it. */}
-        <div className="mt-4 flex flex-wrap gap-x-8 gap-y-2">
-          {presets.length ? (
-            presets.map((preset) => (
-              <label key={preset.id} className="flex items-start gap-2 text-sm text-[#344054]">
-                <input type="checkbox" className="mt-0.5" checked={selected.includes(preset.id)} onChange={() => toggle(preset.id)} />
-                <span>{preset.label}</span>
-              </label>
-            ))
-          ) : (
-            <p className="text-sm text-[#667085]">No approved teaching approaches yet.</p>
-          )}
-        </div>
-      </section>
-      {chosen.length ? (
-        chosen.map((preset) => (
-          <section key={preset.id} className="rounded-lg border border-[#d9dee7] bg-white p-5">
-            <h4 className="text-base font-semibold text-[#171717]">{preset.label}</h4>
-            <div className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-3">
-              {TEACHING_SUBSECTIONS.map(([key, heading]) => (
-                <div key={key} className="rounded-md border border-[#e5e7eb] bg-[#f8fafc] p-3">
-                  <p className="text-sm font-semibold text-[#344054]">{heading}</p>
-                  <p className="mt-1 whitespace-pre-line text-sm leading-6 text-[#475467]">
-                    {stringify(preset.payload[key]) || "The department has not written this section yet."}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))
-      ) : (
-        <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
-          <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-            Select the kinds of session above to see what the syllabus will say.
-          </p>
-        </section>
-      )}
-    </div>
-  );
-}
-
-/** Section 8's three subsections, in the order the approved template numbers them. */
-const TEACHING_SUBSECTIONS = [
-  ["methods", "8.1 Teaching methods and learning activities"],
-  ["engagement", "8.2 Student engagement"],
-  ["feedback", "8.3 Feedback and academic progress"],
-] as const;
 
 function FysFacultyDirectoryPicker({
   value,
@@ -1071,7 +1175,7 @@ function FysFacultyDirectoryPicker({
       <label className="grid grid-cols-[minmax(0,1fr)] gap-1 text-sm font-medium text-[#344054]">
         <span>
           Faculty member from People directory{" "}
-          <span className="font-normal text-[#667085]">(optional)</span>
+          <span className="font-normal text-[#475467]">(optional)</span>
         </span>
         <SelectMenu
           label="Faculty member from People directory"
@@ -1088,7 +1192,7 @@ function FysFacultyDirectoryPicker({
         />
       </label>
       {selected ? (
-        <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]">
+        <div className="rounded-md border border-[#c3cbd6] bg-[#f1f4f8] p-4 text-sm text-[#475467]">
           <p className="flex items-center gap-1.5 font-semibold text-[#344054]">
             {selected.label}
             <InfoTip label="Why these details cannot be edited here">
@@ -1113,75 +1217,68 @@ function FysFacultyDirectoryPicker({
 function LearningOutcomesEditor({
   section,
   onChange,
-  syllabusId,
-  revision,
   onOpenHistory,
   cataloguePlos,
   catalogueProgrammeId,
-  requiredPlos,
+  mappingEntry,
   scenCompetencies,
   graduateCompetencies,
+  headOfDepartmentClos,
 }: {
   section: Record<string, unknown>;
   onChange: (value: Record<string, unknown>) => void;
-  syllabusId: string;
-  revision: number;
   onOpenHistory: (field: HistoryField) => void;
   cataloguePlos: CatalogueEntry[];
   catalogueProgrammeId: string;
-  requiredPlos: string[];
+  /** The course's line in the programme's curriculum mapping, if the mapping lists it. */
+  mappingEntry: CatalogueEntry | undefined;
   scenCompetencies: CatalogueEntry[];
   graduateCompetencies: CatalogueEntry[];
+  /** Set in Head-of-Department mode: the course's outcomes from the curriculum mapping, read-only. */
+  headOfDepartmentClos?: CatalogueCloRow[];
 }) {
+  // Both tables or tabs: each person's choice, kept in their browser.
+  const [view, setView] = useOutcomeView();
+  if (headOfDepartmentClos) {
+    const picks = sectionFrom(section.cloCompetencies);
+    return (
+      <HeadOfDepartmentOutcomes
+        clos={headOfDepartmentClos}
+        graduateCompetencies={graduateCompetencies}
+        scenCompetencies={scenCompetencies}
+        plos={alignablePlos(cataloguePlos, mappingEntry)}
+        onCompetenciesChange={(cloId, skillIds) => onChange({ ...section, cloCompetencies: { ...picks, [cloId]: skillIds } })}
+      />
+    );
+  }
   /*
    * The code is shown as a pill and the outcome read beside it, but the value stored on the
    * syllabus stays "code: outcome" — that string is what the document says and what a
    * previous year's syllabus is compared against, and it is not a display decision.
    */
-  const cataloguePloOptions = cataloguePlos.map((plo) => {
+  // A CLO is aligned only to the PLOs the curriculum mapping expects of this course
+  // (November 2026 review); a course the mapping does not list yet keeps the programme's.
+  const ploChoices = alignablePlos(cataloguePlos, mappingEntry);
+  const matrixPlos: MatrixPlo[] = ploChoices.map((plo) => {
     const code = stringify(plo.payload.code) || plo.label;
     const outcome = stringify(plo.payload.outcome);
-    return {
-      value: outcome ? `${code}: ${outcome}` : code,
-      label: outcome || code,
-      badge: code,
-      badgePlacement: "leading" as const,
-      catalogueId: plo.id,
-    };
+    return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
   });
-  const competencyOptions = scenCompetencies.map((entry) => {
-    const code = stringify(entry.payload.code) || entry.label;
-    const outcome = stringify(entry.payload.outcome);
-    return {
-      value: outcome ? `${code}: ${outcome}` : entry.label,
-      label: outcome || entry.label,
-      badge: code,
-      badgePlacement: "leading" as const,
-      catalogueId: entry.id,
-    };
-  });
-  const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
   const rows = (section.clos as Row[]) ?? [];
-  // Guidance, never a gate: a professor is told what is still uncovered and decides.
-  const alignedPloIds = new Set(
-    rows.flatMap((row) => String(row.ploIds ?? "").split("\n").filter(Boolean)),
-  );
-  const uncovered = requiredPlos
-    .filter((id) => !alignedPloIds.has(id))
-    .map((id) => {
-      const plo = cataloguePlos.find((entry) => entry.id === id);
-      return plo ? stringify(plo.payload.code) || plo.label : "";
-    })
-    .filter(Boolean);
+  const competencies = matrixCompetencies(scenCompetencies, rows);
+  const graduates = matrixGraduates(graduateCompetencies, competencies);
   return (
-    <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
-      <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
-        Learning outcomes
-        <InfoTip label="Where the programme outcomes come from">
-          Programme learning outcomes and graduate competencies are maintained in the catalogue. Align each course
-          outcome to them here.
-        </InfoTip>
-      </h3>
+    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 lg:flex lg:min-h-0 lg:flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+          Learning outcomes
+          <InfoTip label="Where the programme outcomes come from">
+            Programme learning outcomes and graduate competencies are maintained in the catalogue. Align each course
+            outcome to them here.
+          </InfoTip>
+        </h3>
+        <OutcomeViewToggle view={view} onChange={setView} />
+      </div>
       {catalogueProgrammeId ? null : (
         <p
           role="note"
@@ -1191,51 +1288,176 @@ function LearningOutcomesEditor({
           approved programme learning outcomes come from the programme.
         </p>
       )}
-      {uncovered.length ? (
+      {catalogueProgrammeId && !mappingEntry ? (
         <p
-          role="status"
+          role="note"
           className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]"
         >
-          The curriculum map expects this course to address {uncovered.join(", ")}. No course
-          outcome aligns to {uncovered.length === 1 ? "it" : "them"} yet.
+          This course is not in the programme&apos;s curriculum mapping yet, so every programme
+          learning outcome is offered. The Head of Department maps it in Manage catalogues →
+          Curriculum mapping.
         </p>
       ) : null}
-      <div className="mt-5 min-w-0">
-        <RowsEditor
-          title="Course learning outcomes and alignment"
-          columns={[
-            ["clo", "Course learning outcome"],
-            ["plo", "Aligned PLOs"],
-            ["skills", "SCEN graduate competencies"],
-          ]}
+      {/* Every PLO the mapping expects must be aligned to at least one CLO (submission enforces
+          it): the matrix flags each one at the foot of its column, and the panel lists them. */}
+      <div className="mt-4 min-w-0 lg:min-h-0 lg:flex-1">
+        <OutcomeAlignmentMatrix
           rows={rows}
+          plos={matrixPlos}
+          competencies={competencies}
+          graduates={graduates}
           onChange={(clos) => onChange({ ...section, clos })}
-          rowLabel="CLO"
-          selectOptions={{ plo: cataloguePloOptions, skills: competencyOptions }}
-          derivedColumns={{
-            skills: {
-              label: "SUAD graduate competencies",
-              derive: (value) => suadCompetencyText(value, scenCompetencies, graduateById),
-            },
-          }}
-          onPloChange={(row, labels, key) => {
-            const options = key === "plo" ? cataloguePloOptions : competencyOptions;
-            const ids = labels
-              .split("\n")
-              .map((label) => options.find((option) => option.value === label)?.catalogueId)
-              .filter(Boolean)
-              .join("\n");
-            return { ...row, [key]: labels, [key === "plo" ? "ploIds" : "skillIds"]: ids };
-          }}
-          addLabel="Add outcome"
-          historyPath="learningOutcomes.clos"
-          syllabusId={syllabusId}
-          revision={revision}
-          onOpenHistory={onOpenHistory}
+          history={{ onOpenHistory }}
+          view={view}
         />
       </div>
     </section>
   );
+}
+
+/**
+ * A Foundation Year syllabus's assessment tables, as its form prints them, built from the
+ * graded cards in its teaching schedule. Read here, edited there; text typed into the old
+ * free-text boxes is shown until it has been moved across.
+ */
+function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }: { activities: Array<Record<string, unknown>>; earlier: Record<string, unknown>; onOpenSchedule?: () => void }) {
+  const tables = fysComponentRows(activities);
+  const table = (title: string, rows: FysTableRow[], withComponent: boolean) => (
+    <div className="mt-4">
+      <p className="text-sm font-semibold text-[#344054]">{title}</p>
+      {rows.length ? (
+        <div className="mt-2 overflow-x-auto">
+          <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
+            <thead><tr className="text-[#344054]">{[...(withComponent ? ["Component"] : []), "Description", "CLO(s) to be measured", "% of the final grade"].map((heading) => <th key={heading} className="border-b border-[#c3cbd6] py-2 pr-3 font-semibold">{heading}</th>)}</tr></thead>
+            <tbody>{rows.map((row, index) => (
+              <tr key={index} className="align-top text-[#475467]">
+                {withComponent ? <td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{row.component === "Other" ? "Other (specify)" : row.component}</td> : null}
+                <td className="whitespace-pre-line border-b border-[#eef1f5] py-2 pr-3">{row.description || "—"}</td>
+                <td className="border-b border-[#eef1f5] py-2 pr-3">{row.clos || "—"}</td>
+                <td className="border-b border-[#eef1f5] py-2">{row.weight || "—"}</td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <p className="mt-2 text-sm text-[#475467]">None yet.</p>}
+    </div>
+  );
+  const typed = ([["Continuous assessment", earlier.continuousText], ["Final assessment", earlier.finalText], ["Laboratory assessment", earlier.laboratoryText]] as const)
+    .filter(([, value]) => typeof value === "string" && value.trim());
+  return (
+    <div>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="text-sm text-[#475467]">Built from the graded activities in the teaching schedule, each filling the row of the form it names.</p>
+        {onOpenSchedule ? <button type="button" onClick={onOpenSchedule} className="shrink-0 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Edit in the teaching schedule</button> : null}
+      </div>
+      {table("Continuous assessment", tables.continuous, true)}
+      {table("Final assessment", tables.final, false)}
+      {table("Laboratory", tables.laboratory, true)}
+      {typed.length ? (
+        <div role="note" className="mt-5 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+          <p className="font-semibold">Written before graded activities had cards — move it into the teaching schedule:</p>
+          {typed.map(([title, value]) => <p key={title} className="mt-1 whitespace-pre-line"><span className="font-medium">{title}:</span> {String(value)}</p>)}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Head-of-Department mode: the course's outcomes are written once in the curriculum mapping
+ * and every syllabus of the course shows them as they are. The teacher's own outcomes stay
+ * stored, and come back if the department hands the outcomes to teachers again.
+ */
+function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies, plos, onCompetenciesChange }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[]; /** Given, the outcomes show as the read-only alignment matrix. */ plos?: CatalogueEntry[]; /** The teacher still chooses each CLO's competencies (Christian, 10 Nov 2026). */ onCompetenciesChange?: (cloId: string, skillIds: string[]) => void }) {
+  const [view, setView] = useOutcomeView();
+  const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
+  const competencies = matrixCompetencies(scenCompetencies, clos);
+  const graduates = matrixGraduates(graduateCompetencies, competencies);
+  const matrixPlos: MatrixPlo[] = (plos ?? []).map((plo) => {
+    const code = stringify(plo.payload.code) || plo.label;
+    const outcome = stringify(plo.payload.outcome);
+    return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
+  });
+  return (
+    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 lg:flex lg:min-h-0 lg:flex-col">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+          Learning outcomes
+          <InfoTip label="Why these cannot be edited here">
+            The Head of Department writes each course&apos;s learning outcomes in Manage catalogues → Curriculum mapping,
+            and every syllabus of the course shows them.
+          </InfoTip>
+        </h3>
+        {clos.length && plos ? <OutcomeViewToggle view={view} onChange={setView} /> : null}
+      </div>
+      <p role="note" className="mt-1 text-sm text-[#475467]">
+        The outcomes and their PLOs are the Head of Department&apos;s, as written in the catalogue. The competencies each one develops are yours to choose.
+      </p>
+      {clos.length && plos ? (
+        <div className="mt-4 min-w-0 lg:min-h-0 lg:flex-1">
+          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencies={competencies} graduates={graduates} onCompetenciesChange={onCompetenciesChange} view={view} />
+        </div>
+      ) : clos.length ? (
+        <ol className="mt-5 grid gap-3">
+          {clos.map((clo, index) => (
+            <li key={clo.id} className="rounded-lg border border-[#c3cbd6] bg-[#fdfdfd] p-4 text-sm">
+              <p className="font-semibold text-[#344054]">CLO {index + 1}: {clo.clo}</p>
+              {clo.plo ? <p className="mt-2 whitespace-pre-line text-[#475467]"><span className="font-medium text-[#344054]">Aligned PLOs:</span> {clo.plo.split("\n").join(" · ")}</p> : null}
+              {clo.skills ? <p className="mt-1 whitespace-pre-line text-[#475467]"><span className="font-medium text-[#344054]">SCEN graduate competencies:</span> {clo.skills.split("\n").join(" · ")}</p> : null}
+              {clo.skills ? <p className="mt-1 text-[#475467]"><span className="font-medium text-[#344054]">SUAD graduate competencies:</span> {suadCompetencyText(clo.skills, scenCompetencies, graduateById).split("\n").filter(Boolean).join(" · ") || "—"}</p> : null}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p role="alert" className="mt-4 rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+          The Head of Department has not written this course&apos;s learning outcomes yet. They are added in Manage
+          catalogues → Curriculum mapping; until then this syllabus cannot be submitted.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * The competency matrix's SCEN columns: the catalogue's competencies, and a retired one only
+ * while an outcome still develops it, so it can be seen and unticked.
+ */
+function matrixCompetencies(scenCompetencies: CatalogueEntry[], clos: Array<Record<string, unknown>>): MatrixCompetency[] {
+  const chosenIds = new Set(clos.flatMap((clo) => String(clo.skillIds ?? "").split("\n").map((id) => id.trim()).filter(Boolean)));
+  const chosenLabels = new Set(clos.flatMap((clo) => String(clo.skills ?? "").split("\n").map((label) => label.trim()).filter(Boolean)));
+  return scenCompetencies
+    .map((entry) => {
+      const code = stringify(entry.payload.code) || entry.label;
+      const outcome = stringify(entry.payload.outcome);
+      const ids = entry.payload.graduateCompetencyIds;
+      return {
+        entry,
+        column: {
+          id: entry.id,
+          code,
+          outcome: outcome || entry.label,
+          value: outcome ? `${code}: ${outcome}` : entry.label,
+          graduateIds: Array.isArray(ids) ? ids.map(String) : [],
+        },
+      };
+    })
+    .filter(({ entry, column }) => !entry.isRetired || chosenIds.has(column.id) || chosenLabels.has(column.value))
+    .map(({ column }) => column);
+}
+
+/** Its SUAD columns: the graduate competencies in force, and any a SCEN column still brings. */
+function matrixGraduates(graduateCompetencies: CatalogueEntry[], competencies: MatrixCompetency[]): MatrixGraduate[] {
+  const brought = new Set(competencies.flatMap((competency) => competency.graduateIds));
+  return graduateCompetencies
+    .filter((entry) => !entry.isRetired || brought.has(entry.id))
+    .map((entry) => {
+      const [labelCode, ...labelRest] = entry.label.split(" — ");
+      return {
+        id: entry.id,
+        code: stringify(entry.payload.code) || labelCode,
+        outcome: stringify(entry.payload.outcome) || labelRest.join(" — ") || entry.label,
+      };
+    });
 }
 
 /** The SUAD competencies a course develops follow from the SCEN ones it selects. */
@@ -1275,10 +1497,12 @@ function Field({
   size = "full",
   hint,
   history,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  required?: boolean;
   multiline?: boolean;
   isDate?: boolean;
   inputType?: "text" | "number";
@@ -1309,6 +1533,7 @@ function Field({
   return (
     <HistoryTextField
       label={label}
+      required={required}
       value={value}
       onChange={onChange}
       multiline={multiline}
@@ -1335,10 +1560,12 @@ function SelectField({
   size = "full",
   hint,
   history,
+  required = false,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
+  required?: boolean;
   options: string[];
   placeholder?: string;
   size?: FieldSize;
@@ -1351,7 +1578,7 @@ function SelectField({
   };
 }) {
   return (
-    <SyllabusField label={label} fieldKey={history.field.path} hint={hint} size={size}>
+    <SyllabusField label={label} required={required} fieldKey={history.field.path} hint={hint} size={size}>
       <SelectMenu
         label={label}
         value={value}
@@ -1367,7 +1594,7 @@ function SelectField({
 function LockedSection({ title, text }: { title: string; text: string }) {
   return (
     <SyllabusSubsection title={title}>
-      <div className="rounded-md border border-[#cbd5e1] bg-[#f8fafc] p-4 text-sm leading-6 text-[#475467]">
+      <div className="rounded-md border border-[#cbd5e1] bg-[#f1f4f8] p-4 text-sm leading-6 text-[#475467]">
         <p className="mb-2 font-semibold text-[#344054]">
           University standard text
         </p>
@@ -1375,369 +1602,6 @@ function LockedSection({ title, text }: { title: string; text: string }) {
       </div>
     </SyllabusSubsection>
   );
-}
-function RowsEditor({
-  title,
-  columns,
-  rows,
-  onChange,
-  selectOptions,
-  addLabel = "Add row",
-  historyPath,
-  syllabusId,
-  revision,
-  onOpenHistory,
-  onPloChange,
-  rowLabel,
-  derivedColumns,
-}: {
-  title: string;
-  columns: string[][];
-  rows: Row[];
-  onChange: (rows: Row[]) => void;
-  selectOptions?: Record<string, Array<{ value: string; label: string }>>;
-  addLabel?: string;
-  historyPath: string;
-  syllabusId: string;
-  revision: number;
-  onOpenHistory: (field: HistoryField) => void;
-  onPloChange?: (row: Row, labels: string, key: string) => Row;
-  /** Numbers each entry, so a CLO reads "CLO 1" wherever it is referenced. */
-  rowLabel?: string;
-  /** Read-only columns whose value follows from another the professor chose. */
-  derivedColumns?: Record<string, { label: string; derive: (value: string) => string }>;
-}) {
-  const normalized = Array.isArray(rows) ? rows : [];
-  const [movingRowId, setMovingRowId] = useState<string | null>(null);
-  const [moveQuery, setMoveQuery] = useState("");
-  const [expandedRowIds, setExpandedRowIds] = useState<string[]>([]);
-  useEffect(() => {
-    if (!movingRowId) return;
-    const closeWhenClickingAway = (event: PointerEvent) => {
-      if (
-        !(event.target instanceof Element) ||
-        !event.target.closest("[data-move-menu]")
-      ) {
-        setMovingRowId(null);
-        setMoveQuery("");
-      }
-    };
-    document.addEventListener("pointerdown", closeWhenClickingAway);
-    return () =>
-      document.removeEventListener("pointerdown", closeWhenClickingAway);
-  }, [movingRowId]);
-  const moveRowBefore = (sourceId: string, destinationId?: string) => {
-    const source = normalized.find((row) => row.id === sourceId);
-    if (!source) return;
-    const withoutSource = normalized.filter((row) => row.id !== sourceId);
-    const destinationIndex = destinationId
-      ? withoutSource.findIndex((row) => row.id === destinationId)
-      : withoutSource.length;
-    onChange([
-      ...withoutSource.slice(0, destinationIndex),
-      source,
-      ...withoutSource.slice(destinationIndex),
-    ]);
-    setMovingRowId(null);
-    setMoveQuery("");
-  };
-  const addRow = () => {
-    const id = crypto.randomUUID();
-    onChange([...normalized, { id }]);
-    setExpandedRowIds((current) => [...current, id]);
-    window.requestAnimationFrame(() =>
-      document
-        .getElementById(`row-${id}`)
-        ?.scrollIntoView({ behavior: "smooth", block: "center" }),
-    );
-  };
-  const outcomeRows = columns.some(([key]) => key === "clo");
-  return (
-    <section className="mt-2">
-      <h4 className="mb-3 text-sm font-semibold text-[#344054]">{title}</h4>
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-4">
-        {normalized.map((row, index) => {
-          const destinations = normalized.filter(
-            (item) =>
-              item.id !== row.id &&
-              rowIdentity(item, columns)
-                .toLowerCase()
-                .includes(moveQuery.toLowerCase()),
-          );
-          const isExpanded = !outcomeRows || expandedRowIds.includes(row.id);
-          const updateRow = (key: string, value: string) =>
-            onChange(
-              normalized.map((item, itemIndex) =>
-                itemIndex === index
-                  ? (key === "plo" || key === "skills") && onPloChange
-                    ? onPloChange(item, value, key)
-                    : { ...item, [key]: value }
-                  : item,
-              ),
-            );
-          return (
-            <fieldset
-              id={`row-${row.id}`}
-              key={row.id}
-              className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4"
-            >
-              <div className="relative flex items-start justify-between gap-3">
-                {outcomeRows ? (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedRowIds((current) =>
-                        current.includes(row.id)
-                          ? current.filter((id) => id !== row.id)
-                          : [...current, row.id],
-                      )
-                    }
-                    className="flex min-w-0 flex-1 items-start gap-2 text-left"
-                  >
-                    <ChevronDown
-                      size={17}
-                      className={`mt-0.5 shrink-0 text-[#667085] transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-[#344054]">
-                        CLO {index + 1}
-                      </span>
-                      <span className="mt-0.5 block text-sm text-[#475467]">
-                        {outcomeSummary(row.clo, index) || "Untitled outcome"}
-                      </span>
-                    </span>
-                  </button>
-                ) : (
-                  <p className="min-w-0 flex-1 break-words text-sm font-semibold text-[#344054]">
-                    {rowIdentity(row, columns)}
-                  </p>
-                )}
-                <div
-                  data-move-menu
-                  className="flex shrink-0 items-center gap-1"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMovingRowId(row.id);
-                      setMoveQuery("");
-                    }}
-                    className="rounded p-2 text-[#1f4e79] hover:bg-[#e8edf3]"
-                    aria-label={`Move ${rowIdentity(row, columns)}`}
-                    title="Move row"
-                  >
-                    <ArrowDownUp size={17} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onChange(
-                        normalized.filter(
-                          (_, itemIndex) => itemIndex !== index,
-                        ),
-                      )
-                    }
-                    className="rounded p-2 text-[#a6292f] hover:bg-[#fff1f2]"
-                    aria-label={`Remove ${rowIdentity(row, columns)}`}
-                    title="Remove row"
-                  >
-                    <Trash2 size={17} />
-                  </button>
-                </div>
-                {movingRowId === row.id ? (
-                  <div
-                    data-move-menu
-                    className="absolute right-0 top-full z-[90] isolate mt-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg"
-                  >
-                    <p className="text-sm font-semibold text-[#344054]">
-                      Place this row before
-                    </p>
-                    <input
-                      type="search"
-                      value={moveQuery}
-                      onChange={(event) => setMoveQuery(event.target.value)}
-                      placeholder="Search destination rows"
-                      className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"
-                      autoFocus
-                    />
-                    <div className="mt-2 max-h-56 overflow-y-auto">
-                      {destinations.map((destination, destinationIndex) => (
-                        <button
-                          type="button"
-                          key={destination.id}
-                          onClick={() => moveRowBefore(row.id, destination.id)}
-                          className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]"
-                        >
-                          <span className="text-[#667085]">
-                            {destinationIndex + 1}.{" "}
-                          </span>
-                          {rowIdentity(destination, columns)}
-                        </button>
-                      ))}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => moveRowBefore(row.id)}
-                      className="mt-2 w-full rounded-md border border-[#b7bec8] px-3 py-2 text-left text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-                    >
-                      Move to end
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-              {isExpanded ? (
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                  {columns.map(([key, label]) => {
-                    const field = {
-                      path: `${historyPath}[${row.id}].${key}`,
-                      label: `${title} · ${label}`,
-                    };
-                    const value = row[key] ?? "";
-                    const multiline = shouldUseMultiline(key);
-                    const useDatePicker = shouldUseDatePicker(key, value);
-                    const options = selectOptions?.[key];
-                    const availableOptions =
-                      options &&
-                      value &&
-                      !options.some((option) => option.value === value)
-                        ? [{ value, label: value }, ...options]
-                        : options;
-                    const historyControl = (
-                      <FieldHistoryControl
-                        syllabusId={syllabusId}
-                        revision={revision}
-                        field={field}
-                        onOpenSidebar={onOpenHistory}
-                        placement={multiline ? "top" : "center"}
-                      />
-                    );
-                    if (useDatePicker) {
-                      return (
-                        <div
-                          key={key}
-                          className={multiline ? "lg:col-span-2" : ""}
-                        >
-                          <DateField
-                            label={label}
-                            value={dateInputValue(value)}
-                            onChange={(next) => updateRow(key, next)}
-                            trailing={historyControl}
-                          />
-                        </div>
-                      );
-                    }
-                    if ((key === "plo" || key === "skills") && options) {
-                      const derived = derivedColumns?.[key];
-                      return (
-                        <Fragment key={key}>
-                        <PloAlignmentField
-                          label={label}
-                          pickerLabel={`Add ${label.toLowerCase()} to ${rowLabel ?? "entry"} ${index + 1}`}
-                          emptyText={key === "plo" ? "No PLOs aligned yet." : "No graduate competencies selected yet."}
-                          addText={key === "plo" ? "Add aligned PLO" : "Add graduate competency"}
-                          value={value}
-                          onChange={(next) => updateRow(key, next)}
-                          options={options}
-                          history={
-                            <FieldHistoryControl
-                              syllabusId={syllabusId}
-                              revision={revision}
-                              field={field}
-                              onOpenSidebar={onOpenHistory}
-                              placement="label"
-                            />
-                          }
-                        />
-                        {derived ? (
-                          <div>
-                            <p className="text-sm font-medium text-[#344054]">{derived.label}</p>
-                            <p className="mt-1 whitespace-pre-line rounded-md border border-dashed border-[#d0d5dd] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
-                              {derived.derive(value) || "Follows from the competencies chosen beside this."}
-                            </p>
-                          </div>
-                        ) : null}
-                        </Fragment>
-                      );
-                    }
-                    return availableOptions ? (
-                      <label
-                        key={key}
-                        className={`grid gap-1 text-sm font-medium text-[#344054] ${multiline ? "lg:col-span-2" : ""}`}
-                      >
-                        {label}
-                        <SelectMenu
-                          label={label}
-                          value={value}
-                          onChange={(next) => updateRow(key, next)}
-                          placeholder="Select a programme learning outcome"
-                          options={availableOptions}
-                          trailing={historyControl}
-                        />
-                      </label>
-                    ) : (
-                      <HistoryTextField
-                        key={key}
-                        label={label}
-                        value={value}
-                        onChange={(next) => updateRow(key, next)}
-                        multiline={multiline}
-                        minRows={3}
-                        // A sentence too long for its box takes another line rather than
-                        // scrolling its end out of sight.
-                        grow={!multiline}
-                        history={{ field, onOpenHistory }}
-                      />
-                    );
-                  })}
-                </div>
-              ) : null}
-            </fieldset>
-          );
-        })}
-      </div>
-      {normalized.length === 0 ? (
-        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
-          No rows added yet.
-        </p>
-      ) : null}
-      <AddEntryButton onClick={addRow} label={addLabel} />
-    </section>
-  );
-}
-
-/**
- * Which of a row's columns are genuinely written at length.
- *
- * Not a course outcome, which is a sentence: it used to flip to a three-row box the moment
- * it passed ninety characters, and a box that size invites a paragraph where the template
- * wants a sentence. It gets a line that grows to fit instead.
- */
-function shouldUseMultiline(key: string) {
-  return ["activities", "preClass", "assessments", "criteria", "meets", "exceeds"].includes(key);
-}
-function rowIdentity(row: Row, columns: string[][]) {
-  const preferredKeys = [
-    "session",
-    "topic",
-    "clo",
-    "type",
-    "assignment",
-    "date",
-  ];
-  return (
-    preferredKeys.map((key) => row[key]).find((item) => item?.trim()) ??
-    columns.map(([key]) => row[key]).find((item) => item?.trim()) ??
-    "Untitled row"
-  );
-}
-function outcomeSummary(value: string | undefined, index: number) {
-  return (value ?? "").replace(
-    new RegExp(`^CLO\\s*${index + 1}\\s*[:.]?\\s*`, "i"),
-    "",
-  );
-}
-function shouldUseDatePicker(key: string, value: string) {
-  return key === "date" && (value === "" || dateInputValue(value) !== "");
 }
 function fieldPath(active: string, label: string) {
   const fieldNames: Record<string, Record<string, string>> = {
@@ -1776,13 +1640,6 @@ function fieldPath(active: string, label: string) {
       "Assessment methodologies": "assessment.methodologies",
       "Late submission policy": "assessment.lateSubmissionPolicy",
     },
-    documentControl: {
-      "Document creation date": "documentControl.creationDate",
-      "Department name": "documentControl.departmentName",
-      "Syllabus approval date": "documentControl.approvalDate",
-      "Version number": "documentControl.versionNumber",
-      "Name and status of approver": "documentControl.approver",
-    },
   };
   if (
     active === "identification" &&
@@ -1805,12 +1662,6 @@ function fieldPath(active: string, label: string) {
   }
   return fieldNames[active]?.[label] ?? `${active}.${label}`;
 }
-function isDateField(active: string, label: string) {
-  return (
-    active === "documentControl" &&
-    ["Document creation date", "Syllabus approval date"].includes(label)
-  );
-}
 function dateInputValue(value: string) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
@@ -1828,19 +1679,14 @@ function record(value: unknown): Record<string, unknown> {
     ? (value as Record<string, unknown>)
     : {};
 }
+/** The catalogue programme Foundation Year courses are mapped under (FYS_PROGRAMME_TITLE on the server). */
+const FOUNDATION_YEAR_PROGRAMME = "Foundation Year in Sciences";
+
 function sectionFrom(value: unknown): Record<string, unknown> {
   return record(value);
 }
 
 /** The PLOs the curriculum map expects of a course, by its code. */
-function requiredPloIds(mapping: CatalogueEntry[], courseCode: string): string[] {
-  const wanted = courseCode.replace(/[^a-z0-9]/gi, "").toUpperCase();
-  if (!wanted) return [];
-  const entry = mapping.find((item) => item.label.replace(/[^a-z0-9]/gi, "").toUpperCase() === wanted);
-  const ids = entry?.payload.ploIds;
-  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : [];
-}
-
 /** The levels and semesters this programme's curriculum map actually uses. */
 function curriculumSemesters(mapping: CatalogueEntry[]): string[] {
   const seen = new Set<string>();

@@ -20,6 +20,8 @@ type Props = {
   onChange: (value: string) => void;
   hint?: string;
   history?: { field: HistoryField; onOpenHistory: (field: HistoryField) => void };
+  /** Marks the label with the red asterisk: the syllabus cannot go for review without it. */
+  required?: boolean;
 };
 
 /** 1, then a, then i, and round again — the three a numbered list is usually written in. */
@@ -32,7 +34,7 @@ const NUMBERINGS = ["1", "a", "i"] as const;
  * keystroke would put the caret back at the start. It is written in only when the value
  * arrives from somewhere else — a different session opened, a revision restored.
  */
-export function RichTextField({ label, value, onChange, hint, history }: Props) {
+export function RichTextField({ label, value, onChange, hint, history, required = false }: Props) {
   const editor = useRef<HTMLDivElement>(null);
   const lastWritten = useRef<string>("");
   const [focused, setFocused] = useState(false);
@@ -103,7 +105,7 @@ export function RichTextField({ label, value, onChange, hint, history }: Props) 
 
   return (
     <label className="grid h-full w-full grid-cols-[minmax(0,1fr)] grid-rows-[auto_minmax(0,1fr)] gap-1 text-sm font-medium text-[#344054]">
-      <FormFieldLabel hint={hint} fieldKey={history?.field.path}>
+      <FormFieldLabel hint={hint} fieldKey={history?.field.path} required={required}>
         {label}
       </FormFieldLabel>
       <div

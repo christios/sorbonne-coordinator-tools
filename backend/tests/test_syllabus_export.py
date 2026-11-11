@@ -1,6 +1,8 @@
 import json
 from pathlib import Path
 
+import pytest
+
 from docx import Document
 
 from sorbonne.api.syllabi import _export_filename
@@ -170,7 +172,183 @@ def test_builds_a_filled_template_with_repeatable_course_content(tmp_path) -> No
     assert "☒" in document.tables[10].cell(1, 1).text
     assert "Oral follow-up discussion" in document.tables[10].cell(1, 1).text
     assert document.tables[11].cell(0, 0).text == "Assessment type: Policy brief"
-    assert document.tables[13].cell(0, 1).text == "23/07/2026"
+
+
+def test_the_document_has_no_document_control_section_even_when_the_syllabus_kept_one(tmp_path) -> None:
+    """Document control was removed from the syllabus (Nov 2026 feedback).
+
+    Older syllabi still carry the values; they stay stored, but the document no
+    longer prints the heading or its table. The bundled template is not edited.
+    """
+    syllabus = {
+        "courseTitle": "Optics",
+        "courseCode": "PHYS-118",
+        "academicYear": "2026-2027",
+        "content": {"documentControl": {"creationDate": "2026-07-23", "approver": "Head of Department"}},
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    assert not [p for p in document.paragraphs if p.text.strip() == "DOCUMENT CONTROL"]
+    assert not [t for t in document.tables if "Document creation date" in t.cell(0, 0).text]
+    assert "DOCUMENT CONTROL" not in template_sections("scen-en-v1")
+
+
+def _rubric_tables(document) -> list:
+    return [table for table in document.tables if table.cell(0, 0).text.startswith("Assessment type:")]
+
+
+def test_the_document_has_one_rubric_table_per_rubric_and_no_blank_ones(tmp_path) -> None:
+    """The template ships two rubric tables; an unused one used to print empty."""
+    one = {"courseTitle": "Optics", "content": {"assessment": {"rubrics": [{"assignment": "Quiz", "criteria": []}]}}}
+    none = {"courseTitle": "Optics", "content": {"assessment": {"rubrics": []}}}
+    three = {
+        "courseTitle": "Optics",
+        "content": {"assessment": {"rubrics": [{"assignment": name, "criteria": []} for name in ("A", "B", "C")]}},
+    }
+
+    cases = (
+        (one, ["Assessment type: Quiz"]),
+        (none, []),
+        (three, ["Assessment type: A", "Assessment type: B", "Assessment type: C"]),
+    )
+    for syllabus, expected in cases:
+        output = tmp_path / "syllabus.docx"
+        build_syllabus_docx(syllabus, output)
+        assert [table.cell(0, 0).text for table in _rubric_tables(Document(output))] == expected
+
+
+def _ai_rows(document) -> dict[str, str]:
+    """Section 9.3's table, option by option: what the label cell and the description say."""
+    table = document.tables[10]
+    return {
+        row.cells[0].text.replace("☒", "").strip(): row.cells[0].text + "|" + row.cells[-1].text
+        for row in table.rows[1:]
+    }
+
+
+def test_each_graded_activity_applies_its_own_ai_option_and_section_9_3_ticks_every_one_in_use(tmp_path) -> None:
+    """November 2026 review: the AI policy is chosen per graded activity, from the template's five."""
+    syllabus = {
+        "courseTitle": "Optics",
+        "content": {
+            "assessment": {
+                "items": [
+                    {"id": "a1", "name": "Midterm", "aiPolicyId": "ai-policy-1", "aiPolicy": "AI Prohibited"},
+                    {"id": "a2", "name": "Project", "aiPolicy": "AI Permitted as a Support Tool"},
+                    {
+                        "id": "a3",
+                        "name": "Essay",
+                        "aiPolicy": "Other (Specify)",
+                        "aiOtherText": "Translation tools for sources only",
+                    },
+                ],
+                "aiVerificationMechanism": "Oral follow-up",
+                # Written before the template's wording was used: still ticks the right box.
+                "aiAllowedUses": ["Language editing", "Structuring or organising ideas"],
+            }
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    rows = _ai_rows(document)
+    assert rows["AI Prohibited"].startswith("☒")
+    assert "Oral follow-up" in rows["AI Prohibited"]
+    assert rows["AI Permitted as a Support Tool"].startswith("☒")
+    assert "☒ Language editing (grammar, spelling, style, and readability)" in rows["AI Permitted as a Support Tool"]
+    assert "☒ Structuring or organizing ideas" in rows["AI Permitted as a Support Tool"]
+    assert "☐ Brainstorming" in rows["AI Permitted as a Support Tool"]
+    assert not rows["Restricted AI Use"].startswith("☒")
+    assert not rows["AI Required"].startswith("☒")
+    assert rows["Other (Specify)"].startswith("☒")
+    assert "Essay: Translation tools for sources only" in rows["Other (Specify)"]
+    summary = [row.cells[4].text for row in document.tables[9].rows[1:4]]
+    assert summary == ["AI Prohibited", "AI Permitted as a Support Tool", "Other: Translation tools for sources only"]
+
+
+def test_an_activity_without_its_own_ai_option_applies_the_course_policy_an_older_syllabus_set(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Optics",
+        "content": {
+            "assessment": {"aiPolicy": "AI Permitted as a Support Tool", "items": [{"id": "a1", "name": "Quiz"}]}
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    assert document.tables[9].rows[1].cells[4].text == "AI Permitted as a Support Tool"
+    assert _ai_rows(document)["AI Permitted as a Support Tool"].startswith("☒")
+    assert not _ai_rows(document)["AI Prohibited"].startswith("☒")
+
+
+def test_nothing_is_ticked_when_no_activity_has_an_ai_option(tmp_path) -> None:
+    syllabus = {"courseTitle": "Optics", "content": {"assessment": {"items": [{"id": "a1", "name": "Quiz"}]}}}
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    assert not [label for label, cells in _ai_rows(Document(output)).items() if cells.startswith("☒")]
+
+
+def test_a_foundation_year_syllabus_prints_the_outcomes_its_editor_writes_one_per_line(tmp_path) -> None:
+    """The Foundation Year editor keeps outcomes as lines of text; the CLO table used to come out empty."""
+    syllabus = {
+        "courseTitle": "Pre-Calculus",
+        "templateId": "fys-2025-26",
+        "content": {"learningOutcomes": {"clos": [], "closText": "Solve equations.\n\nSketch functions."}},
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[4]
+    assert [row.cells[1].text for row in table.rows[1:3]] == ["Solve equations.", "Sketch functions."]
+
+
+def test_a_foundation_year_instructor_typed_in_by_hand_is_printed(tmp_path) -> None:
+    """The editor's "Name and status" and "Email" boxes printed blank: only a directory choice did."""
+    syllabus = {
+        "courseTitle": "Pre-Calculus",
+        "templateId": "fys-2025-26",
+        "content": {
+            "facultyDetails": {"staff": [], "staffText": "A Lecturer, Lecturer", "email": "lecturer@sorbonne.ae"}
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[1]
+    assert table.cell(0, 1).text == "A Lecturer, Lecturer"
+    assert table.cell(4, 1).text == "lecturer@sorbonne.ae"
+
+
+def test_the_word_contact_hours_are_added_up_from_the_course_schedule(tmp_path) -> None:
+    syllabus = {
+        "courseTitle": "Geometric Optics",
+        "content": {
+            "identification": {"contactHours": {"Lectures": "99"}},
+            "schedule": [
+                {"id": "a", "sessionType": "CM", "duration": "2"},
+                {"id": "b", "sessionType": "CM", "duration": "2"},
+                {"id": "c", "sessionType": "TP", "duration": "3"},
+            ],
+            "schemaVersion": 2,
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    table = Document(output).tables[0]
+    assert [table.cell(row, 3).text for row in range(6, 12)] == ["4", "", "", "", "3", ""]
 
 
 def test_expands_outcome_rows_and_accepts_legacy_string_lists(tmp_path) -> None:
@@ -312,13 +490,15 @@ def _rendered_preview_sections() -> list[str]:
     return [item.strip().strip('",') for item in block.replace("\n", " ").split(",") if item.strip().strip('",')]
 
 
-def test_the_document_says_what_the_shared_fixture_expects(tmp_path) -> None:
+@pytest.mark.parametrize("name", ["syllabus-export-parity.json", "syllabus-export-parity-v2.json"])
+def test_the_document_says_what_the_shared_fixture_expects(tmp_path, name: str) -> None:
     """The document is one of two renderings held against the same expectation.
 
     The preview is the other (syllabusProjection.test.ts). Comparing both to this
-    fixture is what makes "the preview matches the template" checkable per cell.
+    fixture is what makes "the preview matches the template" checkable per cell. The
+    second fixture is a syllabus whose graded activities live in its schedule.
     """
-    fixture = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / "syllabus-export-parity.json").read_text())
+    fixture = json.loads((Path(__file__).resolve().parents[2] / "fixtures" / name).read_text())
     expected = fixture.pop("expected")
     output = tmp_path / "syllabus.docx"
 
@@ -389,3 +569,39 @@ def test_a_session_written_before_formatting_existed_still_reads_as_written(tmp_
     cell = Document(str(output)).tables[7].rows[1].cells[2]
 
     assert [p.text for p in cell.paragraphs if p.text] == ["Ray tracing", "Week 1", "Two-hour session"]
+
+
+def test_a_foundation_year_syllabus_fills_its_tables_from_its_graded_cards(tmp_path) -> None:
+    """November 2026: Foundation Year graded activities are schedule cards too; each names its row."""
+    syllabus = {
+        "courseTitle": "Pre-Calculus",
+        "templateId": "fys-2025-26",
+        "content": {
+            "schemaVersion": 2,
+            "schedule": [
+                {"id": "s1", "week": "1", "sessionType": "CM", "topic": "Functions"},
+                {"id": "q1", "kind": "graded", "week": "1", "date": "2026-09-10", "name": "Quiz 1",
+                 "component": "continuous:In class assignment", "description": "Quiz on functions",
+                 "weight": "10", "cloNumbers": ["1"]},
+                {"id": "q2", "kind": "graded", "week": "4", "name": "Quiz 2",
+                 "component": "continuous:In class assignment", "description": "Quiz on limits",
+                 "weight": "10", "cloNumbers": ["1", "2"]},
+                {"id": "f1", "kind": "graded", "week": "15", "name": "Final exam", "component": "final",
+                 "description": "Written exam", "weight": "50", "cloNumbers": ["1", "2", "3"]},
+            ],
+        },
+    }
+    output = tmp_path / "syllabus.docx"
+
+    build_syllabus_docx(syllabus, output)
+
+    document = Document(output)
+    continuous = document.tables[9].rows[1].cells
+    assert [cell.text for cell in continuous] == [
+        "In class assignment", "Quiz on functions\nQuiz on limits", "CLO 1, CLO 2", "20%",
+    ]
+    assert [cell.text for cell in document.tables[10].rows[1].cells] == ["Written exam", "CLO 1, CLO 2, CLO 3", "50%"]
+    schedule = document.tables[12]
+    # The form's second header row stays a header.
+    assert schedule.rows[1].cells[3].text.startswith("Description")
+    assert [cell.text for cell in schedule.rows[2].cells] == ["1", "CM 1", "Functions", "Quiz 1", "10/09/2026"]

@@ -12,6 +12,11 @@ from sqlalchemy import Engine, text
 from sqlalchemy.engine import Connection, RowMapping
 from sqlalchemy.exc import IntegrityError
 
+from sorbonne.services.syllabus_content import (
+    SCHEDULE_HOLDS_GRADED_ACTIVITIES,
+    convert_fys_to_schedule_cards,
+    convert_to_schedule_cards,
+)
 from sorbonne.services.engine import engine_for
 from sorbonne.services.syllabus_templates import (
     DEFAULT_TEMPLATE_ID,
@@ -341,9 +346,13 @@ class SyllabusStore:
     def field_history(self, syllabus_id: str, field_path: str) -> list[dict[str, Any]]:
         self.get(syllabus_id)
         with self.engine.connect() as connection:
-            history = _history_entries(_history_rows(connection, syllabus_id, field_path))
-            if not history:
-                history = _legacy_row_field_history(connection, syllabus_id, field_path)
+            history = _path_history(connection, syllabus_id, field_path)
+            # A graded activity moved into the schedule (November 2026) keeps its id, so what
+            # it went through on the assessment list is still its history.
+            moved = re.fullmatch(r"schedule\[([^\]]+)\]\.(.+)", field_path)
+            if moved:
+                earlier = _path_history(connection, syllabus_id, f"assessment.items[{moved.group(1)}].{moved.group(2)}")
+                history = sorted([*history, *earlier], key=lambda entry: str(entry["changedAt"]), reverse=True)
         history = _coalesce_history_entries(history)
         for entry in history:
             if isinstance(entry["previousValue"], str) and isinstance(entry["newValue"], str):
@@ -406,19 +415,16 @@ def default_content() -> dict[str, Any]:
         "teachingApproach": {"methods": "", "engagement": "", "feedback": ""},
         "assessment": {
             "items": [],
-            "aiPolicy": "AI Prohibited",
+            # No course-wide AI policy: each graded activity chooses its own (November 2026).
             "aiInstructions": "",
             "methodologies": "",
             "rubrics": [],
             "lateSubmissionPolicy": "",
         },
-        "documentControl": {
-            "creationDate": "",
-            "departmentName": "SCEN",
-            "approvalDate": "",
-            "versionNumber": "",
-            "approver": "",
-        },
+        # No documentControl: the section was removed in the November 2026 review.
+        # Older syllabi keep theirs, untouched.
+        # Graded activities live in the course schedule (November 2026 review).
+        "schemaVersion": SCHEDULE_HOLDS_GRADED_ACTIVITIES,
     }
 
 
@@ -426,9 +432,13 @@ def _initial_content(template_id: str, source: dict[str, Any] | None) -> dict[st
     if source is None:
         return default_fys_content() if template_id == FYS_TEMPLATE_ID else default_content()
     if source["templateId"] == template_id:
-        return deepcopy(source["content"])
+        # A copy of a syllabus written before November 2026 starts in the new shape, its
+        # graded activities in the schedule; the source itself is left as it is.
+        copied = deepcopy(source["content"])
+        convert = convert_to_schedule_cards if template_id == DEFAULT_TEMPLATE_ID else convert_fys_to_schedule_cards
+        return convert(copied)[0]
     if source["templateId"] == DEFAULT_TEMPLATE_ID and template_id == FYS_TEMPLATE_ID:
-        return convert_scen_to_fys(source["content"])
+        return convert_fys_to_schedule_cards(convert_scen_to_fys(source["content"]))[0]
     raise TemplateComparisonNotMapped
 
 
@@ -595,6 +605,11 @@ def _history_entries(rows: list[RowMapping]) -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def _path_history(connection: Connection, syllabus_id: str, field_path: str) -> list[dict[str, Any]]:
+    history = _history_entries(_history_rows(connection, syllabus_id, field_path))
+    return history or _legacy_row_field_history(connection, syllabus_id, field_path)
 
 
 def _legacy_row_field_history(connection: Connection, syllabus_id: str, field_path: str) -> list[dict[str, Any]]:

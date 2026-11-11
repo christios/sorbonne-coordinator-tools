@@ -19,6 +19,14 @@ class TemplateNotFound(Exception):
 class TemplateSection:
     id: str
     label: str
+    # The parts of the stored content one screen section edits, in the order the
+    # approved document prints them. Usually just the section itself; a merged
+    # section lists each part, so stored content and field history keep their keys.
+    parts: tuple[str, ...] = ()
+
+    @property
+    def content_parts(self) -> tuple[str, ...]:
+        return self.parts or (self.id,)
 
 
 @dataclass(frozen=True)
@@ -28,10 +36,19 @@ class SyllabusTemplate:
     description: str
     document_path: Path
     sections: tuple[TemplateSection, ...]
+    # Headings of the bundled document that the department no longer uses. The export
+    # takes them (and the table under each) out of every generated copy, so the
+    # Provost's file itself is never edited.
+    removed_headings: tuple[str, ...] = ()
+    # Whether a new syllabus may be started on it. A template no longer offered keeps
+    # opening, previewing and exporting the syllabi already written on it.
+    offered: bool = True
 
 
 DEFAULT_TEMPLATE_ID = "scen-en-v1"
 FYS_TEMPLATE_ID = "fys-2025-26"
+# The catalogue programme a Foundation Year course is mapped under; it has no PLOs.
+FYS_PROGRAMME_TITLE = "Foundation Year in Sciences"
 _ASSET_DIRECTORY = Path(__file__).resolve().parents[1] / "assets"
 
 _TEMPLATES = {
@@ -43,31 +60,37 @@ _TEMPLATES = {
         sections=(
             TemplateSection("identification", "1. Course identification"),
             TemplateSection("contacts", "2. Academic contacts"),
-            TemplateSection("description", "3. Course description"),
-            TemplateSection("delivery", "4. Course delivery"),
-            TemplateSection("learningOutcomes", "5. Learning outcomes"),
-            TemplateSection("schedule", "6. Course schedule"),
-            TemplateSection("bibliography", "7. Bibliography"),
-            TemplateSection("teachingApproach", "8. Teaching approach"),
-            TemplateSection("assessment", "9. Course assessment"),
-            TemplateSection("documentControl", "10. Document control"),
+            # Description and delivery are one section on screen (November 2026 review);
+            # the document keeps them under its own two headings.
+            TemplateSection("description", "3. Course description and delivery", ("description", "delivery")),
+            TemplateSection("learningOutcomes", "4. Learning outcomes"),
+            TemplateSection("schedule", "5. Course schedule"),
+            TemplateSection("bibliography", "6. Bibliography"),
+            # No teaching-approach section since 10 Nov 2026: the document's section 8 is the
+            # department's text for each kind of session the course schedule uses.
+            TemplateSection("assessment", "7. Course assessment"),
         ),
+        # Removed from the syllabus by the November 2026 review.
+        removed_headings=("DOCUMENT CONTROL",),
     ),
     FYS_TEMPLATE_ID: SyllabusTemplate(
         id=FYS_TEMPLATE_ID,
         name="Foundation Year syllabus template (Sciences, 2025-26)",
         description="Approved Foundation Year Sciences syllabus form for 2025-26.",
         document_path=_ASSET_DIRECTORY / "fys_syllabus_template_2025_26.docx",
+        # 10 Nov 2026: Foundation Year courses use the bachelor template; there is no
+        # separate Foundation Year syllabus any more (ADR-003). Kept for any written on it.
+        offered=False,
         sections=(
             TemplateSection("courseDetails", "1. Course details"),
             TemplateSection("facultyDetails", "2. Faculty details"),
-            TemplateSection("delivery", "3. Course delivery"),
-            TemplateSection("description", "4. Course description"),
-            TemplateSection("learningOutcomes", "5. Course learning outcomes"),
-            TemplateSection("requiredMaterials", "6. Required materials"),
-            TemplateSection("teachingMethodologies", "7. Teaching methodologies"),
-            TemplateSection("assessment", "8. Course assessment"),
-            TemplateSection("schedule", "9. Teaching schedule"),
+            # The Foundation Year form prints delivery before description.
+            TemplateSection("description", "3. Course description and delivery", ("delivery", "description")),
+            TemplateSection("learningOutcomes", "4. Course learning outcomes"),
+            TemplateSection("requiredMaterials", "5. Required materials"),
+            TemplateSection("teachingMethodologies", "6. Teaching methodologies"),
+            TemplateSection("assessment", "7. Course assessment"),
+            TemplateSection("schedule", "8. Teaching schedule"),
         ),
     ),
 }

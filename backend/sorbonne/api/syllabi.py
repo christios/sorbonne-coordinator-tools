@@ -11,8 +11,12 @@ from sorbonne.services.account_access import AccountAccess, account_access, admi
 from sorbonne.services.staff_auth import StaffUser
 from sorbonne.services.syllabus_export import build_syllabus_docx, template_sections
 from sorbonne.services.syllabus_visibility import VISIBILITIES, can_edit, can_view
-from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID
+from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_PROGRAMME_TITLE, FYS_TEMPLATE_ID
+from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
+from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
+from sorbonne.services.syllabus_completeness import missing_for_submission
+from sorbonne.services.syllabus_content import convert_fys_to_schedule_cards, convert_to_schedule_cards
 from sorbonne.services.syllabus_store import (
     ComparisonNotAllowed,
     FolderNameConflict,
@@ -126,7 +130,12 @@ def list_syllabus_templates() -> dict[str, list[dict[str, Any]]]:
                 "name": template.name,
                 "description": template.description,
                 "documentPath": f"/syllabi/templates/{template.id}/document",
-                "sections": [{"id": section.id, "label": section.label} for section in template.sections],
+                # A template no longer offered still describes the syllabi written on it.
+                "offered": template.offered,
+                "sections": [
+                    {"id": section.id, "label": section.label, "parts": list(section.content_parts)}
+                    for section in template.sections
+                ],
             }
             for template in list_templates()
         ]
@@ -181,8 +190,19 @@ def create_syllabus(
     user: StaffUser = Depends(current_user),
     curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
-    if request.sourceSyllabusId:
-        _readable(store, request.sourceSyllabusId, user, curator=curator)
+    source = _readable(store, request.sourceSyllabusId, user, curator=curator) if request.sourceSyllabusId else None
+    # Since 10 Nov 2026 every new syllabus, Foundation Year courses included, starts on an
+    # offered template: the Foundation Year form is kept only for syllabi already written on it.
+    chosen = request.templateId or (str(source["templateId"]) if source else DEFAULT_TEMPLATE_ID)
+    try:
+        offered = get_template(chosen).offered
+    except TemplateNotFound:
+        offered = True  # the store answers an unknown template below
+    if not offered:
+        raise HTTPException(
+            status_code=422,
+            detail=f"New syllabi use the {get_template(DEFAULT_TEMPLATE_ID).name}, Foundation Year courses included.",
+        )
     try:
         return store.create(
             owner_email=user.email,
@@ -253,12 +273,15 @@ def export_syllabus(  # noqa: PLR0913 - the id, the cleanup, two stores, and who
     catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
     user: StaffUser = Depends(current_user),
     curator: bool = Depends(administers_syllabi),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
 ) -> FileResponse:
     syllabus = _readable(store, syllabus_id, user, curator=curator)
 
     with NamedTemporaryFile(prefix="scen-syllabus-", suffix=".docx", delete=False) as file:
         output_path = Path(file.name)
-    build_syllabus_docx({**syllabus, "content": _resolved_content(catalogue_store, syllabus)}, output_path)
+    build_syllabus_docx(
+        {**syllabus, "content": _resolved_content(catalogue_store, syllabus, outcome_mode.read()["mode"])}, output_path
+    )
     background_tasks.add_task(output_path.unlink, missing_ok=True)
     return FileResponse(
         output_path,
@@ -329,6 +352,10 @@ def compare_syllabi(
             ".teachingPresetIds",
             ".assessmentTypeId",
             ".ploIds",
+            ".kind",
+            ".aiPolicyId",
+            ".catalogueCloIds",
+            ".schemaVersion",
         )
         comparison["changes"] = [
             change for change in comparison["changes"] if not change["path"].endswith(internal_paths)
@@ -349,11 +376,71 @@ def compare_syllabi(
         ) from exc
 
 
+class ConversionRequest(BaseModel):
+    dryRun: bool = True
+
+
+@router.post("/convert-v2")
+def convert_syllabi_to_schedule_cards(
+    body: ConversionRequest,
+    store: SyllabusStore = Depends(get_store),
+    user: StaffUser = Depends(current_user),
+) -> dict[str, Any]:
+    """TEMPORARY (November 2026): move every syllabus's graded activities into its schedule.
+
+    Christian approved converting every existing syllabus at once. This is how that one run
+    is made: a platform administrator calls it with `dryRun` first and reads the report,
+    then — after a backup and his go-ahead — without. Each syllabus is converted through the
+    ordinary save, so its revision moves and its field history records the change; nothing
+    is removed from it (see convert_to_schedule_cards). A syllabus already converted is left
+    alone, so running it again changes nothing. Remove this route in the release after the
+    production run.
+    """
+    if not user.is_admin:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only a platform administrator can run this.")
+    results: list[dict[str, Any]] = []
+    for summary in store.list():
+        syllabus = store.get(summary["id"])
+        foundation_year = summary["templateId"] == FYS_TEMPLATE_ID
+        convert = convert_fys_to_schedule_cards if foundation_year else convert_to_schedule_cards
+        converted, report = convert(syllabus["content"])
+        if converted is syllabus["content"]:
+            continue
+        outcome = "would convert" if body.dryRun else "converted"
+        if not body.dryRun:
+            try:
+                store.update(summary["id"], expected_revision=syllabus["revision"], content=converted)
+            except RevisionConflict:
+                outcome = "changed while converting: run again"
+        results.append(
+            {
+                "id": summary["id"],
+                "courseCode": summary["courseCode"],
+                "courseTitle": summary["courseTitle"],
+                "academicYear": summary["academicYear"],
+                "outcome": outcome,
+                **report,
+            }
+        )
+    return {
+        "dryRun": body.dryRun,
+        "syllabi": results,
+        "totals": {
+            "syllabi": len(results),
+            "gradedActivities": sum(item["gradedActivities"] for item in results),
+            "withoutWeek": sum(len(item["withoutWeek"]) for item in results),
+            "inheritedAiPolicy": sum(item["inheritedAiPolicy"] for item in results),
+            "earlierNotes": sum(item["earlierNotes"] for item in results),
+        },
+    }
+
+
 @router.get("/{syllabus_id}/export-preview")
 def export_preview(
     syllabus_id: str,
     store: SyllabusStore = Depends(get_store),
     catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
 ) -> dict[str, Any]:
     """What the exported document will say, before it is a document."""
     try:
@@ -362,18 +449,27 @@ def export_preview(
         raise HTTPException(status_code=404, detail="Syllabus not found.") from exc
     return {
         **syllabus,
-        "content": _resolved_content(catalogue_store, syllabus),
+        "content": _resolved_content(catalogue_store, syllabus, outcome_mode.read()["mode"]),
         "sections": template_sections(str(syllabus.get("templateId") or DEFAULT_TEMPLATE_ID)),
     }
 
 
-def _resolved_content(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any]) -> dict[str, Any]:
+def _resolved_content(
+    catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], outcome_mode: str = "teacher"
+) -> dict[str, Any]:
     """Everything the catalogue owns, applied to a copy of the syllabus's content.
 
     The document builder and the export preview are both handed this, so what a
-    professor is shown cannot drift from what the Provost receives.
+    professor is shown cannot drift from what the Provost receives. The course's own
+    outcomes come first: in Head-of-Department mode they are the catalogue's, and the
+    competencies are worked out from whichever outcomes the syllabus ends up with.
     """
-    content = syllabus["content"]
+    content = catalogue_store.resolve_outcomes(
+        syllabus["content"],
+        course_code=str(syllabus.get("courseCode") or ""),
+        mode=outcome_mode,
+        programme_title=FYS_PROGRAMME_TITLE if syllabus.get("templateId") == FYS_TEMPLATE_ID else "",
+    )
     for resolve in (
         catalogue_store.resolve_people,
         catalogue_store.resolve_plos,
@@ -424,10 +520,12 @@ def set_syllabus_visibility(
 
 
 @router.patch("/{syllabus_id}/review")
-def set_syllabus_review(
+def set_syllabus_review(  # noqa: PLR0913 - the request, two stores, the mode, and who is asking
     syllabus_id: str,
     request: ReviewRequest,
     store: SyllabusStore = Depends(get_store),
+    catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
     user: StaffUser = Depends(current_user),
     curator: bool = Depends(administers_syllabi),
 ) -> dict[str, Any]:
@@ -442,4 +540,46 @@ def set_syllabus_review(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only the person writing a syllabus can put it up for review.",
         )
+    # Taking the request back is always allowed; asking needs a syllabus that says everything
+    # the template requires (November 2026 review). Saving and exporting a draft never do.
+    if request.submitted:
+        missing = _missing(catalogue_store, syllabus, outcome_mode.read()["mode"])
+        if missing:
+            count = len(missing)
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"This syllabus is not ready for review: {count} thing{'s' if count != 1 else ''}"
+                " still to fill in.",
+            )
     return store.set_submitted(syllabus_id, request.submitted)
+
+
+@router.get("/{syllabus_id}/completeness")
+def read_syllabus_completeness(  # noqa: PLR0913 - the id, two stores, the mode, and who is asking
+    syllabus_id: str,
+    store: SyllabusStore = Depends(get_store),
+    catalogue_store: SyllabusCatalogueStore = Depends(get_catalogue_store),
+    outcome_mode: SyllabusOutcomeMode = Depends(get_outcome_mode),
+    user: StaffUser = Depends(current_user),
+    curator: bool = Depends(administers_syllabi),
+) -> dict[str, Any]:
+    """What the syllabus must still say before it can be submitted for review."""
+    syllabus = _readable(store, syllabus_id, user, curator=curator)
+    missing = _missing(catalogue_store, syllabus, outcome_mode.read()["mode"])
+    return {"complete": not missing, "missing": missing}
+
+
+def _missing(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], mode: str) -> list[dict[str, Any]]:
+    content = _resolved_content(catalogue_store, syllabus, mode)
+    expected = (
+        catalogue_store.expected_plos(content, course_code=str(syllabus.get("courseCode") or ""))
+        if mode != "hod"
+        else {}
+    )
+    return missing_for_submission(
+        syllabus,
+        content,
+        outcome_mode=mode,
+        expected_plos=expected,
+        programme_has_plos=catalogue_store.programme_has_plos(content),
+    )

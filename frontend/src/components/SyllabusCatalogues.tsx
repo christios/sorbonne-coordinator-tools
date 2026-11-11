@@ -11,6 +11,7 @@ import { PloAlignmentField } from "@/components/PloAlignmentField";
 import { FieldRow } from "@/components/FieldRow";
 import { fieldSizeClass, type FieldSize } from "@/components/fieldSize";
 import { courseLabel, listCoursesByCode } from "@/services/courses";
+import { presetTriggers } from "@/services/teachingApproach";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import {
   CatalogueCategory,
@@ -20,14 +21,16 @@ import {
   createCatalogueEntry,
   importPeopleFromPortal,
   listCatalogueEntries,
+  rankOptions,
   retireCatalogueEntry,
   updateCatalogueEntry,
 } from "@/services/syllabusCatalogues";
 
-type CatalogueSection = "people" | "programmes" | "curriculum-mapping" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
+type CatalogueSection = "people" | "academic-ranks" | "programmes" | "curriculum-mapping" | "competencies" | "graduate-competencies" | "teaching-presets" | "assessment" | "ai-policies" | "bibliography";
 
 const sections = [
   { id: "people", label: "People" },
+  { id: "academic-ranks", label: "Academic ranks" },
   { id: "programmes", label: "Programmes & PLOs" },
   { id: "competencies", label: "SCEN competencies" },
   { id: "graduate-competencies", label: "SUAD graduate competencies" },
@@ -38,8 +41,13 @@ const sections = [
   { id: "bibliography", label: "Bibliography" },
 ];
 
-export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
-  const [activeSection, setActiveSection] = useState<CatalogueSection>("people");
+/** The section is the address's (`#/syllabus/catalogues/<section>`), so a refresh stays on it. */
+export function SyllabusCatalogues({ onBack, section, onSectionChange }: { onBack: () => void; section?: string; onSectionChange?: (section: string) => void }) {
+  const known = sections.find((item) => item.id === section)?.id as CatalogueSection | undefined;
+  const [chosen, setChosen] = useState<CatalogueSection>(known ?? "people");
+  // Driven by the address when there is one; on its own otherwise.
+  const activeSection = onSectionChange ? known ?? "people" : chosen;
+  const setActiveSection = (next: CatalogueSection) => (onSectionChange ? onSectionChange(next) : setChosen(next));
   return <SectionEditorShell
     backLabel="Back to syllabus library"
     onBack={onBack}
@@ -52,13 +60,14 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
     onSectionChange={(id) => setActiveSection(id as CatalogueSection)}
   >
     {activeSection === "people" ? <PeopleCatalogue /> : null}
+    {activeSection === "academic-ranks" ? <AcademicRanksCatalogue /> : null}
     {activeSection === "programmes" ? <ProgrammesCatalogue /> : null}
     {activeSection === "competencies" ? <CompetenciesCatalogue /> : null}
     {activeSection === "graduate-competencies" ? <CompetencyCatalogue category="graduate-competencies" title="SUAD graduate competencies" description="The institution's graduate competencies. Each SCEN competency points at the ones it develops." createLabel="New graduate competency" /> : null}
     {activeSection === "teaching-presets" ? <TeachingPresetsCatalogue /> : null}
     {activeSection === "curriculum-mapping" ? <CurriculumMappingCatalogue /> : null}
     {activeSection === "assessment" ? <AssessmentCatalogue /> : null}
-    {activeSection === "ai-policies" ? <SimpleCatalogue category="ai-policies" title="AI policies" description="The policies a graded activity may apply. Courses choose from these; they do not write their own." createLabel="New AI policy" /> : null}
+    {activeSection === "ai-policies" ? <AiPolicyCatalogue /> : null}
     {activeSection === "bibliography" ? <BibliographyCatalogue /> : null}
   </SectionEditorShell>;
 }
@@ -69,11 +78,21 @@ export function SyllabusCatalogues({ onBack }: { onBack: () => void }) {
  * which stays on the page.
  */
 function CatalogueHeader({ title, description, subtitle, action }: { title: string; description?: string; subtitle?: string; action?: React.ReactNode }) {
-  return <div className="flex flex-col items-start gap-3 border-b border-[#e5e7eb] pb-4"><div><h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">{title}{description ? <InfoTip label={`About ${title}`}>{description}</InfoTip> : null}</h3>{subtitle ? <p className="mt-1 max-w-2xl text-sm leading-6 text-[#667085]">{subtitle}</p> : null}</div>{action}</div>;
+  return <div className="flex flex-col items-start gap-3 border-b border-[#d5dbe4] pb-4"><div><h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">{title}{description ? <InfoTip label={`About ${title}`}>{description}</InfoTip> : null}</h3>{subtitle ? <p className="mt-1 max-w-2xl text-sm leading-6 text-[#475467]">{subtitle}</p> : null}</div>{action}</div>;
 }
 
 function useCatalogue(category: CatalogueCategory, query = "", parentId?: string) {
   return useQuery({ queryKey: ["syllabus-catalogues", category, query, parentId ?? ""], queryFn: () => listCatalogueEntries(category, { query, parentId, includeRetired: true, limit: 200 }) });
+}
+
+/** The ranks a person's "Academic rank / status" is chosen from, here and in a syllabus. */
+function AcademicRanksCatalogue() {
+  const [showCreate, setShowCreate] = useState(false);
+  const ranks = useCatalogue("academic-ranks");
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="Academic ranks" description="The ranks and statuses a person can hold. A person's rank in People, and an instructor's in a syllabus, is chosen from this list once it has entries; until then it is typed." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={16} /> Add rank</button>} />
+    {showCreate ? <SimpleEntryForm category="academic-ranks" fieldLabel="Rank or status" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
+    <CatalogueEntries category="academic-ranks" entries={ranks.data ?? []} isLoading={ranks.isLoading} />
+  </div>;
 }
 
 function PeopleCatalogue() {
@@ -86,7 +105,7 @@ function PeopleCatalogue() {
     onSuccess: () => client.invalidateQueries({ queryKey: ["syllabus-catalogues", "people"] }),
   });
   const imported = importFromPortal.data;
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="People" description="A shared directory of instructors and academic coordinators. Linked contact details stay live in syllabi; retiring a person keeps existing links." action={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => importFromPortal.mutate()} disabled={importFromPortal.isPending} className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#eef4fa] disabled:opacity-60">{importFromPortal.isPending ? <Loader2 size={16} className="animate-spin" /> : <DownloadCloud size={16} />} Import teachers from the portal</button><button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={16} /> Add person</button></div>} />
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="People" description="A shared directory of instructors and academic coordinators. Linked contact details stay live in syllabi; retiring a person keeps existing links." action={<div className="flex flex-wrap gap-2"><button type="button" onClick={() => importFromPortal.mutate()} disabled={importFromPortal.isPending} className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] px-3 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#eef4fa] disabled:opacity-60">{importFromPortal.isPending ? <Loader2 size={16} className="animate-spin" /> : <DownloadCloud size={16} />} Import teachers from the portal</button><button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white hover:bg-[#183f63]"><FilePlus2 size={16} /> Add person</button></div>} />
     {imported ? <p className="mt-3 rounded-md border border-[#cfe3d3] bg-[#f2f9f4] px-3 py-2 text-sm text-[#2f6b41]">{importSummary(imported)}</p> : null}
     {importFromPortal.error ? <p className="mt-3 rounded-md border border-[#f0c6c6] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">{(importFromPortal.error as Error).message}</p> : null}
     <SearchField label="Search people" value={query} onChange={setQuery} />
@@ -109,7 +128,7 @@ function importSummary({ added, updated, unchanged, retired }: PeopleImportResul
 function PersonDetails({ entry }: { entry: CatalogueEntry }) {
   const payload = entry.payload;
   const roles = Array.isArray(payload.roles) ? payload.roles.filter((role): role is string => typeof role === "string") : [];
-  return <p className="mt-1 text-sm text-[#667085]">{[roles.map((role) => role === "instructor" ? "Instructor" : "Coordinator").join(" · "), stringValue(payload.email), stringValue(payload.affiliations)].filter(Boolean).join(" · ") || "No contact details added."}</p>;
+  return <p className="mt-1 text-sm text-[#475467]">{[roles.map((role) => role === "instructor" ? "Instructor" : "Coordinator").join(" · "), stringValue(payload.email), stringValue(payload.affiliations)].filter(Boolean).join(" · ") || "No contact details added."}</p>;
 }
 
 function PersonForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
@@ -117,6 +136,9 @@ function PersonForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCa
   const payload = entry?.payload ?? {};
   const [label, setLabel] = useState(entry?.label ?? "");
   const [rank, setRank] = useState(stringValue(payload.academicRank));
+  // Chosen from the department's ranks once it has listed some; typed until then.
+  const ranks = useCatalogue("academic-ranks");
+  const rankChoices = (ranks.data ?? []).some((item) => !item.isRetired) ? rankOptions(ranks.data ?? [], rank) : [];
   const [email, setEmail] = useState(stringValue(payload.email));
   const [phone, setPhone] = useState(stringValue(payload.phone));
   const [affiliations, setAffiliations] = useState(stringValue(payload.affiliations));
@@ -131,7 +153,7 @@ function PersonForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCa
     onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "people"] }); onSaved(); },
   });
   function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (label.trim()) save.mutate(); }
-  return <form onSubmit={submit} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4 md:grid-cols-2"><Field label="Full name"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Academic rank / status"><input value={rank} onChange={(event) => setRank(event.target.value)} className={inputClass} /></Field><Field label="Email"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field label="Phone"><input value={phone} onChange={(event) => setPhone(event.target.value)} className={inputClass} /></Field><Field label="Affiliations" hint="separated by commas"><input value={affiliations} onChange={(event) => setAffiliations(event.target.value)} className={inputClass} /></Field><Field label="Office hours and location"><input value={officeHours} onChange={(event) => setOfficeHours(event.target.value)} className={inputClass} /></Field><div className="flex flex-wrap gap-4 md:col-span-2"><CheckBox label="Available as instructor" checked={isInstructor} onChange={setIsInstructor} /><CheckBox label="Available as academic coordinator" checked={isCoordinator} onChange={setIsCoordinator} /></div><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save person" : "Add person"} /></form>;
+  return <form onSubmit={submit} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4 md:grid-cols-2"><Field label="Full name"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Academic rank / status">{rankChoices.length ? <SelectMenu label="Academic rank / status" value={rank} onChange={setRank} wrap placeholder="Choose a rank" options={rankChoices} /> : <input value={rank} onChange={(event) => setRank(event.target.value)} className={inputClass} />}</Field><Field label="Email"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} className={inputClass} /></Field><Field label="Phone"><input value={phone} onChange={(event) => setPhone(event.target.value)} className={inputClass} /></Field><Field label="Affiliations" hint="separated by commas"><input value={affiliations} onChange={(event) => setAffiliations(event.target.value)} className={inputClass} /></Field><Field label="Office hours and location"><input value={officeHours} onChange={(event) => setOfficeHours(event.target.value)} className={inputClass} /></Field><div className="flex flex-wrap gap-4 md:col-span-2"><CheckBox label="Available as instructor" checked={isInstructor} onChange={setIsInstructor} /><CheckBox label="Available as academic coordinator" checked={isCoordinator} onChange={setIsCoordinator} /></div><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save person" : "Add person"} /></form>;
 }
 
 /**
@@ -157,37 +179,77 @@ function ProgrammesCatalogue() {
   const [selectedId, setSelectedId] = useState("");
   const shown = matching(programmes.data ?? [], query);
   const selected = programmes.data?.find((programme) => programme.id === selectedId) ?? programmes.data?.[0];
-  return <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Programmes" description="A SCEN syllabus can select a programme; its approved PLOs then become available for alignment." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add programme</button>} /><SearchField label="Search programmes" value={query} onChange={setQuery} />{showCreate ? <SimpleEntryForm category="programmes" fieldLabel="Programme name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="programmes" entries={shown} isLoading={programmes.isLoading} selectedId={selected?.id} onSelect={setSelectedId} /></section><section className="rounded-lg border border-[#d9dee7] bg-white p-5">{selected ? <PloCatalogue programme={selected} /> : <EmptyState>Choose or add a programme to manage its programme learning outcomes.</EmptyState>}</section></div>;
+  return <div className="grid gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]"><section className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="Programmes" description="A SCEN syllabus can select a programme; its approved PLOs then become available for alignment." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add programme</button>} /><SearchField label="Search programmes" value={query} onChange={setQuery} />{showCreate ? <SimpleEntryForm category="programmes" fieldLabel="Programme name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="programmes" entries={shown} isLoading={programmes.isLoading} selectedId={selected?.id} onSelect={setSelectedId} /></section><section className="rounded-lg border border-[#c3cbd6] bg-white p-5">{selected ? <PloCatalogue programme={selected} /> : <EmptyState>Choose or add a programme to manage its programme learning outcomes.</EmptyState>}</section></div>;
 }
 
 function PloCatalogue({ programme }: { programme: CatalogueEntry }) {
   const [showCreate, setShowCreate] = useState(false);
   const [query, setQuery] = usePageState("catalogues:PloCatalogue:search", "");
   const plos = useCatalogue("plos", "", programme.id);
-  return <><CatalogueHeader title={`${programme.label} PLOs`} description="Read-only choices in any SCEN syllabus that selects this programme." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"><FilePlus2 size={16} /> Add PLO</button>} /><SearchField label="Search outcomes" value={query} onChange={setQuery} />{showCreate ? <PloForm programme={programme} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="plos" entries={matching(plos.data ?? [], query)} isLoading={plos.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm leading-6 text-[#667085]">{stringValue(entry.payload.outcome)}</p>} /></>;
+  return <><CatalogueHeader title={`${programme.label} PLOs`} description="Read-only choices in any SCEN syllabus that selects this programme." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#1f4e79]"><FilePlus2 size={16} /> Add PLO</button>} /><SearchField label="Search outcomes" value={query} onChange={setQuery} />{showCreate ? <PloForm programme={programme} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="plos" entries={matching(plos.data ?? [], query)} isLoading={plos.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm leading-6 text-[#475467]">{stringValue(entry.payload.outcome)}</p>} /></>;
 }
 
 function PloForm({ programme, entry, onCancel, onSaved }: { programme: CatalogueEntry; entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient(); const payload = entry?.payload ?? {}; const [code, setCode] = useState(stringValue(payload.code)); const [outcome, setOutcome] = useState(stringValue(payload.outcome));
   const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: code.trim() || "PLO", parentId: programme.id, sortOrder: entry?.sortOrder, payload: { code: code.trim(), outcome: outcome.trim() } }; return entry ? updateCatalogueEntry("plos", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("plos", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "plos"] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="PLO code"><input required value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. PLO 1" className={inputClass} /></Field><Field label="Programme learning outcome"><AutoResizeTextarea required minRows={1} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save PLO" : "Add PLO"} /></form>;
+  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4"><Field label="PLO code"><input required value={code} onChange={(event) => setCode(event.target.value)} placeholder="e.g. PLO 1" className={inputClass} /></Field><Field label="Programme learning outcome"><AutoResizeTextarea required minRows={1} value={outcome} onChange={(event) => setOutcome(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save PLO" : "Add PLO"} /></form>;
 }
 
 function TeachingPresetsCatalogue() {
-  const [showCreate, setShowCreate] = useState(false); const data = useCatalogue("teaching-presets");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Teaching presets" description="Approaches a SCEN syllabus may preview, then apply to its teaching-approach content." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add preset</button>} />{showCreate ? <TeachingPresetForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="teaching-presets" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{[stringValue(entry.payload.methods), stringValue(entry.payload.engagement), stringValue(entry.payload.feedback)].filter(Boolean).length} prepared section(s)</p>} /></div>;
+  const [showCreate, setShowCreate] = useState(false); const data = useCatalogue("teaching-presets"); const assessmentTypes = useCatalogue("assessment-types");
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="Teaching presets" description="The department's text for section 8 of the syllabus, one per kind of session. A syllabus prints the presets its course schedule brings in: nobody ticks them." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add preset</button>} />{showCreate ? <TeachingPresetForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="teaching-presets" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#475467]">{presetTriggerSummary(entry, assessmentTypes.data ?? [])} · {[stringValue(entry.payload.methods), stringValue(entry.payload.engagement), stringValue(entry.payload.feedback)].filter(Boolean).length} prepared section(s)</p>} /></div>;
 }
 
+/** The kinds of session a teaching preset can be brought in by, as the course schedule names them. */
+const PRESET_SESSION_TYPES = [
+  ["CM", "Lectures (CM)"],
+  ["TD", "Tutorials (TD)"],
+  ["TP", "Laboratory (TP)"],
+  ["Workshop", "Workshops"],
+  ["Seminar", "Seminars"],
+  ["Other", "Other sessions"],
+] as const;
+
+/**
+ * A teaching preset is the department's section-8 text for a kind of session. Since 10 Nov
+ * 2026 nobody ticks it in a syllabus: it is printed wherever the course schedule has what it
+ * names here — sessions of a type, or graded activities of an assessment type. A preset saved
+ * before names nothing and is matched by its own name; the boxes start ticked accordingly.
+ */
 function TeachingPresetForm({ entry, onCancel, onSaved }: { entry?: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient(); const payload = entry?.payload ?? {}; const [label, setLabel] = useState(entry?.label ?? ""); const [methods, setMethods] = useState(stringValue(payload.methods)); const [engagement, setEngagement] = useState(stringValue(payload.engagement)); const [feedback, setFeedback] = useState(stringValue(payload.feedback));
-  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: { methods: methods.trim(), engagement: engagement.trim(), feedback: feedback.trim() } }; return entry ? updateCatalogueEntry("teaching-presets", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("teaching-presets", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "teaching-presets"] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label="Preset name"><input required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Teaching methods"><AutoResizeTextarea minRows={3} value={methods} onChange={(event) => setMethods(event.target.value)} className={textareaClass} /></Field><Field label="Student engagement"><AutoResizeTextarea minRows={3} value={engagement} onChange={(event) => setEngagement(event.target.value)} className={textareaClass} /></Field><Field label="Feedback"><AutoResizeTextarea minRows={3} value={feedback} onChange={(event) => setFeedback(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save preset" : "Add preset"} /></form>;
+  const triggers = presetTriggers({ label: entry?.label ?? "", payload });
+  const assessmentTypes = useCatalogue("assessment-types");
+  const currentTypes = (assessmentTypes.data ?? []).filter((item) => !item.isRetired);
+  const [sessionTypes, setSessionTypes] = useState<string[]>(triggers.sessionTypes);
+  // Null until someone ticks: a preset matched by name ("Project") shows the project types.
+  const [typeIds, setTypeIds] = useState<string[] | null>(triggers.projectByName ? null : triggers.assessmentTypeIds);
+  const shownTypeIds = typeIds ?? currentTypes.filter((item) => /project/i.test(item.label)).map((item) => item.id);
+  const flip = (list: string[], value: string) => (list.includes(value) ? list.filter((item) => item !== value) : [...list, value]);
+  const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: { methods: methods.trim(), engagement: engagement.trim(), feedback: feedback.trim(), sessionTypes, assessmentTypeIds: shownTypeIds } }; return entry ? updateCatalogueEntry("teaching-presets", entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry("teaching-presets", input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "teaching-presets"] }); onSaved(); } });
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4"><Field label="Preset name"><input required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field>
+    <fieldset className="grid gap-2"><legend className="text-sm font-medium text-[#344054]">Printed in a syllabus whose course schedule has</legend>
+      <div className="flex flex-wrap gap-x-6 gap-y-2">{PRESET_SESSION_TYPES.map(([value, name]) => <label key={value} className="flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" className="h-4 w-4 accent-[#1f4e79]" checked={sessionTypes.includes(value)} onChange={() => setSessionTypes(flip(sessionTypes, value))} />{name}</label>)}</div>
+      {currentTypes.length ? <div className="flex flex-wrap gap-x-6 gap-y-2"><span className="text-sm text-[#475467]">or graded activities of type</span>{currentTypes.map((item) => <label key={item.id} className="flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" className="h-4 w-4 accent-[#1f4e79]" checked={shownTypeIds.includes(item.id)} onChange={() => setTypeIds(flip(shownTypeIds, item.id))} />{item.label}</label>)}</div> : null}
+    </fieldset>
+    <Field label="Teaching methods"><AutoResizeTextarea minRows={3} value={methods} onChange={(event) => setMethods(event.target.value)} className={textareaClass} /></Field><Field label="Student engagement"><AutoResizeTextarea minRows={3} value={engagement} onChange={(event) => setEngagement(event.target.value)} className={textareaClass} /></Field><Field label="Feedback"><AutoResizeTextarea minRows={3} value={feedback} onChange={(event) => setFeedback(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save preset" : "Add preset"} /></form>;
+}
+
+/** "Lectures (CM) · graded Project": what brings a preset into a syllabus, for its line in the list. */
+function presetTriggerSummary(entry: CatalogueEntry, assessmentTypes: CatalogueEntry[]): string {
+  const triggers = presetTriggers(entry);
+  const sessions = triggers.sessionTypes.map((value) => PRESET_SESSION_TYPES.find(([type]) => type === value)?.[1] ?? value);
+  const types = triggers.projectByName
+    ? assessmentTypes.filter((item) => /project/i.test(item.label)).map((item) => item.label)
+    : triggers.assessmentTypeIds.map((id) => assessmentTypes.find((item) => item.id === id)?.label ?? "").filter(Boolean);
+  const parts = [...sessions, ...types.map((name) => `graded ${name}`)];
+  return parts.length ? `Printed for ${parts.join(" · ")}` : "Not printed in any syllabus yet: choose what brings it in";
 }
 
 function AssessmentCatalogue() {
   const [showCreate, setShowCreate] = useState(false);
   const data = useCatalogue("assessment-types");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Assessment types" description="Every graded activity picks one of these. Each carries the grading rubric that appears in the syllabus and in the exported document." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add assessment type</button>} />{showCreate ? <AssessmentTypeForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="assessment-types" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#667085]">{criteriaOf(entry).length ? `${criteriaOf(entry).length} rubric criteria` : "No rubric yet"}</p>} /></div>;
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="Assessment types" description="Every graded activity picks one of these. Each carries the grading rubric that appears in the syllabus and in the exported document." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> Add assessment type</button>} />{showCreate ? <AssessmentTypeForm onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="assessment-types" entries={data.data ?? []} isLoading={data.isLoading} renderDetails={(entry) => <p className="mt-1 text-sm text-[#475467]">{criteriaOf(entry).length ? `${criteriaOf(entry).length} rubric criteria` : "No rubric yet"}</p>} /></div>;
 }
 
 type RubricCriterion = { name?: string; inadequate?: string; meets?: string; exceeds?: string };
@@ -222,7 +284,7 @@ function AssessmentTypeForm({ entry, onCancel, onSaved }: { entry?: CatalogueEnt
   });
   const update = (index: number, change: Partial<RubricCriterion>) =>
     setCriteria((current) => current.map((item, position) => (position === index ? { ...item, ...change } : item)));
-  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4">
     <Field label="Assessment type"><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field>
     <div>
       <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
@@ -230,7 +292,7 @@ function AssessmentTypeForm({ entry, onCancel, onSaved }: { entry?: CatalogueEnt
         <InfoTip label="Where the grading rubric appears">Shown in every syllabus that assesses this way, and written into the exported document.</InfoTip>
       </p>
       <div className="mt-3 grid gap-3">
-        {criteria.map((criterion, index) => <div key={index} className="rounded-md border border-[#e5e7eb] bg-white p-3">
+        {criteria.map((criterion, index) => <div key={index} className="rounded-md border border-[#d5dbe4] bg-white p-3">
           <div className="mb-3 flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1"><Field label={`Criterion ${index + 1}`}><input value={criterion.name ?? ""} onChange={(event) => update(index, { name: event.target.value })} className={inputClass} /></Field></div>
             <button type="button" onClick={() => setCriteria((current) => current.filter((_, position) => position !== index))} className="mt-7 shrink-0 text-sm font-semibold text-[#a6292f] hover:underline">Remove</button>
@@ -251,14 +313,14 @@ function AssessmentTypeForm({ entry, onCancel, onSaved }: { entry?: CatalogueEnt
 
 function BibliographyCatalogue() {
   const categories = useCatalogue("bibliography-types");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="Bibliography" description="The source categories the bibliography editor supports. Each source can be entered as structured data or as a pasted freeform reference; both are kept for clean exports and imported legacy references." />{categories.isLoading ? <Loading /> : <div className="mt-5 grid gap-3 md:grid-cols-3">{(categories.data ?? []).map((entry) => <div key={entry.id} className="rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-4"><h4 className="font-semibold text-[#344054]">{entry.label}</h4></div>)}</div>}</div>;
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="Bibliography" description="The source categories the bibliography editor supports. Each source can be entered as structured data or as a pasted freeform reference; both are kept for clean exports and imported legacy references." />{categories.isLoading ? <Loading /> : <div className="mt-5 grid gap-3 md:grid-cols-3">{(categories.data ?? []).map((entry) => <div key={entry.id} className="rounded-lg border border-[#c3cbd6] bg-[#f1f4f8] p-4"><h4 className="font-semibold text-[#344054]">{entry.label}</h4></div>)}</div>}</div>;
 }
 
 /** A catalogue whose codes are the platform's business, not the maintainer's. */
 function CompetencyCatalogue({ category, title, description, createLabel }: { category: "competencies" | "graduate-competencies"; title: string; description: string; createLabel: string }) {
   const [showCreate, setShowCreate] = useState(false);
   const data = useCatalogue(category);
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5">
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5">
     <CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />
     {showCreate ? <CompetencyForm category={category} entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}
     <CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} renderBadge={(entry) => <CompetencyBadge entry={entry} />} />
@@ -271,9 +333,50 @@ function CompetencyEditForm({ category, entry, onCancel, onSaved }: { category: 
   return <CompetencyForm category={category} entry={entry} entries={data.data ?? []} onCancel={onCancel} onSaved={onSaved} />;
 }
 
-function SimpleCatalogue({ category, title, description, createLabel }: { category: CatalogueCategory; title: string; description: string; createLabel: string }) {
-  const [showCreate, setShowCreate] = useState(false); const data = useCatalogue(category);
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title={title} description={description} action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> {createLabel}</button>} />{showCreate ? <SimpleEntryForm category={category} fieldLabel="Name" onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category={category} entries={data.data ?? []} isLoading={data.isLoading} /></div>;
+/**
+ * The Provost's template prints exactly five AI options in section 9.3, each on its own row,
+ * and every graded activity applies one of them (November 2026 review). So the list is fixed:
+ * the wording and, for the support-tool option, the uses a course may tick can be edited,
+ * but nothing is added or retired that the document could not print.
+ */
+function AiPolicyCatalogue() {
+  const data = useCatalogue("ai-policies");
+  const entries = [...(data.data ?? [])].filter((entry) => !entry.isRetired).sort((left, right) => templateRowOf(left) - templateRowOf(right));
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="AI policies" description="The five options of the syllabus template's AI policy table. Every graded activity applies one; the syllabus shows each option in use with this wording." /><CatalogueEntries category="ai-policies" entries={entries} isLoading={data.isLoading} fixed renderDetails={(entry) => <p className="mt-1 text-sm text-[#475467]">{templateRowOf(entry) < Number.MAX_SAFE_INTEGER ? `Row ${templateRowOf(entry)} of the template's AI policy table` : "Not one of the template's rows"}{permittedUsesOf(entry).length ? ` · ${permittedUsesOf(entry).length} permitted uses` : ""}</p>} /></div>;
+}
+
+function templateRowOf(entry: CatalogueEntry): number {
+  return typeof entry.payload.templateRow === "number" ? entry.payload.templateRow : Number.MAX_SAFE_INTEGER;
+}
+
+function permittedUsesOf(entry?: CatalogueEntry): string[] {
+  return Array.isArray(entry?.payload.permittedUses) ? (entry.payload.permittedUses as unknown[]).filter((use): use is string => typeof use === "string") : [];
+}
+
+function AiPolicyForm({ entry, onCancel, onSaved }: { entry: CatalogueEntry; onCancel: () => void; onSaved: () => void }) {
+  const client = useQueryClient();
+  const [wording, setWording] = useState(stringValue(entry.payload.description) || stringValue(entry.payload.details));
+  const offersUses = Array.isArray(entry.payload.permittedUses);
+  const [uses, setUses] = useState<string[]>(permittedUsesOf(entry));
+  const save = useMutation({
+    mutationFn: () => {
+      const { details: legacyDetails, ...payload } = entry.payload;
+      void legacyDetails;
+      return updateCatalogueEntry("ai-policies", entry.id, {
+        label: entry.label,
+        payload: { ...payload, description: wording.trim(), ...(offersUses ? { permittedUses: uses.map((use) => use.trim()).filter(Boolean) } : {}) },
+        parentId: entry.parentId,
+        sortOrder: entry.sortOrder,
+        expectedRevision: entry.revision,
+      });
+    },
+    onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", "ai-policies"] }); onSaved(); },
+  });
+  return <form onSubmit={(event) => { event.preventDefault(); save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4">
+    <Field label="Policy wording"><AutoResizeTextarea minRows={3} value={wording} onChange={(event) => setWording(event.target.value)} className={textareaClass} /></Field>
+    {offersUses ? <fieldset className="grid gap-2"><legend className="text-sm font-medium text-[#344054]">Uses a course may tick</legend>{uses.map((use, index) => <div key={index} className="flex items-center gap-2"><input aria-label={`Permitted use ${index + 1}`} value={use} onChange={(event) => setUses((current) => current.map((item, position) => position === index ? event.target.value : item))} className={`${inputClass} min-w-0 flex-1`} /><button type="button" onClick={() => setUses((current) => current.filter((_, position) => position !== index))} aria-label={`Remove permitted use ${index + 1}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div>)}<button type="button" onClick={() => setUses((current) => [...current, ""])} className="justify-self-start text-sm font-semibold text-[#1f4e79] hover:underline">+ Add permitted use</button></fieldset> : null}
+    <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel="Save changes" />
+  </form>;
 }
 
 /** The next code in a catalogue's own series, so a maintainer never types one. */
@@ -318,7 +421,7 @@ function CompetencyForm({ category, entry, entries, onCancel, onSaved }: { categ
     },
     onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); },
   });
-  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+  return <form onSubmit={(event) => { event.preventDefault(); if (outcome.trim()) save.mutate(); }} className="mt-5 grid grid-cols-[minmax(0,1fr)] gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4">
     <Field label="Code" hint={entry ? "Assigned when it was added" : "Assigned automatically"}>
       <p className="w-fit rounded-full bg-[#e8edf3] px-3 py-1 text-sm font-semibold text-[#1f4e79]">{code}</p>
     </Field>
@@ -329,10 +432,10 @@ function CompetencyForm({ category, entry, entries, onCancel, onSaved }: { categ
 
 function SimpleEntryForm({ category, entry, fieldLabel, onCancel, onSaved }: { category: CatalogueCategory; entry?: CatalogueEntry; fieldLabel: string; onCancel: () => void; onSaved: () => void }) {
   const client = useQueryClient(); const [label, setLabel] = useState(entry?.label ?? ""); const [details, setDetails] = useState(stringValue(entry?.payload.details)); const save = useMutation({ mutationFn: () => { const input: CatalogueEntryInput = { label: label.trim(), payload: details.trim() ? { ...entry?.payload, details: details.trim() } : entry?.payload ?? {}, parentId: entry?.parentId, sortOrder: entry?.sortOrder }; return entry ? updateCatalogueEntry(category, entry.id, { ...input, expectedRevision: entry.revision }) : createCatalogueEntry(category, input); }, onSuccess: () => { void client.invalidateQueries({ queryKey: ["syllabus-catalogues", category] }); onSaved(); } });
-  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Supporting details" hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
+  return <form onSubmit={(event) => { event.preventDefault(); if (label.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4"><Field label={fieldLabel}><input autoFocus required value={label} onChange={(event) => setLabel(event.target.value)} className={inputClass} /></Field><Field label="Supporting details" hint="Optional"><AutoResizeTextarea minRows={2} value={details} onChange={(event) => setDetails(event.target.value)} className={textareaClass} /></Field><FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to catalogue"} /></form>;
 }
 
-function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect, selectOnly = false }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void; selectOnly?: boolean }) {
+function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDetails, selectedId, onSelect, selectOnly = false, fixed = false }: { category: CatalogueCategory; entries: CatalogueEntry[]; isLoading: boolean; renderBadge?: (entry: CatalogueEntry) => React.ReactNode; renderDetails?: (entry: CatalogueEntry) => React.ReactNode; selectedId?: string; onSelect?: (id: string) => void; selectOnly?: boolean; /** Entries the department cannot retire, only edit. */ fixed?: boolean }) {
   const [retireCandidate, setRetireCandidate] = useState<CatalogueEntry | null>(null);
   const [editing, setEditing] = useState<CatalogueEntry | null>(null);
   const [editingDirty, setEditingDirty] = useState(false);
@@ -367,24 +470,24 @@ function CatalogueEntries({ category, entries, isLoading, renderBadge, renderDet
   return <><div className="mt-5 grid gap-3">{entries.map((entry) => {
     const isEditing = editing?.id === entry.id;
     const toggleEditing = () => requestEditingAction(isEditing ? { type: "close" } : { type: "open", entry });
-    const cardClass = entry.isRetired ? "border-[#e5e7eb] bg-[#f8fafc] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#d9dee7] bg-white hover:border-[#1f4e79] hover:bg-[#f7fafd]";
+    const cardClass = entry.isRetired ? "border-[#d5dbe4] bg-[#f1f4f8] opacity-75" : selectedId === entry.id || isEditing ? "border-[#1f4e79] bg-[#f2f7fb]" : "border-[#c3cbd6] bg-white hover:border-[#1f4e79] hover:bg-[#f7fafd]";
     return <article key={entry.id} className={`relative min-w-0 max-w-full rounded-lg border p-4 ${isEditing ? "overflow-hidden" : ""} ${cardClass}`}>
-      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#667085]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}{selectOnly ? null : <button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button>}<button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button></div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#d9dee7] bg-[#f8fafc] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
+      <div className="relative z-10 flex min-w-0 items-start gap-3"><button type="button" disabled={entry.isRetired} onClick={toggleEditing} aria-label={isEditing ? `Close editor for ${entry.label}` : `Edit ${entry.label}`} className="flex min-w-0 flex-1 items-start gap-3 text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1f4e79] focus-visible:ring-offset-2 disabled:cursor-default"><div className="min-w-0 flex-1">{renderBadge ? <span className="block">{renderBadge(entry)}</span> : null}<div className="flex flex-wrap items-center gap-2"><h4 className="break-words font-semibold text-[#344054]">{entry.label}</h4>{entry.isRetired ? <span className="rounded-full bg-[#f2f4f7] px-2 py-0.5 text-xs font-semibold text-[#475467]">Retired</span> : null}</div>{renderDetails?.(entry)}</div></button>{!entry.isRetired ? <div className="flex shrink-0 items-center gap-1">{/* The card itself opens the editor; this is the same control for anyone who aims at the pencil, which is most people. */}{selectOnly ? null : <button type="button" onClick={toggleEditing} tabIndex={-1} aria-hidden="true" className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#1f4e79] hover:bg-[#eef4fa]"><Pencil size={16} /></button>}{fixed ? null : <button type="button" onClick={() => setRetireCandidate(entry)} aria-label={`Retire ${entry.label}`} className="inline-flex h-8 w-8 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button>}</div> : null}</div>{isEditing ? <div id={`catalogue-editor-${entry.id}`} className="relative z-10 mt-4 -mx-4 -mb-4 border-t border-[#c3cbd6] bg-[#f1f4f8] p-4 [&>form]:!mt-0 [&>form]:!rounded-none [&>form]:!border-0 [&>form]:!bg-transparent [&>form]:!p-0"><EditEntry category={category} entry={editing} onClose={closeEditor} onDirtyChange={setEditingDirty} /></div> : null}
     </article>;
   })}</div><ConfirmDialog open={Boolean(retireCandidate)} title={`Retire ${retireCandidate?.label ?? "catalogue entry"}?`} description="It will no longer be available for new selections. Existing syllabus references will continue to resolve." confirmLabel={retire.isPending ? "Retiring…" : "Retire"} onClose={() => setRetireCandidate(null)} onConfirm={() => retireCandidate && retire.mutate(retireCandidate)} /><ConfirmDialog open={Boolean(pendingEditingAction)} title="Discard unsaved changes?" description="This card has changes that have not been saved. Discard them and close the card?" confirmLabel="Discard changes" onClose={() => setPendingEditingAction(null)} onConfirm={confirmDiscard} /></>;
 }
 
 function EditEntry({ category, entry, onClose, onDirtyChange }: { category: CatalogueCategory; entry: CatalogueEntry; onClose: () => void; onDirtyChange: (dirty: boolean) => void }) {
-  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : "Name"} onCancel={onClose} onSaved={onClose} />;
+  const form = category === "curriculum-mapping" ? <CurriculumMappingEditForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "people" ? <PersonForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "teaching-presets" ? <TeachingPresetForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "assessment-types" ? <AssessmentTypeForm entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "competencies" || category === "graduate-competencies" ? <CompetencyEditForm category={category} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "plos" ? <PloForm programme={{ ...entry, id: entry.parentId ?? "" }} entry={entry} onCancel={onClose} onSaved={onClose} /> : category === "ai-policies" ? <AiPolicyForm entry={entry} onCancel={onClose} onSaved={onClose} /> : <SimpleEntryForm category={category} entry={entry} fieldLabel={category === "programmes" ? "Programme name" : category === "academic-ranks" ? "Rank or status" : "Name"} onCancel={onClose} onSaved={onClose} />;
   return <div onInputCapture={() => onDirtyChange(true)} onChangeCapture={() => onDirtyChange(true)}>{form}</div>;
 }
 
-function SearchField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="relative mt-5 block"><Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]" /><input type="search" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} placeholder={label} className="w-full rounded-md border border-[#b7bec8] py-2 pl-9 pr-3 text-sm focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label>; }
-function Field({ label, hint, size = "full", children }: { label: string; hint?: string; size?: FieldSize; children: React.ReactNode }) { return <label className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]}`}><span className="sm:whitespace-nowrap">{label}{hint ? <span className="ml-1 font-normal text-[#667085]">{hint}</span> : null}</span>{children}</label>; }
+function SearchField({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) { return <label className="relative mt-5 block"><Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#475467]" /><input type="search" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} placeholder={label} className="w-full rounded-md border border-[#b7bec8] py-2 pl-9 pr-3 text-sm focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]" /></label>; }
+function Field({ label, hint, size = "full", children }: { label: string; hint?: string; size?: FieldSize; children: React.ReactNode }) { return <label className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]}`}><span className="sm:whitespace-nowrap">{label}{hint ? <span className="ml-1 font-normal text-[#475467]">{hint}</span> : null}</span>{children}</label>; }
 function CheckBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (value: boolean) => void }) { return <label className="inline-flex items-center gap-2 text-sm text-[#344054]"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} className="h-4 w-4 rounded border-[#98a2b3] text-[#1f4e79] focus:ring-[#d7e5f3]" />{label}</label>; }
 function FormActions({ isSaving, error, onCancel, submitLabel }: { isSaving: boolean; error: Error | null; onCancel: () => void; submitLabel: string }) { return <div className="flex flex-wrap items-center gap-3"><button disabled={isSaving} className="rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]">{isSaving ? "Saving…" : submitLabel}</button><button type="button" onClick={onCancel} className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054]">Cancel</button>{error ? <p role="alert" className="text-sm text-[#8f1f25]">{error.message}</p> : null}</div>; }
-function Loading() { return <div className="mt-5 flex items-center gap-2 text-sm text-[#667085]"><Loader2 size={16} className="animate-spin" /> Loading catalogue…</div>; }
-function EmptyState({ children }: { children: React.ReactNode }) { return <p className="mt-5 rounded-md border border-dashed border-[#cbd5e1] bg-[#f8fafc] px-4 py-5 text-sm text-[#667085]">{children}</p>; }
+function Loading() { return <div className="mt-5 flex items-center gap-2 text-sm text-[#475467]"><Loader2 size={16} className="animate-spin" /> Loading catalogue…</div>; }
+function EmptyState({ children }: { children: React.ReactNode }) { return <p className="mt-5 rounded-md border border-dashed border-[#cbd5e1] bg-[#f1f4f8] px-4 py-5 text-sm text-[#475467]">{children}</p>; }
 function stringValue(value: unknown) { return typeof value === "string" ? value : ""; }
 const inputClass = "rounded-md border border-[#b7bec8] bg-white px-3 py-2 font-normal text-[#344054] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
 const textareaClass = "rounded-md border border-[#b7bec8] bg-white px-3 py-2 font-normal leading-6 text-[#344054] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
@@ -393,7 +496,7 @@ function CompetenciesCatalogue() {
   const [showCreate, setShowCreate] = useState(false);
   const data = useCatalogue("competencies");
   const graduate = useCatalogue("graduate-competencies");
-  return <div className="rounded-lg border border-[#d9dee7] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="The department's reference competencies. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <CompetencyForm category="competencies" entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderBadge={(entry) => <CompetencyBadge entry={entry} />} renderDetails={(entry) => <GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} />} /></div>;
+  return <div className="rounded-lg border border-[#c3cbd6] bg-white p-5"><CatalogueHeader title="SCEN competencies" description="The department's reference competencies. Attach the SUAD graduate competencies each one develops." action={<button type="button" onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-3 py-2 text-sm font-semibold text-white"><FilePlus2 size={16} /> New competency</button>} />{showCreate ? <CompetencyForm category="competencies" entries={data.data ?? []} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /> : null}<CatalogueEntries category="competencies" entries={data.data ?? []} isLoading={data.isLoading} renderBadge={(entry) => <CompetencyBadge entry={entry} />} renderDetails={(entry) => <GraduateCompetencyPicker entry={entry} graduate={graduate.data ?? []} />} /></div>;
 }
 
 function GraduateCompetencyPicker({ entry, graduate }: { entry: CatalogueEntry; graduate: CatalogueEntry[] }) {
@@ -460,7 +563,7 @@ function CurriculumMappingCatalogue() {
   const shown = matching(courses, query);
   const selected = courses.find((entry) => entry.id === selectedId) ?? courses[0];
   return <div className="grid grid-cols-[minmax(0,1fr)] gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-    <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
+    <section className="rounded-lg border border-[#c3cbd6] bg-white p-5">
       <CatalogueHeader
         title="Curriculum mapping"
         description="Which programme learning outcomes each course is expected to address, as submitted to the CAA. A syllabus shows its professor what is still uncovered; it never blocks them."
@@ -469,12 +572,12 @@ function CurriculumMappingCatalogue() {
       {(programmes.data ?? []).length > 1 ? <Field label="Programme" size="line"><SelectMenu label="Programme" value={chosen} onChange={(next) => { setProgrammeId(next); setSelectedId(""); }} wrap options={(programmes.data ?? []).map((item) => ({ value: item.id, label: item.label }))} /></Field> : null}
       <SearchField label="Search courses" value={query} onChange={setQuery} />
       {mapping.isLoading
-        ? <p className="mt-4 text-sm text-[#667085]">Loading…</p>
+        ? <p className="mt-4 text-sm text-[#475467]">Loading…</p>
         : shown.length
           ? <CatalogueEntries category="curriculum-mapping" entries={shown} isLoading={false} selectOnly selectedId={showCreate ? "" : selected?.id} onSelect={(id) => { setSelectedId(id); setShowCreate(false); }} renderDetails={(entry) => <MappedCourseDetails entry={entry} ploLabel={ploLabel} />} />
-          : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">{courses.length ? "No course matches that search." : "No curriculum map for this programme yet."}</p>}
+          : <p className="mt-4 rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#475467]">{courses.length ? "No course matches that search." : "No curriculum map for this programme yet."}</p>}
     </section>
-    <section className="rounded-lg border border-[#d9dee7] bg-white p-5">
+    <section className="rounded-lg border border-[#c3cbd6] bg-white p-5">
       {!chosen ? <EmptyState>Choose a programme to map its courses.</EmptyState>
         : showCreate
           ? <><CatalogueHeader title="Add a course to the map" description="Choose the course, say which semester it is taught in, and tick the outcomes it is expected to address." /><CurriculumMappingForm programmeId={chosen} plos={plos.data ?? []} siblings={courses} onCancel={() => setShowCreate(false)} onSaved={() => setShowCreate(false)} /></>
@@ -501,12 +604,15 @@ function MappedCourseDetails({ entry, ploLabel }: { entry: CatalogueEntry; ploLa
     .filter(Boolean);
   // The title and the labels share a line: the code above them is the third thing a course
   // is called, and three lines to say one course is two more than it needs.
-  return <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-[#667085]">
+  return <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 text-sm text-[#475467]">
     <span className="min-w-0">{stringValue(entry.payload.courseTitle) || "No title yet"}</span>
     {semester ? <Pill tone="accent">{semester}</Pill> : null}
     {outcomes.length
       ? outcomes.map((code) => <Pill key={code}>{code}</Pill>)
       : <span>No outcomes expected yet</span>}
+    {Array.isArray(entry.payload.clos) && entry.payload.clos.length
+      ? <span>· {entry.payload.clos.length} course learning outcome{entry.payload.clos.length === 1 ? "" : "s"}</span>
+      : null}
   </p>;
 }
 
@@ -545,11 +651,16 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
   });
   const initial = Array.isArray(entry?.payload.ploIds) ? (entry?.payload.ploIds as string[]) : [];
   const [selected, setSelected] = useState<string[]>(initial);
+  const [clos, setClos] = useState<MappedClo[]>(mappedClos(entry));
   const save = useMutation({
     mutationFn: () => {
+      // A CLO keeps only the PLOs still expected of the course; empty outcomes are dropped.
+      const kept = clos
+        .filter((clo) => clo.clo.trim())
+        .map((clo) => ({ id: clo.id, clo: clo.clo.trim(), ploIds: clo.ploIds.filter((id) => selected.includes(id)), skillIds: clo.skillIds }));
       const input: CatalogueEntryInput = {
         label: code.trim(),
-        payload: { ...entry?.payload, courseTitle: title.trim(), semester: semester.trim(), ploIds: selected },
+        payload: { ...entry?.payload, courseTitle: title.trim(), semester: semester.trim(), ploIds: selected, clos: kept },
         parentId: programmeId,
         sortOrder: entry?.sortOrder,
       };
@@ -563,7 +674,7 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
     },
   });
 
-  return <form onSubmit={(event) => { event.preventDefault(); if (code.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f8fafc] p-4">
+  return <form onSubmit={(event) => { event.preventDefault(); if (code.trim()) save.mutate(); }} className="mt-5 grid gap-4 rounded-lg border border-[#cbd5e1] bg-[#f1f4f8] p-4">
     <FieldRow>
     <Field label="Course" hint="From Students and Timetables" size="line">
       <SelectMenu
@@ -579,7 +690,7 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
     </Field>
     {/* The course record owns the title; it is only typed for a course the list does not hold. */}
     {known
-      ? <Field label="Course title" size="title"><p className="flex min-h-10 w-full items-center rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 text-sm font-normal text-[#475467]">{title || "—"}</p></Field>
+      ? <Field label="Course title" size="title"><p className="flex min-h-10 w-full items-center rounded-md border border-[#d5dbe4] bg-[#f1f4f8] px-3 text-sm font-normal text-[#475467]">{title || "—"}</p></Field>
       : <Field label="Course title" size="title"><input value={title} onChange={(event) => setTitle(event.target.value)} className={inputClass} /></Field>}
     <Field label="Level and semester" size="code">
       <SelectMenu
@@ -601,8 +712,64 @@ function CurriculumMappingForm({ programmeId, plos, siblings = [], entry, onCanc
       onChange={(next) => setSelected(next.split("\n").filter(Boolean))}
       options={options}
     />
+    <MappedCloEditor clos={clos} onChange={setClos} expected={options.filter((option) => selected.includes(option.value))} />
     <FormActions isSaving={save.isPending} error={save.error} onCancel={onCancel} submitLabel={entry ? "Save changes" : "Add to the map"} />
   </form>;
+}
+
+type MappedClo = { id: string; clo: string; ploIds: string[]; skillIds: string[] };
+
+function mappedClos(entry?: CatalogueEntry): MappedClo[] {
+  const stored = entry?.payload.clos;
+  if (!Array.isArray(stored)) return [];
+  return stored.flatMap((item, index) => {
+    if (!item || typeof item !== "object") return [];
+    const record = item as Record<string, unknown>;
+    return [{
+      id: typeof record.id === "string" ? record.id : `clo-${index}`,
+      clo: stringValue(record.clo),
+      ploIds: Array.isArray(record.ploIds) ? record.ploIds.filter((id): id is string => typeof id === "string") : [],
+      skillIds: Array.isArray(record.skillIds) ? record.skillIds.filter((id): id is string => typeof id === "string") : [],
+    }];
+  });
+}
+
+/**
+ * The course's own learning outcomes, written once here by the Head of Department and shown
+ * read-only in every syllabus of the course when Settings → Department hands them the outcomes.
+ * Each is aligned only to PLOs the course is expected to serve, and every expected PLO must be
+ * aligned to at least one of them.
+ */
+type ChipOption = { value: string; label: string; badge?: string; badgePlacement?: "leading" };
+
+function MappedCloEditor({ clos, onChange, expected }: { clos: MappedClo[]; onChange: (clos: MappedClo[]) => void; expected: ChipOption[] }) {
+  const update = (id: string, change: Partial<MappedClo>) => onChange(clos.map((clo) => (clo.id === id ? { ...clo, ...change } : clo)));
+  const aligned = new Set(clos.flatMap((clo) => clo.ploIds));
+  const unaligned = clos.length ? expected.filter((option) => !aligned.has(option.value)) : [];
+  return <section className="grid gap-3">
+    <div>
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
+        Course learning outcomes
+        <InfoTip label="When these are used">When Settings → Department says the Head of Department writes the course learning outcomes, every syllabus of this course shows these and cannot change them.</InfoTip>
+      </p>
+      <p className="mt-1 text-sm text-[#475467]">Each aligned to the expected programme outcomes above. The SCEN competencies each develops are chosen by the course&apos;s teacher, in the syllabus.</p>
+    </div>
+    {clos.map((clo, index) => <article key={clo.id} className="grid gap-3 rounded-md border border-[#c3cbd6] bg-white p-3">
+      <div className="flex items-start justify-between gap-3">
+        <Field label={`CLO ${index + 1}`}><AutoResizeTextarea minRows={2} aria-label={`CLO ${index + 1}`} value={clo.clo} onChange={(event) => update(clo.id, { clo: event.target.value })} className={textareaClass} /></Field>
+        <button type="button" onClick={() => onChange(clos.filter((item) => item.id !== clo.id))} aria-label={`Remove CLO ${index + 1}`} className="mt-6 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#b4232d] hover:bg-[#fff1f2]"><Trash2 size={16} /></button>
+      </div>
+      {expected.length ? <PloAlignmentField
+        label="Aligned PLOs"
+        pickerLabel={`Align CLO ${index + 1} to a PLO`}
+        value={clo.ploIds.join("\n")}
+        onChange={(next) => update(clo.id, { ploIds: next.split("\n").filter(Boolean) })}
+        options={expected}
+      /> : null}
+    </article>)}
+    {unaligned.length ? <p role="status" className="rounded-md border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">Every expected PLO must be aligned to at least one course outcome. Still to align: {unaligned.map((option) => option.badge ?? option.label).join(", ")}.</p> : null}
+    <button type="button" onClick={() => onChange([...clos, { id: crypto.randomUUID(), clo: "", ploIds: [], skillIds: [] }])} className="justify-self-start text-sm font-semibold text-[#1f4e79] hover:underline">+ Add course learning outcome</button>
+  </section>;
 }
 
 /** Editing a mapped course needs its programme's outcomes, which the row points at. */
@@ -618,6 +785,6 @@ function CurriculumMappingEditForm({ entry, onCancel, onSaved }: { entry: Catalo
     queryFn: () => listCatalogueEntries("curriculum-mapping", { parentId: programmeId }),
     enabled: Boolean(programmeId),
   });
-  if (plos.isLoading) return <p className="mt-5 text-sm text-[#667085]">Loading outcomes…</p>;
+  if (plos.isLoading) return <p className="mt-5 text-sm text-[#475467]">Loading outcomes…</p>;
   return <CurriculumMappingForm programmeId={programmeId} plos={plos.data ?? []} siblings={siblings.data ?? []} entry={entry} onCancel={onCancel} onSaved={onSaved} />;
 }

@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
@@ -27,7 +27,7 @@ describe("CourseIdentificationEditor", () => {
     expect(screen.getByRole("button", { name: "Add equipment item" })).toBeTruthy();
   });
 
-  it("gives contact hours a number stepper", () => {
+  it("asks for no contact hours: the course schedule adds them up", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
       value={{ contactHours: { Lectures: "20" } }}
@@ -41,12 +41,33 @@ describe("CourseIdentificationEditor", () => {
       onOpenHistory={vi.fn()}
     /></QueryClientProvider>);
 
-    // Arrows are wanted; HistoryTextField stops the wheel changing a focused number,
-    // which is what made the old stepper feel twitchy.
-    const lectures = screen.getByRole("spinbutton", { name: "Lectures" });
-    expect(lectures.getAttribute("type")).toBe("number");
-    expect(lectures.getAttribute("step")).toBe("1");
-    expect(lectures).toHaveProperty("value", "20");
+    // Since 10 Nov 2026 the hours come from the course schedule: no boxes here to type them in.
+    expect(screen.queryByRole("spinbutton", { name: "Lectures" })).toBeNull();
+    expect(screen.getByText("None yet: give each session a length in the course schedule.")).toBeTruthy();
+  });
+
+  it("shows the contact hours the schedule adds up, beside the credits, and leads to the schedule", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onOpenSchedule = vi.fn();
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{ ects: "6" }}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+      contactHours={{ Lectures: "8", Tutorials: "10", Laboratory: "12" }}
+      onOpenSchedule={onOpenSchedule}
+    /></QueryClientProvider>);
+
+    expect(screen.getByText("Course contact hours")).toBeTruthy();
+    expect(screen.getByText("8 h")).toBeTruthy();
+    expect(screen.getByText("30 h")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Edit in the course schedule" }));
+    expect(onOpenSchedule).toHaveBeenCalled();
   });
 
   it("groups course-identification fields into named subsections", () => {
@@ -64,8 +85,9 @@ describe("CourseIdentificationEditor", () => {
     /></QueryClientProvider>);
 
     expect(screen.getByRole("heading", { name: "Course details" })).toBeTruthy();
-    // The programme sits with the course it belongs to, and the credit with the hours it counts.
-    expect(screen.getByRole("heading", { name: "Credits and contact hours" })).toBeTruthy();
+    // The credits sit with the course's identity, not in a card of their own.
+    expect(screen.queryByRole("heading", { name: "Credits" })).toBeNull();
+    expect(screen.getByRole("spinbutton", { name: "Number of ECTS" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Requirements and equipment" })).toBeTruthy();
   });
 });
@@ -91,5 +113,73 @@ describe("Course details taken from the other app", () => {
     // older syllabus would silently change what it says.
     expect(screen.getByRole("combobox", { name: "Academic year" }).textContent).toContain("2024-2025");
     expect(screen.getByRole("combobox", { name: "Degree level and semester" }).textContent).toContain("L1-S1");
+  });
+
+  it("asks for the programme as a required choice, with no local-outcomes way out", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{}}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      programmes={[{ value: "programme-physics", label: "Bachelor in Physics" }]}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    // The label's row reads "Programme" followed by the required star, with no "(optional)".
+    const field = screen.getByRole("combobox", { name: "Programme" }).closest("div.grid");
+    expect(field?.textContent).toMatch(/^Programme\s*\*/);
+    expect(field?.textContent).not.toContain("optional");
+    expect(screen.queryByText("Use local programme learning outcomes")).toBeNull();
+    // With a programme catalogue and nothing typed before, there is no free-text box.
+    expect(screen.queryByLabelText("Programme title")).toBeNull();
+  });
+
+  it("keeps an older syllabus's typed programme title readable", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+      value={{ programmeTitle: "Bachelor in Physics" }}
+      courseTitle="Geometric Optics"
+      courseCode="PHYS-118"
+      academicYear="2026-2027"
+      onChange={vi.fn()}
+      onMetadataChange={vi.fn()}
+      programmes={[{ value: "programme-physics", label: "Bachelor in Physics" }]}
+      syllabusId="syllabus-1"
+      revision={1}
+      onOpenHistory={vi.fn()}
+    /></QueryClientProvider>);
+
+    expect(screen.getByLabelText(/^Programme title\*?$/)).toHaveProperty("value", "Bachelor in Physics");
+  });
+  it("opens the course list ready to search on a syllabus just started, and only then", () => {
+    const course = { courseCode: "PHYS-118", courseTitle: "Geometric Optics", credit: "6", level: "L1", department: "SCEN", college: "", contactHours: "", terms: [], crns: [], teachers: [] };
+    const show = (courseTitle: string) => {
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      return render(<QueryClientProvider client={queryClient}><CourseIdentificationEditor
+        value={{}}
+        courseTitle={courseTitle}
+        courseCode=""
+        academicYear="2026-2027"
+        courses={[course]}
+        onChange={vi.fn()}
+        onMetadataChange={vi.fn()}
+        syllabusId="syllabus-1"
+        revision={1}
+        onOpenHistory={vi.fn()}
+      /></QueryClientProvider>);
+    };
+
+    const started = show("Untitled syllabus");
+    expect(screen.getByRole("listbox", { name: "Course" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Search Course" })).toBeTruthy();
+    started.unmount();
+
+    show("Geometric Optics");
+    expect(screen.queryByRole("listbox", { name: "Course" })).toBeNull();
   });
 });

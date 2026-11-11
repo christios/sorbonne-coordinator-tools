@@ -10,7 +10,8 @@ export function LibraryRecordTimestamps({ createdAt, updatedAt, now = new Date()
   const updated = toDate(updatedAt);
   if (!created || !updated) return null;
 
-  return <span className={`mt-2 flex flex-wrap gap-2 text-xs ${className}`.trim()}><span className="inline-flex items-center gap-1.5 rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-2 py-1 text-[#667085]"><CalendarPlus size={14} aria-hidden="true" />Created: {formatDateTime(created)}</span><span className="inline-flex items-center gap-1.5 rounded-md border border-[#d7e5f3] bg-[#f2f7fb] px-2 py-1 text-[#1f4e79]"><Clock3 size={14} aria-hidden="true" />Updated: {formatUpdatedAt(updated, now)}</span></span>;
+  // Plain details on the row's line, not boxed chips on a line of their own (11 Nov 2026).
+  return <span className={`inline-flex flex-wrap items-center gap-x-4 gap-y-0.5 ${className}`.trim()}><span className="inline-flex items-center gap-1.5 text-[#667085]"><CalendarPlus size={14} aria-hidden="true" />Created: {formatDateTime(created)}</span><span className="inline-flex items-center gap-1.5 font-medium text-[#1f4e79]"><Clock3 size={14} aria-hidden="true" />Updated: {formatUpdatedAt(updated, now)}</span></span>;
 }
 
 function formatUpdatedAt(updatedAt: Date, now: Date) {

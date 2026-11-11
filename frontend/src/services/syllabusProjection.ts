@@ -1,4 +1,6 @@
 import { richTextToPlain } from "@/services/richText";
+import { aiOptionsInUse, aiPolicySummary, courseAiFallback } from "@/services/aiPolicy";
+import { documentSchedule, gradedActivities, type PrintedScheduleRow } from "@/services/syllabusContent";
 /**
  * What a syllabus says, section by section, independent of how it is drawn.
  *
@@ -54,19 +56,21 @@ export function previewProjection(syllabus: Syllabus): Projection {
     ]],
     plos: rows(outcomes.plos).map((plo) => [text(plo.code), text(plo.outcome) || text(plo.legacyText)]),
     clos: clos.map((clo, index) => [numbered(text(clo.clo), index), text(clo.plo), text(clo.skills), text(clo.suadSkills)]),
-    schedule: schedule(rows(content.schedule)),
+    schedule: schedule(documentSchedule(content)),
     bibliography: pairs([
       ["Books", resources(bibliography.books)],
       ["Websites", resources(bibliography.websites)],
-      ["Journal Articles", resources(bibliography.articles)],
+      ["Journal Articles", resources(bibliography.journalArticles)],
     ]),
-    assessments: rows(assessment.items).map((item) => [
-      byWeek ? text(item.week) : displayDate(item.date),
+    assessments: gradedActivities(content).map((item) => [
+      // The date when there is one; otherwise the week it falls in.
+      byWeek ? weekLabel(item.week) : displayDate(item.date) || weekLabel(item.week),
       text(item.name) || text(item.type),
       percentage(item.weight),
       cloNumbers(item, clos),
-      text(item.aiPolicy) || text(item.ai),
+      aiPolicySummary(item, courseAiFallback(content)),
     ]),
+    aiOptions: aiOptionsInUse(gradedActivities(content), courseAiFallback(content)).map((option) => [option]),
     rubrics: rows(assessment.rubrics).flatMap((rubric) =>
       rows(rubric.criteria).map((criterion) => [
         text(rubric.assignment),
@@ -80,19 +84,15 @@ export function previewProjection(syllabus: Syllabus): Projection {
 }
 
 /** The document writes each session's own detail beside its topic. */
-function schedule(sessions: Array<Record<string, unknown>>) {
-  const counts = new Map<string, number>();
-  return sessions.map((row) => {
-    const kind = text(row.sessionType) || "CM";
-    const next = (counts.get(kind) ?? 0) + 1;
-    counts.set(kind, next);
+function schedule(printed: PrintedScheduleRow[]) {
+  return printed.map((row) => {
     const detail = [
       text(row.preClass) ? `Pre-class learning activities: ${text(row.preClass)}` : "",
       text(row.assessments) ? `Assessments: ${text(row.assessments)}` : "",
     ].filter(Boolean).join(" ");
     return [
       text(row.week),
-      `${kind} ${next}`,
+      row.session,
       collapse([text(row.topic), richTextToPlain(text(row.details))].filter(Boolean).join(" ")),
       collapse(detail),
       text(row.deadline),
@@ -184,4 +184,10 @@ function rows(...values: unknown[]): Array<Record<string, unknown>> {
 
 function text(value: unknown): string {
   return typeof value === "string" ? value : typeof value === "number" ? String(value) : "";
+}
+
+/** "Week 3", as the document says a week. */
+function weekLabel(value: unknown): string {
+  const week = text(value);
+  return week && !/^week/i.test(week) ? `Week ${week}` : week;
 }

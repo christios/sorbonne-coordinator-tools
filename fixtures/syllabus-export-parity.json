@@ -91,6 +91,13 @@
      "entryMode": "freeform",
      "freeformText": "Mazur, Principles and Practice of Physics."
     }
+   ],
+   "journalArticles": [
+    {
+     "id": "j1",
+     "entryMode": "freeform",
+     "freeformText": "Hecht, “Optics education today”, Am. J. Phys. 2021."
+    }
    ]
   },
   "teachingApproach": {
@@ -235,6 +242,10 @@
    [
     "Books",
     "Mazur, Principles and Practice of Physics."
+   ],
+   [
+    "Journal Articles",
+    "Hecht, “Optics education today”, Am. J. Phys. 2021."
    ]
   ],
   "assessments": [
@@ -243,6 +254,11 @@
     "Midterm",
     "40%",
     "CLO 1",
+    "AI Prohibited"
+   ]
+  ],
+  "aiOptions": [
+   [
     "AI Prohibited"
    ]
   ],

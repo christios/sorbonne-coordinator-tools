@@ -28,6 +28,7 @@ from sorbonne.api.publication import router as publication_router
 from sorbonne.api.requests_app import router as requests_app_router
 from sorbonne.api.student_database import router as student_database_router
 from sorbonne.api.syllabus_catalogues import router as syllabus_catalogues_router
+from sorbonne.api.syllabus_outcome_mode import router as syllabus_outcome_mode_router
 from sorbonne.api.syllabi import router as syllabi_router
 from sorbonne.api.teachers import requisition_router as teacher_requisitions_router
 from sorbonne.api.team_rosters import router as team_roster_router
@@ -85,6 +86,7 @@ app.include_router(teacher_documents_router, prefix="/api/v1")
 app.include_router(workflow_router, prefix="/api/v1")
 app.include_router(syllabi_router, prefix="/api/v1")
 app.include_router(syllabus_catalogues_router, prefix="/api/v1")
+app.include_router(syllabus_outcome_mode_router, prefix="/api/v1")
 app.include_router(bibliography_lookup_router, prefix="/api/v1")
 app.include_router(timetables_router, prefix="/api/v1")
 app.include_router(users_router, prefix="/api/v1")

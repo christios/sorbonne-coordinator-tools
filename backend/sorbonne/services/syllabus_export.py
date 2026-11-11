@@ -9,10 +9,28 @@ import re
 from typing import Any, Callable
 
 from docx import Document
+from docx.oxml.ns import qn
 from docx.shared import Inches
 from docx.table import _Cell, Table
 
 from sorbonne.services import rich_text
+from sorbonne.services.syllabus_content import (
+    SCHEDULE_HOLDS_GRADED_ACTIVITIES,
+    AI_OPTIONS,
+    CONTACT_HOUR_ROWS,
+    contact_hours,
+    OTHER_AI_OPTION,
+    activity_ai_policy,
+    course_ai_fallback,
+    ai_option,
+    ai_options_in_use,
+    ai_policy_summary,
+    document_schedule,
+    fys_component_rows,
+    graded_activities,
+    schema_version,
+    template_permitted_use,
+)
 from sorbonne.services.syllabus_templates import DEFAULT_TEMPLATE_ID, FYS_TEMPLATE_ID, get_template
 
 
@@ -26,16 +44,23 @@ def build_syllabus_docx(syllabus: dict[str, Any], output_path: Path) -> None:
         document.save(output_path)
         return
 
-    _fill_identification(document.tables[0], syllabus, _record(content.get("identification")))
+    _fill_identification(document.tables[0], syllabus, _record(content.get("identification")), contact_hours(content))
     _fill_contacts(document.tables[1], document.tables[2], _record(content.get("contacts")))
     _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
     _fill_delivery(document.tables[4], _record(content.get("delivery")))
     _fill_learning_outcomes(document.tables[5], document.tables[6], _record(content.get("learningOutcomes")))
-    _fill_schedule(document.tables[7], _rows(content.get("schedule")))
+    _fill_schedule(document.tables[7], document_schedule(content))
     _fill_bibliography(document.tables[8], _record(content.get("bibliography")))
     _fill_teaching_approach(document, _record(content.get("teachingApproach")))
-    _fill_assessment(document, _record(content.get("assessment")), _record(content.get("learningOutcomes")))
-    _fill_document_control(document.tables[-1], _record(content.get("documentControl")))
+    _fill_assessment(
+        document,
+        _record(content.get("assessment")),
+        graded_activities(content),
+        _record(content.get("learningOutcomes")),
+        course_ai_fallback(content),
+    )
+    for heading in template.removed_headings:
+        _remove_section(document, heading)
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     document.save(output_path)
@@ -62,16 +87,25 @@ def _fill_fys(document: Document, syllabus: dict[str, Any], content: dict[str, A
         _set_cell_text(table.cell(row, column), _text(hours.get(key)))
     faculty = _record(content.get("facultyDetails"))
     staff = _rows(faculty.get("staff"))
-    _set_cell_text(document.tables[1].cell(0, 1), "\n".join(_text(item.get("nameAndStatus")) for item in staff))
+    # A faculty member chosen from the People directory arrives as `staff` rows; one typed in
+    # by hand is the editor's "Name and status" and "Email" boxes, which printed blank before.
+    names = "\n".join(_text(item.get("nameAndStatus")) for item in staff if _text(item.get("nameAndStatus")))
+    emails = "\n".join(_text(item.get("email")) for item in staff if _text(item.get("email")))
+    _set_cell_text(document.tables[1].cell(0, 1), names or _text(faculty.get("staffText")))
     _set_cell_text(document.tables[1].cell(1, 1), _text(faculty.get("institution")))
     _set_cell_text(document.tables[1].cell(2, 1), _text(faculty.get("officeHours")))
     _set_cell_text(document.tables[1].cell(3, 1), _text(faculty.get("officePhone")))
-    _set_cell_text(document.tables[1].cell(4, 1), "\n".join(_text(item.get("email")) for item in staff))
+    _set_cell_text(document.tables[1].cell(4, 1), emails or _text(faculty.get("email")))
     _fill_delivery(document.tables[2], _record(content.get("delivery")))
     _set_cell_text(document.tables[3].cell(0, 0), _text(_record(content.get("description")).get("overview")))
-    clos = _rows(_record(content.get("learningOutcomes")).get("clos"))
+    outcomes = _record(content.get("learningOutcomes"))
+    # The Foundation Year editor writes one outcome per line; outcomes that came as rows (a
+    # converted bachelor syllabus, or the Head of Department's) are read as rows.
+    clos = [_text(row.get("outcome")) or _text(row.get("clo")) for row in _rows(outcomes.get("clos"))] or [
+        line.strip() for line in _text(outcomes.get("closText")).splitlines() if line.strip()
+    ]
     for index, row in enumerate(document.tables[4].rows[1:]):
-        _set_cell_text(row.cells[1], _text(clos[index].get("outcome")) if index < len(clos) else "")
+        _set_cell_text(row.cells[1], clos[index] if index < len(clos) else "")
     materials = _record(content.get("requiredMaterials"))
     _set_cell_text(document.tables[5].cell(0, 0), _text(materials.get("textbooks")))
     _fill_bibliography(document.tables[6], materials)
@@ -93,19 +127,42 @@ def _fill_fys(document: Document, syllabus: dict[str, Any], content: dict[str, A
         entry = _record(methods.get(key))
         _set_cell_text(document.tables[8].cell(3, index), "X" if entry.get("selected") else "")
         _set_cell_text(document.tables[8].cell(4, index), _text(entry.get("hours")))
-    _fill_fys_assessments(document, _record(content.get("assessment")))
-    for index, row in enumerate(document.tables[12].rows[1:]):
-        source = _rows(content.get("schedule"))[index] if index < len(_rows(content.get("schedule"))) else {}
-        for cell, key in zip(
-            row.cells, ("week", "session", "topic", "assessmentDescription", "assessmentDate"), strict=True
-        ):
-            _set_cell_text(cell, _text(source.get(key)))
+    converted = schema_version(content) >= SCHEDULE_HOLDS_GRADED_ACTIVITIES
+    _fill_fys_assessments(
+        document,
+        fys_component_rows(graded_activities(content)) if converted else _record(content.get("assessment")),
+    )
+    # Week, session, topic, the assessment's description and its date. A converted syllabus
+    # prints its schedule as the bachelors do (document_schedule); an older one, its rows.
+    if converted:
+        lines = [
+            [_text(row.get("week")), _text(row.get("session")), _text(row.get("topic")),
+             _text(row.get("assessments")), _text(row.get("deadline"))]
+            for row in document_schedule(content)
+        ]
+    else:
+        lines = [
+            [_text(row.get(key)) for key in ("week", "session", "topic", "assessmentDescription", "assessmentDate")]
+            for row in _rows(content.get("schedule"))
+        ]
+    table = document.tables[12]
+    # The form's two header rows come first; it used to write the first session over the second.
+    _ensure_data_rows(table, header_rows=2, required_rows=max(14, len(lines)))
+    for index, row in enumerate(table.rows[2:]):
+        for cell, value in zip(row.cells, lines[index] if index < len(lines) else [""] * 5, strict=True):
+            _set_cell_text(cell, value)
 
 
 def _fill_fys_assessments(document: Document, assessment: dict[str, Any]) -> None:
     final_assessment_table_index = 10
     for table_index, key in ((9, "continuous"), (final_assessment_table_index, "final"), (11, "laboratory")):
-        items = _rows(assessment.get(key))
+        # The form's own words for its catch-all row.
+        items = [
+            {**item, "component": "Other (specify):"} if item.get("component") == "Other" else item
+            for item in _rows(assessment.get(key))
+        ]
+        if table_index == final_assessment_table_index:
+            _ensure_data_rows(document.tables[table_index], header_rows=1, required_rows=len(items))
         for index, row in enumerate(document.tables[table_index].rows[1:]):
             source = items[index] if index < len(items) else {}
             values = [
@@ -136,10 +193,13 @@ def template_sections(template_id: str) -> list[str]:
         # list paragraphs. Case is not a reliable signal: one of them ends "(if any)".
         if re.match(r"^\d+\.\d*\.?\s+\S", text) or paragraph.style.name in {"List Paragraph", "Footer"}:
             headings.append(text)
-    return headings
+    removed = set(get_template(template_id).removed_headings)
+    return [heading for heading in headings if heading not in removed]
 
 
-def _fill_identification(table: Table, syllabus: dict[str, Any], identification: dict[str, Any]) -> None:
+def _fill_identification(
+    table: Table, syllabus: dict[str, Any], identification: dict[str, Any], hours: dict[str, str]
+) -> None:
     values = [
         _text(syllabus.get("academicYear")),
         _text(syllabus.get("courseTitle")),
@@ -151,11 +211,9 @@ def _fill_identification(table: Table, syllabus: dict[str, Any], identification:
     for index, value in enumerate(values):
         _set_cell_text(table.cell(index, 1), value)
 
-    contact_hours = _record(identification.get("contactHours"))
-    for row_index, label in enumerate(
-        ["Lectures", "Tutorials", "Workshops", "Seminars", "Laboratory", "Other"], start=6
-    ):
-        _set_cell_text(table.cell(row_index, 3), _text(contact_hours.get(label)))
+    # Added up from the course schedule's sessions (contact_hours), row by row.
+    for row_index, label in enumerate(CONTACT_HOUR_ROWS, start=6):
+        _set_cell_text(table.cell(row_index, 3), hours.get(label, ""))
 
     # The template gives prerequisites and co-requisites one row between them.
     requirements = [
@@ -257,14 +315,8 @@ def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
     Week leads, because several sessions share one; the session column carries the
     kind and its own count; and an assessment is its description beside the date it
     is due, which is usually said in words ("Next Friday") rather than as a date.
+    `schedule` is the schedule as printed (document_schedule), so each row knows its label.
     """
-    counts: dict[str, int] = {}
-    numbers: list[str] = []
-    for source in schedule:
-        session_type = _text(source.get("sessionType")) or DEFAULT_SESSION_TYPE
-        counts[session_type] = counts.get(session_type, 0) + 1
-        numbers.append(f"{session_type} {counts[session_type]}")
-
     _ensure_column(table, "", index=SCHEDULE_DEADLINE_COLUMN)
     for column, heading in enumerate(("Week", "Session", "Topic", "Assessment", "Date")):
         _set_cell_text(table.rows[0].cells[column], heading)
@@ -273,7 +325,7 @@ def _fill_schedule(table: Table, schedule: list[dict[str, Any]]) -> None:
     for index, row in enumerate(table.rows[1:]):
         source = schedule[index] if index < len(schedule) else {}
         _set_cell_text(row.cells[0], _text(source.get("week")))
-        _set_cell_text(row.cells[1], numbers[index] if index < len(numbers) else "")
+        _set_cell_text(row.cells[1], _text(source.get("session")))
         _set_topic_cell(row.cells[2], source)
         _set_cell_text(row.cells[3], _schedule_learning_details(source))
         if len(row.cells) > SCHEDULE_DEADLINE_COLUMN:
@@ -335,9 +387,6 @@ def _write_pieces(paragraph: Any, pieces: list[rich_text.Piece], style: Any) -> 
         run.italic = piece.italic or None
 
 
-DEFAULT_SESSION_TYPE = "CM"
-
-
 def _week(value: Any) -> str:
     text = _text(value)
     return f"Week {text}" if text and not text.lower().startswith("week") else text
@@ -359,9 +408,14 @@ def _fill_teaching_approach(document: Document, approach: dict[str, Any]) -> Non
     _set_paragraph_after(document, "8.3. Feedback and Academic Progress", _text(approach.get("feedback")))
 
 
-def _fill_assessment(document: Document, assessment: dict[str, Any], learning_outcomes: dict[str, Any]) -> None:
+def _fill_assessment(  # noqa: PLR0913 - the document, its three sources, and the old course-wide AI policy
+    document: Document,
+    assessment: dict[str, Any],
+    items: list[dict[str, Any]],
+    learning_outcomes: dict[str, Any],
+    ai_fallback: str = "",
+) -> None:
     assessment_table = document.tables[9]
-    items = _rows(assessment.get("items"))
     _ensure_data_rows(assessment_table, header_rows=1, required_rows=max(14, len(items)))
     clo_numbers = {
         row.get("id"): f"CLO {position}" for position, row in enumerate(_rows(learning_outcomes.get("clos")), start=1)
@@ -378,18 +432,19 @@ def _fill_assessment(document: Document, assessment: dict[str, Any], learning_ou
             )
             if number
         ) or _clo_numbers_from_text(_text(source.get("clos")))
-        when = _week(source.get("week")) if by_week else _display_date(source.get("date"))
+        # The date when there is one; otherwise the week it falls in.
+        when = _week(source.get("week")) if by_week else _display_date(source.get("date")) or _week(source.get("week"))
         values = [
             when,
             _text(source.get("name")) or _text(source.get("type")),
             _percentage(source.get("weight")),
             aligned_clos,
-            _text(source.get("aiPolicy")) or _text(source.get("ai")),
+            ai_policy_summary(source, ai_fallback) if source else "",
         ]
         for cell, value in zip(row.cells, values, strict=True):
             _set_cell_text(cell, value)
 
-    _fill_ai_policy(document.tables[10], assessment)
+    _fill_ai_policy(document.tables[10], assessment, items, ai_fallback)
     _set_paragraph_after(
         document,
         "Additional Instructions regarding AI where its use is permitted or required",
@@ -406,38 +461,45 @@ def _clo_numbers_from_text(value: str) -> str:
     return ", ".join(dict.fromkeys(number.replace("  ", " ") for number in numbers))
 
 
-def _fill_ai_policy(table: Table, assessment: dict[str, Any]) -> None:
-    policy = _text(assessment.get("aiPolicy")) or "AI Prohibited"
-    selected_index = {
-        "AI Prohibited": 1,
-        "AI Permitted as a Support Tool": 2,
-        "Restricted AI Use": 3,
-        "AI Required": 4,
-        "Other (Specify)": 5,
-    }.get(policy)
-    if selected_index is not None:
-        _set_cell_text(table.cell(selected_index, 0), f"☒ {policy}")
-
-    if policy == "AI Prohibited":
-        cell = table.cell(1, 1)
-        additional = _text(assessment.get("aiVerificationMechanism"))
-        _set_cell_text(
-            cell,
-            _mark_first_checkbox(cell.text)
-            + (f"\n\nVerification mechanism used by the instructor: {additional}" if additional else ""),
-        )
-    elif policy == "AI Permitted as a Support Tool":
-        cell = table.cell(2, 1)
-        allowed = {item for item in assessment.get("aiAllowedUses", []) if isinstance(item, str)}
-        description = cell.text
-        for use in allowed:
-            description = description.replace(f"☐ {use}", f"☒ {use}")
-        other_uses = _list_or_legacy(assessment, "aiOtherUses", "aiOtherUse")
-        if other_uses:
-            description = description.replace("☐ Other (please specify):", f"☒ Other (please specify): {other_uses}")
-        _set_cell_text(cell, description)
-    elif policy == "Other (Specify)":
-        _set_cell_text(table.cell(5, 1), _text(assessment.get("aiCustomPolicy")))
+def _fill_ai_policy(
+    table: Table, assessment: dict[str, Any], activities: list[dict[str, Any]], ai_fallback: str = ""
+) -> None:
+    """Tick every option of the template's AI table that a graded activity applies, with its details."""
+    in_use = ai_options_in_use(activities, ai_fallback)
+    for row_index, option in enumerate(AI_OPTIONS, start=1):
+        if option not in in_use:
+            continue
+        _set_cell_text(table.cell(row_index, 0), f"☒ {option}")
+        cell = table.cell(row_index, 1)
+        if option == "AI Prohibited":
+            additional = _text(assessment.get("aiVerificationMechanism"))
+            _set_cell_text(
+                cell,
+                _mark_first_checkbox(cell.text)
+                + (f"\n\nVerification mechanism used by the instructor: {additional}" if additional else ""),
+            )
+        elif option == "AI Permitted as a Support Tool":
+            allowed = {
+                template_permitted_use(item) for item in assessment.get("aiAllowedUses", []) if isinstance(item, str)
+            }
+            description = cell.text
+            for use in allowed:
+                description = description.replace(f"☐ {use}", f"☒ {use}")
+            other_uses = _list_or_legacy(assessment, "aiOtherUses", "aiOtherUse")
+            if other_uses:
+                description = description.replace(
+                    "☐ Other (please specify):", f"☒ Other (please specify): {other_uses}"
+                )
+            _set_cell_text(cell, description)
+        elif option == OTHER_AI_OPTION:
+            written = [
+                f"{_text(activity.get('name')) or _text(activity.get('type')) or 'Activity'}: "
+                f"{_text(activity.get('aiOtherText'))}"
+                for activity in activities
+                if ai_option(activity_ai_policy(activity, ai_fallback)) == OTHER_AI_OPTION
+                and _text(activity.get("aiOtherText"))
+            ]
+            _set_cell_text(cell, "\n".join(written) or _text(assessment.get("aiCustomPolicy")))
 
 
 def _fill_rubrics(document: Document, rubrics: list[dict[str, Any]]) -> None:
@@ -446,6 +508,11 @@ def _fill_rubrics(document: Document, rubrics: list[dict[str, Any]]) -> None:
         clone = deepcopy(tables[-1]._tbl)
         tables[-1]._tbl.addnext(clone)
         tables = list(document.tables[11 : 11 + len(tables) + 1])
+    # The template ships two empty rubric tables; one the course does not need would print
+    # as a blank "Assessment type:" form, so each unused one is taken out.
+    for unused in tables[len(rubrics):]:
+        unused._tbl.getparent().remove(unused._tbl)
+    tables = tables[: len(rubrics)]
 
     for index, table in enumerate(tables):
         rubric = rubrics[index] if index < len(rubrics) else {}
@@ -466,16 +533,21 @@ def _fill_rubrics(document: Document, rubrics: list[dict[str, Any]]) -> None:
                 _set_cell_text(cell, _text(value))
 
 
-def _fill_document_control(table: Table, control: dict[str, Any]) -> None:
-    values = [
-        _display_date(control.get("creationDate")),
-        _text(control.get("departmentName")),
-        _display_date(control.get("approvalDate")),
-        _text(control.get("versionNumber")),
-        _text(control.get("approver")),
-    ]
-    for index, value in enumerate(values):
-        _set_cell_text(table.cell(index, 1), value)
+def _remove_section(document: Document, heading: str) -> None:
+    """Drop a heading the department no longer uses, with the table under it.
+
+    The bundled template stays the Provost's file; the section is taken out of each
+    generated copy instead. Stored values for it are left alone, so older syllabi keep
+    them.
+    """
+    for paragraph in document.paragraphs:
+        if paragraph.text.strip() != heading:
+            continue
+        following = paragraph._p.getnext()
+        if following is not None and following.tag == qn("w:tbl"):
+            following.getparent().remove(following)
+        paragraph._p.getparent().remove(paragraph._p)
+        return
 
 
 def _ensure_data_rows(table: Table, *, header_rows: int, required_rows: int) -> None:

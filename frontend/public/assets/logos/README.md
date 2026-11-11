@@ -69,3 +69,5 @@ Inline mono mark (inherits text color):
   <rect x="8" y="92" width="84" height="9" rx="2" />
 </svg>
 ```
+
+- `suad-syllabus-logo.png`: the Sorbonne University Abu Dhabi logo as the approved syllabus template prints it in its header, cut from a rendering of that template. Used by the syllabus export preview (10 Nov 2026).

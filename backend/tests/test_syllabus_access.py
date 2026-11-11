@@ -6,12 +6,17 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
-from sorbonne.api.syllabi import get_account_access, get_store
+from sorbonne.api.syllabi import get_account_access, get_catalogue_store, get_store
+from sorbonne.api.syllabus_outcome_mode import get_outcome_mode
 from sorbonne.main import app
 from sorbonne.services import auth_gate
 from sorbonne.services.account_access import AccountAccess
+from sorbonne.services.engine import engine_for
 from sorbonne.services.staff_auth import StaffUser
+from sorbonne.services.syllabus_catalogue_store import SyllabusCatalogueStore
+from sorbonne.services.syllabus_outcome_mode import SyllabusOutcomeMode
 from sorbonne.services.syllabus_store import SyllabusStore
+from tests.syllabus_samples import complete_scen_content
 
 
 TEST_DATABASE_URL = os.getenv(
@@ -31,9 +36,13 @@ def against_the_test_database():
     into the database somebody is using."""
     app.dependency_overrides[get_store] = lambda: SyllabusStore(TEST_DATABASE_URL)
     app.dependency_overrides[get_account_access] = lambda: AccountAccess(TEST_DATABASE_URL)
+    # Submitting for review checks the syllabus is complete, against the catalogue and the
+    # department's outcome mode: those are read from the test database too.
+    app.dependency_overrides[get_catalogue_store] = lambda: SyllabusCatalogueStore(TEST_DATABASE_URL)
+    app.dependency_overrides[get_outcome_mode] = lambda: SyllabusOutcomeMode(engine_for(TEST_DATABASE_URL))
     yield
-    app.dependency_overrides.pop(get_store, None)
-    app.dependency_overrides.pop(get_account_access, None)
+    for dependency in (get_store, get_account_access, get_catalogue_store, get_outcome_mode):
+        app.dependency_overrides.pop(dependency, None)
 
 
 @pytest.fixture(autouse=True)
@@ -71,7 +80,13 @@ def write_syllabus(client: TestClient, title: str = "Geometric optics") -> dict:
         json={"courseTitle": title, "courseCode": "PHYS-118", "academicYear": "2026-2027"},
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    # Complete, so that it can be submitted for review.
+    saved = client.patch(
+        f"/api/v1/syllabi/{response.json()['id']}",
+        json={"expectedRevision": response.json()["revision"], "content": complete_scen_content()},
+    )
+    assert saved.status_code == 200, saved.text
+    return saved.json()
 
 
 def sees(client: TestClient, syllabus_id: str) -> bool:
@@ -81,6 +96,21 @@ def sees(client: TestClient, syllabus_id: str) -> bool:
     carries whatever else the suite has left in it.
     """
     return any(item["id"] == syllabus_id for item in client.get("/api/v1/syllabi").json()["items"])
+
+
+def test_foundation_year_courses_start_on_the_bachelor_template(as_user) -> None:
+    """10 Nov 2026: there is no separate Foundation Year syllabus; its form only reads old ones."""
+    author = as_user(AUTHOR)
+
+    offered = {item["id"]: item["offered"] for item in author.get("/api/v1/syllabi/templates").json()["items"]}
+    refused = author.post(
+        "/api/v1/syllabi",
+        json={"courseTitle": "Pre-Calculus", "academicYear": "2026-2027", "templateId": "fys-2025-26"},
+    )
+
+    assert offered == {"scen-en-v1": True, "fys-2025-26": False}
+    assert refused.status_code == 422
+    assert "Foundation Year courses included" in refused.json()["detail"]
 
 
 def test_a_new_syllabus_belongs_to_whoever_wrote_it_and_starts_private(as_user) -> None:
