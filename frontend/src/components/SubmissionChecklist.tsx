@@ -64,7 +64,7 @@ export function SubmissionChecklist({
           className="absolute right-0 z-30 mt-2 max-h-[70vh] w-[min(26rem,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-[#d0d5dd] bg-white p-4 text-left shadow-lg"
         >
           <h3 className="text-sm font-semibold text-[#101828]">{forReview ? "Before you submit for review" : "Still to fill in"}</h3>
-          <p className="mt-1 text-xs text-[#667085]">
+          <p className="mt-1 text-xs text-[#475467]">
             {forReview
               ? "Submit for review appears once these are filled in. You can save and export the syllabus at any time."
               : "The syllabus template requires these. You can still save, export and publish the syllabus."}
@@ -86,7 +86,7 @@ export function SubmissionChecklist({
                           className="flex w-full items-start gap-1 rounded px-1 py-0.5 text-left text-sm text-[#344054] hover:bg-[#f2f7fb]"
                         >
                           <span className="min-w-0 flex-1">{item.message}</span>
-                          <ChevronRight size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-[#98a2b3]" />
+                          <ChevronRight size={15} aria-hidden="true" className="mt-0.5 shrink-0 text-[#667085]" />
                         </button>
                       ) : (
                         <span className="text-sm text-[#344054]">{item.message}</span>

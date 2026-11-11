@@ -20,7 +20,7 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
 
   return (
     <div className="w-full page-gutters [--page-cap:98rem] [--page-pad:1rem] sm:[--page-pad:1.5rem] lg:[--page-pad:2rem] py-3">
-      <div className="flex flex-col gap-4 border-b border-[#d9dee7] pb-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex flex-col gap-4 border-b border-[#c3cbd6] pb-4 lg:flex-row lg:items-end lg:justify-between">
         <div className="flex items-start gap-3">
           <button onClick={onBack} className="mt-1 rounded-md p-2 hover:bg-[#e8edf3]" aria-label="Back to syllabus">
             <ArrowLeft size={19} />
@@ -36,12 +36,12 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
         </label>
       </div>
 
-      {options.length === 0 ? <div className="mt-6 rounded-lg border border-[#d9dee7] bg-white p-8 text-center text-sm text-[#667085]">Duplicate this syllabus into a new academic year to compare it here.</div> : null}
-      {comparison.isLoading ? <div className="mt-6 flex justify-center gap-2 text-sm text-[#667085]"><Loader2 size={18} className="animate-spin" /> Loading comparison</div> : null}
+      {options.length === 0 ? <div className="mt-6 rounded-lg border border-[#c3cbd6] bg-white p-8 text-center text-sm text-[#475467]">Duplicate this syllabus into a new academic year to compare it here.</div> : null}
+      {comparison.isLoading ? <div className="mt-6 flex justify-center gap-2 text-sm text-[#475467]"><Loader2 size={18} className="animate-spin" /> Loading comparison</div> : null}
       {comparison.error instanceof Error ? <p role="alert" className="mt-6 rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">{comparison.error.message}</p> : null}
       {comparison.data ? (
-        <section className="mt-6 rounded-lg border border-[#d9dee7] bg-white">
-          <div className="flex flex-col justify-between gap-3 border-b border-[#d9dee7] p-4 sm:flex-row sm:items-center">
+        <section className="mt-6 rounded-lg border border-[#c3cbd6] bg-white">
+          <div className="flex flex-col justify-between gap-3 border-b border-[#c3cbd6] p-4 sm:flex-row sm:items-center">
             <div>
               <div className="flex items-center gap-2 font-semibold text-[#171717]"><GitCompareArrows size={18} className="text-[#1f4e79]" /> {comparison.data.changes.length} changed mapped field{comparison.data.changes.length === 1 ? "" : "s"}</div>
               <DiffLegend />
@@ -63,10 +63,10 @@ export function SyllabusComparison({ syllabus, candidates, onBack }: { syllabus:
                   const change = comparisonChange(field);
                   return (
                     <tr key={field.id} className={field.kind === "changed" ? "bg-[#fff8eb]" : ""}>
-                      <td className="border-t border-[#e5e7eb] px-4 py-3 font-medium text-[#344054]">{field.label}</td>
-                      <td className="border-t border-[#e5e7eb] px-4 py-3 whitespace-pre-wrap text-[#475467]"><DiffValue change={change} value={field.left} side="left" /></td>
-                      <td className="border-t border-[#e5e7eb] px-4 py-3 whitespace-pre-wrap text-[#475467]"><DiffValue change={change} value={field.right} side="right" /></td>
-                      <td className="border-t border-[#e5e7eb] px-4 py-3"><ComparisonStatus row={field} leftTemplate={templateLabel(comparison.data.left.templateId)} rightTemplate={templateLabel(comparison.data.right.templateId)} /></td>
+                      <td className="border-t border-[#d5dbe4] px-4 py-3 font-medium text-[#344054]">{field.label}</td>
+                      <td className="border-t border-[#d5dbe4] px-4 py-3 whitespace-pre-wrap text-[#475467]"><DiffValue change={change} value={field.left} side="left" /></td>
+                      <td className="border-t border-[#d5dbe4] px-4 py-3 whitespace-pre-wrap text-[#475467]"><DiffValue change={change} value={field.right} side="right" /></td>
+                      <td className="border-t border-[#d5dbe4] px-4 py-3"><ComparisonStatus row={field} leftTemplate={templateLabel(comparison.data.left.templateId)} rightTemplate={templateLabel(comparison.data.right.templateId)} /></td>
                     </tr>
                   );
                 })}
@@ -93,7 +93,7 @@ export function ComparisonStatus({ row, leftTemplate, rightTemplate }: { row: Sy
 
 function DiffLegend() {
   return (
-    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#667085]">
+    <p className="mt-1 flex flex-wrap items-center gap-2 text-xs text-[#475467]">
       <span className="rounded bg-[#fee4e2] px-1 text-[#b42318] line-through">Deleted</span>
       <span className="rounded bg-[#dcfae6] px-1 text-[#067647]">Inserted</span>
       <span className="rounded bg-[#fef0c7] px-1 text-[#92400e]">Substitution: old → new</span>
@@ -141,7 +141,7 @@ function renderStructuredValue(value: unknown) {
   if (typeof value === "object") {
     const entries = Object.entries(value).filter(([key, item]) => key !== "id" && item !== undefined && item !== null && item !== "" && (!Array.isArray(item) || item.length > 0));
     if (!entries.length) return "—";
-    return <dl className="grid gap-1">{entries.map(([key, item]) => <div key={key} className="grid gap-1 sm:grid-cols-[minmax(7rem,auto)_1fr]"><dt className="font-medium text-[#667085]">{fieldLabel(key)}</dt><dd>{renderStructuredValue(item)}</dd></div>)}</dl>;
+    return <dl className="grid gap-1">{entries.map(([key, item]) => <div key={key} className="grid gap-1 sm:grid-cols-[minmax(7rem,auto)_1fr]"><dt className="font-medium text-[#475467]">{fieldLabel(key)}</dt><dd>{renderStructuredValue(item)}</dd></div>)}</dl>;
   }
   return String(value);
 }

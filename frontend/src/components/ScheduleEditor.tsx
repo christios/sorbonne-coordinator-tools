@@ -327,7 +327,7 @@ export function ScheduleEditor({
                   movingRowId === row.id ? (
                     <div
                       data-schedule-move-menu
-                      className="absolute right-0 top-full z-[90] isolate mt-2 w-80 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg"
+                      className="absolute right-0 top-full z-[90] isolate mt-2 w-80 rounded-lg border border-[#c3cbd6] bg-white p-3 opacity-100 shadow-lg"
                     >
                       <p className="text-sm font-semibold text-[#344054]">
                         Place this session before
@@ -350,7 +350,7 @@ export function ScheduleEditor({
                             }
                             className="block w-full rounded-md px-3 py-2 text-left text-sm text-[#344054] hover:bg-[#f7f8fa]"
                           >
-                            <span className="text-[#667085]">
+                            <span className="text-[#475467]">
                               {destinationIndex + 1}.{" "}
                             </span>
                             {scheduleSummary(destination)}
@@ -542,7 +542,7 @@ export function ScheduleEditor({
         </>
       ) : (
         <>
-        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#667085]">
+        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-3 text-sm text-[#475467]">
           {holdsGradedActivities ? "No sessions or graded activities added yet." : "No sessions added yet."}
         </p>
         <div className="flex flex-wrap gap-x-4">
@@ -685,7 +685,7 @@ function FoundationYearGradedFields({ card, number, outcomes, onChange, onOpenHi
         onChange={(next) => onChange({ cloNumbers: next.split("\n").filter(Boolean).map((label) => options.find((option) => option.label === label)?.value).filter((value): value is string => Boolean(value)) })}
         options={options.map((option) => ({ value: option.label, label: option.label }))}
       />
-      {(card as Record<string, string>).earlierClos ? <p className="text-sm text-[#667085]">Before the conversion this row said: CLO(s) {(card as Record<string, string>).earlierClos}</p> : null}
+      {(card as Record<string, string>).earlierClos ? <p className="text-sm text-[#475467]">Before the conversion this row said: CLO(s) {(card as Record<string, string>).earlierClos}</p> : null}
     </div>
   );
 }

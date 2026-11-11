@@ -71,4 +71,17 @@ describe("the CLO–PLO alignment matrix", () => {
     // Stored by the Head of Department's CLO id, as competency ids.
     expect(onCompetenciesChange).toHaveBeenCalledWith("c1", ["competency-1"]);
   });
+
+  it("shows every SUAD graduate competency a SCEN competency brings, not only the first", () => {
+    const client = new QueryClient();
+    const options = [{ value: "SCEN-C2: Uses mathematical reasoning.", label: "Uses mathematical reasoning.", badge: "SCEN-C2", catalogueId: "c2" }];
+    const rows = [{ ...ROWS[0], skills: "SCEN-C2: Uses mathematical reasoning.", skillIds: "c2" }];
+    const graduateText = (skills: string) => (skills.includes("SCEN-C2") ? "GradComp 1 — Autonomy\nGradComp 3 — Decision making\nGradComp 7 — Digital literacy" : "");
+    render(<QueryClientProvider client={client}><OutcomeAlignmentMatrix rows={rows} plos={PLOS} competencyOptions={options} graduateText={graduateText} onChange={vi.fn()} /></QueryClientProvider>);
+
+    const brought = screen.getByRole("list", { name: "SUAD graduate competencies SCEN-C2 brings" });
+    expect(Array.from(brought.querySelectorAll("li")).map((item) => item.textContent)).toEqual([
+      "GradComp 1Autonomy", "GradComp 3Decision making", "GradComp 7Digital literacy",
+    ]);
+  });
 });

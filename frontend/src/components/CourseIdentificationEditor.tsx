@@ -152,7 +152,7 @@ function stringValue(value: unknown): string { return typeof value === "string" 
 
 /** A value the course record owns: shown, never edited here. */
 function ReadOnlyField({ label, value, size = "full", className = "" }: { label: string; value: string; size?: FieldSize; className?: string }) {
-  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}><span className="sm:whitespace-nowrap">{label}</span><p className="min-h-10 w-full rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 py-2 font-normal leading-[22px] text-[#475467]">{value || "—"}</p></div>;
+  return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${fieldSizeClass[size]} ${className}`}><span className="sm:whitespace-nowrap">{label}</span><p className="min-h-10 w-full rounded-md border border-[#d5dbe4] bg-[#f1f4f8] px-3 py-2 font-normal leading-[22px] text-[#475467]">{value || "—"}</p></div>;
 }
 
 /** Prerequisites and co-requisites are courses, so they are chosen, not typed. */
@@ -163,7 +163,7 @@ function CourseList({ title, hint, fieldKey, items, options, onChange, className
     onChange([...items, { id: crypto.randomUUID(), text: label }]);
   };
   return <SyllabusField className={className} label={title} fieldKey={fieldKey} hint={hint}>
-    {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="grid grid-cols-[minmax(0,1fr)] gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm font-normal text-[#344054]"><span className="min-w-0 break-words">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : null}
+    {chosen.length ? <ul aria-label={`Selected ${title.toLowerCase()}`} className="grid grid-cols-[minmax(0,1fr)] gap-2">{items.filter((item) => item.text).map((item) => <li key={item.id} className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#c3cbd6] bg-[#f1f4f8] px-3 py-2 text-sm font-normal text-[#344054]"><span className="min-w-0 break-words">{item.text}</span><button type="button" onClick={() => onChange(items.filter((entry) => entry.id !== item.id))} className="shrink-0 rounded p-1 text-[#475467] hover:bg-[#e8edf3] hover:text-[#a6292f]" aria-label={`Remove ${item.text} from ${title.toLowerCase()}`}><X size={16} aria-hidden="true" /></button></li>)}</ul> : null}
     <SelectMenu label={`Add ${title.toLowerCase()}`} value="" onChange={add} placeholder={chosen.length ? `Add another ${title.toLowerCase().replace(/s$/, "")}` : `None yet — add a ${title.toLowerCase().replace(/s$/, "")}`} searchable searchPlaceholder="Search by code or title" options={options.filter((option) => option.value && !chosen.includes(option.label))} />
   </SyllabusField>;
 }
@@ -182,10 +182,10 @@ function ContactHours({ hours, onOpenSchedule, className = "" }: { hours: Partia
   const rows = CONTACT_HOUR_ROWS.flatMap((row) => (hours[row] ? [{ row, value: hours[row] as string }] : []));
   const total = rows.reduce((sum, { value }) => sum + (Number(value) || 0), 0);
   return <div className={`grid content-start gap-1 text-sm font-medium text-[#344054] ${className}`}>
-    <span className="sm:whitespace-nowrap">Course contact hours<span className="ml-1 font-normal text-[#667085]">from the course schedule</span></span>
-    <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-[#e5e7eb] bg-[#f8fafc] px-3 py-2 font-normal text-[#475467]">
+    <span className="sm:whitespace-nowrap">Course contact hours<span className="ml-1 font-normal text-[#475467]">from the course schedule</span></span>
+    <div className="flex min-h-10 flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-[#d5dbe4] bg-[#f1f4f8] px-3 py-2 font-normal text-[#475467]">
       {rows.length
-        ? <><span className="flex flex-wrap gap-x-3 gap-y-1">{rows.map(({ row, value }) => <span key={row}>{row} <span className="font-semibold tabular-nums text-[#344054]">{value} h</span></span>)}</span><span className="text-[#98a2b3]" aria-hidden="true">·</span><span>In all <span className="font-semibold tabular-nums text-[#344054]">{Number(total.toFixed(2))} h</span></span></>
+        ? <><span className="flex flex-wrap gap-x-3 gap-y-1">{rows.map(({ row, value }) => <span key={row}>{row} <span className="font-semibold tabular-nums text-[#344054]">{value} h</span></span>)}</span><span className="text-[#667085]" aria-hidden="true">·</span><span>In all <span className="font-semibold tabular-nums text-[#344054]">{Number(total.toFixed(2))} h</span></span></>
         : <span>None yet: give each session a length in the course schedule.</span>}
       {onOpenSchedule ? <button type="button" onClick={onOpenSchedule} className="ml-auto rounded px-1 font-semibold text-[#1f4e79] hover:underline">Edit in the course schedule</button> : null}
     </div>

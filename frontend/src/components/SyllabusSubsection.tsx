@@ -15,7 +15,7 @@ type Props = {
 /** A focused, titled canvas for a logical group within a syllabus section. */
 export function SyllabusSubsection({ title, children, className = "", info, infoLabel }: Props) {
   return (
-    <section className={`min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5 ${className}`}>
+    <section className={`min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 shadow-sm ${className}`}>
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
         {title}
         {info ? <InfoTip label={infoLabel ?? `About ${title}`}>{info}</InfoTip> : null}

@@ -369,6 +369,7 @@ export function SyllabusEditor({
           activeSection={active}
           onSectionChange={setActive}
           sectionCounts={sectionCounts}
+          compactMenu
           onHeaderCollapseChange={onHeaderCollapseChange}
           compactHeaderActions={compactHeaderActions}
           actions={
@@ -469,7 +470,7 @@ export function SyllabusEditor({
  */
 function TeachingApproachNote({ presets }: { presets: CatalogueEntry[] }) {
   return (
-    <div role="note" className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
+    <div role="note" className="mt-4 rounded-md border border-[#c3cbd6] bg-[#f1f4f8] px-3 py-2 text-sm text-[#475467]">
       <span className="font-medium text-[#344054]">Teaching and learning approach (section 8 of the document):</span>{" "}
       {presets.length
         ? <>the department&apos;s text for {presets.map((preset) => preset.label).join(", ")}, from the kinds of session in this schedule.</>
@@ -528,7 +529,7 @@ export function SaveStatus({
 }) {
   if (state === "saving")
     return (
-      <span className="inline-flex items-center gap-2 text-sm text-[#667085]">
+      <span className="inline-flex items-center gap-2 text-sm text-[#475467]">
         <Loader2 className="animate-spin" size={16} /> Saving
       </span>
     );
@@ -1151,7 +1152,7 @@ function FysFacultyDirectoryPicker({
       <label className="grid grid-cols-[minmax(0,1fr)] gap-1 text-sm font-medium text-[#344054]">
         <span>
           Faculty member from People directory{" "}
-          <span className="font-normal text-[#667085]">(optional)</span>
+          <span className="font-normal text-[#475467]">(optional)</span>
         </span>
         <SelectMenu
           label="Faculty member from People directory"
@@ -1168,7 +1169,7 @@ function FysFacultyDirectoryPicker({
         />
       </label>
       {selected ? (
-        <div className="rounded-md border border-[#d9dee7] bg-[#f8fafc] p-4 text-sm text-[#475467]">
+        <div className="rounded-md border border-[#c3cbd6] bg-[#f1f4f8] p-4 text-sm text-[#475467]">
           <p className="flex items-center gap-1.5 font-semibold text-[#344054]">
             {selected.label}
             <InfoTip label="Why these details cannot be edited here">
@@ -1261,7 +1262,7 @@ function LearningOutcomesEditor({
         .filter(Boolean)
     : [];
   return (
-    <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
+    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5">
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
         Learning outcomes
         <InfoTip label="Where the programme outcomes come from">
@@ -1324,7 +1325,7 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
       {rows.length ? (
         <div className="mt-2 overflow-x-auto">
           <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
-            <thead><tr className="text-[#344054]">{[...(withComponent ? ["Component"] : []), "Description", "CLO(s) to be measured", "% of the final grade"].map((heading) => <th key={heading} className="border-b border-[#d9dee7] py-2 pr-3 font-semibold">{heading}</th>)}</tr></thead>
+            <thead><tr className="text-[#344054]">{[...(withComponent ? ["Component"] : []), "Description", "CLO(s) to be measured", "% of the final grade"].map((heading) => <th key={heading} className="border-b border-[#c3cbd6] py-2 pr-3 font-semibold">{heading}</th>)}</tr></thead>
             <tbody>{rows.map((row, index) => (
               <tr key={index} className="align-top text-[#475467]">
                 {withComponent ? <td className="border-b border-[#eef1f5] py-2 pr-3 font-medium text-[#344054]">{row.component === "Other" ? "Other (specify)" : row.component}</td> : null}
@@ -1335,7 +1336,7 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
             ))}</tbody>
           </table>
         </div>
-      ) : <p className="mt-2 text-sm text-[#667085]">None yet.</p>}
+      ) : <p className="mt-2 text-sm text-[#475467]">None yet.</p>}
     </div>
   );
   const typed = ([["Continuous assessment", earlier.continuousText], ["Final assessment", earlier.finalText], ["Laboratory assessment", earlier.laboratoryText]] as const)
@@ -1343,7 +1344,7 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
   return (
     <div>
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="text-sm text-[#667085]">Built from the graded activities in the teaching schedule, each filling the row of the form it names.</p>
+        <p className="text-sm text-[#475467]">Built from the graded activities in the teaching schedule, each filling the row of the form it names.</p>
         {onOpenSchedule ? <button type="button" onClick={onOpenSchedule} className="shrink-0 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]">Edit in the teaching schedule</button> : null}
       </div>
       {table("Continuous assessment", tables.continuous, true)}
@@ -1377,7 +1378,7 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
     return { id: plo.id, code, outcome, value: outcome ? `${code}: ${outcome}` : code };
   });
   return (
-    <section className="min-w-0 rounded-lg border border-[#d9dee7] bg-white p-5">
+    <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5">
       <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
         Learning outcomes
         <InfoTip label="Why these cannot be edited here">
@@ -1385,7 +1386,7 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
           and every syllabus of the course shows them.
         </InfoTip>
       </h3>
-      <p role="note" className="mt-4 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#475467]">
+      <p role="note" className="mt-4 rounded-md border border-[#c3cbd6] bg-[#f1f4f8] px-3 py-2 text-sm text-[#475467]">
         The outcomes and their PLOs are set by the Head of Department in the catalogue, and appear here, in the preview and in the document as written there. The competencies each one develops are yours to choose.
       </p>
       {clos.length && plos ? (
@@ -1395,7 +1396,7 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
       ) : clos.length ? (
         <ol className="mt-5 grid gap-3">
           {clos.map((clo, index) => (
-            <li key={clo.id} className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4 text-sm">
+            <li key={clo.id} className="rounded-lg border border-[#c3cbd6] bg-[#fdfdfd] p-4 text-sm">
               <p className="font-semibold text-[#344054]">CLO {index + 1}: {clo.clo}</p>
               {clo.plo ? <p className="mt-2 whitespace-pre-line text-[#475467]"><span className="font-medium text-[#344054]">Aligned PLOs:</span> {clo.plo.split("\n").join(" · ")}</p> : null}
               {clo.skills ? <p className="mt-1 whitespace-pre-line text-[#475467]"><span className="font-medium text-[#344054]">SCEN graduate competencies:</span> {clo.skills.split("\n").join(" · ")}</p> : null}
@@ -1547,7 +1548,7 @@ function SelectField({
 function LockedSection({ title, text }: { title: string; text: string }) {
   return (
     <SyllabusSubsection title={title}>
-      <div className="rounded-md border border-[#cbd5e1] bg-[#f8fafc] p-4 text-sm leading-6 text-[#475467]">
+      <div className="rounded-md border border-[#cbd5e1] bg-[#f1f4f8] p-4 text-sm leading-6 text-[#475467]">
         <p className="mb-2 font-semibold text-[#344054]">
           University standard text
         </p>

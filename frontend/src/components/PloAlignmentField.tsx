@@ -73,7 +73,7 @@ export function PloAlignmentField({
           {selected.map((option) => (
             <li
               key={option.value}
-              className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#d9dee7] bg-[#f8fafc] px-3 py-2 text-sm text-[#344054]"
+              className="flex min-w-0 items-start justify-between gap-2 rounded-md border border-[#c3cbd6] bg-[#f1f4f8] px-3 py-2 text-sm text-[#344054]"
             >
               {/* The whole wording, on as many lines as it needs: an outcome cut off at
                   "involving f…" cannot be checked against the one it should be. */}
@@ -88,7 +88,7 @@ export function PloAlignmentField({
               <button
                 type="button"
                 onClick={() => remove(option.value)}
-                className="shrink-0 rounded p-1 text-[#667085] hover:bg-[#e8edf3] hover:text-[#a6292f]"
+                className="shrink-0 rounded p-1 text-[#475467] hover:bg-[#e8edf3] hover:text-[#a6292f]"
                 aria-label={`Remove ${option.label} from ${label}`}
               >
                 <X size={16} aria-hidden="true" />
@@ -97,7 +97,7 @@ export function PloAlignmentField({
           ))}
         </ul>
       ) : (
-        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#667085]">
+        <p className="rounded-md border border-dashed border-[#d0d5dd] px-3 py-2 text-sm text-[#475467]">
           {emptyText}
         </p>
       )}
