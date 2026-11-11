@@ -1,6 +1,6 @@
 import { AddEntryButton } from "@/components/AddEntryButton";
 import { ArrowDownUp, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { CollapsibleEntryCard } from "@/components/CollapsibleEntryCard";
 import { switchCardKind, type CardKind } from "@/services/scheduleCardKind";
@@ -226,13 +226,36 @@ export function ScheduleEditor({
     onChange(rows.filter((row) => row.id !== id));
   const updateCard = (id: string, changes: Record<string, unknown>) =>
     onChange(rows.map((row) => (row.id === id ? ({ ...row, ...changes } as ScheduleRow) : row)));
-  // A session made a graded activity, or back (11 Nov 2026): the card stays open and in view.
+  /*
+   * A session made a graded activity, or back (11 Nov 2026). The card is rebuilt as the other
+   * kind — another height, perhaps another place in the week order — so it is held where it was
+   * on screen, before anything is painted, and keeps the focus. Scrolling to it instead made
+   * the page jump and the editor's header fold and unfold: "everything flickers".
+   */
+  const switchAnchor = useRef<{ id: string; top: number } | null>(null);
   const switchKind = (id: string, to: CardKind) => {
+    const card = document.getElementById(`schedule-${id}`);
+    switchAnchor.current = card ? { id, top: card.getBoundingClientRect().top } : null;
     onChange(rows.map((row) => (row.id === id ? switchCardKind(row, to) : row)));
-    window.requestAnimationFrame(() =>
-      document.getElementById(`schedule-${id}`)?.scrollIntoView?.({ behavior: "smooth", block: "nearest" }),
-    );
   };
+  useLayoutEffect(() => {
+    const anchor = switchAnchor.current;
+    if (!anchor) return;
+    switchAnchor.current = null;
+    const card = document.getElementById(`schedule-${anchor.id}`);
+    if (!card) return;
+    card.querySelector<HTMLButtonElement>("[data-card-kind] [aria-pressed=true]")?.focus({ preventScroll: true });
+    const moved = card.getBoundingClientRect().top - anchor.top;
+    const scroller = scrollParent(card);
+    if (!scroller || Math.abs(moved) < 1) return;
+    // Said to be ours, so the editor's header does not take it for the teacher scrolling.
+    scroller.dataset.quietScroll = "true";
+    scroller.scrollTop += moved;
+    // Where it cannot be held (the list ends too soon to scroll that far), it comes into view.
+    const view = scroller.getBoundingClientRect();
+    const top = card.getBoundingClientRect().top;
+    if (top < view.top || top > view.bottom - 64) scroller.scrollTop += top - view.top - 16;
+  }, [rows]);
   const addGraded = () => {
     const id = crypto.randomUUID();
     onChange([...rows, { id, kind: "graded", week: "", date: "", name: "", weight: "" }]);
@@ -703,7 +726,7 @@ function CardKindSwitch({ kind, title, onSwitch }: { kind: CardKind; title: stri
   const choices: Array<[CardKind, string]> = [["session", "Session"], ["graded", "Graded activity"]];
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-      <div role="group" aria-label={`Kind of card: ${title}`} className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
+      <div role="group" data-card-kind aria-label={`Kind of card: ${title}`} className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
         {choices.map(([id, name]) => (
           <button
             key={id}
@@ -719,6 +742,15 @@ function CardKindSwitch({ kind, title, onSwitch }: { kind: CardKind; title: stri
       <span className="text-xs text-[#667085]">Switching keeps the week, date and title.</span>
     </div>
   );
+}
+
+/** The box that scrolls the card: the editor's workspace on a computer, the page on a phone. */
+function scrollParent(element: HTMLElement): HTMLElement | null {
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) {
+    const overflow = getComputedStyle(parent).overflowY;
+    if ((overflow === "auto" || overflow === "scroll") && parent.scrollHeight > parent.clientHeight) return parent;
+  }
+  return null;
 }
 
 function displayDate(value: string) {

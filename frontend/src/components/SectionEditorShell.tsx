@@ -76,6 +76,13 @@ export function SectionEditorShell({
 
   function handleScroll(event: UIEvent<HTMLDivElement>) {
     const scrollTop = event.currentTarget.scrollTop;
+    // A scroll the page made itself, to hold something in place while it changed shape (a
+    // schedule card switching kind): not the teacher scrolling, so the header stays as it is.
+    if (event.currentTarget.dataset.quietScroll) {
+      delete event.currentTarget.dataset.quietScroll;
+      lastScrollTop.current = scrollTop;
+      return;
+    }
     const distance = scrollTop - lastScrollTop.current;
     lastScrollTop.current = scrollTop;
     if (scrollTop <= 12) updateHeaderState(false);
