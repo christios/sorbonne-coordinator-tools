@@ -49,11 +49,12 @@ type Table = "plos" | "competencies";
  */
 const GRID = "grid [grid-template-columns:minmax(14rem,1fr)_repeat(var(--plos),2.25rem)_2.25rem]";
 /*
- * The competency matrix: the outcome, a column per SCEN competency, an arrow, then a column per
- * SUAD graduate competency they bring. Narrower columns than the PLOs' so both groups fit beside
- * the panel on a laptop; below that the matrix scrolls sideways, the outcome column staying put.
+ * The competency matrix: the outcome in full, a column per SCEN competency, an arrow, then a
+ * column per SUAD graduate competency they bring. Narrower columns than the PLOs' so both groups
+ * fit beside the panel on a laptop; below that the matrix scrolls sideways, the outcome column
+ * staying put.
  */
-const COMPETENCY_GRID = "grid [grid-template-columns:minmax(8rem,1fr)_repeat(var(--scen),2rem)_1.5rem_repeat(var(--suad),2rem)]";
+const COMPETENCY_GRID = "grid [grid-template-columns:minmax(15rem,1fr)_repeat(var(--scen),1.75rem)_1.25rem_repeat(var(--suad),1.75rem)]";
 const RULE = "border-l border-[#c3cbd6]";
 /*
  * Each matrix is a pane of its own (11 Nov 2026): on a large screen the section fills the
@@ -118,7 +119,7 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
   const style = { "--plos": plos.length } as CSSProperties;
   // The matrices keep the width the PLO columns need; the panel beside them takes the rest, from
   // 15 to 30rem, giving way first to the competency matrix so it fits whole on a laptop.
-  const competencyWidth = `(8rem + ${competencies.length + graduates.length} * 2rem + 1.5rem)`;
+  const competencyWidth = `(15rem + ${competencies.length + graduates.length} * 1.75rem + 1.25rem)`;
   const sideBySide = {
     "--matrix-min": `calc(14rem + ${plos.length + 1} * 2.25rem)`,
     // The same in both tabs, so switching tables does not move the panel.
@@ -379,8 +380,11 @@ function CompetencyMatrix({
           return (
             <div key={row.id} role="row" className={`${COMPETENCY_GRID} border-b border-[#d5dbe4] last:border-b-0`}>
               <div role="rowheader" className="sticky left-0 z-[1] min-w-0 bg-white px-3 py-2">
-                <p className="text-sm font-semibold text-[#1d2939]">CLO {number}</p>
-                <p title={row.clo} className="truncate text-xs leading-5 text-[#475467]">{row.clo || "Not written yet"}</p>
+                {/* The outcome in full, as in the PLO table: never cut short (11 Nov 2026). */}
+                <p className="text-[13px] leading-5 text-[#344054]">
+                  <span className="font-semibold text-[#1d2939]">CLO {number}</span>{" "}
+                  {row.clo || <span className="text-[#667085]">Not written yet</span>}
+                </p>
               </div>
               {competencies.map((competency) => {
                 const ticked = chosen.includes(competency.id);

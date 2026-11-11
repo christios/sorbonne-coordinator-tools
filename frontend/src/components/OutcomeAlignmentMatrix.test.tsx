@@ -126,6 +126,10 @@ describe("the CLO–PLO alignment matrix", () => {
     fireEvent.click(screen.getByRole("tab", { name: /Competencies/ }));
 
     expect(screen.getByRole("checkbox", { name: "CLO 1 develops SCEN-C1" })).toBeTruthy();
+    // Each outcome in full beside its ticks, not cut short.
+    const competencyTable = screen.getByRole("region", { name: "Competencies each outcome develops" });
+    expect(competencyTable.textContent).toContain("CLO 1 Trace rays through lenses.");
+    expect(competencyTable.querySelector(".truncate, [class*='line-clamp']")).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "CLO 1 aligned to PLO 1" })).toBeNull();
     // The panel beside it turns to the SCEN competencies.
     expect(screen.getByRole("tab", { name: "SCEN" }).getAttribute("aria-selected")).toBe("true");
