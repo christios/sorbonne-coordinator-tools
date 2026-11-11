@@ -109,6 +109,11 @@ type Props = {
   cloKey?: CloKey;
   assessmentTypes?: CatalogueEntry[];
   aiPolicies?: CatalogueEntry[];
+  /**
+   * A card asked for from the list of what is still to fill in (11 Nov 2026): it unfolds,
+   * comes into view and is marked for a moment. A new count asks again for the same card.
+   */
+  reveal?: { id: string; count: number } | null;
 };
 
 
@@ -143,6 +148,7 @@ export function ScheduleEditor({
   cloKey = "cloIds",
   assessmentTypes = [],
   aiPolicies = [],
+  reveal = null,
 }: Props) {
   // A card opens by itself only while it is blank: a session without a topic, a graded
   // activity without a name or a type.
@@ -152,6 +158,26 @@ export function ScheduleEditor({
       .map((row) => row.id),
   );
   const [movingRowId, setMovingRowId] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!reveal) return;
+    setExpandedIds((current) => (current.includes(reveal.id) ? current : [...current, reveal.id]));
+    setHighlightedId(reveal.id);
+    // Once the card has unfolded: bring it into view and give its toggle the focus.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const card = document.getElementById(`schedule-${reveal.id}`);
+        card?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+        card?.querySelector<HTMLButtonElement>("button[aria-expanded]")?.focus({ preventScroll: true });
+      });
+    });
+    const timer = window.setTimeout(() => setHighlightedId(null), 2400);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(timer);
+    };
+  }, [reveal]);
   const [moveQuery, setMoveQuery] = useState("");
 
   useEffect(() => {
@@ -253,6 +279,7 @@ export function ScheduleEditor({
                   card={row}
                   number={gradedNumbers.get(row.id) ?? index + 1}
                   expanded={isExpanded}
+                  highlighted={highlightedId === row.id}
                   onToggle={() => toggleExpanded(row.id)}
                   onChange={(changes) => updateCard(row.id, changes)}
                   onRemove={() => removeRow(row.id)}
@@ -278,6 +305,7 @@ export function ScheduleEditor({
                 key={row.id}
                 id={`schedule-${row.id}`}
                 expanded={isExpanded}
+                highlighted={highlightedId === row.id}
                 onToggle={() => toggleExpanded(row.id)}
                 toggleLabel={`${isExpanded ? "Collapse" : "Expand"} topic: ${topicLabel(row)} (position ${index + 1})`}
                 title={topicLabel(row)}
@@ -582,8 +610,9 @@ function EarlierNote({ row, onRemove }: { row: ScheduleRow; onRemove: () => void
   );
 }
 
-function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outcomes, cloKey, assessmentTypes, aiPolicies, foundationYear = false, syllabusId, revision, onOpenHistory }: {
+function GradedCard({ card, number, expanded, highlighted = false, onToggle, onChange, onRemove, outcomes, cloKey, assessmentTypes, aiPolicies, foundationYear = false, syllabusId, revision, onOpenHistory }: {
   foundationYear?: boolean;
+  highlighted?: boolean;
   card: ScheduleRow;
   number: number;
   expanded: boolean;
@@ -608,6 +637,7 @@ function GradedCard({ card, number, expanded, onToggle, onChange, onRemove, outc
     <CollapsibleEntryCard
       id={`schedule-${card.id}`}
       expanded={expanded}
+      highlighted={highlighted}
       onToggle={onToggle}
       toggleLabel={`${expanded ? "Collapse" : "Expand"} graded activity: ${title}`}
       title={title}

@@ -38,7 +38,7 @@ QUOTED_NAMES = 3
 UNTITLED_SYLLABUS = "Untitled syllabus"
 HOD_HAS_NOT_WRITTEN = "The Head of Department has not written this course's learning outcomes yet."
 
-Missing = list[dict[str, str]]
+Missing = list[dict[str, Any]]
 
 
 def _record(value: Any) -> dict[str, Any]:
@@ -73,8 +73,30 @@ def _number(value: Any) -> float | None:
         return None
 
 
-def _add(missing: Missing, section: str, message: str) -> None:
-    missing.append({"section": section, "message": message})
+def _add(  # noqa: PLR0913 - the list, where, what, and the three optional pointers to cards
+    missing: Missing,
+    section: str,
+    message: str,
+    *,
+    items: list[dict[str, str]] | None = None,
+    need: str | None = None,
+    summary: str | None = None,
+) -> None:
+    """One thing still to fill in. Since 11 Nov 2026 a gap in schedule cards also names them.
+
+    `items` are the cards concerned ({"id", "label"}), so the list can open each one; `need`
+    is what is missing in a word or two ("week", "CLOs assessed"); `summary` says it shortly for
+    many cards at once ("15 sessions without a week"). All three are optional additions: the
+    message stays the whole sentence, for any reader that knows nothing else.
+    """
+    entry: dict[str, Any] = {"section": section, "message": message}
+    if items:
+        entry["items"] = items
+    if need:
+        entry["need"] = need
+    if summary:
+        entry["summary"] = summary
+    missing.append(entry)
 
 
 def missing_for_submission(
@@ -233,40 +255,70 @@ def _sessions(missing: Missing, content: dict[str, Any], *, flag_earlier_notes: 
     if not sessions:
         _add(missing, "schedule", "Add the course's sessions to the schedule.")
         return
-    untitled = sum(1 for row in sessions if not _text(row.get("topic")))
+    def gap(rows: list[dict[str, Any]], message: str, need: str, summary: str) -> None:
+        _add(missing, "schedule", message, items=[_session_item(row) for row in rows], need=need, summary=summary)
+
+    untitled = [row for row in sessions if not _text(row.get("topic"))]
     if untitled:
-        _add(missing, "schedule", f"Give {_count(untitled, 'session')} a topic.")
+        gap(
+            untitled,
+            f"Give {_count(len(untitled), 'session')} a topic.",
+            "topic",
+            f"{_count(len(untitled), 'session')} without a topic",
+        )
     # The session card asks for a week; rows from older syllabi may carry a date instead.
-    unplaced = [
-        _short(_text(row.get("topic"))) or "untitled"
-        for row in sessions
-        if not (_text(row.get("week")) or _text(row.get("date")))
-    ]
+    unplaced = [row for row in sessions if not (_text(row.get("week")) or _text(row.get("date")))]
     if unplaced:
-        _add(missing, "schedule", f"Give {_count(len(unplaced), 'session')} a week: {_some(unplaced)}.")
+        gap(
+            unplaced,
+            f"Give {_count(len(unplaced), 'session')} a week: {_some(_names(unplaced))}.",
+            "week",
+            f"{_count(len(unplaced), 'session')} without a week",
+        )
     # The contact hours are the sessions' lengths added up (10 Nov 2026).
-    untimed = [_short(_text(row.get("topic"))) or "untitled" for row in sessions if session_hours(row) is None]
+    untimed = [row for row in sessions if session_hours(row) is None]
     if untimed:
-        _add(missing, "schedule", f"Give {_count(len(untimed), 'session')} a length in hours: {_some(untimed)}.")
+        gap(
+            untimed,
+            f"Give {_count(len(untimed), 'session')} a length in hours: {_some(_names(untimed))}.",
+            "length",
+            f"{_count(len(untimed), 'session')} without a length in hours",
+        )
     # Ticked required by Christian, 10 Nov 2026. The details are rich text: an emptied box
     # still holds its tags. The session type needs no rule: a card without one shows, and
     # prints, the default CM.
-    undetailed = [_short(_text(row.get("topic"))) or "untitled" for row in sessions if not _plain(row.get("details"))]
+    undetailed = [row for row in sessions if not _plain(row.get("details"))]
     if undetailed:
-        _add(missing, "schedule", f"Describe {_count(len(undetailed), 'session')} in its details: {_some(undetailed)}.")
+        gap(
+            undetailed,
+            f"Describe {_count(len(undetailed), 'session')} in its details: {_some(_names(undetailed))}.",
+            "details",
+            f"{_count(len(undetailed), 'session')} without details",
+        )
     if flag_earlier_notes:
-        noted = [
-            _short(_text(row.get("topic"))) or "untitled"
-            for row in sessions
-            if _text(row.get("assessments")) or _text(row.get("deadline"))
-        ]
+        noted = [row for row in sessions if _text(row.get("assessments")) or _text(row.get("deadline"))]
         if noted:
-            _add(
-                missing,
-                "schedule",
+            gap(
+                noted,
                 f"Move the earlier notes into graded activities, or clear them ({_count(len(noted), 'session')}): "
-                f"{_some(noted)}.",
+                f"{_some(_names(noted))}.",
+                "earlier notes",
+                f"{_count(len(noted), 'session')} with earlier notes to move into graded activities or clear",
             )
+
+
+def _session_name(row: dict[str, Any]) -> str:
+    return _short(_text(row.get("topic"))) or "untitled"
+
+
+def _names(rows: list[dict[str, Any]]) -> list[str]:
+    return [_session_name(row) for row in rows]
+
+
+def _session_item(row: dict[str, Any]) -> dict[str, str]:
+    """A session card as the list links to it."""
+    topic = _short(_text(row.get("topic")))
+    return {"id": _text(row.get("id")), "label": topic or "Untitled session"}
 
 
 def _count(number: int, noun: str) -> str:
@@ -287,22 +339,27 @@ def _graded(missing: Missing, content: dict[str, Any], section: str, *, week_req
     fallback = course_ai_fallback(content)
     for position, activity in enumerate(activities, start=1):
         name = _activity_name(activity, position)
+        card = [{"id": _text(activity.get("id")), "label": name}]
+
+        def gap(message: str, need: str, card: list[dict[str, str]] = card) -> None:
+            _add(missing, section, message, items=card, need=need)
+
         if week_required and not _text(activity.get("week")):
-            _add(missing, section, f'Give "{name}" a week.')
+            gap(f'Give "{name}" a week.', "week")
         elif not (_text(activity.get("week")) or _text(activity.get("date"))):
-            _add(missing, section, f'Give "{name}" a date or a week.')
+            gap(f'Give "{name}" a date or a week.', "date or week")
         if not (_text(activity.get("assessmentTypeId")) or _text(activity.get("type"))):
-            _add(missing, section, f'Choose the assessment type of "{name}".')
+            gap(f'Choose the assessment type of "{name}".', "assessment type")
         if _number(activity.get("weight")) is None:
-            _add(missing, section, f'Give the weight of "{name}".')
+            gap(f'Give the weight of "{name}".', "weight")
         # A syllabus written before CLOs were picked by id names them as text, which still prints.
         if not (_ids(activity.get("cloIds")) or _ids(activity.get("catalogueCloIds")) or _text(activity.get("clos"))):
-            _add(missing, section, f'Say which course learning outcomes "{name}" assesses.')
+            gap(f'Say which course learning outcomes "{name}" assesses.', "CLOs assessed")
         policy = activity_ai_policy(activity, fallback)
         if not policy:
-            _add(missing, section, f'Choose the AI policy of "{name}".')
+            gap(f'Choose the AI policy of "{name}".', "AI policy")
         elif ai_option(policy) == OTHER_AI_OPTION and not _text(activity.get("aiOtherText")):
-            _add(missing, section, f'Describe the AI policy of "{name}".')
+            gap(f'Describe the AI policy of "{name}".', "AI policy described")
     _weights_add_up(missing, section, activities)
 
 
@@ -386,14 +443,19 @@ def _fys_graded(missing: Missing, content: dict[str, Any]) -> None:
         return
     for position, activity in enumerate(activities, start=1):
         name = _activity_name(activity, position)
+        card = [{"id": _text(activity.get("id")), "label": name}]
+
+        def gap(message: str, need: str, card: list[dict[str, str]] = card) -> None:
+            _add(missing, "schedule", message, items=card, need=need)
+
         if not _text(activity.get("week")):
-            _add(missing, "schedule", f'Give "{name}" a week.')
+            gap(f'Give "{name}" a week.', "week")
         if not _text(activity.get("component")):
-            _add(missing, "schedule", f'Choose the row of the assessment form "{name}" fills.')
+            gap(f'Choose the row of the assessment form "{name}" fills.', "form row")
         if not _text(activity.get("description")):
-            _add(missing, "schedule", f'Describe "{name}".')
+            gap(f'Describe "{name}".', "description")
         if _number(activity.get("weight")) is None:
-            _add(missing, "schedule", f'Give the weight of "{name}".')
+            gap(f'Give the weight of "{name}".', "weight")
         if not _ids(activity.get("cloNumbers")):
-            _add(missing, "schedule", f'Say which course learning outcomes "{name}" measures.')
+            gap(f'Say which course learning outcomes "{name}" measures.', "CLOs measured")
     _weights_add_up(missing, "schedule", activities)

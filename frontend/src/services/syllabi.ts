@@ -44,7 +44,17 @@ export function setSyllabusReview(id: string, submitted: boolean): Promise<Sylla
 }
 
 /** Something the syllabus must still say before it can be submitted, and the section it is in. */
-export type MissingForReview = { section: string; message: string };
+export type MissingForReview = {
+  section: string;
+  /** The whole sentence: "Give 15 sessions a week: …". */
+  message: string;
+  /** The schedule cards it concerns, to open each one (11 Nov 2026). */
+  items?: Array<{ id: string; label: string }>;
+  /** What is missing in a word or two: "week", "CLOs assessed". */
+  need?: string;
+  /** Said shortly for many cards at once: "15 sessions without a week". */
+  summary?: string;
+};
 export type SyllabusCompleteness = { complete: boolean; missing: MissingForReview[] };
 
 /**

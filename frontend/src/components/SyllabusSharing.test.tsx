@@ -50,6 +50,39 @@ describe("submitting a syllabus for review", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  it("gathers a graded activity's gaps on one line, and opens its card", async () => {
+    const essay = [{ id: "card-essay", label: "Essay" }];
+    vi.spyOn(syllabi, "getSyllabusCompleteness").mockResolvedValue({
+      complete: false,
+      missing: [
+        { section: "schedule", message: "Give 6 sessions a week: …", items: [1, 2, 3, 4, 5, 6].map((n) => ({ id: `s${n}`, label: `Session topic ${n}` })), need: "week", summary: "6 sessions without a week" },
+        { section: "schedule", message: 'Give "Essay" a week.', items: essay, need: "week" },
+        { section: "schedule", message: 'Say which course learning outcomes "Essay" assesses.', items: essay, need: "CLOs assessed" },
+      ],
+    });
+    const onOpenItem = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <SyllabusSharing syllabus={SYLLABUS} sections={SECTIONS} onOpenSection={vi.fn()} onOpenItem={onOpenItem} />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "3 to fill in before review" }));
+
+    // Many sessions: said once, the first few as links, the rest behind "+ 2 more".
+    expect(screen.getByText("6 sessions without a week")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Session topic 5" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "+ 2 more" }));
+    fireEvent.click(screen.getByRole("button", { name: "Session topic 5" }));
+    expect(onOpenItem).toHaveBeenLastCalledWith("schedule", "s5");
+
+    fireEvent.click(await screen.findByRole("button", { name: "3 to fill in before review" }));
+    fireEvent.click(screen.getByRole("button", { name: "Essay: needs week, CLOs assessed" }));
+    expect(onOpenItem).toHaveBeenLastCalledWith("schedule", "card-essay");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
   it("offers Submit for review once nothing is missing", async () => {
     vi.spyOn(syllabi, "getSyllabusCompleteness").mockResolvedValue({ complete: true, missing: [] });
     const submit = vi.spyOn(syllabi, "setSyllabusReview").mockResolvedValue({ ...SYLLABUS, submittedAt: "2026-11-10T10:00:00Z" });

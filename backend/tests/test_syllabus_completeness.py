@@ -144,6 +144,33 @@ def test_sessions_are_listed_once_per_kind_of_gap_naming_the_first_few_by_their_
     assert missing_for_submission(SCEN, content) == []
 
 
+def test_a_gap_in_the_schedule_names_its_cards_so_the_list_can_open_each_one() -> None:
+    content = complete_scen_content()
+    content["schedule"][:1] = [
+        {"id": f"s{number}", "topic": topic, "date": "", "details": "<p>Read the chapter.</p>", "duration": "1.5"}
+        for number, topic in enumerate(["Rays", ""], start=1)
+    ]
+    essay = next(card for card in content["schedule"] if card.get("name") == "Essay")
+    essay.update({"week": "", "cloIds": []})
+
+    missing = missing_for_submission(SCEN, content)
+
+    untitled, unplaced = (item for item in missing if "session" in item["message"])
+    assert untitled["items"] == [{"id": "s2", "label": "Untitled session"}]
+    assert unplaced == {
+        "section": "schedule",
+        "message": 'Give 2 sessions a week: "Rays", "untitled".',
+        "items": [{"id": "s1", "label": "Rays"}, {"id": "s2", "label": "Untitled session"}],
+        "need": "week",
+        "summary": "2 sessions without a week",
+    }
+    # Each gap in a graded activity names its card and, in a word or two, what it lacks.
+    assert [(item["items"], item["need"]) for item in missing if "Essay" in item["message"]] == [
+        ([{"id": essay["id"], "label": "Essay"}], "week"),
+        ([{"id": essay["id"], "label": "Essay"}], "CLOs assessed"),
+    ]
+
+
 def test_every_session_needs_its_length_since_the_contact_hours_add_them_up() -> None:
     content = complete_scen_content()
     content["schedule"][0]["duration"] = ""

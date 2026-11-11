@@ -11,6 +11,8 @@ type Props = {
   leading?: ReactNode;
   actions?: ReactNode;
   overlay?: ReactNode;
+  /** Briefly marked, when the card has just been opened from elsewhere. */
+  highlighted?: boolean;
   children: ReactNode;
 };
 
@@ -25,9 +27,10 @@ export function CollapsibleEntryCard({
   leading,
   actions,
   overlay,
+  highlighted = false,
   children,
 }: Props) {
-  return <article id={id} className="rounded-lg border border-[#d9dee7] bg-[#fdfdfd] p-4">
+  return <article id={id} className={`scroll-mt-4 rounded-lg border p-4 transition-[background-color,border-color,box-shadow] duration-700 ${highlighted ? "border-[#f0c36d] bg-[#fffaeb] shadow-[0_0_0_3px_rgba(247,144,9,0.25)]" : "border-[#d9dee7] bg-[#fdfdfd]"}`}>
     <div className="relative flex items-start justify-between gap-3">
       <button type="button" aria-label={toggleLabel} aria-expanded={expanded} onClick={onToggle} className="flex min-w-0 flex-1 items-start gap-2 text-left">
         <ChevronDown size={17} className={`mt-0.5 shrink-0 text-[#667085] transition-transform ${expanded ? "rotate-180" : ""}`} />

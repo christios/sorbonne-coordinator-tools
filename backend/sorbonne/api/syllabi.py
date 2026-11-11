@@ -569,7 +569,7 @@ def read_syllabus_completeness(  # noqa: PLR0913 - the id, two stores, the mode,
     return {"complete": not missing, "missing": missing}
 
 
-def _missing(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], mode: str) -> list[dict[str, str]]:
+def _missing(catalogue_store: SyllabusCatalogueStore, syllabus: dict[str, Any], mode: str) -> list[dict[str, Any]]:
     content = _resolved_content(catalogue_store, syllabus, mode)
     expected = (
         catalogue_store.expected_plos(content, course_code=str(syllabus.get("courseCode") or ""))

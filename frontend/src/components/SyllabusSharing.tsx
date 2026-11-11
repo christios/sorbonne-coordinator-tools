@@ -21,11 +21,14 @@ export function SyllabusSharing({
   syllabus,
   sections = [],
   onOpenSection,
+  onOpenItem,
   showStatus = true,
 }: {
   syllabus: Syllabus;
   sections?: Array<{ id: string; label: string }>;
   onOpenSection?: (section: string) => void;
+  /** Opens one schedule card, unfolded, from the list of what is still to fill in. */
+  onOpenItem?: (section: string, itemId: string) => void;
   /** False where the page shows the status itself, beside the syllabus's name. */
   showStatus?: boolean;
 }) {
@@ -61,7 +64,7 @@ export function SyllabusSharing({
 
   // Outside the review step the list only informs: nothing waits on it.
   const checklist = missing.length && !awaitingSubmission ? (
-    <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} forReview={false} />
+    <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} onOpenItem={onOpenItem} forReview={false} />
   ) : null;
   const status = showStatus ? <SyllabusStatusPill syllabus={syllabus} /> : null;
   if (!decides) return <>{status}{checklist}</>;
@@ -84,7 +87,7 @@ export function SyllabusSharing({
       </button>
       {checklist}
       {!offersReview ? null : awaitingSubmission && missing.length ? (
-        <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} />
+        <SubmissionChecklist missing={missing} sections={sections} onOpenSection={onOpenSection} onOpenItem={onOpenItem} />
       ) : (
         <button
           type="button"

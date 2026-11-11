@@ -197,4 +197,21 @@ describe("ScheduleEditor", () => {
     fireEvent.click(await screen.findByRole("option", { name: /CLO 2: Sketch functions/ }));
     expect(onChange).toHaveBeenLastCalledWith([expect.objectContaining({ id: "q1", cloNumbers: ["2"] })]);
   });
+
+  it("unfolds a card asked for from the list of what is still to fill in", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const rows: Array<Record<string, string> & { id: string }> = [
+      { id: "session-1", sessionType: "CM", week: "1", topic: "Rays", duration: "1.5" },
+      { id: "essay", kind: "graded", name: "Essay", type: "Essay", week: "", weight: "40" },
+    ];
+    const props = { rows, onChange: vi.fn(), syllabusId: "syllabus-1", revision: 1, onOpenHistory: vi.fn(), holdsGradedActivities: true };
+    const { rerender } = render(<QueryClientProvider client={queryClient}><ScheduleEditor {...props} /></QueryClientProvider>);
+
+    // Named, so folded.
+    expect(screen.getByRole("button", { name: /Expand graded activity: Essay/ }).getAttribute("aria-expanded")).toBe("false");
+
+    rerender(<QueryClientProvider client={queryClient}><ScheduleEditor {...props} reveal={{ id: "essay", count: 1 }} /></QueryClientProvider>);
+
+    expect(screen.getByRole("button", { name: /Collapse graded activity: Essay/ }).getAttribute("aria-expanded")).toBe("true");
+  });
 });

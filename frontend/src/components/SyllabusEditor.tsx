@@ -128,6 +128,17 @@ export function SyllabusEditor({
     "idle" | "exporting" | "error"
   >("idle");
   const [historyField, setHistoryField] = useState<HistoryField | null>(null);
+  // A schedule card asked for from the list of what is still to fill in: its section opens
+  // and the card unfolds in view. The count makes asking for the same card again count.
+  const [reveal, setReveal] = useState<{ id: string; section: string; count: number } | null>(null);
+  const openItem = (section: string, id: string) => {
+    setActive(section);
+    setReveal((current) => ({ id, section, count: (current?.count ?? 0) + 1 }));
+  };
+  // Asked for once: another section opened forgets it, so coming back does not ask again.
+  useEffect(() => {
+    if (reveal && reveal.section !== active) setReveal(null);
+  }, [active, reveal]);
   const requestId = useRef(0);
   const draftRef = useRef(restored ?? syllabus);
   const saveInFlight = useRef(false);
@@ -419,7 +430,7 @@ export function SyllabusEditor({
               >
                 <GitCompareArrows size={17} aria-hidden="true" /> <span>Compare<span className="lg:max-xl:sr-only"> years</span></span>
               </button>
-              <SyllabusSharing syllabus={draft} sections={template.sections} onOpenSection={setActive} showStatus={false} />
+              <SyllabusSharing syllabus={draft} sections={template.sections} onOpenSection={setActive} onOpenItem={openItem} showStatus={false} />
               {exportState === "error" ? (
                 <span
                   role="alert"
@@ -443,6 +454,7 @@ export function SyllabusEditor({
                 editMetadata={editMetadata}
                 onOpenHistory={setHistoryField}
                 onOpenSection={setActive}
+                reveal={reveal}
               />
             ))}
           </div>
@@ -582,6 +594,7 @@ function SectionForm({
   editMetadata,
   onOpenHistory,
   onOpenSection,
+  reveal,
 }: {
   active: string;
   draft: Syllabus;
@@ -593,6 +606,8 @@ function SectionForm({
   onOpenHistory: (field: HistoryField) => void;
   /** Takes the teacher to another section, as the table of contents does. */
   onOpenSection?: (section: string) => void;
+  /** A schedule card to unfold and bring into view. */
+  reveal?: { id: string; count: number } | null;
 }) {
   const content = draft.content as Record<string, unknown>;
   const ranks = useQuery({
@@ -909,6 +924,7 @@ function SectionForm({
             holdsGradedActivities
             foundationYear
             outcomes={fysOutcomes}
+            reveal={reveal}
           />
         </Section>
       );
@@ -1076,6 +1092,7 @@ function SectionForm({
           cloKey={outcomeMode === "hod" ? "catalogueCloIds" : "cloIds"}
           assessmentTypes={assessmentTypes.data ?? []}
           aiPolicies={aiPolicies.data ?? []}
+          reveal={reveal}
         />
         <TeachingApproachNote presets={presetsForSchedule(teachingPresets.data ?? [], sessions)} />
       </Section>
