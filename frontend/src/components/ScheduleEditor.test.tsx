@@ -214,4 +214,21 @@ describe("ScheduleEditor", () => {
 
     expect(screen.getByRole("button", { name: /Collapse graded activity: Essay/ }).getAttribute("aria-expanded")).toBe("true");
   });
+
+  it("switches an open card between a session and a graded activity", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onChange = vi.fn();
+    const rows: Array<Record<string, string> & { id: string }> = [
+      { id: "essay", kind: "graded", name: "Essay", type: "Essay", week: "4", weight: "40" },
+    ];
+    render(<QueryClientProvider client={queryClient}><ScheduleEditor rows={rows} onChange={onChange} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} holdsGradedActivities reveal={{ id: "essay", count: 1 }} /></QueryClientProvider>);
+
+    const kind = screen.getByRole("group", { name: "Kind of card: Essay" });
+    expect(kind.querySelector("[aria-pressed=true]")?.textContent).toBe("Graded activity");
+    fireEvent.click(screen.getByRole("button", { name: "Session" }));
+
+    const [[card]] = onChange.mock.calls[0];
+    expect(card.kind).toBeUndefined();
+    expect(card).toMatchObject({ id: "essay", topic: "Essay", week: "4", weight: "40" });
+  });
 });
