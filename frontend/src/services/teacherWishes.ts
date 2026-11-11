@@ -122,6 +122,18 @@ export function repeatWords(block: Pick<WishBlock, "repeat" | "week">): string {
 }
 
 /**
+ * The dates of a block of one week: "Fri 22 Jan", "Tue 19 Jan, Thu 21 Jan", or, three days or
+ * more in a row, "Mon 18 Jan–Fri 22 Jan".
+ */
+export function datesOf(block: Pick<WishBlock, "days" | "week">): string {
+  const dated = (day: number) => `${DAY_SHORT[day]} ${formatDayAndMonth(isoPlus(block.week, day - 1))}`;
+  const days = [...block.days].sort((left, right) => left - right);
+  const inARow = days.every((day, index) => !index || day === days[index - 1] + 1);
+  if (days.length >= 3 && inARow) return `${dated(days[0])}–${dated(days[days.length - 1])}`;
+  return days.map(dated).join(", ");
+}
+
+/**
  * A block in words: "Constraint · Tue, Thu 14:00–16:00 · every week", "Constraint · Fri 22 Jan,
  * all day". A block of one week names its dates; given the grid, a whole day is "all day".
  */
@@ -129,10 +141,7 @@ export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | 
   const kind = block.kind === "constraint" ? "Constraint" : "Preference";
   const whole = grid ? block.from <= grid.firstHour && block.to >= grid.lastHour : false;
   const hours = whole ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
-  if (block.repeat === "once") {
-    const dates = block.days.map((day) => `${DAY_SHORT[day]} ${formatDayAndMonth(isoPlus(block.week, day - 1))}`).join(", ");
-    return `${kind} · ${dates}, ${hours}`;
-  }
+  if (block.repeat === "once") return `${kind} · ${datesOf(block)}, ${hours}`;
   return `${kind} · ${block.days.map((day) => DAY_SHORT[day]).join(", ")} ${hours} · ${repeatWords(block)}`;
 }
 

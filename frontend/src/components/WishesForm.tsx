@@ -26,6 +26,7 @@ import {
   DAY_SHORT,
   STEP,
   clockOf,
+  datesOf,
   describeBlock,
   isoPlus,
   recurringConstraintHours,
@@ -207,9 +208,7 @@ function repeatTag(block: Pick<WishBlock, "repeat" | "week">): string {
 /** "Tue, Thu 14:00–16:00", "Fri 22 Jan, all day": when a block is, without its kind or how it repeats. */
 export function whenWords(block: WishBlock, grid: { firstHour: number; lastHour: number }): string {
   const hours = block.from <= grid.firstHour && block.to >= grid.lastHour ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
-  if (block.repeat === "once") {
-    return `${block.days.map((day) => `${DAY_SHORT[day]} ${formatDayAndMonth(isoPlus(block.week, day - 1))}`).join(", ")}, ${hours}`;
-  }
+  if (block.repeat === "once") return `${datesOf(block)}, ${hours}`;
   return `${block.days.map((day) => DAY_SHORT[day]).join(", ")} ${hours}`;
 }
 
@@ -358,7 +357,7 @@ let made = 0;
 const newId = () => `b${Date.now().toString(36)}${(made += 1).toString(36)}`;
 
 /** The guided tour's steps, in order (their words are in the form, which they act on). */
-const TOUR = ["paint", "open", "repeat", "weeks", "day", "summary", "next", "limits", "save", "again"] as const;
+const TOUR = ["intro", "paint", "open", "repeat", "weeks", "day", "week", "summary", "next", "limits", "save", "again"] as const;
 
 /** A cell of the grid: a day, where its stretch of the day starts, and the cell on the page. */
 type Spot = { day: number; time: number; cell: HTMLElement };
@@ -417,7 +416,8 @@ export function WishesForm({
   const [needs, setNeeds] = useState(initial?.needs ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [reason, setReason] = useState(initial?.overCapReason ?? "");
-  const [brush, setBrush] = useState<WishKind>("constraint");
+  // A new block starts as a constraint; its box makes it a preference.
+  const brush: WishKind = "constraint";
   const [fineness, setFineness] = useState<Fineness>(() => finenessOf(initial?.blocks ?? []));
   // The page on screen: the calendar, the limits, the needs.
   const [page, setPage] = useState(0);
@@ -463,6 +463,10 @@ export function WishesForm({
   const [tourMade, setTourMade] = useState("");
   // And the one whole day marked on the step about a day away: the only other the tour allows.
   const [tourDay, setTourDay] = useState("");
+  // And the one whole week, on the step about a week away.
+  const [tourWeek, setTourWeek] = useState("");
+  // Counted up when the form ignores something done during the tour: the card shakes and says what to do.
+  const [tourNudge, setTourNudge] = useState(0);
   // The block clicked while the tour teaches clicking, opened once the tour has said so.
   const [tourClicked, setTourClicked] = useState<{ id: string; cell: HTMLElement } | null>(null);
   const [popFromTour, setPopFromTour] = useState(false);
@@ -537,19 +541,28 @@ export function WishesForm({
   const canMake = tourAt === null || !tourMade;
   // While the tour is on, a block made does not open by itself — opening it is a step — but for a
   // day away, whose box is where its reason goes.
-  const quiet = tourAt !== null && tourStepId !== "day";
+  const quiet = tourAt !== null && tourStepId !== "day" && tourStepId !== "week";
+  /** Something done during the tour that the tour does not take: the card is nudged to say what is. */
+  const nudgeTour = () => {
+    if (tourAt !== null) setTourNudge((count) => count + 1);
+  };
   const change = (id: string, patch: Partial<WishBlock>) => setBlocks((current) => current.map((block) => (block.id === id ? { ...block, ...patch } : block)));
   const remove = (id: string) => {
     setBlocks((current) => current.filter((block) => block.id !== id));
     setOpen((now) => (now?.id === id ? null : now));
   };
   const make = (block: Omit<WishBlock, "id" | "comment">, at?: HTMLElement) => {
-    // The tour's step about a day away may mark one day, past the tour's one block.
+    // The tour's steps about a day and a week away may mark one each, past the tour's one block.
     const aDay = tourStepId === "day" && !tourDay;
-    if (!canMake && !aDay) return;
+    const aWeek = tourStepId === "week" && !tourWeek;
+    if (!canMake && !aDay && !aWeek) {
+      nudgeTour();
+      return;
+    }
     const id = newId();
     setBlocks((current) => [...current, { ...block, id, comment: "" }]);
     if (aDay) setTourDay(id);
+    else if (aWeek) setTourWeek(id);
     else if (tourAt !== null) setTourMade(id);
     if (!quiet) setToOpen({ id, cell: at });
   };
@@ -602,10 +615,34 @@ export function WishesForm({
   const wholeDay = (day: number, header: HTMLElement) => {
     const there = wholeDayOf(day);
     if (there) {
-      if (tourStepId !== "paint") openAt(there.id, header);
+      if (tourStepId === "paint") nudgeTour();
+      else openAt(there.id, header);
       return;
     }
     make({ kind: "constraint", days: [day], from: collection.firstHour, to: collection.lastHour, repeat: "once", week }, header);
+  };
+
+  /** The block making every day of this week a constraint all day, if there is one. */
+  const wholeWeekOf = () =>
+    blocks.find(
+      (block) =>
+        block.repeat === "once" &&
+        block.week === week &&
+        block.kind === "constraint" &&
+        collection.days.every((day) => block.days.includes(day)) &&
+        block.from <= collection.firstHour &&
+        block.to >= collection.lastHour,
+    );
+  /** The whole week a constraint, this week only, from its Whole week button; its box opens over the first day. */
+  const wholeWeek = () => {
+    const under = gridBox.current?.querySelector<HTMLElement>("thead [data-day-name]") ?? undefined;
+    const there = wholeWeekOf();
+    if (there) {
+      if (tourStepId === "paint") nudgeTour();
+      else if (under) openAt(there.id, under);
+      return;
+    }
+    make({ kind: "constraint", days: [...collection.days], from: collection.firstHour, to: collection.lastHour, repeat: "once", week }, under);
   };
 
   // Let go: a press on a block that did not move opens it; any other stroke makes a block.
@@ -782,6 +819,7 @@ export function WishesForm({
     setOpen(null);
     setTourMade("");
     setTourDay("");
+    setTourWeek("");
     setTourClicked(null);
     setTourAt(0);
   };
@@ -843,7 +881,7 @@ export function WishesForm({
   }, [open]);
   // The box opened while the tour is on how a block repeats: closing it is what was to try.
   useEffect(() => {
-    if (open && (tourStepId === "repeat" || tourStepId === "day")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
+    if (open && (tourStepId === "repeat" || tourStepId === "day" || tourStepId === "week")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
   }, [open, tourStepId]);
 
   // The painting shown while the tour asks for it, until somebody paints: Tuesday from 14:00, three hours.
@@ -900,26 +938,33 @@ export function WishesForm({
    */
   const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
     {
+      // Before anything: that this is a tour, and that only what its card says works.
+      id: "intro",
+      title: "How this tour works",
+      body: <span className="font-semibold text-[#1f4e79]">This is a guided tour of the form: you try each part as you go.</span>,
+      steps: [
+        <>Read this card: it says what to do, one step at a time.</>,
+        <>Do only that. The rest of the page stays locked until the tour ends.</>,
+        <>
+          The card moves on once it is done; <b>Back</b> returns to the step before.
+        </>,
+      ],
+    },
+    {
       id: "paint",
       title: "Mark a time",
       body: tourMade ? <b className="font-semibold text-[#1f4e79]">One block is enough for the tour. Press Next.</b> : undefined,
-      steps: [
-        <>
-          Pick <KindLook kind="constraint" /> (can&rsquo;t teach) or <KindLook kind="preference" /> (would like to teach).
-        </>,
-        <>Drag down a few hours on any day; sideways covers several days.</>,
-        <>Hours left white are fine.</>,
-      ],
-      tryIt: "Make a block.",
+      steps: [<>Drag down a few hours on any day; sideways covers several days.</>, <>Let go: that makes a block. You set it in its box in a moment.</>],
+      tryIt: "Drag down a few hours on any day of the calendar.",
       done: Boolean(tourMade) && !drag,
       target: () => [part("toolbar"), gridBox.current],
-      allow: () => [part("brushes"), gridBody()],
+      allow: () => gridBody(),
     },
     {
       id: "open",
       title: "Open a block",
       steps: [<>Click the block you made.</>],
-      tryIt: "Open it.",
+      tryIt: "Click the block you made.",
       done: Boolean(tourClicked || (open && openBlock)),
       doneWords: "Nicely done: opening it…",
       // Clicked: a moment to see the block chosen, then it opens and the tour goes on by itself.
@@ -929,19 +974,22 @@ export function WishesForm({
     },
     {
       id: "repeat",
-      title: "How it repeats",
+      title: "Set the block",
       body: open && openBlock ? <span className="font-semibold text-[#1f4e79]">Your click opened this box.</span> : undefined,
       steps:
         open && openBlock
           ? [
+              <>
+                Choose <KindLook kind="constraint" /> (can&rsquo;t teach) or <KindLook kind="preference" /> (would like to teach).
+              </>,
               <>Pick how it repeats.</>,
               <>Say why: a constraint needs a reason; for a preference it&rsquo;s optional. The coordinator reads it.</>,
               <>
                 Press <b>Done</b>.
               </>,
             ]
-          : [<>Click your block to open it again.</>],
-      tryIt: "Set it.",
+          : [<>Click your block to open its box.</>],
+      tryIt: open && openBlock ? "Set the block in its box, then press Done." : "Click your block to open its box.",
       done: tourBase.sawOpen && !open,
       // Done pressed: straight on.
       instantNext: true,
@@ -950,22 +998,19 @@ export function WishesForm({
       target: () => [[part("notice"), part("stepper"), part("week-head"), part("toolbar"), gridBox.current], open ? popover.current : null],
       apart: true,
       allow: () => (open ? popover.current : gridBody()),
-      pointAt: () => popover.current?.querySelector('[aria-label="How it repeats"]'),
+      pointAt: () => popover.current?.querySelector('[aria-label="Constraint or preference"]'),
       // Beside the choice, outside its box: over it would cover the box's words.
       pointFrom: "left",
     },
     {
       id: "weeks",
       title: "Move between weeks",
-      steps: [
-        <>Press the arrow to go to {after_ ? "the next week" : "the week before"}.</>,
-        <>A block for one week only stays on its week; the others follow.</>,
-      ],
-      tryIt: "Change week.",
+      steps: [<>Press the arrow to go to {after_ ? "the next week" : "the week before"}.</>],
+      tryIt: `Press the arrow to go to ${after_ ? "the next week" : "the week before"}.`,
       done: week !== tourBase.week,
       instantNext: true,
       target: () => [part("toolbar"), gridBox.current],
-      allow: () => part("weeks"),
+      allow: () => [part("week-before"), part("week-after"), part("weeks")?.querySelector("[aria-haspopup]")],
       pointAt: () => part(after_ || !before_ ? "week-after" : "week-before"),
     },
     {
@@ -982,7 +1027,7 @@ export function WishesForm({
           Press <b>Done</b>.
         </>,
       ],
-      tryIt: "Mark a day.",
+      tryIt: open ? "Say why in the day's box, then press Done." : "Press Whole day under a day's name.",
       done: Boolean(tourDay) && tourBase.sawOpen && !open,
       instantNext: true,
       // The calendar, and the day's box on its own once it is open.
@@ -990,6 +1035,29 @@ export function WishesForm({
       apart: true,
       allow: () => [gridBox.current?.querySelector("thead"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : gridBox.current?.querySelector("thead button[data-day-name]")),
+      pointFrom: open ? "left" : undefined,
+    },
+    {
+      id: "week",
+      title: "Away for a whole week?",
+      steps: [
+        <>
+          Press <b>Whole week</b>, beside the week&rsquo;s name.
+        </>,
+        <>
+          Every day of the week becomes a <KindLook kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Leave&rdquo;.
+        </>,
+        <>
+          Press <b>Done</b>.
+        </>,
+      ],
+      tryIt: open ? "Say why in the week's box, then press Done." : "Press Whole week, beside the week's name.",
+      done: Boolean(tourWeek) && tourBase.sawOpen && !open,
+      instantNext: true,
+      target: () => [[part("toolbar"), gridBox.current], open ? popover.current : null],
+      apart: true,
+      allow: () => [part("whole-week"), open ? popover.current : null],
+      pointAt: () => (open ? popover.current?.querySelector("[data-why]") : part("whole-week")),
       pointFrom: open ? "left" : undefined,
     },
     {
@@ -1147,6 +1215,7 @@ export function WishesForm({
           steps={tourSteps}
           at={tourAt}
           onStep={setTourAt}
+          nudge={tourNudge}
           endWords={[
             tried && tourAt !== tourSteps.length - 1 ? "What you tried during the tour is cleared." : "",
             tourRequired
@@ -1212,15 +1281,15 @@ export function WishesForm({
             <h3 className="text-sm font-semibold text-[#171717]">{Yours} week</h3>
             <HowTo
               steps={[
-                { icon: Paintbrush, title: "Pick Constraint or Preference", hint: `Red: ${meaning("constraint", voice)} · green: ${meaning("preference", voice)}` },
                 { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
-                { icon: Repeat, title: "Choose how it repeats", hint: "Every week, from a week on, or one week only" },
+                { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; green, ${meaning("preference", voice)}` },
+                { icon: Repeat, title: "How it repeats", hint: "Every week, from a week on, or one week only" },
               ]}
             >
               <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
-                <span className="text-[11px] text-[#a6292f]">Away for a day?</span>
+                <span className="text-[11px] text-[#a6292f]">Away for a day or a week?</span>
                 <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
-                  <CalendarX2 size={12} aria-hidden="true" /> Press Whole day under it
+                  <CalendarX2 size={12} aria-hidden="true" /> Whole day · Whole week
                 </span>
               </div>
             </HowTo>
@@ -1267,22 +1336,20 @@ export function WishesForm({
               >
                 <ChevronRight size={16} aria-hidden="true" />
               </button>
-            </div>
-            <div role="radiogroup" aria-label="Mark as" data-tour="brushes" className="flex flex-wrap gap-1.5">
-              {KINDS.map((option) => (
+              <Tip side="top" wide={false} content={`Can't teach at all in ${weekName(week)}: a constraint every day, this week only.`}>
                 <button
-                  key={option.value}
                   type="button"
-                  role="radio"
-                  aria-checked={brush === option.value}
-                  onClick={() => setBrush(option.value)}
-                  className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold ${
-                    brush === option.value ? option.on : "border-[#d9dee7] bg-white text-[#344054] hover:bg-[#f8fafc]"
+                  data-tour="whole-week"
+                  aria-label={`${weekName(week)}: a constraint all week, this week only`}
+                  aria-pressed={wholeWeekOf() ? true : false}
+                  onClick={wholeWeek}
+                  className={`ml-1 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
+                    wholeWeekOf() ? "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]" : "border-[#e8b4b7] bg-white text-[#a6292f] hover:bg-[#fdf3f3]"
                   }`}
                 >
-                  <span className="inline-block h-2.5 w-2.5 rounded-sm" style={KIND_TONE[option.value]} /> {option.label}
+                  <CalendarX2 size={12} aria-hidden="true" /> Whole week
                 </button>
-              ))}
+              </Tip>
             </div>
             <div role="radiogroup" aria-label="Cells" className="inline-flex rounded-md bg-white/70 p-0.5 text-xs font-semibold">
               {FINENESS.map((option) => (
@@ -1397,9 +1464,9 @@ export function WishesForm({
                                 event.preventDefault();
                                 const last = { day, time, cell: event.currentTarget };
                                 // The tour's one block made, a press off it does nothing.
-                                if (!first && !canMake) return;
+                                if (!first && !canMake) return nudgeTour();
                                 // On the tour's painting step a press on a block is nothing at all.
-                                if (first && tourStepId === "paint") return;
+                                if (first && tourStepId === "paint") return nudgeTour();
                                 setResting(null);
                                 stroke.current = { from: here, to: here, on: first, moved: false, kind: brush, last };
                                 if (!first) setDrag({ from: here, to: here });
@@ -1430,7 +1497,7 @@ export function WishesForm({
                                 if (event.detail !== 0) return;
                                 const cell = event.currentTarget;
                                 if (first) {
-                                  if (tourStepId === "paint") return;
+                                  if (tourStepId === "paint") return nudgeTour();
                                   if (tourStepId === "open") setTourClicked({ id: first.id, cell });
                                   else openAt(first.id, cell);
                                   return;
@@ -1491,13 +1558,10 @@ export function WishesForm({
                 className="pointer-events-none absolute z-10"
                 style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height, ["--tour-drag" as string]: `${demo.height - 6}px` }}
               >
-                {/* In the colour of the kind picked: red for a constraint, green for a preference. */}
-                <span
-                  className="tour-paint-stroke absolute inset-x-1 top-0 h-full rounded-sm"
-                  style={{ backgroundColor: brush === "preference" ? "rgba(79, 159, 116, 0.6)" : "rgba(217, 100, 106, 0.6)" }}
-                />
+                {/* In the colour a new block takes: a constraint's, until its box says otherwise. */}
+                <span className="tour-paint-stroke absolute inset-x-1 top-0 h-full rounded-sm" style={{ backgroundColor: "rgba(217, 100, 106, 0.6)" }} />
                 <span className="absolute left-1/2 top-0 -ml-3 -mt-3 h-6 w-6">
-                  <span className={`tour-paint-press block h-6 w-6 rounded-full border-2 ${brush === "preference" ? "border-[#2e7d55]" : "border-[#a6292f]"}`} />
+                  <span className="tour-paint-press block h-6 w-6 rounded-full border-2 border-[#a6292f]" />
                 </span>
                 <span className="absolute left-1/2 top-0 -ml-[9px] -mt-[3px]">
                   <span className="tour-paint-hand block">

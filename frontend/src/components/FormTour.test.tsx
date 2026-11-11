@@ -78,7 +78,7 @@ describe("a guided tour's card", () => {
     fireEvent.click(outside);
     fireEvent.click(outside, { detail: 0 });
     expect(pressed).not.toHaveBeenCalled();
-    expect(screen.getByRole("status").textContent).toContain("only what this step asks for works");
+    expect(screen.getByRole("status").textContent).toContain("This is a guided tour: only what the card asks works. Now: press Finish on the card.");
     expect(document.querySelector("[data-tour-card] .tour-card-shake")).not.toBeNull();
 
     fireEvent.click(allowed);

@@ -180,6 +180,12 @@ function dimBoxes(lit: Box[], screen: Box): Box[] {
  */
 const STILL_REACHED = '[data-tour-card], [role="listbox"]';
 
+/** A button the card wants pressed, after a press elsewhere: ringed and pulsing. */
+const CALL = "ring-4 ring-[#ffc43d] motion-safe:animate-pulse";
+
+/** "Press Next." as the end of a sentence: "press Next." */
+const lower = (words: ReactNode): ReactNode => (typeof words === "string" ? words.charAt(0).toLowerCase() + words.slice(1) : words);
+
 /**
  * A guided tour over a page: the part a step is about lit up, everything else dimmed, and a
  * card beside it, saying what to do in numbered steps. Only the controls a step is about
@@ -197,6 +203,7 @@ export function FormTour({
   onClose,
   endWords,
   hint = false,
+  nudge = 0,
 }: {
   steps: TourStep[];
   at: number;
@@ -210,6 +217,11 @@ export function FormTour({
    * count, and its × (or Escape) closes it at once.
    */
   hint?: boolean;
+  /**
+   * Counted up by the page when it ignores something done during the tour — a block clicked
+   * before its step, a second block — so the card shakes and says what to do now.
+   */
+  nudge?: number;
 }) {
   const step = steps[at];
   const [box, setBox] = useState<Box | null>(null);
@@ -299,8 +311,13 @@ export function FormTour({
     };
   }, []);
   useEffect(() => {
+    if (!nudge) return;
+    setNudges((count) => count + 1);
+    setSaying(true);
+  }, [nudge]);
+  useEffect(() => {
     if (!saying) return;
-    const timer = window.setTimeout(() => setSaying(false), 3500);
+    const timer = window.setTimeout(() => setSaying(false), 5000);
     return () => window.clearTimeout(timer);
   }, [saying, nudges]);
 
@@ -350,8 +367,17 @@ export function FormTour({
   // Done: "Nicely done", and Next — the reader goes on when they have seen it. A step that
   // goes on by itself does so after its moment, a bar filling meanwhile.
   const done = Boolean(step?.tryIt && step.done);
-  const autoNext = done && !last ? step?.autoNext : undefined;
-  const instant = done && !last && Boolean(step?.instantNext);
+  /*
+   * A step goes on by itself only once it has been not done since the tour came to it: come
+   * back to it with Back, and what was done before does not throw the tour forward again.
+   */
+  const [armedAt, setArmedAt] = useState<number | null>(null);
+  useEffect(() => {
+    if (!done) setArmedAt(at);
+  }, [done, at]);
+  const armed = armedAt === at;
+  const autoNext = done && !last && armed ? step?.autoNext : undefined;
+  const instant = done && !last && armed && Boolean(step?.instantNext);
   useEffect(() => {
     if (instant) onStep(at + 1);
   }, [instant, at, onStep]);
@@ -547,10 +573,22 @@ export function FormTour({
                   )
                 ) : null}
                 {saying ? (
-                  <p role="status" className="mt-2 rounded-md bg-[#fdf6e3] px-2.5 py-1.5 text-xs text-[#7a5d00]">
-                    {step.allow || step.tryIt
-                      ? "During the tour, only what this step asks for works. Follow the steps on the card, or end the tour with ×."
-                      : "Nothing on the page is to be clicked at this step: read the card, then go on with its button."}
+                  <p role="status" className="mt-2 rounded-md border border-[#f0d58c] bg-[#fdf6e3] px-2.5 py-2 text-xs leading-5 text-[#7a5d00]">
+                    This is a guided tour: only what the card asks works.{" "}
+                    <b className="font-semibold text-[#5c4500]">
+                      Now:{" "}
+                      {step.actions?.length
+                        ? `choose ${step.actions.map((action) => action.label).join(" or ")} on the card.`
+                        : last
+                          ? "press Finish on the card."
+                          : autoNext
+                            ? "wait a moment: the tour goes on by itself."
+                            : done && !instant
+                              ? "press Next on the card."
+                              : step.tryIt
+                                ? lower(step.tryIt)
+                                : "read the card, then press Next."}
+                    </b>
                   </p>
                 ) : null}
               </div>
@@ -571,17 +609,17 @@ export function FormTour({
                         key={action.label}
                         type="button"
                         onClick={action.onClick}
-                        className={
+                        className={`${
                           action.primary
                             ? "rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white"
                             : "rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
-                        }
+                        } ${saying ? CALL : ""}`}
                       >
                         {action.label}
                       </button>
                     ))
                   ) : last ? (
-                    <button type="button" onClick={onClose} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
+                    <button type="button" onClick={onClose} className={`rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white ${saying ? CALL : ""}`}>
                       Finish
                     </button>
                   ) : autoNext ? null : step.tryIt && !done ? (
@@ -595,7 +633,11 @@ export function FormTour({
                       <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
                     )
                   ) : (
-                    <button type="button" onClick={() => onStep(at + 1)} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
+                    <button
+                      type="button"
+                      onClick={() => onStep(at + 1)}
+                      className={`rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white ${saying ? CALL : ""}`}
+                    >
                       Next
                     </button>
                   )}

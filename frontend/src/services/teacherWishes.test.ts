@@ -49,6 +49,11 @@ describe("the lines an answer makes", () => {
     expect(describeBlock(block("d", "constraint", [5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
       "Constraint · Fri 22 Jan, all day",
     );
+    // Three days or more in a row read as a stretch; days apart, one by one.
+    expect(describeBlock(block("w", "constraint", [1, 2, 3, 4, 5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
+      "Constraint · Mon 18 Jan–Fri 22 Jan, all day",
+    );
+    expect(describeBlock(block("t", "constraint", [2, 4], 8, 10, { repeat: "once", week: "2027-01-18" }))).toBe("Constraint · Tue 19 Jan, Thu 21 Jan, 08:00–10:00");
   });
 });
 
