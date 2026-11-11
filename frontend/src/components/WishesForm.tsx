@@ -174,38 +174,23 @@ export function RowTime({ time, size }: { time: number; size: number }) {
 }
 
 /** The plain words under a week: what the colours and the stripes mean. */
-export function WishesLegend({ voice = "they" }: { voice?: Voice }) {
+export function WishesLegend() {
   const swatch = (style: CSSProperties) => <span className="inline-block h-3 w-3 rounded-sm" style={style} />;
+  const grey = { backgroundColor: "#98a2b3" };
+  const item = (style: CSSProperties, words: string) => (
+    <span className="inline-flex items-center gap-1.5">
+      {swatch(style)}
+      {words}
+    </span>
+  );
   return (
     <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
-      <span className="inline-flex items-center gap-1.5">
-        {swatch(KIND_TONE.constraint)}
-        <span>
-          <b className="font-semibold text-[#344054]">Constraint</b>: {meaning("constraint", voice)}
-        </span>
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        {swatch(KIND_TONE.preference)}
-        <span>
-          <b className="font-semibold text-[#344054]">Preference</b>: {meaning("preference", voice)}
-        </span>
-      </span>
+      {item(KIND_TONE.constraint, "Constraint")}
+      {item(KIND_TONE.preference, "Preference")}
       {/* The colour says which kind; the fill, which weeks. */}
       <span aria-hidden="true" className="h-3 w-px bg-[#d0d5dd]" />
-      <span className="inline-flex items-center gap-1.5">
-        {swatch(toneOf({ kind: "constraint", repeat: "all" }))}
-        {swatch(toneOf({ kind: "preference", repeat: "all" }))}
-        <span>
-          <b className="font-semibold text-[#344054]">Solid</b>: every week, or every week from a date
-        </span>
-      </span>
-      <span className="inline-flex items-center gap-1.5">
-        {swatch(toneOf({ kind: "constraint", repeat: "once" }))}
-        {swatch(toneOf({ kind: "preference", repeat: "once" }))}
-        <span>
-          <b className="font-semibold text-[#344054]">Striped</b>: that week only
-        </span>
-      </span>
+      {item(grey, "Every week")}
+      {item({ ...grey, backgroundImage: stripes("rgba(255, 255, 255, 0.6)") }, "One week only")}
     </p>
   );
 }
@@ -1805,7 +1790,7 @@ export function WishesForm({
             ) : null}
           </div>
           <div className="mt-2">
-            <WishesLegend voice={voice} />
+            <WishesLegend />
           </div>
           {overCap ? (
             <label className="mt-3 block">

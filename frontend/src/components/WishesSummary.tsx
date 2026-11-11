@@ -107,7 +107,7 @@ export function WishesSummary({
                 ))}
               </tbody>
             </table>
-            <WishesLegend voice={voice} />
+            <WishesLegend />
           </>
         ) : null}
         {wishes.overCapReason ? (
