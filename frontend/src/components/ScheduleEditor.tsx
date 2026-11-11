@@ -153,18 +153,29 @@ export function ScheduleEditor({
 }: Props) {
   // A card opens by itself only while it is blank: a session without a topic, a graded
   // activity without a name or a type.
+  // One card open at a time (Christian, 11 Nov 2026): at first the first blank one, if any.
   const [expandedIds, setExpandedIds] = useState<string[]>(() =>
     rows
       .filter((row) => (row.kind === "graded" ? !row.name?.trim() && !row.type?.trim() : !row.topic?.trim()))
-      .map((row) => row.id),
+      .map((row) => row.id)
+      .slice(0, 1),
   );
+  /*
+   * A card held where it is on screen across the next change: opened while another closes
+   * above it, or switched to the other kind. Set before the change, applied before paint.
+   */
+  const anchorRef = useRef<{ id: string; top: number; focus: boolean } | null>(null);
+  const holdInPlace = (id: string, focus: boolean) => {
+    const card = document.getElementById(`schedule-${id}`);
+    anchorRef.current = card ? { id, top: card.getBoundingClientRect().top, focus } : null;
+  };
   const [movingRowId, setMovingRowId] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [heldOrder, setHeldOrder] = useState<{ ids: string[]; placement: string } | null>(null);
 
   useEffect(() => {
     if (!reveal) return;
-    setExpandedIds((current) => (current.includes(reveal.id) ? current : [...current, reveal.id]));
+    setExpandedIds([reveal.id]);
     setHighlightedId(reveal.id);
     // Once the card has unfolded: bring it into view and give its toggle the focus.
     let frame = requestAnimationFrame(() => {
@@ -198,12 +209,11 @@ export function ScheduleEditor({
       document.removeEventListener("pointerdown", closeWhenClickingAway);
   }, [movingRowId]);
 
-  const toggleExpanded = (id: string) =>
-    setExpandedIds((current) =>
-      current.includes(id)
-        ? current.filter((item) => item !== id)
-        : [...current, id],
-    );
+  // Opening a card closes the open one; the card opened stays under the pointer.
+  const toggleExpanded = (id: string) => {
+    holdInPlace(id, false);
+    setExpandedIds((current) => (current.includes(id) ? [] : [id]));
+  };
   const weeksInUse = weeksTaught(rows);
   /*
    * After a card switches kind the list keeps the order it had on screen (11 Nov 2026). A
@@ -242,20 +252,18 @@ export function ScheduleEditor({
    * on screen, before anything is painted, and keeps the focus. Scrolling to it instead made
    * the page jump and the editor's header fold and unfold: "everything flickers".
    */
-  const switchAnchor = useRef<{ id: string; top: number } | null>(null);
   const switchKind = (id: string, to: CardKind) => {
-    const card = document.getElementById(`schedule-${id}`);
-    switchAnchor.current = card ? { id, top: card.getBoundingClientRect().top } : null;
+    holdInPlace(id, true);
     setHeldOrder({ ids: shown.map((row) => row.id), placement });
     onChange(rows.map((row) => (row.id === id ? switchCardKind(row, to) : row)));
   };
   useLayoutEffect(() => {
-    const anchor = switchAnchor.current;
+    const anchor = anchorRef.current;
     if (!anchor) return;
-    switchAnchor.current = null;
+    anchorRef.current = null;
     const card = document.getElementById(`schedule-${anchor.id}`);
     if (!card) return;
-    card.querySelector<HTMLButtonElement>("[data-card-kind] [aria-pressed=true]")?.focus({ preventScroll: true });
+    if (anchor.focus) card.querySelector<HTMLButtonElement>("[data-card-kind] [aria-pressed=true]")?.focus({ preventScroll: true });
     const moved = card.getBoundingClientRect().top - anchor.top;
     const scroller = scrollParent(card);
     if (!scroller || Math.abs(moved) < 1) return;
@@ -266,11 +274,11 @@ export function ScheduleEditor({
     const view = scroller.getBoundingClientRect();
     const top = card.getBoundingClientRect().top;
     if (top < view.top || top > view.bottom - 64) scroller.scrollTop += top - view.top - 16;
-  }, [rows]);
+  }, [rows, expandedIds]);
   const addGraded = () => {
     const id = crypto.randomUUID();
     onChange([...rows, { id, kind: "graded", week: "", date: "", name: "", weight: "" }]);
-    setExpandedIds((current) => [...current, id]);
+    setExpandedIds([id]);
     window.requestAnimationFrame(() =>
       document.getElementById(`schedule-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }),
     );
@@ -283,7 +291,7 @@ export function ScheduleEditor({
         ? { id, sessionType: DEFAULT_SESSION_TYPE, week: "", topic: "", details: "", preClass: "" }
         : { id, sessionType: DEFAULT_SESSION_TYPE, week: "", deadline: "", topic: "", details: "", preClass: "", assessments: "" },
     ]);
-    setExpandedIds((current) => [...current, id]);
+    setExpandedIds([id]);
     window.requestAnimationFrame(() =>
       document
         .getElementById(`schedule-${id}`)

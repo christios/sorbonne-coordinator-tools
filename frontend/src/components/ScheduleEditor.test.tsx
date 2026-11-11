@@ -253,4 +253,24 @@ describe("ScheduleEditor", () => {
     rerender(show());
     expect(titles()).toEqual(["topic: Prisms (position 1)", "topic: Mirrors (position 2)", "graded activity: Rays"]);
   });
+
+  it("keeps one card open at a time", () => {
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const rows: Array<Record<string, string> & { id: string }> = [
+      { id: "a", topic: "", week: "" },
+      { id: "b", topic: "", week: "" },
+      { id: "c", kind: "graded", name: "Essay", week: "2" },
+    ];
+    render(<QueryClientProvider client={queryClient}><ScheduleEditor rows={rows} onChange={vi.fn()} syllabusId="syllabus-1" revision={1} onOpenHistory={vi.fn()} holdsGradedActivities /></QueryClientProvider>);
+    const open = () => Array.from(document.querySelectorAll("article[id^=schedule-]")).filter((card) => card.querySelector(":scope > div > button[aria-expanded=true]")).map((card) => card.id);
+
+    // Two blank sessions: only the first opens by itself.
+    expect(open()).toEqual(["schedule-a"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand graded activity: Essay/ }));
+    expect(open()).toEqual(["schedule-c"]);
+
+    fireEvent.click(screen.getByRole("button", { name: /Collapse graded activity: Essay/ }));
+    expect(open()).toEqual([]);
+  });
 });
