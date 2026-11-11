@@ -183,7 +183,7 @@ export type Shade = { from: string; to: string; tone: "cant" | "prefer" | "perio
 
 const SHADES: Record<Shade["tone"], string> = {
   cant: "bg-[#a6292f]/[0.12] border-x border-[#a6292f]/30",
-  prefer: "bg-[#2e7d55]/[0.12] border-x border-[#2e7d55]/30",
+  prefer: "bg-[#e9bd3a]/[0.2] border-x border-[#b88a00]/30",
   period: "bg-[#d99b1c]/[0.14] border-x border-[#d99b1c]/40",
 };
 

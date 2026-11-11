@@ -47,14 +47,14 @@ import { formatDayAndMonth, mondayOf, toIsoDate } from "@/services/weekSchedule"
 export type Voice = "they" | "you";
 
 /*
- * Two kinds of block, two colours: red for a constraint (can't teach then), green for a
+ * Two kinds of block, two colours: red for a constraint (can't teach then), yellow for a
  * preference (would like to teach then). A block of one week only is striped over its colour,
  * to tell it at a glance from the usual week.
  */
 const stripes = (line: string) => `repeating-linear-gradient(135deg, ${line} 0 1.5px, transparent 1.5px 6px)`;
 export const KIND_TONE: Record<WishKind, CSSProperties> = {
   constraint: { backgroundColor: "#d9646a" },
-  preference: { backgroundColor: "#4f9f74" },
+  preference: { backgroundColor: "#e9bd3a" },
 };
 export function toneOf(block: Pick<WishBlock, "kind" | "repeat">): CSSProperties {
   const tone = KIND_TONE[block.kind];
@@ -63,12 +63,12 @@ export function toneOf(block: Pick<WishBlock, "kind" | "repeat">): CSSProperties
 /** A stroke under way, before it is let go: the brush's colour, see-through. */
 const PREVIEW: Record<WishKind, CSSProperties> = {
   constraint: { backgroundColor: "rgba(217, 100, 106, 0.5)" },
-  preference: { backgroundColor: "rgba(79, 159, 116, 0.5)" },
+  preference: { backgroundColor: "rgba(233, 189, 58, 0.5)" },
 };
 
 const KINDS: { value: WishKind; label: string; on: string; solid: string }[] = [
   { value: "constraint", label: "Constraint", on: "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]", solid: "bg-[#a6292f] text-white" },
-  { value: "preference", label: "Preference", on: "border-[#2e7d55] bg-[#f2f9f4] text-[#2e7d55]", solid: "bg-[#2e7d55] text-white" },
+  { value: "preference", label: "Preference", on: "border-[#b88a00] bg-[#fdf8e6] text-[#7a5a00]", solid: "bg-[#e9bd3a] text-[#3d2e00]" },
 ];
 
 /** What each kind means, in the form's voice. */
@@ -90,12 +90,15 @@ export function finenessOf(blocks: Pick<WishBlock, "from" | "to">[]): Fineness {
   return fits(1) ? 1 : fits(0.5) ? 0.5 : 0.25;
 }
 
-/** A kind as its button looks, inside a sentence: the tour names them so they are found at a glance. */
-function KindLook({ kind }: { kind: WishKind }) {
-  const option = KINDS.find((each) => each.value === kind)!;
+/** The Constraint | Preference switch as it looks in a block's box, inside a sentence: the tour shows where to choose. */
+function ToggleLook({ on = "constraint" }: { on?: WishKind }) {
   return (
-    <span className={`mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2 py-px align-middle text-[11px] font-semibold ${option.on}`}>
-      <span className="inline-block h-2 w-2 rounded-sm" style={KIND_TONE[kind]} /> {option.label}
+    <span className="mx-0.5 inline-flex rounded-md border border-[#d0d5dd] bg-white p-0.5 align-middle text-[11px] font-semibold">
+      {KINDS.map((option) => (
+        <span key={option.value} className={`rounded px-1.5 py-px ${option.value === on ? option.solid : "text-[#344054]"}`}>
+          {option.label}
+        </span>
+      ))}
     </span>
   );
 }
@@ -105,7 +108,7 @@ export function KindTag({ kind }: { kind: WishKind }) {
   return kind === "constraint" ? (
     <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Constraint</span>
   ) : (
-    <span className="shrink-0 rounded bg-[#e7f4ec] px-1.5 text-[11px] font-semibold text-[#2e7d55]">Preference</span>
+    <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Preference</span>
   );
 }
 
@@ -185,6 +188,15 @@ export function WishesLegend({ voice = "they" }: { voice?: Voice }) {
         {swatch(KIND_TONE.preference)}
         <span>
           <b className="font-semibold text-[#344054]">Preference</b>: {meaning("preference", voice)}
+        </span>
+      </span>
+      {/* The colour says which kind; the fill, which weeks. */}
+      <span aria-hidden="true" className="h-3 w-px bg-[#d0d5dd]" />
+      <span className="inline-flex items-center gap-1.5">
+        {swatch(toneOf({ kind: "constraint", repeat: "all" }))}
+        {swatch(toneOf({ kind: "preference", repeat: "all" }))}
+        <span>
+          <b className="font-semibold text-[#344054]">Solid</b>: every week, or every week from a date
         </span>
       </span>
       <span className="inline-flex items-center gap-1.5">
@@ -567,13 +579,39 @@ export function WishesForm({
     if (!quiet) setToOpen({ id, cell: at });
   };
 
-  /** Open a block's box under a cell of it. */
+  /**
+   * Open a block's box where it leaves the block in sight: under the cell clicked, for hours of a
+   * day; beside the day, right or else left, for a whole day, whose column it would cover; under
+   * the calendar for a whole week, which leaves no room beside it.
+   */
   const openAt = (id: string, cell: HTMLElement) => {
     const box = gridBox.current;
     if (!box) return;
-    const at = cell.getBoundingClientRect();
     const frame = box.getBoundingClientRect();
     const width = 300;
+    const block = blocks.find((each) => each.id === id);
+    const allDay = Boolean(block && block.from <= collection.firstHour && block.to >= collection.lastHour);
+    if (block && allDay && collection.days.every((day) => block.days.includes(day))) {
+      const table = box.querySelector("table")?.getBoundingClientRect();
+      setOpen({ id, left: Math.max(0, Math.min((table?.left ?? frame.left) - frame.left + 48, frame.width - width)), top: (table?.bottom ?? frame.bottom) - frame.top + 6, cell });
+      return;
+    }
+    if (block && allDay) {
+      // The day's column, from its header: the box goes beside the last day of the block, or before the first.
+      const column = (day: number) => box.querySelector(`thead th[data-day="${day}"]`)?.getBoundingClientRect();
+      const last = column(Math.max(...block.days));
+      const first = column(Math.min(...block.days));
+      const top = (first ?? cell.getBoundingClientRect()).top - frame.top;
+      if (last && last.right - frame.left + 6 + width <= frame.width) {
+        setOpen({ id, left: last.right - frame.left + 6, top, cell });
+        return;
+      }
+      if (first && first.left - frame.left - 6 - width >= 0) {
+        setOpen({ id, left: first.left - frame.left - 6 - width, top, cell });
+        return;
+      }
+    }
+    const at = cell.getBoundingClientRect();
     setOpen({ id, left: Math.max(0, Math.min(at.left - frame.left, frame.width - width)), top: at.bottom - frame.top + 4, cell });
   };
   // Opened only once it is on the page, in the week shown: under the cell it was made or clicked
@@ -746,9 +784,17 @@ export function WishesForm({
     setOpen(null);
     setProblem("");
     setPage(next);
+    // On to the next page: from its top. Back to one already seen: its end, where its Next is (below).
     const top = root.current?.getBoundingClientRect().top ?? 0;
-    if (top < 0) root.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+    if (next > page && top < 0) root.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
   };
+  // Back to an earlier page — by its Back, or the tour's — the page's end shows, with its buttons.
+  const pageWas = useRef(page);
+  useEffect(() => {
+    const back = page < pageWas.current;
+    pageWas.current = page;
+    if (back) root.current?.querySelector('[data-tour="nav"]')?.scrollIntoView?.({ block: "end" });
+  }, [page]);
 
   const submit = (finished: boolean) => {
     setProblem("");
@@ -928,7 +974,7 @@ export function WishesForm({
   }, [open]);
   // The box opened while the tour is on how a block repeats: closing it is what was to try.
   useEffect(() => {
-    if (open && (tourStepId === "repeat" || tourStepId === "day" || tourStepId === "week")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
+    if (open && (tourStepId === "repeat" || tourStepId === "day" || tourStepId === "week" || tourStepId === "summary")) setTourBase((base) => (base.sawOpen ? base : { ...base, sawOpen: true }));
   }, [open, tourStepId]);
 
   // The painting shown while the tour asks for it, until somebody paints: Tuesday from 14:00, three hours.
@@ -1027,7 +1073,7 @@ export function WishesForm({
         open && openBlock
           ? [
               <>
-                Choose <KindLook kind="constraint" /> (can&rsquo;t teach) or <KindLook kind="preference" /> (would like to teach).
+                In the switch <ToggleLook />, choose <b>Constraint</b> (can&rsquo;t teach) or <b>Preference</b> (would like to teach).
               </>,
               <>Pick how it repeats.</>,
               <>Say why: a constraint needs a reason; for a preference it&rsquo;s optional. The coordinator reads it.</>,
@@ -1068,7 +1114,7 @@ export function WishesForm({
           Press <b>Whole day</b> under a day&rsquo;s name.
         </>,
         <>
-          The whole day becomes a <KindLook kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Conference&rdquo;.
+          The whole day becomes a <KindTag kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Conference&rdquo;.
         </>,
         <>
           Press <b>Done</b>.
@@ -1092,7 +1138,7 @@ export function WishesForm({
           Press <b>Whole week</b>, beside the week&rsquo;s name.
         </>,
         <>
-          Every day of the week becomes a <KindLook kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Leave&rdquo;.
+          Every day of the week becomes a <KindTag kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Leave&rdquo;.
         </>,
         <>
           Press <b>Done</b>.
@@ -1110,10 +1156,21 @@ export function WishesForm({
     {
       id: "summary",
       title: "Summary of constraints and preferences",
-      steps: [<>Everything marked is listed here, with how it repeats and why.</>, <>Click one to go to its week and open it.</>],
-      // The light grows from the calendar to take in the list under it.
-      target: () => [gridBox.current, part("summary")],
-      pointAt: () => part("summary"),
+      steps: [
+        <>Everything marked is listed here, with how it repeats and why.</>,
+        <>Click one: the calendar goes to its week and opens its box.</>,
+        <>
+          Press <b>Done</b>.
+        </>,
+      ],
+      tryIt: open ? "Press Done in the block's box." : "Click a block in the summary.",
+      done: tourBase.sawOpen && !open,
+      instantNext: true,
+      // The light grows from the calendar to take in the list under it, and the box when it opens.
+      target: () => [gridBox.current, part("summary"), open ? popover.current : null],
+      // The list's own buttons (its × are off during the tour), and the box opened from it.
+      allow: () => [part("summary"), open ? popover.current : null],
+      pointAt: () => (open ? popover.current?.querySelector("[data-why]") : part("summary")?.querySelector("li button")),
       pointFrom: "left",
     },
     {
@@ -1121,13 +1178,10 @@ export function WishesForm({
       title: "Two more pages",
       steps: [
         <>
-          Press <b>Next: Limits</b>.
-        </>,
-        <>
-          <b>Back</b> returns to the calendar as you left it.
+          Press <b>Next: Limits</b>, at the bottom of the form.
         </>,
       ],
-      tryIt: "Go on.",
+      tryIt: "Press Next: Limits, at the bottom of the form.",
       done: page >= 1,
       instantNext: true,
       target: () => part("nav"),
@@ -1140,7 +1194,7 @@ export function WishesForm({
       steps: [
         <>Set only those that matter.</>,
         <>
-          Each is a <KindLook kind="preference" /> unless you switch it to <KindLook kind="constraint" />.
+          Each has the switch <ToggleLook on="preference" />: a <b>Preference</b> unless you make it a <b>Constraint</b>.
         </>,
       ],
       target: () => part("limits"),
@@ -1329,7 +1383,7 @@ export function WishesForm({
             <HowTo
               steps={[
                 { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
-                { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; green, ${meaning("preference", voice)}` },
+                { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; yellow, ${meaning("preference", voice)}` },
                 { icon: Repeat, title: "How it repeats", hint: "Every week, from a week on, or one week only" },
               ]}
             >
@@ -1446,7 +1500,7 @@ export function WishesForm({
                       const date = dateOf(day);
                       const holiday = holidays.get(date);
                       return (
-                        <th key={day} className="pb-1 align-bottom font-semibold text-[#344054]">
+                        <th key={day} data-day={day} className="pb-1 align-bottom font-semibold text-[#344054]">
                           {holiday !== undefined ? (
                             <span className="block leading-tight">
                               {DAY_SHORT[day]} <span className="font-normal text-[#667085]">{formatDayAndMonth(date)}</span>

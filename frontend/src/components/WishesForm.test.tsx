@@ -469,8 +469,12 @@ describe("the guided tour", () => {
     expect(box().getAttribute("aria-label")).toBe("Constraint · Mon 18 Jan–Fri 22 Jan, all day");
     done();
     expect(said("Thursday", "10:00")).toContain("constraint, this week only");
-    expect(step("Summary of constraints and preferences").textContent).toContain("Click one to go to its week");
-    fireEvent.click(within(step("Summary of constraints and preferences")).getByRole("button", { name: "Next" }));
+    // The summary, tried: an entry takes the calendar to its week and opens its box; Done goes on.
+    expect(step("Summary of constraints and preferences").textContent).toContain("Click one: the calendar goes to its week");
+    fireEvent.click(screen.getByRole("button", { name: "Show Constraint · Tue 12 Jan, 14:00–16:00" }));
+    expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan" })).toBeTruthy();
+    expect(box().getAttribute("aria-label")).toBe("Constraint · Tue 12 Jan, 14:00–16:00");
+    done();
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
     // Back from the limits: to the step about Next, on the calendar, and it stays there until Next is pressed again.
     fireEvent.click(within(step("Limits on their week")).getByRole("button", { name: "Back" }));

@@ -196,7 +196,7 @@ function WishesStrip({
                 <li key={line.key} className="flex items-start gap-2">
                   <span
                     className={`mt-px shrink-0 rounded px-1.5 text-[11px] font-semibold ${
-                      line.level === "must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#e7f4ec] text-[#2e7d55]"
+                      line.level === "must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
                     }`}
                   >
                     {line.level === "must" ? "Constraint" : "Preference"}

@@ -885,7 +885,7 @@ export function SemesterPlan({
                     <span className="inline-block h-2.5 w-3 rounded-sm border border-[#a6292f]/40 bg-[#a6292f]/[0.15]" /> constraint
                   </span>
                   <span className="inline-flex items-center gap-1">
-                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#2e7d55]/40 bg-[#2e7d55]/[0.15]" /> preference
+                    <span className="inline-block h-2.5 w-3 rounded-sm border border-[#b88a00]/40 bg-[#e9bd3a]/[0.25]" /> preference
                   </span>
                   {focusRow.wishes.status === "draft" ? <span>(a draft)</span> : null}
                 </>

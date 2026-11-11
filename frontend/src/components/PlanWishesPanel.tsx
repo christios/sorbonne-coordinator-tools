@@ -40,7 +40,7 @@ function Level({ about, level }: { about: Breach["about"]; level: WishLevel | nu
   return level === "must" ? (
     <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Constraint</span>
   ) : (
-    <span className="shrink-0 rounded bg-[#e7f4ec] px-1.5 text-[11px] font-semibold text-[#2e7d55]">Preference</span>
+    <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Preference</span>
   );
 }
 

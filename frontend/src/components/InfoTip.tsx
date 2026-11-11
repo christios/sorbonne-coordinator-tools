@@ -131,7 +131,7 @@ export function TipWishes({ lines }: { lines: string[] }) {
             {known ? (
               <span
                 className={`mt-px shrink-0 rounded px-1.5 text-[11px] font-semibold leading-[18px] ${
-                  tag === "Constraint" ? "bg-[#fdf3f3] text-[#a6292f]" : tag === "Preference" ? "bg-[#e7f4ec] text-[#2e7d55]" : "bg-[#fdf6e3] text-[#8a6116]"
+                  tag === "Constraint" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
                 }`}
               >
                 {tag}
