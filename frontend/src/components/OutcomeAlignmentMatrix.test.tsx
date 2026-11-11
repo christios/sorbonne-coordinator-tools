@@ -113,4 +113,21 @@ describe("the CLO–PLO alignment matrix", () => {
     expect(decision.textContent).toContain("CLO 1");
     expect(decision.textContent).toContain("SCEN-C2");
   });
+
+  it("shows one table at a time in tabs, each saying what is still to do in it", () => {
+    const client = new QueryClient();
+    render(<QueryClientProvider client={client}><OutcomeAlignmentMatrix rows={ROWS} plos={PLOS} competencies={COMPETENCIES} graduates={GRADUATES} onChange={vi.fn()} view="tabs" /></QueryClientProvider>);
+
+    // PLO alignment first: its ticks, not the competencies'.
+    expect(screen.getByRole("checkbox", { name: "CLO 1 aligned to PLO 1" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "CLO 1 develops SCEN-C1" })).toBeNull();
+    expect(screen.getByLabelText("2 CLOs without a competency")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: /Competencies/ }));
+
+    expect(screen.getByRole("checkbox", { name: "CLO 1 develops SCEN-C1" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "CLO 1 aligned to PLO 1" })).toBeNull();
+    // The panel beside it turns to the SCEN competencies.
+    expect(screen.getByRole("tab", { name: "SCEN" }).getAttribute("aria-selected")).toBe("true");
+  });
 });

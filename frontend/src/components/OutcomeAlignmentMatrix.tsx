@@ -1,10 +1,11 @@
-import { ArrowDown, ArrowRight, ArrowUp, Check, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, Check, PanelTop, Rows2, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode } from "react";
 
 import { AddEntryButton } from "@/components/AddEntryButton";
 import { type HistoryField } from "@/components/FieldHistory";
 import { HistoryTextField } from "@/components/HistoryTextField";
 import { ScrollPane } from "@/components/ScrollPane";
+import type { OutcomeView } from "@/services/outcomeView";
 
 /** A column of the CLO–PLO matrix: one PLO the curriculum mapping expects of the course. */
 export type MatrixPlo = { id: string; code: string; outcome: string; /** "code: outcome", what a CLO stores. */ value: string };
@@ -35,7 +36,11 @@ type Props = {
    */
   onCompetenciesChange?: (cloId: string, skillIds: string[]) => void;
   history?: { onOpenHistory: (field: HistoryField) => void };
+  /** Both tables on the page, or one at a time in tabs (OutcomeViewToggle). */
+  view?: OutcomeView;
 };
+
+type Table = "plos" | "competencies";
 
 /*
  * The CLO–PLO matrix: one row per outcome, ruled between the PLOs so each tick reads against
@@ -74,8 +79,9 @@ type Trace = { row?: string; scen?: string; suad?: string };
  * It stores what the list of cards did, so the document and the checks read it unchanged:
  * each CLO's `ploIds` and `plo` ("code: outcome", one per line), `skillIds` and `skills`.
  */
-export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, onChange, onCompetenciesChange, history }: Props) {
+export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, onChange, onCompetenciesChange, history, view = "both" }: Props) {
   const editable = Boolean(onChange);
+  const [table, setTable] = useState<Table>("plos");
   const [reference, setReference] = useState<Reference>("plos");
   const [revealed, setRevealed] = useState<string | null>(null);
   const reveal = (tab: Reference, id: string) => {
@@ -100,12 +106,22 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
     : undefined;
   const covered = new Set(rows.flatMap((row) => alignedIds(row, plos)));
   const uncovered = plos.filter((plo) => !covered.has(plo.id));
+  const withoutCompetency = competencies.length ? rows.filter((row) => chosenIds(row, competencies).length === 0).length : 0;
+  const showPlos = view === "both" || table === "plos";
+  const showCompetencies = view === "both" || table === "competencies";
+  // Opening a table's tab brings its list into the panel beside it.
+  const openTable = (next: Table) => {
+    setTable(next);
+    setReference(next === "plos" ? "plos" : "scen");
+    setRevealed(null);
+  };
   const style = { "--plos": plos.length } as CSSProperties;
   // The matrices keep the width the PLO columns need; the panel beside them takes the rest, from
   // 15 to 30rem, giving way first to the competency matrix so it fits whole on a laptop.
   const competencyWidth = `(8rem + ${competencies.length + graduates.length} * 2rem + 1.5rem)`;
   const sideBySide = {
     "--matrix-min": `calc(14rem + ${plos.length + 1} * 2.25rem)`,
+    // The same in both tabs, so switching tables does not move the panel.
     "--panel-max": `clamp(15rem, 100cqw - ${competencyWidth} - 2rem, 30rem)`,
   } as CSSProperties;
 
@@ -192,19 +208,27 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
     <div className="@container min-w-0 lg:h-full lg:min-h-0">
       <div style={sideBySide} className="grid grid-cols-[minmax(0,1fr)] gap-4 @3xl:[grid-template-columns:minmax(var(--matrix-min),1fr)_minmax(15rem,var(--panel-max))] lg:h-full lg:min-h-0 lg:[grid-template-rows:minmax(0,1fr)]">
         <div className="flex min-w-0 flex-col gap-3 lg:min-h-0 lg:overflow-y-auto">
-          {matrix}
-          {editable ? (
+          {view === "tabs" ? (
+            <div role="tablist" aria-label="Learning outcome tables" className="flex flex-none gap-1 border-b border-[#c3cbd6]">
+              <TableTab selected={table === "plos"} onSelect={() => openTable("plos")} name="PLO alignment" todo={uncovered.length} todoLabel={`${uncovered.length} PLO${uncovered.length === 1 ? "" : "s"} not aligned yet`} />
+              <TableTab selected={table === "competencies"} onSelect={() => openTable("competencies")} name="Competencies" todo={withoutCompetency} todoLabel={`${withoutCompetency} CLO${withoutCompetency === 1 ? "" : "s"} without a competency`} />
+            </div>
+          ) : null}
+          {showPlos ? matrix : null}
+          {showPlos && editable ? (
             <div className="flex-none">
               <AddEntryButton onClick={() => save([...rows, { id: crypto.randomUUID(), clo: "", plo: "", ploIds: "", skills: "", skillIds: "" }])} label="Add outcome" />
             </div>
           ) : null}
-          {competencies.length ? (
-            <CompetencyMatrix rows={rows} competencies={competencies} graduates={graduates} onChange={setCompetencies} onReveal={reveal} />
-          ) : (
-            <p className="flex-none rounded-lg border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
-              The department has no SCEN graduate competencies in its catalogue yet, so none can be chosen.
-            </p>
-          )}
+          {showCompetencies ? (
+            competencies.length ? (
+              <CompetencyMatrix rows={rows} competencies={competencies} graduates={graduates} onChange={setCompetencies} onReveal={reveal} />
+            ) : (
+              <p className="flex-none rounded-lg border border-[#f0d8a8] bg-[#fdf8ee] px-3 py-2 text-sm text-[#8a6116]">
+                The department has no SCEN graduate competencies in its catalogue yet, so none can be chosen.
+              </p>
+            )
+          ) : null}
         </div>
         <ReferencePanel
           tab={reference}
@@ -218,6 +242,47 @@ export function OutcomeAlignmentMatrix({ rows, plos, competencies, graduates, on
         />
       </div>
     </div>
+  );
+}
+
+/**
+ * The switch between both tables on the page and one at a time in tabs, set beside the
+ * section's title; each person's choice is kept in their browser (useOutcomeView).
+ */
+export function OutcomeViewToggle({ view, onChange }: { view: OutcomeView; onChange: (view: OutcomeView) => void }) {
+  const choices = [["both", "Both tables", Rows2], ["tabs", "Tabs", PanelTop]] as const;
+  return (
+    <div role="group" aria-label="Show the outcome tables" className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5">
+      {choices.map(([id, name, Icon]) => (
+        <button
+          key={id}
+          type="button"
+          aria-pressed={view === id}
+          onClick={() => onChange(id)}
+          className={`inline-flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-semibold ${view === id ? "bg-[#1f4e79] text-white" : "text-[#1f4e79] hover:bg-[#f2f7fb]"}`}
+        >
+          <Icon size={14} aria-hidden="true" /> {name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A table's tab, with how much is still to do in it while it is out of sight. */
+function TableTab({ selected, onSelect, name, todo, todoLabel }: { selected: boolean; onSelect: () => void; name: string; todo: number; todoLabel: string }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={selected}
+      onClick={onSelect}
+      className={`-mb-px inline-flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-semibold ${selected ? "border-[#1f4e79] text-[#1f4e79]" : "border-transparent text-[#475467] hover:text-[#1d2939]"}`}
+    >
+      {name}
+      {todo ? (
+        <span title={todoLabel} aria-label={todoLabel} className="rounded-full bg-[#fef0c7] px-1.5 text-[11px] font-bold leading-4 text-[#8a4b00]">{todo}</span>
+      ) : null}
+    </button>
   );
 }
 

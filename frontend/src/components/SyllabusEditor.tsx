@@ -44,7 +44,8 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { AssessmentTabs } from "@/components/AssessmentTabs";
 import { SyllabusExportPreview } from "@/components/SyllabusExportPreview";
 import { listAcademicYears, listCoursesByCode } from "@/services/courses";
-import { OutcomeAlignmentMatrix, type MatrixCompetency, type MatrixGraduate, type MatrixPlo } from "@/components/OutcomeAlignmentMatrix";
+import { OutcomeAlignmentMatrix, OutcomeViewToggle, type MatrixCompetency, type MatrixGraduate, type MatrixPlo } from "@/components/OutcomeAlignmentMatrix";
+import { useOutcomeView } from "@/services/outcomeView";
 import { SectionEditorShell } from "@/components/SectionEditorShell";
 import { FieldRow } from "@/components/FieldRow";
 import { SyllabusField } from "@/components/SyllabusField";
@@ -1219,6 +1220,8 @@ function LearningOutcomesEditor({
   /** Set in Head-of-Department mode: the course's outcomes from the curriculum mapping, read-only. */
   headOfDepartmentClos?: CatalogueCloRow[];
 }) {
+  // Both tables or tabs: each person's choice, kept in their browser.
+  const [view, setView] = useOutcomeView();
   if (headOfDepartmentClos) {
     const picks = sectionFrom(section.cloCompetencies);
     return (
@@ -1249,13 +1252,16 @@ function LearningOutcomesEditor({
   const graduates = matrixGraduates(graduateCompetencies, competencies);
   return (
     <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 lg:flex lg:min-h-0 lg:flex-col">
-      <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
-        Learning outcomes
-        <InfoTip label="Where the programme outcomes come from">
-          Programme learning outcomes and graduate competencies are maintained in the catalogue. Align each course
-          outcome to them here.
-        </InfoTip>
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+          Learning outcomes
+          <InfoTip label="Where the programme outcomes come from">
+            Programme learning outcomes and graduate competencies are maintained in the catalogue. Align each course
+            outcome to them here.
+          </InfoTip>
+        </h3>
+        <OutcomeViewToggle view={view} onChange={setView} />
+      </div>
       {catalogueProgrammeId ? null : (
         <p
           role="note"
@@ -1285,6 +1291,7 @@ function LearningOutcomesEditor({
           graduates={graduates}
           onChange={(clos) => onChange({ ...section, clos })}
           history={{ onOpenHistory }}
+          view={view}
         />
       </div>
     </section>
@@ -1345,6 +1352,7 @@ function FoundationYearAssessmentSummary({ activities, earlier, onOpenSchedule }
  * stored, and come back if the department hands the outcomes to teachers again.
  */
 function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies, plos, onCompetenciesChange }: { clos: CatalogueCloRow[]; scenCompetencies: CatalogueEntry[]; graduateCompetencies: CatalogueEntry[]; /** Given, the outcomes show as the read-only alignment matrix. */ plos?: CatalogueEntry[]; /** The teacher still chooses each CLO's competencies (Christian, 10 Nov 2026). */ onCompetenciesChange?: (cloId: string, skillIds: string[]) => void }) {
+  const [view, setView] = useOutcomeView();
   const graduateById = new Map(graduateCompetencies.map((entry) => [entry.id, entry]));
   const competencies = matrixCompetencies(scenCompetencies, clos);
   const graduates = matrixGraduates(graduateCompetencies, competencies);
@@ -1355,19 +1363,22 @@ function HeadOfDepartmentOutcomes({ clos, scenCompetencies, graduateCompetencies
   });
   return (
     <section className="min-w-0 rounded-lg border border-[#c3cbd6] bg-white p-5 lg:flex lg:min-h-0 lg:flex-col">
-      <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
-        Learning outcomes
-        <InfoTip label="Why these cannot be edited here">
-          The Head of Department writes each course&apos;s learning outcomes in Manage catalogues → Curriculum mapping,
-          and every syllabus of the course shows them.
-        </InfoTip>
-      </h3>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-lg font-semibold text-[#171717]">
+          Learning outcomes
+          <InfoTip label="Why these cannot be edited here">
+            The Head of Department writes each course&apos;s learning outcomes in Manage catalogues → Curriculum mapping,
+            and every syllabus of the course shows them.
+          </InfoTip>
+        </h3>
+        {clos.length && plos ? <OutcomeViewToggle view={view} onChange={setView} /> : null}
+      </div>
       <p role="note" className="mt-1 text-sm text-[#475467]">
         The outcomes and their PLOs are the Head of Department&apos;s, as written in the catalogue. The competencies each one develops are yours to choose.
       </p>
       {clos.length && plos ? (
         <div className="mt-4 min-w-0 lg:min-h-0 lg:flex-1">
-          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencies={competencies} graduates={graduates} onCompetenciesChange={onCompetenciesChange} />
+          <OutcomeAlignmentMatrix rows={clos} plos={matrixPlos} competencies={competencies} graduates={graduates} onCompetenciesChange={onCompetenciesChange} view={view} />
         </div>
       ) : clos.length ? (
         <ol className="mt-5 grid gap-3">
