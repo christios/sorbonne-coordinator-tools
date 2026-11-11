@@ -10,8 +10,8 @@ The November 2026 review asked for one department-wide switch:
 One row, set by an administrator of the syllabus builder. Nothing is set until someone
 chooses, and reading nothing means "teacher".
 
-Revision ID: 0092
-Revises: 0091
+Revision ID: 0093
+Revises: 0092
 """
 
 from __future__ import annotations
@@ -19,8 +19,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0092"
-down_revision = "0091"
+revision = "0093"
+down_revision = "0092"
 branch_labels = None
 depends_on = None
 
