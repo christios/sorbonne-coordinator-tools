@@ -29,6 +29,17 @@ import {
 } from "@/components/CountryCodeCombobox";
 import { DateField } from "@/components/DateField";
 import { InfoTip } from "@/components/InfoTip";
+import {
+  LIST_CARD,
+  LIST_HEADING,
+  LIST_ROW,
+  LIST_TOOLBAR,
+  ListSearch,
+  SEGMENTS,
+  SegmentCount,
+  ShownCount,
+  segment,
+} from "@/components/ListLook";
 import { FolderMoveMenu } from "@/components/FolderMoveMenu";
 import { FormFieldLabel } from "@/components/FormFieldLabel";
 import { FieldInfoProvider } from "@/components/FieldInfo";
@@ -192,26 +203,6 @@ export function TeacherDatabase({ header }: { header?: HTMLElement | null } = {}
       teacherId={screen.teacherId}
       onBack={() => setScreen({ view: "profile", teacherId: screen.teacherId })}
     />
-  );
-}
-
-/** A row of two or three choices, one of them on: the view, active or archived. */
-const SEGMENTS =
-  "inline-flex h-10 shrink-0 items-center gap-0.5 rounded-md border border-[#d0d5dd] bg-white p-1";
-function segment(on: boolean) {
-  return `inline-flex h-full items-center gap-1.5 rounded px-3 text-sm font-semibold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d7e5f3] ${
-    on ? "bg-[#e8edf3] text-[#1f4e79]" : "text-[#475467] hover:bg-[#f7f8fa] hover:text-[#344054]"
-  }`;
-}
-function SegmentCount({ value, on }: { value: number; on: boolean }) {
-  return (
-    <span
-      className={`rounded-full px-1.5 py-px text-xs tabular-nums ${
-        on ? "bg-white text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"
-      }`}
-    >
-      {value}
-    </span>
   );
 }
 
@@ -467,21 +458,7 @@ export function TeacherLibrary({
                 </button>
               ) : null}
             </div>
-            {/* Takes what the row has left, up to its own width, so the bar stays one line. */}
-            <label className="relative block min-w-40 flex-1 sm:max-w-64">
-              <Search
-                size={17}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#667085]"
-              />
-              <input
-                aria-label="Search teachers"
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search teachers"
-                className="h-10 w-full rounded-md border border-[#cbd5e1] bg-white pl-10 pr-3 text-sm"
-              />
-            </label>
+            <ListSearch label="Search teachers" value={query} onChange={setQuery} />
           </>
         ) : null}
         <div className="ml-auto flex items-center gap-2">
@@ -524,11 +501,11 @@ export function TeacherLibrary({
         id={panelId}
         role="tabpanel"
         aria-labelledby={`${tabId}-${libraryView}`}
-        className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white lg:overflow-hidden"
+        className={LIST_CARD}
       >
         {libraryView === "teachers" ? (
           <>
-            <div className="group/toolbar flex shrink-0 items-center gap-3 border-b border-[#e5e7eb] px-4 py-2">
+            <div className={LIST_TOOLBAR}>
               {/*
                 * Choosing everybody the search has narrowed to, which is how a payroll
                 * run starts: filter to who you want, tick once, download.
@@ -563,9 +540,7 @@ export function TeacherLibrary({
                   onChange={setFilters}
                 />
               </div>
-              <span className="shrink-0 text-xs tabular-nums text-[#98a2b3]">
-                {visible.length === inView.length ? `${inView.length}` : `${visible.length} of ${inView.length}`}
-              </span>
+              <ShownCount shown={visible.length} of={inView.length} />
             </div>
             {isLoading ? (
               <p className="grid min-h-60 flex-1 place-items-center p-8 text-center text-sm text-[#667085]">
@@ -577,7 +552,7 @@ export function TeacherLibrary({
                   * Columns that line up down the list, under a quiet heading: who, what
                   * the requisitions pay for, their tasks, and what can be done.
                   */}
-                <div aria-hidden="true" className={`${ROW_GRID} sticky top-0 z-10 hidden border-b border-[#e5e7eb] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3] sm:grid`}>
+                <div aria-hidden="true" className={`${ROW_GRID} ${LIST_HEADING}`}>
                   <span />
                   <span>Teacher</span>
                   <span>Requisitions</span>
@@ -591,7 +566,7 @@ export function TeacherLibrary({
                     <div
                       key={teacher.id}
                       role="listitem"
-                      className={`${ROW_GRID} group grid border-b border-[#eef1f5] py-2.5 transition-colors hover:bg-[#fafbfd] ${
+                      className={`${ROW_GRID} ${LIST_ROW} ${
                         chosen.has(teacher.id) ? "bg-[#f5f9fd]" : ""
                       }`}
                     >
@@ -625,12 +600,12 @@ export function TeacherLibrary({
                               </span>
                             ) : null}
                           </span>
-                          <span className="flex min-w-0 items-center gap-1.5 text-xs text-[#667085]">
-                            <span className={`truncate ${teacher.email ? "" : "italic text-[#98a2b3]"}`}>
+                          <span className="flex min-w-0 items-center gap-1.5 text-xs text-[#475467]">
+                            <span className={`truncate ${teacher.email ? "" : "italic text-[#667085]"}`}>
                               {teacher.email || "No email"}
                             </span>
                             {folderPath ? (
-                              <span className="inline-flex shrink-0 items-center gap-1 text-[#98a2b3]">
+                              <span className="inline-flex shrink-0 items-center gap-1 text-[#667085]">
                                 <Folder size={12} aria-hidden="true" />
                                 {folderPath}
                               </span>

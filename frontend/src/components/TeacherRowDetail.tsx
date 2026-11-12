@@ -16,6 +16,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, FilePlus } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
+import { ICON_BUTTON } from "@/components/ListLook";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
@@ -40,9 +41,6 @@ const NOTHING: TeacherSummary = {
   hasDocuments: false,
 };
 
-/** A row's small square buttons: the jobs everybody knows by their icon, named on hover. */
-const ICON_BUTTON =
-  "inline-flex size-7 items-center justify-center rounded-md border border-[#d0d5dd] bg-white text-[#475467] hover:border-[#b7bec8] hover:bg-[#f2f7fb] hover:text-[#1f4e79] disabled:border-[#eef1f5] disabled:text-[#d0d5dd] disabled:hover:bg-white";
 
 /** "40", "10.5": hours as a person reads them, without a trailing ".0". */
 function hoursText(hours: number): string {
@@ -66,8 +64,8 @@ export function TeacherHoursFigures({ summary, loading }: { summary?: TeacherSum
   }
   const figure = (value: number, label: string, tone: string) => (
     <span className="flex min-w-[3.25rem] flex-col leading-tight">
-      <span className={`text-sm font-semibold tabular-nums ${value ? tone : "text-[#c8d0da]"}`}>{hoursText(value)} h</span>
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">{label}</span>
+      <span className={`text-sm font-semibold tabular-nums ${value ? tone : "text-[#98a2b3]"}`}>{hoursText(value)} h</span>
+      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#667085]">{label}</span>
     </span>
   );
   return (
@@ -76,7 +74,7 @@ export function TeacherHoursFigures({ summary, loading }: { summary?: TeacherSum
       {figure(held.adminHours ?? 0, "admin", "text-[#7a5a1d]")}
       <span className="flex min-w-[2rem] flex-col leading-tight">
         <span className="text-sm font-semibold tabular-nums text-[#344054]">{held.requisitions}</span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">filed</span>
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#667085]">filed</span>
       </span>
     </span>
   );

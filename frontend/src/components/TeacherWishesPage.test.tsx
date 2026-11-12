@@ -123,3 +123,23 @@ describe("invitations and the deadline, on the list", () => {
     await waitFor(() => expect(reopen).toHaveBeenCalledWith("262720", "t-jad", "2099-01-01"));
   });
 });
+
+describe("the list, laid out as Part-time Teachers", () => {
+  it("shows every answer or those in one state, finds a teacher by name, and says what an answer holds", async () => {
+    page();
+    await screen.findByRole("button", { name: "Open Valerie Le Guyon's preferences" });
+    expect(screen.getByRole("button", { name: "Submitted 1" })).toBeTruthy();
+    expect(screen.getByText("2 h a week")).toBeTruthy();
+    expect(screen.getByText(/· by the teacher$/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not started 1" }));
+    expect(screen.queryByRole("button", { name: "Open Valerie Le Guyon's preferences" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Fill in Jad Tarsissi's preferences" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "All 2" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search teachers" }), { target: { value: "valerie" } });
+    expect(screen.queryByRole("button", { name: "Fill in Jad Tarsissi's preferences" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Valerie Le Guyon's preferences" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search teachers" }), { target: { value: "" } });
+  });
+});

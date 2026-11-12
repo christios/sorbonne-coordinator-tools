@@ -128,7 +128,7 @@ function pageOf(hash: string): PageId {
 // A blurb is optional: the Students page explains itself through the view picker.
 
 /** The pages whose panes fill the screen rather than letting the page scroll. */
-const FILLS = new Set<PageId>(["groups", "group-schema", "part-time-teachers"]);
+const FILLS = new Set<PageId>(["groups", "group-schema", "part-time-teachers", "teacher-preferences"]);
 
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
