@@ -1096,8 +1096,9 @@ export function WishesForm({
     {
       id: "paint",
       title: "Mark a time",
-      body: tourMade ? <b className="font-semibold text-[#15803d]">One block is enough. Press Next.</b> : undefined,
       steps: [<>Drag down over a few hours on any day.</>, <>Let go. This makes a block.</>],
+      // Said where "Your turn" was: the card keeps its height.
+      doneWords: "Nicely done. One block is enough.",
       tryIt: "Drag down over a few hours on any day.",
       done: Boolean(tourMade) && !drag,
       target: () => [part("toolbar"), gridBox.current],
@@ -1268,12 +1269,8 @@ export function WishesForm({
     },
   ];
 
-  /*
-   * Each card holds as long as it is complex (12 Nov 2026): its words, its instructions, the
-   * controls it names. Read as the step begins; "One block is enough", said once a block is
-   * made, does not lengthen it.
-   */
-  const tourSteps = tourCards.map((card) => ({ ...card, readFor: card.readFor ?? readingTime({ ...card, body: card.id === "paint" ? undefined : card.body }) }));
+  /* Each card holds as long as it is complex (12 Nov 2026): its words, its instructions, the controls it names. */
+  const tourSteps = tourCards.map((card) => ({ ...card, readFor: card.readFor ?? readingTime(card) }));
 
   const hintStep: TourStep | null =
     tourHint === "welcome"

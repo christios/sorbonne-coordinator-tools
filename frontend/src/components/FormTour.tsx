@@ -241,6 +241,8 @@ const STILL_REACHED = '[data-tour-card], [data-tour-alert], [role="listbox"]';
 
 /** A button the card wants pressed, after a press elsewhere: ringed and pulsing. */
 const CALL = "ring-4 ring-[#ffc43d] motion-safe:animate-pulse";
+/** The line under a card's instructions: "Your turn", then "Nicely done" in its place, one height. */
+const SLOT = "relative mt-3 flex min-h-9 items-center gap-1.5 overflow-hidden rounded-md border px-2.5 py-1.5 text-[13px] font-semibold";
 /** The tour's own colour, green, apart from the page's blue: its card, its arrow, its buttons. */
 const PRIMARY = "rounded-md bg-[#15803d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#126c34] disabled:cursor-not-allowed disabled:bg-[#9cc5aa]";
 
@@ -696,25 +698,27 @@ export function FormTour({
               </button>
             </div>
             {total ? (
-              // The reading time, said in words over its bar: what it is for, and how long is left.
+              // The reading time, said in words over its bar: what it is for, and how long is left. Run
+              // out, it folds away: nothing more to say.
               <div
-                data-tour-timer
-                className={`flex items-center gap-2 border-b px-3.5 py-1.5 text-xs font-semibold ${
-                  ready ? "border-[#cfe8d8] bg-[#eef8f1] text-[#1e6b45]" : "border-[#f0d58c] bg-[#fff6dd] text-[#7a5d00]"
-                }`}
+                data-tour-timer-wrap
+                data-state={ready ? "done" : "running"}
+                aria-hidden={ready || undefined}
+                className={`grid motion-safe:transition-[grid-template-rows] motion-safe:duration-300 ${ready ? "grid-rows-[0fr]" : "grid-rows-[1fr]"}`}
               >
-                {ready ? <Check size={14} aria-hidden="true" /> : <Timer size={14} className="motion-safe:animate-pulse" aria-hidden="true" />}
-                <span className="shrink-0">{ready ? "Time's up: you can go on" : "Read this card first"}</span>
-                {ready ? null : (
-                  <>
+                <div className="min-h-0 overflow-hidden">
+                  <div
+                    data-tour-timer
+                    className="flex items-center gap-2 border-b border-[#f0d58c] bg-[#fff6dd] px-3.5 py-1.5 text-xs font-semibold text-[#7a5d00]"
+                  >
+                    <Timer size={14} className="shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
+                    <span className="shrink-0">Read this card first</span>
                     <span className="relative h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-[#f3e2a9]">
                       <ReadBar key={stepId} seconds={total} />
                     </span>
-                    <span className="shrink-0 tabular-nums">
-                      next step in {left} s
-                    </span>
-                  </>
-                )}
+                    <span className="shrink-0 tabular-nums">next step in {Math.max(left, 0)} s</span>
+                  </div>
+                </div>
               </div>
             ) : null}
             <div className="px-4 pb-4 pt-3">
@@ -739,25 +743,37 @@ export function FormTour({
                     ))}
                   </ol>
                 ) : null}
-                {/* What to try: the numbered steps say it, when there are any; the box says it otherwise. Done, it says so. */}
+                {/*
+                 * Under the instructions, one line that turns from "Your turn" (or what to try, with no
+                 * numbered steps to say it) to "Nicely done" in place: the card keeps its height.
+                 */}
                 {step.tryIt ? (
                   done && !instant ? (
-                    <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-2 text-[13px] font-semibold text-[#2e7d55]">
-                      <Check size={15} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
+                    // Comes in over "Your turn": a green fill sweeping across, the tick popping, the words rising.
+                    <p data-tour-slot="done" className={`${SLOT} tour-slot-done border-[#cfe8d8] text-[#2e7d55]`}>
+                      <span className="tour-slot-check inline-flex shrink-0">
+                        <Check size={15} aria-hidden="true" />
+                      </span>
+                      <span className="tour-slot-text">{step.doneWords ?? "Nicely done"}</span>
                       {autoNext ? <Countdown key={at} ms={autoNext} /> : null}
                     </p>
-                  ) : step.steps?.length ? null : (
-                    <p className="mt-3 flex items-start gap-2 rounded-md border border-[#9cc0e4] bg-[#eef4fa] px-2.5 py-2 text-[13px] font-semibold text-[#1f4e79]">
-                      <MousePointerClick size={15} className="mt-0.5 shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
-                      <span>
-                        <span className="font-normal text-[#5b7a99]">Try it: </span>
-                        {step.tryIt}
-                      </span>
+                  ) : (
+                    <p data-tour-slot="todo" className={`${SLOT} border-[#cfe8d8] bg-white text-[#15803d]`}>
+                      <MousePointerClick size={15} className="shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
+                      {step.steps?.length ? (
+                        "Your turn"
+                      ) : (
+                        <span>
+                          <span className="font-normal text-[#5b7a99]">Try it: </span>
+                          {step.tryIt}
+                        </span>
+                      )}
                     </p>
                   )
                 ) : null}
               </div>
-              <div className="mt-4 flex items-center gap-2">
+              {/* As tall with Next as without it, so Next showing up does not move the card. */}
+              <div className="mt-4 flex min-h-8 items-center gap-2">
                 {at > 0 ? (
                   <button
                     type="button"
@@ -788,17 +804,7 @@ export function FormTour({
                       Finish
                       {ready ? null : <span aria-hidden="true" className="ml-1.5 tabular-nums opacity-80">{left}</span>}
                     </button>
-                  ) : autoNext ? null : step.tryIt && !done ? (
-                    // Nothing to skip: a step with something to try offers Next once it is tried.
-                    step.steps?.length ? (
-                      // The numbered steps say what; this only says it is to be done before going on.
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#15803d]">
-                        <MousePointerClick size={13} className="motion-safe:animate-pulse" aria-hidden="true" /> Your turn
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
-                    )
-                  ) : (
+                  ) : autoNext || (step.tryIt && !done) || (done && step.instantNext) ? null : (
                     <button type="button" disabled={!ready} onClick={() => onStep(at + 1)} className={`${PRIMARY} ${saying && ready ? CALL : ""}`}>
                       Next
                       {ready ? null : <span aria-hidden="true" className="ml-1.5 tabular-nums opacity-80">{left}</span>}

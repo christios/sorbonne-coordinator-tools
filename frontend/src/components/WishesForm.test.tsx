@@ -359,7 +359,7 @@ describe("the guided tour", () => {
   /** A step done says so, and offers Next. */
   const next = (title: string) => {
     const card = step(title);
-    expect(within(card).getByText("Nicely done")).toBeTruthy();
+    expect(within(card).getByText(/^Nicely done/)).toBeTruthy();
     fireEvent.click(within(card).getByRole("button", { name: "Next" }));
   };
   /** The clock moved on, for a step that goes on by itself. */
@@ -459,7 +459,9 @@ describe("the guided tour", () => {
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     // Made: the block does not open by itself, while the tour is to teach opening it.
     expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
-    expect(step("Mark a time").textContent).toContain("One block is enough. Press Next.");
+    // Said where "Your turn" was, in its place.
+    expect(within(step("Mark a time")).queryByText("Your turn")).toBeNull();
+    expect(step("Mark a time").querySelector('[data-tour-slot="done"]')?.textContent).toBe("Nicely done. One block is enough.");
     // No second block, from a stroke or a day's name; and a press on the block is nothing yet but
     // a nudge: the card says to press Next, and Next is called for.
     stroke(["Thursday", "10:00"]);
@@ -637,7 +639,7 @@ describe("the guided tour", () => {
     expect(paint).toBeLessThan(intro);
     // A block made at once: Next waits for the card's own reading time all the same.
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
-    expect(within(step("Mark a time")).getByText("Nicely done")).toBeTruthy();
+    expect(within(step("Mark a time")).getByText(/^Nicely done/)).toBeTruthy();
     expect(next("Mark a time").disabled).toBe(true);
     wait(paint * 1000);
     expect(next("Mark a time").disabled).toBe(false);

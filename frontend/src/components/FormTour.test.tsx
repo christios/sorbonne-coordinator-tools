@@ -37,6 +37,30 @@ describe("a guided tour's card", () => {
     toggle.remove();
   });
 
+  it("says Your turn under the instructions, and Nicely done in its very place once done", () => {
+    const steps = (done: boolean): TourStep[] => [
+      { id: "zero", title: "Zero" },
+      { id: "one", title: "First", steps: ["Press it."], tryIt: "Press it.", done },
+      { id: "two", title: "Second" },
+    ];
+    const { rerender } = render(<FormTour steps={steps(false)} at={1} onStep={() => {}} onClose={() => {}} />);
+    const card = () => screen.getByRole("dialog", { name: "Guided tour: First" });
+    const slot = () => card().querySelector<HTMLElement>("[data-tour-slot]");
+    // Right under the numbered steps, before the row of buttons; nothing to press there yet.
+    expect(slot()?.dataset.tourSlot).toBe("todo");
+    expect(slot()?.textContent).toBe("Your turn");
+    expect(slot()?.previousElementSibling?.tagName).toBe("OL");
+    expect(within(card()).queryByRole("button", { name: "Next" })).toBeNull();
+    rerender(<FormTour steps={steps(true)} at={1} onStep={() => {}} onClose={() => {}} />);
+    expect(slot()?.dataset.tourSlot).toBe("done");
+    expect(slot()?.textContent).toBe("Nicely done");
+    expect(slot()?.className).toContain("tour-slot-done");
+    expect(slot()?.previousElementSibling?.tagName).toBe("OL");
+    // The same line, one height either way; and the row under it as tall with Next as without.
+    expect(slot()?.className).toContain("min-h-9");
+    expect(within(card()).getByRole("button", { name: "Next" }).parentElement?.parentElement?.className).toContain("min-h-8");
+  });
+
   it("goes straight on when a step's try is done and it says so, with no Next and no Skip", () => {
     const onStep = vi.fn();
     const steps: TourStep[] = [
@@ -195,7 +219,9 @@ describe("a card's reading time", () => {
     expect(timer()?.textContent).toContain("next step in 1 s");
     expect(next().disabled).toBe(true);
     tick(1);
-    expect(timer()?.textContent).toContain("Time's up: you can go on");
+    // Run out: it folds away, with nothing more to say.
+    expect(document.querySelector("[data-tour-timer-wrap]")?.getAttribute("data-state")).toBe("done");
+    expect(document.querySelector("[data-tour-card]")?.textContent).not.toContain("Time's up");
     expect(next().disabled).toBe(false);
     fireEvent.click(next());
     expect(onStep).toHaveBeenCalledWith(1);
