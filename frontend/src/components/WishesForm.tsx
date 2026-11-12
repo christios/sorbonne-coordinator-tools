@@ -6,9 +6,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Compass,
-  MessageSquare,
+  ListChecks,
   MoveDown,
   Paintbrush,
+  Pencil,
   Pointer,
   Repeat,
   Trash2,
@@ -99,6 +100,45 @@ function ToggleLook({ on = "constraint" }: { on?: WishKind }) {
           {option.label}
         </span>
       ))}
+    </span>
+  );
+}
+
+/*
+ * The page's own controls as they look, inside a tour card's sentence (12 Nov 2026): "Press
+ * Whole day" reads at a glance when Whole day is drawn as the pill to look for.
+ */
+/** A red pill of the calendar's: Whole day, Whole week. */
+function PillLook({ children }: { children: ReactNode }) {
+  return (
+    <span className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-full border border-[#e8b4b7] bg-white px-2 py-px align-middle text-[11px] font-semibold text-[#a6292f]">
+      <CalendarX2 size={11} aria-hidden="true" />
+      {children}
+    </span>
+  );
+}
+const BUTTON_LOOKS = {
+  primary: "bg-[#1f4e79] text-white",
+  plain: "border border-[#b7bec8] bg-white text-[#344054]",
+  tour: "border border-[#cfe0f1] bg-white text-[#1f4e79]",
+};
+/** A button of the form's: Done, Next: Limits, Save draft, Submit, Guided tour. */
+function ButtonLook({ children, tone = "primary", before, after }: { children?: ReactNode; tone?: keyof typeof BUTTON_LOOKS; before?: LucideIcon; after?: LucideIcon }) {
+  const [Before, After] = [before, after];
+  return (
+    <span className={`mx-0.5 inline-flex items-center gap-1 whitespace-nowrap rounded-md px-2 py-px align-middle text-[11px] font-semibold ${BUTTON_LOOKS[tone]}`}>
+      {Before ? <Before size={11} aria-hidden="true" /> : null}
+      {children}
+      {After ? <After size={11} aria-hidden="true" /> : null}
+    </span>
+  );
+}
+/** A date of the summary, which opens its block: blue, underlined, a pencil after it. */
+function DateLook({ children }: { children: ReactNode }) {
+  return (
+    <span className="mx-0.5 inline-flex items-center gap-1 whitespace-nowrap font-semibold text-[#1f4e79] underline decoration-[#9cc0e4] underline-offset-2">
+      {children}
+      <Pencil size={10} aria-hidden="true" />
     </span>
   );
 }
@@ -195,10 +235,10 @@ export function WishesLegend() {
   );
 }
 
-/** "Every week", "From 18 Jan", "One week only": how a block repeats, as a list says it. */
+/** "Whole semester", "Every week starting 18 Jan", "One week only": how a block repeats, as a list says it. */
 function repeatTag(block: Pick<WishBlock, "repeat" | "week">): string {
-  if (block.repeat === "all") return "Every week";
-  if (block.repeat === "from") return `Every week from ${formatDayAndMonth(block.week)}`;
+  if (block.repeat === "all") return "Whole semester";
+  if (block.repeat === "from") return `Every week starting ${formatDayAndMonth(block.week)}`;
   return "One week only";
 }
 
@@ -241,7 +281,7 @@ export function BlockList({
   voice?: Voice;
   onPick?: (block: WishBlock) => void;
   onRemove?: (block: WishBlock) => void;
-  /** Why × is off for now, if it is. */
+  /** × off for now, during the guided tour: nothing said on hover, which would only distract. */
   removeOff?: string;
   onHover?: (id: string | null) => void;
   /** A constraint without its reason says so: it cannot be submitted that way. */
@@ -249,20 +289,24 @@ export function BlockList({
 }) {
   if (!blocks.length) return <p className="text-sm text-[#98a2b3]">Nothing marked: every hour is fine.</p>;
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid gap-4 sm:grid-cols-2">
       {(["constraint", "preference"] as const).map((kind) => {
         const these = inListOrder(blocks.filter((block) => block.kind === kind));
         return (
           <div key={kind} className="min-w-0">
-            <p className="flex items-center gap-1.5 text-xs font-semibold text-[#344054]">
-              <span className="inline-block h-2.5 w-2.5 rounded-sm" style={KIND_TONE[kind]} />
+            {/* A header in the kind's colour, a band across the column: the list under it is its own. */}
+            <h4
+              className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[13px] font-semibold ${
+                kind === "constraint" ? "bg-[#fbe7e8] text-[#8f2329]" : "bg-[#fbf0cf] text-[#6b4f00]"
+              }`}
+            >
+              <span aria-hidden="true" className="inline-block h-3 w-3 shrink-0 rounded-sm" style={KIND_TONE[kind]} />
               {kind === "constraint" ? "Constraints" : "Preferences"}
-              <span className="font-normal text-[#98a2b3]">
-                · {meaning(kind, voice).replace(" then", "")} · {these.length}
-              </span>
-            </p>
+              <span className="rounded-full bg-white/80 px-1.5 text-[11px] tabular-nums">{these.length}</span>
+              <span className="ml-auto truncate text-[11px] font-normal">{meaning(kind, voice).replace(" then", "")}</span>
+            </h4>
             {these.length ? (
-              <ul className="mt-1.5 grid gap-1">
+              <ul className="mt-2 grid gap-1">
                 {these.map((block) => (
                   <li
                     key={block.id}
@@ -273,13 +317,15 @@ export function BlockList({
                     <span className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-sm" style={toneOf(block)} />
                     <span className="min-w-0 flex-1">
                       {onPick ? (
+                        // Opens the block on the calendar: drawn as a link, a pencil after it.
                         <button
                           type="button"
                           onClick={() => onPick(block)}
                           aria-label={`Show ${describeBlock(block, grid)}`}
-                          className="text-left font-semibold text-[#344054] hover:text-[#1f4e79] hover:underline"
+                          className="inline-flex cursor-pointer items-center gap-1 text-left font-semibold text-[#1f4e79] underline decoration-[#9cc0e4] underline-offset-2 hover:decoration-[#1f4e79]"
                         >
                           {whenWords(block, grid)}
+                          <Pencil size={11} className="shrink-0" aria-hidden="true" />
                         </button>
                       ) : (
                         <span className="font-semibold text-[#344054]">{whenWords(block, grid)}</span>
@@ -298,7 +344,6 @@ export function BlockList({
                         type="button"
                         aria-label={`Remove ${describeBlock(block, grid)}`}
                         disabled={Boolean(removeOff)}
-                        title={removeOff || undefined}
                         onClick={() => onRemove(block)}
                         className="rounded p-0.5 text-[#98a2b3] hover:bg-[#fdf3f3] hover:text-[#a6292f] disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
                       >
@@ -309,7 +354,7 @@ export function BlockList({
                 ))}
               </ul>
             ) : (
-              <p className="mt-1.5 text-xs text-[#98a2b3]">None.</p>
+              <p className="mt-2 px-1 text-xs text-[#98a2b3]">None.</p>
             )}
           </div>
         );
@@ -731,18 +776,22 @@ export function WishesForm({
   const setLimitKind = (name: keyof WishLimits, kind: WishKind) => setLimitKinds((current) => ({ ...current, [name]: kind }));
   const setComment = (key: string, said: string) => setComments((current) => ({ ...current, [key]: said.slice(0, COMMENT_LENGTH) }));
 
-  const limitBlock = (name: keyof WishLimits, label: string, options: { value: string; label: string }[]) => {
+  /** One limit: its name, what it means in a line, its choice, and once set, how much it matters and why. */
+  const limitBlock = (name: keyof WishLimits, label: string, help: string, options: { value: string; label: string }[], none = "No limit") => {
     const set = Boolean(limits[name]);
     return (
       <div className="grid content-start gap-1.5 rounded-lg border border-[#e3e8ef] bg-white px-3 py-2.5">
-        <span className="text-xs font-semibold text-[#344054]">{label}</span>
+        <span>
+          <span className="block text-xs font-semibold text-[#344054]">{label}</span>
+          <span className="block text-xs text-[#667085]">{help}</span>
+        </span>
         <div className="flex flex-wrap items-center gap-2">
           <div className="min-w-0 max-w-xs flex-1">
             <SelectMenu
               label={label}
               value={limits[name] ? String(limits[name]) : NONE}
               onChange={(value) => setLimits((current) => ({ ...current, [name]: value ? Number(value) : null }))}
-              options={[{ value: NONE, label: "No limit" }, ...options]}
+              options={[{ value: NONE, label: none }, ...options]}
             />
           </div>
           {set ? <KindToggle name={`${label}: constraint or preference`} kind={limitKinds[name] ?? "preference"} onChange={(kind) => setLimitKind(name, kind)} /> : null}
@@ -1011,36 +1060,36 @@ export function WishesForm({
   );
   const gridBody = () => gridBox.current?.querySelector("tbody");
   /*
-   * The cards' words: one line per thing to do, or per thing the page does not already say.
-   * No option or field named again where the page shows it, and no line said twice.
+   * The cards' words (12 Nov 2026): short, plain orders, one line per thing to do, each
+   * control drawn as it looks on the page. `readFor` is each card's reading time, in seconds.
    */
+  const Done = <ButtonLook>Done</ButtonLook>;
   const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
     {
       // Before anything: that this is a tour, and that only what its card says works.
       id: "intro",
-      title: "How this tour works",
-      body: <span className="font-semibold text-[#1f4e79]">This is a guided tour of the form: you try each part as you go.</span>,
+      title: "How the tour works",
       steps: [
-        <>Read this card: it says what to do, one step at a time.</>,
-        <>Do only that. The rest of the page stays locked until the tour ends.</>,
-        <>
-          The card moves on once it is done; <b>Back</b> returns to the step before.
-        </>,
+        <>Each card is one step. Do what it says.</>,
+        <>Only that step works. The rest of the form is locked.</>,
+        <>Read each card until its timer ends, then go on.</>,
       ],
+      readFor: 7,
     },
     {
       id: "paint",
       title: "Mark a time",
-      body: tourMade ? <b className="font-semibold text-[#1f4e79]">One block is enough for the tour. Press Next.</b> : undefined,
-      steps: [<>Drag down a few hours on any day; sideways covers several days.</>, <>Let go: that makes a block. You set it in its box in a moment.</>],
-      tryIt: "Drag down a few hours on any day of the calendar.",
+      body: tourMade ? <b className="font-semibold text-[#15803d]">One block is enough. Press Next.</b> : undefined,
+      steps: [<>Drag down over a few hours on any day.</>, <>Let go. This makes a block.</>],
+      tryIt: "Drag down over a few hours on any day.",
       done: Boolean(tourMade) && !drag,
       target: () => [part("toolbar"), gridBox.current],
       allow: () => gridBody(),
+      readFor: 4,
     },
     {
       id: "open",
-      title: "Open a block",
+      title: "Open the block",
       steps: [<>Click the block you made.</>],
       tryIt: "Click the block you made.",
       done: Boolean(tourClicked || (open && openBlock)),
@@ -1049,22 +1098,21 @@ export function WishesForm({
       autoNext: 2000,
       target: () => gridBox.current,
       allow: () => gridBody(),
+      readFor: 2,
     },
     {
       id: "repeat",
       title: "Set the block",
-      body: open && openBlock ? <span className="font-semibold text-[#1f4e79]">Your click opened this box.</span> : undefined,
+      body: open && openBlock ? <span className="font-semibold text-[#15803d]">Your click opened this box.</span> : undefined,
       steps:
         open && openBlock
           ? [
               <>
-                In the switch <ToggleLook />, choose <b>Constraint</b> (can&rsquo;t teach) or <b>Preference</b> (would like to teach).
+                Choose <ToggleLook />. <b>Constraint</b>: can&rsquo;t teach. <b>Preference</b>: would like to teach.
               </>,
-              <>Pick how it repeats.</>,
-              <>Say why: a constraint needs a reason; for a preference it&rsquo;s optional. The coordinator reads it.</>,
-              <>
-                Press <b>Done</b>.
-              </>,
+              <>Choose how often it repeats.</>,
+              <>Type a reason. Required for a constraint.</>,
+              <>Press {Done}.</>,
             ]
           : [<>Click your block to open its box.</>],
       tryIt: open && openBlock ? "Set the block in its box, then press Done." : "Click your block to open its box.",
@@ -1079,33 +1127,35 @@ export function WishesForm({
       pointAt: () => popover.current?.querySelector('[aria-label="Constraint or preference"]'),
       // Beside the choice, outside its box: over it would cover the box's words.
       pointFrom: "left",
+      readFor: 8,
     },
     {
       id: "weeks",
-      title: "Move between weeks",
-      steps: [<>Press the arrow to go to {after_ ? "the next week" : "the week before"}.</>],
+      title: "Change the week",
+      steps: [
+        <>
+          Press <ButtonLook tone="plain" before={after_ ? ChevronRight : ChevronLeft} /> to go to {after_ ? "the next week" : "the week before"}.
+        </>,
+      ],
       tryIt: `Press the arrow to go to ${after_ ? "the next week" : "the week before"}.`,
       done: week !== tourBase.week,
       instantNext: true,
       target: () => [part("toolbar"), gridBox.current],
       allow: () => [part("week-before"), part("week-after"), part("weeks")?.querySelector("[aria-haspopup]")],
       pointAt: () => part(after_ || !before_ ? "week-after" : "week-before"),
+      readFor: 3,
     },
     {
       id: "day",
-      title: "Away for a day?",
+      title: "Block a whole day",
       steps: [
         <>
-          Press <b>Whole day</b> under a day&rsquo;s name.
+          Press <PillLook>Whole day</PillLook> under any day. It blocks that day, this week only.
         </>,
-        <>
-          The whole day becomes a <KindTag kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Conference&rdquo;.
-        </>,
-        <>
-          Press <b>Done</b>.
-        </>,
+        <>Type a reason, e.g. &ldquo;Conference&rdquo;.</>,
+        <>Press {Done}.</>,
       ],
-      tryIt: open ? "Say why in the day's box, then press Done." : "Press Whole day under a day's name.",
+      tryIt: open ? "Type a reason in the day's box, then press Done." : "Press Whole day under any day.",
       done: Boolean(tourDay) && tourBase.sawOpen && !open,
       instantNext: true,
       // The calendar, and the day's box on its own once it is open.
@@ -1114,22 +1164,19 @@ export function WishesForm({
       allow: () => [gridBox.current?.querySelector("thead"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : gridBox.current?.querySelector("thead button[data-day-name]")),
       pointFrom: open ? "left" : undefined,
+      readFor: 6,
     },
     {
       id: "week",
-      title: "Away for a whole week?",
+      title: "Block a whole week",
       steps: [
         <>
-          Press <b>Whole week</b>, beside the week&rsquo;s name.
+          Press <PillLook>Whole week</PillLook> next to the week. It blocks every day, this week only.
         </>,
-        <>
-          Every day of the week becomes a <KindTag kind="constraint" /> for this week only: say why in its box, e.g. &ldquo;Leave&rdquo;.
-        </>,
-        <>
-          Press <b>Done</b>.
-        </>,
+        <>Type a reason, e.g. &ldquo;Leave&rdquo;.</>,
+        <>Press {Done}.</>,
       ],
-      tryIt: open ? "Say why in the week's box, then press Done." : "Press Whole week, beside the week's name.",
+      tryIt: open ? "Type a reason in the week's box, then press Done." : "Press Whole week next to the week.",
       done: Boolean(tourWeek) && tourBase.sawOpen && !open,
       instantNext: true,
       target: () => [[part("toolbar"), gridBox.current], open ? popover.current : null],
@@ -1137,18 +1184,19 @@ export function WishesForm({
       allow: () => [part("whole-week"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : part("whole-week")),
       pointFrom: open ? "left" : undefined,
+      readFor: 6,
     },
     {
       id: "summary",
-      title: "Summary of constraints and preferences",
+      title: "Check the summary",
       steps: [
-        <>Everything marked is listed here, with how it repeats and why.</>,
-        <>Click one: the calendar goes to its week and opens its box.</>,
+        <>Everything marked is listed here.</>,
         <>
-          Press <b>Done</b>.
+          Click a date, like <DateLook>Tue 14:00–16:00</DateLook>, to open it.
         </>,
+        <>Press {Done}.</>,
       ],
-      tryIt: open ? "Press Done in the block's box." : "Click a block in the summary.",
+      tryIt: open ? "Press Done in the block's box." : "Click a date in the summary.",
       done: tourBase.sawOpen && !open,
       instantNext: true,
       // The light grows from the calendar to take in the list under it, and the box when it opens.
@@ -1157,64 +1205,68 @@ export function WishesForm({
       allow: () => [part("summary"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : part("summary")?.querySelector("li button")),
       pointFrom: "left",
+      readFor: 5,
     },
     {
       id: "next",
-      title: "Two more pages",
+      title: "Go to the next page",
       steps: [
         <>
-          Press <b>Next: Limits</b>, at the bottom of the form.
+          Press <ButtonLook after={ArrowRight}>Next: Limits</ButtonLook> at the bottom.
         </>,
       ],
-      tryIt: "Press Next: Limits, at the bottom of the form.",
+      tryIt: "Press Next: Limits at the bottom.",
       done: page >= 1,
       instantNext: true,
       target: () => part("nav"),
       allow: () => part("next"),
       pointAt: () => part("next"),
+      readFor: 2,
     },
     {
       id: "limits",
-      title: `Limits on ${yours} week`,
+      title: "Set limits",
       steps: [
-        <>Set only those that matter.</>,
         <>
-          Each has the switch <ToggleLook on="preference" />: a <b>Preference</b> unless you make it a <b>Constraint</b>.
+          Set only the limits that matter. Leave the rest on <b>No limit</b>.
+        </>,
+        <>
+          Each one is a <b>Preference</b> unless you switch it to <b>Constraint</b>: <ToggleLook on="preference" />
         </>,
       ],
       target: () => part("limits"),
       allow: () => part("limits"),
+      readFor: 7,
     },
     {
       id: "save",
       title: "Save or submit",
       steps: [
         <>
-          <b>Save draft</b> keeps it for later.
+          <ButtonLook tone="plain">Save draft</ButtonLook> keeps it for later.
         </>,
         <>
-          <b>Submit</b> is on the last page.
+          <ButtonLook>Submit</ButtonLook> is on the last page.
         </>,
-        voice === "you" ? <>You can change your answer until the deadline.</> : <>It&rsquo;s kept as entered by you.</>,
+        voice === "you" ? <>You can change your answer until the deadline.</> : <>It is saved as entered by you.</>,
       ],
       target: () => part("nav"),
+      readFor: 5,
     },
     {
       id: "again",
       title: "Take the tour again",
       steps: [
         <>
-          Press <b>Guided tour</b>, top right, whenever you want it.
+          Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the top right.
+        </>,
+        <>
+          Press <b>Finish</b>. What you tried in the tour is cleared.
         </>,
       ],
       target: () => tourButtonAt.current,
       pointAt: () => tourButtonAt.current,
-      actions: tried
-        ? [
-            { label: "Clear what I tried", onClick: clearTried },
-            { label: "Keep it", primary: true, onClick: endTour },
-          ]
-        : undefined,
+      readFor: 4,
     },
   ];
 
@@ -1222,12 +1274,12 @@ export function WishesForm({
     tourHint === "welcome"
       ? {
           id: "welcome",
-          title: "New here? Take the one-minute tour",
+          title: "New here? Take the two-minute tour",
           steps: [
             <>You try each part of the form as you go.</>,
-            <>Anything you try can be cleared at the end.</>,
+            <>What you try is cleared at the end.</>,
             <>
-              <b>Save draft</b> and <b>Submit</b> open once it is done.
+              <ButtonLook tone="plain">Save draft</ButtonLook> and <ButtonLook>Submit</ButtonLook> open after the tour.
             </>,
           ],
           actions: [
@@ -1248,12 +1300,12 @@ export function WishesForm({
             title: "Take the tour again",
             steps: [
               <>
-                Press <b>Guided tour</b>, top right, whenever you want it.
+                Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the top right.
               </>,
               ...(tourRequired
                 ? [
                     <>
-                      <b>Save draft</b> and <b>Submit</b> open once it is finished.
+                      <ButtonLook tone="plain">Save draft</ButtonLook> and <ButtonLook>Submit</ButtonLook> open after the tour.
                     </>,
                   ]
                 : []),
@@ -1269,8 +1321,8 @@ export function WishesForm({
     const fromWeek = block.repeat === "from" ? block.week : week;
     const onceWeek = block.repeat === "once" ? block.week : week;
     return [
-      { value: "all", label: "Every week", hint: "The whole semester" },
-      { value: "from", label: `Every week from ${weekShort(fromWeek)}`, hint: "From that week to the end" },
+      { value: "all", label: "Whole semester", hint: "Every week, first to last" },
+      { value: "from", label: `Every week starting ${weekShort(fromWeek)}`, hint: "From that week to the end" },
       { value: "once", label: "This week only", hint: weekName(onceWeek) },
     ];
   };
@@ -1303,19 +1355,18 @@ export function WishesForm({
           onStep={setTourAt}
           nudge={tourNudge}
           endWords={[
-            tried && tourAt !== tourSteps.length - 1 ? "What you tried during the tour is cleared." : "",
+            tried ? "What you tried during the tour is cleared." : "",
             tourRequired
               ? "Save and Submit stay off until the tour is taken to its end: start it again from Guided tour, top right."
               : "You can take it again from Guided tour, top right.",
           ]
             .filter(Boolean)
             .join(" ")}
-          // Finished, or ended early: what was tried on the way is cleared, unless kept at the end;
-          // and, ended early, how to take it again pops up.
+          // Finished, or ended early, the form is as it was before the tour: what was tried on the
+          // way is cleared (12 Nov 2026: always, no "keep it"). Ended early, how to take it again pops up.
           onClose={() => {
             const early = tourAt !== tourSteps.length - 1;
-            if (tried && early) clearTried();
-            else endTour();
+            clearTried();
             if (early) setTourHint("again");
           }}
         />
@@ -1371,7 +1422,7 @@ export function WishesForm({
                 steps={[
                   { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
                   { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; yellow, ${meaning("preference", voice)}` },
-                  { icon: Repeat, title: "How it repeats", hint: "Every week, from a week on, or one week only" },
+                  { icon: Repeat, title: "How it repeats", hint: "Whole semester, from a set week, or one week only" },
                 ]}
               >
                 <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
@@ -1539,7 +1590,7 @@ export function WishesForm({
                         const said = holiday
                           ? "holiday"
                           : first
-                            ? `${first.kind}, ${first.repeat === "all" ? "every week" : first.repeat === "from" ? `every week from ${formatDayAndMonth(first.week)}` : "this week only"}`
+                            ? `${first.kind}, ${first.repeat === "all" ? "whole semester" : first.repeat === "from" ? `every week starting ${formatDayAndMonth(first.week)}` : "this week only"}`
                             : "fine";
                         return (
                           <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
@@ -1779,7 +1830,6 @@ export function WishesForm({
                     type="button"
                     // Not while the tour is on: the block is what its steps are about.
                     disabled={tourAt !== null}
-                    title={tourAt !== null ? "Not during the guided tour" : undefined}
                     onClick={() => remove(openBlock.id)}
                     className="inline-flex items-center gap-1 rounded px-1.5 py-1 text-xs font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:text-[#d0a5a8] disabled:hover:bg-transparent"
                   >
@@ -1803,10 +1853,17 @@ export function WishesForm({
               <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} className={`mt-1 ${field}`} />
             </label>
           ) : null}
-          <div data-tour="summary" aria-label="Summary of constraints and preferences" className="mt-4 rounded-lg border border-[#d9dee7] bg-[#f8fafc] p-3">
-            <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">
-              <MessageSquare size={12} aria-hidden="true" /> Summary of constraints and preferences
-            </p>
+          <div data-tour="summary" aria-label="Summary of constraints and preferences" className="mt-4 rounded-lg border border-[#d9dee7] bg-white p-3">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
+              <h4 className="flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
+                <ListChecks size={15} className="self-center text-[#667085]" aria-hidden="true" /> Summary
+              </h4>
+              {blocks.length ? (
+                <p className="flex items-center gap-1 text-xs text-[#667085]">
+                  <Pencil size={11} aria-hidden="true" /> Click a date to open it on the calendar and change it.
+                </p>
+              ) : null}
+            </div>
             <BlockList
               blocks={blocks}
               grid={grid}
@@ -1825,17 +1882,39 @@ export function WishesForm({
       {page === 1 ? (
         <section data-tour="limits" aria-label={`Limits on ${yours} week`} className={section}>
           <h3 className="text-sm font-semibold text-[#171717]">Limits on {yours} week</h3>
+          {/* What the page is, in two lines: all optional, and what the switch on each one means. */}
           <p className={hint}>
-            Only those that matter. Each one set is a preference unless you make it a constraint; a constraint is held to, a preference only if it can be.
+            All optional. Leave <b className="font-semibold text-[#475467]">No limit</b> on any that doesn&rsquo;t matter. For each one set, choose:
           </p>
+          <ul className="mt-1.5 grid gap-1 text-xs text-[#475467]">
+            <li className="flex items-center gap-2">
+              <span className="w-[4.75rem] shrink-0">
+                <KindTag kind="preference" />
+              </span>
+              The timetable respects it if it can.
+            </li>
+            <li className="flex items-center gap-2">
+              <span className="w-[4.75rem] shrink-0">
+                <KindTag kind="constraint" />
+              </span>
+              The timetable must respect it. Say why.
+            </li>
+          </ul>
           <div className="mt-3 grid gap-2">
-            {limitBlock("maxDays", "Most days on campus", counts(1, Math.max(1, collection.days.length - 1), "day"))}
-            {limitBlock("maxHoursDay", "Most hours in a day", counts(2, 10, "hour"))}
-            {limitBlock("maxInRow", "Most hours in a row", counts(1, 8, "hour"))}
+            {limitBlock(
+              "maxDays",
+              "Maximum days on campus per week",
+              `How many days a week ${voice === "you" ? "you" : "they"} can come in to teach.`,
+              counts(1, Math.max(1, collection.days.length - 1), "day"),
+            )}
+            {limitBlock("maxHoursDay", "Maximum teaching hours per day", `How many hours of class ${voice === "you" ? "you" : "they"} can teach in one day.`, counts(2, 10, "hour"))}
+            {limitBlock("maxInRow", "Maximum hours of class in a row", "How many hours of class back to back, with no break between them.", counts(1, 8, "hour"))}
             {limitBlock(
               "freeDay",
-              voice === "you" ? "A day you'd like free" : "A day they'd like free",
+              "Preferred day off",
+              `A weekday with no classes for ${voice === "you" ? "you" : "them"}.`,
               collection.days.map((day) => ({ value: String(day), label: DAY_NAMES[day] })),
+              "No day off",
             )}
           </div>
         </section>

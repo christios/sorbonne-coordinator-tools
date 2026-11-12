@@ -175,7 +175,7 @@ describe("a class beside its teacher's wishes", () => {
     const items = within(screen.getByRole("list", { name: "Bilal Maaz's preferences" }))
       .getAllByRole("listitem")
       .map((item) => item.textContent);
-    expect(items).toEqual(["ConstraintTue 14:00–18:00 · every week — this time breaks it“School run”", "PreferenceMonday free"]);
+    expect(items).toEqual(["ConstraintTue 14:00–18:00 · whole semester — this time breaks it“School run”", "PreferenceMonday free"]);
     expect(screen.getByText("Needs: A lab")).toBeTruthy();
   });
 
@@ -191,7 +191,7 @@ describe("a class beside its teacher's wishes", () => {
     );
     const strip = screen.getByRole("status");
     expect(strip.textContent).toContain("1 problem at this time");
-    expect(within(strip).getByText("Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”")).toBeTruthy();
+    expect(within(strip).getByText("Constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”")).toBeTruthy();
   });
 
   it("says when the teacher hasn't answered", () => {

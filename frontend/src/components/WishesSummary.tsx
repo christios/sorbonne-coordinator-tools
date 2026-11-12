@@ -63,7 +63,7 @@ export function WishesSummary({
         <BlockList blocks={wishes.blocks} grid={grid} voice={voice} />
         {usual.length ? (
           <>
-            <p className="mt-2 text-xs font-semibold text-[#667085]">Every week</p>
+            <p className="mt-2 text-xs font-semibold text-[#667085]">Whole semester</p>
             <table className="w-full table-fixed border-collapse text-[11px]" aria-label="The usual week">
               <thead>
                 <tr>

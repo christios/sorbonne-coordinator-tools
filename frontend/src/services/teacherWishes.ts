@@ -114,10 +114,10 @@ export function recurringConstraintHours(blocks: WishBlock[]): number {
   return quarters.size * STEP;
 }
 
-/** "every week", "every week from 18 Jan", "this week only". */
+/** "whole semester", "every week starting 18 Jan", "this week only": the words of the form's box. */
 export function repeatWords(block: Pick<WishBlock, "repeat" | "week">): string {
-  if (block.repeat === "all") return "every week";
-  if (block.repeat === "from") return `every week from ${formatDayAndMonth(block.week)}`;
+  if (block.repeat === "all") return "whole semester";
+  if (block.repeat === "from") return `every week starting ${formatDayAndMonth(block.week)}`;
   return "this week only";
 }
 

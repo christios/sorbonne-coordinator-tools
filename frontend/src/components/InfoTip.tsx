@@ -20,7 +20,34 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import type { ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
+
+/*
+ * While a guided tour runs, no bubble opens anywhere on the page (12 Nov 2026): a hover on
+ * Whole day, on a block, on an ⓘ, drew the eye away from the tour's card, the one thing to read.
+ */
+let tipsHeld = 0;
+const tipWatchers = new Set<() => void>();
+const tellTipWatchers = () => tipWatchers.forEach((watcher) => watcher());
+/** Bubbles held shut until the returned function is called. */
+export function holdTips(): () => void {
+  tipsHeld += 1;
+  tellTipWatchers();
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    tipsHeld -= 1;
+    tellTipWatchers();
+  };
+}
+const watchTips = (watcher: () => void) => {
+  tipWatchers.add(watcher);
+  return () => {
+    tipWatchers.delete(watcher);
+  };
+};
+const tipsAreHeld = () => tipsHeld > 0;
 
 /**
  * The bubble, around any trigger: the ⓘ's own card, wherever the app explains something on
@@ -58,9 +85,12 @@ export function Tip({
   /** Keep to a trigger that moves, as a dragged class's landing box does. */
   follow?: boolean;
 }) {
+  const held = useSyncExternalStore(watchTips, tipsAreHeld, tipsAreHeld);
+  // Always held from here, so a tour can shut it: open as the hover says, unless `open` says.
+  const [hovered, setHovered] = useState(false);
   return (
     <Tooltip.Provider delayDuration={delay}>
-      <Tooltip.Root open={open}>
+      <Tooltip.Root open={held ? false : (open ?? hovered)} onOpenChange={setHovered}>
         <Tooltip.Trigger asChild>{children}</Tooltip.Trigger>
         <Tooltip.Portal>
           <Tooltip.Content
