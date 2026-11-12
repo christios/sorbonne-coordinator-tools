@@ -72,6 +72,8 @@ export type LoadSection = {
   cohortId: string;
   /** The course card it is under: one per cohort, semester and course code. */
   cardKey: string;
+  courseCode: string;
+  courseName: string;
   /** "TD 1", "CM 1 · Physics", with the part when a section is handed over. */
   label: string;
   crn: string;
@@ -136,6 +138,8 @@ export function loadSections(cards: Card[], termIds: string[], teachers: ActiveT
           termId: card.termId,
           cohortId: card.cohortId,
           cardKey: card.key,
+          courseCode: card.code,
+          courseName: card.name || card.code,
           label: `${set.scope.code} ${group}`.trim() + part,
           crn: section.crn.trim(),
           teacherId: record?.id ?? section.teacherId,
@@ -151,9 +155,20 @@ export function loadSections(cards: Card[], termIds: string[], teachers: ActiveT
   return lines;
 }
 
-/** One block per cohort with anything planned in these semesters, in the cards' order. */
-export function cohortLoads(cards: Card[], termIds: string[], teachers: ActiveTeacher[]): CohortLoad[] {
-  const lines = loadSections(cards, termIds, teachers);
+/**
+ * One block per cohort with anything planned in these semesters, in the cards' order.
+ *
+ * `keep` narrows it to the sections a search or the filters leave, and everything is then
+ * counted on those alone — the split, the CM/TD/TP hours, each teacher's — so the figures
+ * always describe the lines on the screen.
+ */
+export function cohortLoads(
+  cards: Card[],
+  termIds: string[],
+  teachers: ActiveTeacher[],
+  keep: (section: LoadSection) => boolean = () => true,
+): CohortLoad[] {
+  const lines = loadSections(cards, termIds, teachers).filter(keep);
   const cohorts = new Map<string, CohortLoad>();
   for (const card of cards) {
     if (!termIds.includes(card.termId)) continue;
@@ -212,7 +227,12 @@ export function departmentSplit(cohorts: CohortLoad[], termIds: string[]): Recor
   return total;
 }
 
-/** "16%" of a total, or "" when there is nothing to share. Whole percents, as the sheet reads. */
+/**
+ * "16%" of a total, or "" when there is nothing to share. Whole percents, as the sheet
+ * reads — and "<1%" for a share too small to round to one, which "0%" would read as none.
+ */
 export function shareOf(hours: number, total: number): string {
-  return total > 0 ? `${Math.round((hours / total) * 100)}%` : "";
+  if (total <= 0) return "";
+  const percent = (hours / total) * 100;
+  return hours > 0 && percent < 0.5 ? "<1%" : `${Math.round(percent)}%`;
 }

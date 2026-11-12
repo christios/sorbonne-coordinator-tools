@@ -101,6 +101,9 @@ describe("a cohort's hours, as the teaching-load sheet has them", () => {
     ]);
     expect(departmentSplit([fy], ["s1", "s2"]).year).toEqual(fy.split.year);
     expect(shareOf(50, 210)).toBe("24%");
+    // Twenty hours of a department's 6,600 are not none.
+    expect(shareOf(20, 6600)).toBe("<1%");
+    expect(shareOf(0, 6600)).toBe("0%");
   });
 
   it("follows the semesters it is given: one semester alone is that semester's", () => {

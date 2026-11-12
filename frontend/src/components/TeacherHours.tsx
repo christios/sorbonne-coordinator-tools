@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Download, EyeOff, ListTree, RotateCcw, X } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
@@ -238,6 +238,20 @@ export function TeacherHours({
     () => (academicYear ? termIds.filter((id) => academicYearOfTerm(links.data?.[id] ?? "") === academicYear) : [chosenTerm].filter(Boolean)),
     [academicYear, termIds, links.data, chosenTerm],
   );
+  /*
+   * Each semester as the By cohort view names it — "S1 · Semester 1" — in a function that
+   * stays the same while the names do, so its search does not recount on every render.
+   */
+  const labelsKey = JSON.stringify(
+    Object.fromEntries(
+      termIds.map((id) => {
+        const shown = shownOf({ id, name: termName(id) });
+        return [id, shown.short ? `${shown.short} · ${shown.label}` : shown.label];
+      }),
+    ),
+  );
+  const cohortLabels = useMemo(() => JSON.parse(labelsKey) as Record<string, string>, [labelsKey]);
+  const cohortTermLabel = useCallback((id: string) => cohortLabels[id] ?? "", [cohortLabels]);
   const year = useMemo(() => {
     if (!academicYear) return undefined;
     const planned = new Map<string, number>();
@@ -396,10 +410,6 @@ export function TeacherHours({
   );
 
   if (view === "cohort") {
-    const termLabel = (id: string) => {
-      const shown = shownOf({ id, name: termName(id) });
-      return shown.short ? `${shown.short} · ${shown.label}` : shown.label;
-    };
     return (
       <section>
         {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
@@ -413,7 +423,7 @@ export function TeacherHours({
         <CohortLoads
           cards={cards}
           termIds={yearTermIds}
-          termLabel={termLabel}
+          termLabel={cohortTermLabel}
           teachers={teachers.data ?? []}
           onOpenTeacher={onOpenTeacher}
         />

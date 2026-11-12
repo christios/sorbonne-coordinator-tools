@@ -1,6 +1,8 @@
-import { useMemo, useState } from "react";
+import { Search } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { InfoTip } from "@/components/InfoTip";
+import { TableFilterBar } from "@/components/TableFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { usePageState } from "@/components/usePageState";
 import {
@@ -8,58 +10,97 @@ import {
   LOAD_KINDS,
   STAFF_STATUSES,
   bucketLabel,
+  bucketOf,
   cohortLoads,
   departmentSplit,
+  loadSections,
   shareOf,
   splitTotal,
   type Bucket,
   type CohortLoad,
   type LoadKind,
+  type LoadSection,
   type Split,
   type StaffStatus,
 } from "@/services/cohortLoads";
 import type { Card } from "@/services/courseCards";
 import type { ActiveTeacher } from "@/services/portalLists";
+import { optionsFor, type GridColumn } from "@/services/studentColumns";
+import { applyFilters, type FilterModel } from "@/services/tableFilter";
 
 const DEPARTMENT = "department";
-const hours = (value: number) => (value ? Math.round(value * 10) / 10 : 0).toLocaleString("en-GB");
+const hours = (value: number) => (Math.round(value * 10) / 10).toLocaleString("en-GB");
 
+/*
+ * The status tags. Each is the darkest of its colour on the lightest, with an outline a
+ * step darker than the fill, so a tag reads on white and on the grey of a course line.
+ */
 const PILL: Record<Bucket, string> = {
-  FT: "bg-[#e1f5ee] text-[#085041]",
-  PHD: "bg-[#f1efe8] text-[#444441]",
-  VP: "bg-[#faece7] text-[#712b13]",
-  PT: "bg-[#eeedfe] text-[#3c3489]",
-  UNSET: "bg-[#faeeda] text-[#633806]",
-  NOBODY: "bg-[#fcebeb] text-[#a6292f]",
+  FT: "bg-[#d7f0e5] text-[#064e3b] ring-[#6cc5a0]",
+  PHD: "bg-[#ece9e1] text-[#3d3b37] ring-[#a8a59b]",
+  VP: "bg-[#fbe2d8] text-[#6b2410] ring-[#e39a7c]",
+  PT: "bg-[#e5e3fb] text-[#2e2878] ring-[#a29ce8]",
+  UNSET: "bg-[#fdebc8] text-[#5c3305] ring-[#e3ab52]",
+  NOBODY: "bg-[#fde3e3] text-[#8a1c1c] ring-[#e89393]",
 };
 
-/** A teacher's status as the sheet writes it, coloured the same everywhere on the page. */
-function StatusPill({ status }: { status: StaffStatus | "" }) {
-  const bucket: Bucket = status || "UNSET";
-  const long = STAFF_STATUSES.find((entry) => entry.status === status)?.long ?? "No status yet: set it on the teacher's record";
+function Tag({ bucket, title }: { bucket: Bucket; title?: string }) {
   return (
-    <span title={long} className={`ml-1.5 inline-block whitespace-nowrap rounded px-1.5 py-px text-[11px] font-semibold ${PILL[bucket]}`}>
-      {status ? bucketLabel(bucket) : "?"}
+    <span
+      title={title}
+      className={`inline-block whitespace-nowrap rounded px-1.5 py-px text-[11px] font-semibold ring-1 ring-inset ${PILL[bucket]}`}
+    >
+      {bucketLabel(bucket)}
     </span>
   );
 }
 
+/** A teacher's status beside their name. A question mark until it is known. */
+function StatusPill({ status }: { status: StaffStatus | "" }) {
+  const long = STAFF_STATUSES.find((entry) => entry.status === status)?.long ?? "No status yet: set it on the teacher's record";
+  return (
+    <span className="ml-1.5">
+      {status ? (
+        <Tag bucket={status} title={long} />
+      ) : (
+        <span title={long} className={`inline-block rounded px-1.5 py-px text-[11px] font-semibold ring-1 ring-inset ${PILL.UNSET}`}>
+          ?
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The hours and their share in a cell: "511 · 33%", or a dash for none. */
+function HoursShare({ value, total, warn = false }: { value: number; total: number; warn?: boolean }) {
+  if (!value) return <span className="text-[#667085]">–</span>;
+  return (
+    <span className={warn ? "font-semibold text-[#a6292f]" : "text-[#171717]"}>
+      {hours(value)} <span className={warn ? "" : "text-[#475467]"}>· {shareOf(value, total)}</span>
+    </span>
+  );
+}
+
+const lineCell = "border-b border-[#dde3ea] py-1.5";
+
 /**
- * Who teaches the hours: the sheet's table of FT, PhD/Pdoc, VP and PT, with each one's
- * share, semester by semester and for the year. A line for hours whose teacher has no
- * status, and one for hours nobody teaches yet, only when there are any — so the total
- * is always the hours planned, and the shares say what is still open.
+ * Who teaches the hours: the sheet's FT, PhD/Pdoc, VP and PT, with each one's share,
+ * semester by semester and for the year. A line for hours whose teacher has no status,
+ * and one for hours nobody teaches yet, only when there are any — so the total is always
+ * the hours counted, and the shares say what is still open.
  */
 function SplitTable({ split, termIds, termLabel }: { split: Record<string, Split>; termIds: string[]; termLabel: (id: string) => string }) {
   const columns = [...termIds.filter((id) => split[id]), "year"];
-  const shownBuckets = BUCKETS.filter((bucket) => STAFF_STATUSES.some((entry) => entry.status === bucket) || columns.some((id) => split[id][bucket] > 0));
+  const shownBuckets = BUCKETS.filter(
+    (bucket) => STAFF_STATUSES.some((entry) => entry.status === bucket) || columns.some((id) => split[id][bucket] > 0),
+  );
   return (
-    <table className="w-full text-sm tabular-nums">
+    <table className="w-full border-separate border-spacing-0 text-sm tabular-nums">
       <thead>
-        <tr className="text-xs text-[#667085]">
-          <th className="py-1.5 pr-3 text-left font-semibold" />
+        <tr className="text-xs text-[#344054]">
+          <th className="border-b-2 border-[#b8c2cf] py-1.5 pr-3 text-left font-semibold">Status</th>
           {columns.map((id) => (
-            <th key={id} className="whitespace-nowrap py-1.5 pl-3 text-right font-semibold">
+            <th key={id} className="whitespace-nowrap border-b-2 border-[#b8c2cf] py-1.5 pl-4 text-right font-semibold">
               {id === "year" ? "Year" : termLabel(id)}
             </th>
           ))}
@@ -67,31 +108,21 @@ function SplitTable({ split, termIds, termLabel }: { split: Record<string, Split
       </thead>
       <tbody>
         {shownBuckets.map((bucket) => (
-          <tr key={bucket} className="border-t border-[#eef1f5]">
-            <td className="py-1.5 pr-3">
-              <span className={`inline-block whitespace-nowrap rounded px-1.5 py-px text-[11px] font-semibold ${PILL[bucket]}`}>{bucketLabel(bucket)}</span>
+          <tr key={bucket}>
+            <td className={`${lineCell} pr-3`}>
+              <Tag bucket={bucket} />
             </td>
-            {columns.map((id) => {
-              const value = split[id][bucket];
-              const share = shareOf(value, splitTotal(split[id]));
-              return (
-                <td key={id} className={`whitespace-nowrap py-1.5 pl-3 text-right ${bucket === "NOBODY" && value ? "text-[#a6292f]" : ""}`}>
-                  {value ? (
-                    <>
-                      {hours(value)} <span className="text-[#98a2b3]">· {share}</span>
-                    </>
-                  ) : (
-                    <span className="text-[#c0c7d1]">0</span>
-                  )}
-                </td>
-              );
-            })}
+            {columns.map((id) => (
+              <td key={id} className={`${lineCell} whitespace-nowrap pl-4 text-right`}>
+                <HoursShare value={split[id][bucket]} total={splitTotal(split[id])} warn={bucket === "NOBODY"} />
+              </td>
+            ))}
           </tr>
         ))}
-        <tr className="border-t border-[#d9dee7] font-semibold">
-          <td className="py-1.5 pr-3">Total</td>
+        <tr className="font-semibold text-[#171717]">
+          <td className="border-t-2 border-[#b8c2cf] py-1.5 pr-3">Total</td>
           {columns.map((id) => (
-            <td key={id} className="py-1.5 pl-3 text-right">
+            <td key={id} className="border-t-2 border-[#b8c2cf] py-1.5 pl-4 text-right">
               {hours(splitTotal(split[id]))}
             </td>
           ))}
@@ -101,12 +132,38 @@ function SplitTable({ split, termIds, termLabel }: { split: Record<string, Split
   );
 }
 
-const card = "rounded-lg border border-[#d9dee7] bg-white p-4";
+const card = "rounded-lg border border-[#c9d2de] bg-white p-4";
+
+/** A section as the search and the filters read it. */
+type Row = LoadSection & { semester: string; course: string; typeLabel: string; teacherShown: string; statusShown: string };
+
+const option = (id: string, displayName: string, accessor: (row: Row) => string): GridColumn<Row> => ({
+  id,
+  displayName,
+  type: "option",
+  accessor,
+  defaultWidth: 140,
+});
+/** Everything a section can be filtered on, as the other pages' tables can be. */
+const COLUMNS: GridColumn<Row>[] = [
+  option("semester", "Semester", (row) => row.semester),
+  option("course", "Course", (row) => row.course),
+  option("type", "Type", (row) => row.typeLabel),
+  option("teacher", "Teacher", (row) => row.teacherShown),
+  option("status", "Status", (row) => row.statusShown),
+  { id: "crn", displayName: "CRN", type: "text", accessor: (row) => row.crn, defaultWidth: 100 },
+];
+
+const KIND_LABEL: Record<LoadKind, string> = { CM: "CM", TD: "TD", TP: "TP", OTHER: "Other" };
 
 /**
  * Teacher hours cohort by cohort, laid out as the department's teaching-load sheet: each
  * cohort's split, its CM/TD/TP hours and who teaches how many, over its courses and their
  * sections for the whole academic year. Department adds every cohort up.
+ *
+ * Searched and filtered as the other tables are — a section is kept or not — and every
+ * figure on the page is then counted on the sections kept, so "what share of the year do
+ * visiting professors teach in L2" is a chip, and the page says when it is narrowed.
  */
 export function CohortLoads({
   cards,
@@ -122,84 +179,179 @@ export function CohortLoads({
   teachers: ActiveTeacher[];
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
-  const cohorts = useMemo(() => cohortLoads(cards, termIds, teachers), [cards, termIds, teachers]);
   const [chosen, setChosen] = usePageState<string>("teacher-hours:cohort", DEPARTMENT);
-  const cohort = cohorts.find((entry) => entry.cohortId === chosen) ?? null;
+  const [filters, setFilters] = usePageState<FilterModel[]>("teacher-hours:cohort-filters", []);
+  const [query, setQuery] = usePageState("teacher-hours:cohort-search", "");
 
-  if (!cohorts.length) {
+  // The cohorts on offer whatever is filtered, so a filter never takes a button away.
+  const everyCohort = useMemo(() => cohortLoads(cards, termIds, teachers), [cards, termIds, teachers]);
+  const cohort = everyCohort.find((entry) => entry.cohortId === chosen) ?? null;
+
+  const rows = useMemo<Row[]>(
+    () =>
+      loadSections(cards, termIds, teachers)
+        .filter((section) => !cohort || section.cohortId === cohort.cohortId)
+        .map((section) => ({
+          ...section,
+          semester: termLabel(section.termId),
+          course: `${section.courseCode} · ${section.courseName}`,
+          typeLabel: KIND_LABEL[section.kind],
+          teacherShown: section.teacher || "Nobody yet",
+          statusShown: bucketLabel(bucketOf(section)),
+        })),
+    [cards, termIds, teachers, cohort, termLabel],
+  );
+  const kept = useMemo(() => {
+    const words = query.trim().toLowerCase();
+    const searched = words
+      ? rows.filter((row) =>
+          [row.course, row.label, row.crn, row.teacherShown, row.semester].join(" ").toLowerCase().includes(words),
+        )
+      : rows;
+    return new Set(applyFilters(searched, COLUMNS, filters).map((row) => row.key));
+  }, [rows, query, filters]);
+  const narrowed = Boolean(query.trim()) || filters.some((filter) => filter.values.length);
+  const counted = useMemo(
+    () => (narrowed ? cohortLoads(cards, termIds, teachers, (section) => kept.has(section.key)) : everyCohort),
+    [narrowed, cards, termIds, teachers, kept, everyCohort],
+  );
+  const shownCohort = cohort ? (counted.find((entry) => entry.cohortId === cohort.cohortId) ?? null) : null;
+
+  if (!everyCohort.length) {
     return (
-      <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
+      <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
         Nothing is planned for this academic year yet. Groups &amp; CRNs is where sections are made.
       </p>
     );
   }
   const chip = (active: boolean) =>
     `rounded-full border px-3 py-1 text-xs font-semibold ${
-      active ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#d3d9e2] bg-white text-[#475467] hover:border-[#1f4e79]"
+      active ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#b8c2cf] bg-white text-[#344054] hover:border-[#1f4e79] hover:text-[#1f4e79]"
     }`;
+  const clear = () => {
+    setFilters([]);
+    setQuery("");
+  };
+
   return (
     <div className="space-y-4">
-      <div role="group" aria-label="Cohort" className="flex flex-wrap gap-1.5">
-        <button type="button" aria-pressed={!cohort} onClick={() => setChosen(DEPARTMENT)} className={chip(!cohort)}>
-          Department
-        </button>
-        {cohorts.map((entry) => (
-          <button
-            key={entry.cohortId}
-            type="button"
-            aria-pressed={cohort?.cohortId === entry.cohortId}
-            onClick={() => setChosen(entry.cohortId)}
-            className={chip(cohort?.cohortId === entry.cohortId)}
-          >
-            {entry.cohortName}
+      <div className="flex flex-wrap items-center gap-3">
+        <div role="group" aria-label="Cohort" className="flex flex-wrap gap-1.5">
+          <button type="button" aria-pressed={!cohort} onClick={() => setChosen(DEPARTMENT)} className={chip(!cohort)}>
+            Department
           </button>
-        ))}
+          {everyCohort.map((entry) => (
+            <button
+              key={entry.cohortId}
+              type="button"
+              aria-pressed={cohort?.cohortId === entry.cohortId}
+              onClick={() => setChosen(entry.cohortId)}
+              className={chip(cohort?.cohortId === entry.cohortId)}
+            >
+              {entry.cohortName}
+            </button>
+          ))}
+        </div>
+        <div className="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto">
+          <label className="relative block w-full sm:w-64">
+            <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#475467]" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search sections"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search a course, CRN or teacher"
+              className="w-full rounded-md border border-[#b8c2cf] bg-white py-1.5 pl-8 pr-2 text-sm placeholder:text-[#667085]"
+            />
+          </label>
+          <span className="text-xs tabular-nums text-[#475467]">{`${kept.size} of ${rows.length} sections`}</span>
+          {narrowed ? (
+            <button type="button" onClick={clear} className="text-xs font-semibold text-[#1f4e79] underline">
+              Every section
+            </button>
+          ) : null}
+        </div>
       </div>
-      {cohort ? (
-        <CohortBlock cohort={cohort} termIds={termIds} termLabel={termLabel} onOpenTeacher={onOpenTeacher} />
+      <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+
+      {cohort && !shownCohort ? (
+        <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
+          No section of {cohort.cohortName} matches.{" "}
+          <button type="button" onClick={clear} className="font-semibold text-[#1f4e79] underline">
+            Every section
+          </button>
+        </p>
+      ) : shownCohort ? (
+        <CohortBlock cohort={shownCohort} termIds={termIds} termLabel={termLabel} narrowed={narrowed} onOpenTeacher={onOpenTeacher} />
       ) : (
-        <DepartmentBlock cohorts={cohorts} termIds={termIds} termLabel={termLabel} onChoose={setChosen} />
+        <DepartmentBlock cohorts={counted} termIds={termIds} termLabel={termLabel} narrowed={narrowed} onChoose={setChosen} />
       )}
     </div>
   );
 }
 
+function Heading({ children, about }: { children: ReactNode; about?: ReactNode }) {
+  return (
+    <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
+      {children}
+      {about ? <InfoTip label="Where these hours come from">{about}</InfoTip> : null}
+    </h3>
+  );
+}
+
+const ABOUT = (
+  <>
+    The hours Groups &amp; CRNs plans for every section of the year, by the status of the teacher named on it. A
+    teacher&apos;s status is set on their record; until it is, the portal&apos;s type is read as one. A search or filter
+    counts only the sections it leaves.
+  </>
+);
+
 function DepartmentBlock({
   cohorts,
   termIds,
   termLabel,
+  narrowed,
   onChoose,
 }: {
   cohorts: CohortLoad[];
   termIds: string[];
   termLabel: (termId: string) => string;
+  narrowed: boolean;
   onChoose: (cohortId: string) => void;
 }) {
   const split = useMemo(() => departmentSplit(cohorts, termIds), [cohorts, termIds]);
-  const shown = BUCKETS.filter((bucket) => STAFF_STATUSES.some((entry) => entry.status === bucket) || cohorts.some((cohort) => cohort.split.year[bucket] > 0));
+  const shown = BUCKETS.filter(
+    (bucket) => STAFF_STATUSES.some((entry) => entry.status === bucket) || cohorts.some((cohort) => cohort.split.year[bucket] > 0),
+  );
+  if (!cohorts.length) {
+    return (
+      <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
+        No section matches.
+      </p>
+    );
+  }
   return (
     <div className="space-y-4">
       <section className={`${card} max-w-3xl`}>
-        <h3 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-[#344054]">
-          Who teaches the department&apos;s hours
-          <InfoTip label="Where these hours come from">
-            The hours Groups &amp; CRNs plans for every section of the year, by the status of the teacher named on it.
-            A teacher&apos;s status is set on their record; until it is, the portal&apos;s type is read as one.
-          </InfoTip>
-        </h3>
-        <SplitTable split={split} termIds={termIds} termLabel={termLabel} />
+        <Heading about={ABOUT}>
+          {narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the department’s hours"}
+        </Heading>
+        <div className="overflow-x-auto">
+          <SplitTable split={split} termIds={termIds} termLabel={termLabel} />
+        </div>
       </section>
       <section className={card}>
-        <h3 className="mb-2 text-sm font-semibold text-[#344054]">Cohort by cohort, over the year</h3>
+        <Heading>Cohort by cohort, over the year</Heading>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[36rem] text-sm tabular-nums">
+          <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm tabular-nums">
             <thead>
-              <tr className="text-xs text-[#667085]">
-                <th className="py-1.5 pr-3 text-left font-semibold">Cohort</th>
-                <th className="py-1.5 pl-3 text-right font-semibold">Hours</th>
+              <tr className="text-xs text-[#344054]">
+                <th className="border-b-2 border-[#b8c2cf] py-1.5 pr-3 text-left font-semibold">Cohort</th>
+                <th className="border-b-2 border-[#b8c2cf] py-1.5 pl-4 text-right font-semibold">Hours</th>
                 {shown.map((bucket) => (
-                  <th key={bucket} className="py-1.5 pl-3 text-right font-semibold">
-                    {bucketLabel(bucket)}
+                  <th key={bucket} className="border-b-2 border-[#b8c2cf] py-1.5 pl-4 text-right">
+                    <Tag bucket={bucket} />
                   </th>
                 ))}
               </tr>
@@ -208,16 +360,16 @@ function DepartmentBlock({
               {cohorts.map((cohort) => {
                 const total = splitTotal(cohort.split.year);
                 return (
-                  <tr key={cohort.cohortId} className="border-t border-[#eef1f5]">
-                    <td className="py-1.5 pr-3">
+                  <tr key={cohort.cohortId} className="hover:bg-[#f5f8fc]">
+                    <td className={`${lineCell} pr-3`}>
                       <button type="button" onClick={() => onChoose(cohort.cohortId)} className="font-semibold text-[#1f4e79] hover:underline">
                         {cohort.cohortName}
                       </button>
                     </td>
-                    <td className="py-1.5 pl-3 text-right font-semibold">{hours(total)}</td>
+                    <td className={`${lineCell} pl-4 text-right font-semibold text-[#171717]`}>{hours(total)}</td>
                     {shown.map((bucket) => (
-                      <td key={bucket} className={`py-1.5 pl-3 text-right ${bucket === "NOBODY" && cohort.split.year[bucket] ? "text-[#a6292f]" : ""}`}>
-                        {cohort.split.year[bucket] ? shareOf(cohort.split.year[bucket], total) : <span className="text-[#c0c7d1]">—</span>}
+                      <td key={bucket} className={`${lineCell} whitespace-nowrap pl-4 text-right`}>
+                        <HoursShare value={cohort.split.year[bucket]} total={total} warn={bucket === "NOBODY"} />
                       </td>
                     ))}
                   </tr>
@@ -231,18 +383,29 @@ function DepartmentBlock({
   );
 }
 
-const KIND_LABEL: Record<LoadKind, string> = { CM: "CM", TD: "TD", TP: "TP", OTHER: "Other" };
 const MOST_TEACHERS = 8;
+
+/*
+ * The section table's cells. The header row sticks to the top of the table's own scroll
+ * box, each course's line sticks under it while that course's sections scroll by — the
+ * next course's line takes its place — and the first column sticks to the left, so a
+ * long cohort reads as the sheet does without losing which course or column a number is.
+ */
+const head = "sticky top-0 z-20 h-9 whitespace-nowrap border-b-2 border-r border-[#b8c2cf] bg-[#eef2f7] px-3 text-xs font-semibold text-[#344054] last:border-r-0";
+const courseCell = "sticky top-9 z-10 border-b border-r border-[#b8c2cf] bg-[#e4eaf2] px-3 py-1.5 font-semibold text-[#171717] last:border-r-0";
+const cell = "border-b border-r border-[#dde3ea] px-3 py-1.5 group-hover:bg-[#f5f8fc] last:border-r-0";
 
 function CohortBlock({
   cohort,
   termIds,
   termLabel,
+  narrowed,
   onOpenTeacher,
 }: {
   cohort: CohortLoad;
   termIds: string[];
   termLabel: (termId: string) => string;
+  narrowed: boolean;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const [allTeachers, setAllTeachers] = useState(false);
@@ -250,47 +413,47 @@ function CohortBlock({
   const listed = allTeachers ? cohort.teachers : cohort.teachers.slice(0, MOST_TEACHERS);
   const teacherName = (teacherId: string, name: string) =>
     onOpenTeacher && teacherId ? (
-      <button type="button" onClick={() => onOpenTeacher({ id: teacherId, fullName: name })} className="text-left text-[#1f4e79] hover:underline">
+      <button type="button" onClick={() => onOpenTeacher({ id: teacherId, fullName: name })} className="text-left font-medium text-[#1f4e79] hover:underline">
         {name}
       </button>
     ) : (
-      <span>{name}</span>
+      <span className="text-[#171717]">{name}</span>
     );
 
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
         <section className={card}>
-          <h3 className="mb-2 text-sm font-semibold text-[#344054]">Who teaches the hours</h3>
+          <Heading about={ABOUT}>{narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the hours"}</Heading>
           <div className="overflow-x-auto">
             <SplitTable split={cohort.split} termIds={termIds} termLabel={termLabel} />
           </div>
         </section>
         <div className="space-y-4">
-          <div className={`grid gap-2`} style={{ gridTemplateColumns: `repeat(${kinds.length}, minmax(0, 1fr))` }}>
+          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${kinds.length}, minmax(0, 1fr))` }}>
             {kinds.map((kind) => (
-              <div key={kind} className="rounded-lg bg-[#f2f4f7] px-3 py-2">
-                <p className="text-xs text-[#667085]">{KIND_LABEL[kind]}</p>
+              <div key={kind} className="rounded-lg border border-[#c9d2de] bg-[#eef2f7] px-3 py-2">
+                <p className="text-xs font-semibold text-[#475467]">{KIND_LABEL[kind]}</p>
                 <p className="text-lg font-semibold tabular-nums text-[#171717]">{hours(cohort.kinds[kind])}</p>
               </div>
             ))}
           </div>
           <section className={card}>
-            <h3 className="mb-2 text-sm font-semibold text-[#344054]">Each teacher in {cohort.cohortName}</h3>
+            <Heading>Each teacher in {cohort.cohortName}</Heading>
             {cohort.teachers.length ? (
-              <ul className="space-y-1 text-sm">
+              <ul className="text-sm">
                 {listed.map((teacher) => (
-                  <li key={teacher.teacherId || teacher.teacher} className="flex items-baseline justify-between gap-3">
+                  <li key={teacher.teacherId || teacher.teacher} className="flex items-baseline justify-between gap-3 border-b border-[#dde3ea] py-1 last:border-b-0">
                     <span className="min-w-0">
                       {teacherName(teacher.teacherId, teacher.teacher)}
                       <StatusPill status={teacher.status} />
                     </span>
-                    <span className="tabular-nums text-[#344054]">{hours(teacher.hours)}</span>
+                    <span className="tabular-nums font-semibold text-[#171717]">{hours(teacher.hours)}</span>
                   </li>
                 ))}
               </ul>
             ) : (
-              <p className="text-sm text-[#667085]">Nobody is named on its sections yet.</p>
+              <p className="text-sm text-[#475467]">Nobody is named on these sections yet.</p>
             )}
             {cohort.teachers.length > MOST_TEACHERS ? (
               <button type="button" onClick={() => setAllTeachers((shown) => !shown)} className="mt-2 text-xs font-semibold text-[#1f4e79] hover:underline">
@@ -301,76 +464,82 @@ function CohortBlock({
         </div>
       </div>
 
-      {cohort.semesters.map((semester) => (
-        <section key={semester.termId} className={`${card} overflow-x-auto p-0`}>
-          <table className="w-full min-w-[44rem] text-sm tabular-nums">
+      <div className="always-scrollbar max-h-[min(78vh,64rem)] overflow-auto overscroll-x-none rounded-lg border border-[#b8c2cf] bg-white">
+        {cohort.semesters.map((semester) => (
+          <table key={semester.termId} className="w-full min-w-[46rem] border-separate border-spacing-0 text-sm tabular-nums">
             <thead>
-              <tr className="text-xs text-[#667085]">
-                <th className="px-4 py-2 text-left text-sm font-semibold text-[#171717]">{termLabel(semester.termId)}</th>
-                <th className="px-2 py-2 text-left font-semibold">CRN</th>
-                <th className="px-2 py-2 text-left font-semibold">Teacher</th>
+              <tr>
+                <th scope="col" className={`${head} left-0 z-30 text-left text-sm text-[#171717]`}>
+                  {termLabel(semester.termId)}
+                </th>
+                <th scope="col" className={`${head} text-left`}>CRN</th>
+                <th scope="col" className={`${head} text-left`}>Teacher</th>
                 {kinds.map((kind) => (
-                  <th key={kind} className="px-2 py-2 text-right font-semibold">
+                  <th key={kind} scope="col" className={`${head} text-right`}>
                     {KIND_LABEL[kind]}
                   </th>
                 ))}
-                <th className="px-2 py-2 text-right font-semibold">Students</th>
-                <th className="px-4 py-2 text-right font-semibold">Total</th>
+                <th scope="col" className={`${head} text-right`}>Students</th>
+                <th scope="col" className={`${head} text-right`}>Total</th>
               </tr>
             </thead>
-            <tbody>
-              {semester.courses.map((course) => {
-                const byKind = (kind: LoadKind) => course.sections.filter((section) => section.kind === kind).reduce((sum, section) => sum + section.hours, 0);
-                const total = course.sections.reduce((sum, section) => sum + section.hours, 0);
-                return [
-                  <tr key={course.card.key} className="border-t border-[#d9dee7] bg-[#f6f8fb]">
-                    <td className="px-4 py-1.5 font-semibold text-[#171717]" colSpan={3}>
-                      {course.card.name || course.card.code}
-                      <span className="ml-2 font-normal text-[#667085]">{course.card.code}</span>
-                      <span
-                        className={`ml-2 font-normal ${course.coefficient ? "text-[#667085]" : "text-[#c0c7d1]"}`}
-                        title={course.coefficient ? undefined : "Set on the course's record, from Active courses"}
-                      >
-                        · coeff. {course.coefficient || "—"}
-                      </span>
+            {semester.courses.map((course) => {
+              const byKind = (kind: LoadKind) =>
+                course.sections.filter((section) => section.kind === kind).reduce((sum, section) => sum + section.hours, 0);
+              const total = course.sections.reduce((sum, section) => sum + section.hours, 0);
+              return (
+                <tbody key={course.card.key}>
+                  <tr>
+                    <td colSpan={3} className={`${courseCell} left-0 z-[15]`}>
+                      <span>{course.card.name || course.card.code}</span>
+                      <span className="ml-2 font-normal text-[#475467]">{course.card.code}</span>
+                      {course.coefficient ? (
+                        <span className="ml-2 inline-block rounded border border-[#8f9bab] bg-white px-1.5 text-xs font-semibold text-[#344054]">
+                          Coeff. {course.coefficient}
+                        </span>
+                      ) : (
+                        <span className="ml-2 text-xs font-normal text-[#667085]" title="Set on the course's record, from Active courses">
+                          No coefficient
+                        </span>
+                      )}
                     </td>
                     {kinds.map((kind) => (
-                      <td key={kind} className="px-2 py-1.5 text-right font-semibold">
+                      <td key={kind} className={`${courseCell} text-right`}>
                         {byKind(kind) ? hours(byKind(kind)) : ""}
                       </td>
                     ))}
-                    <td className="px-2 py-1.5" />
-                    <td className="px-4 py-1.5 text-right font-semibold">{hours(total)}</td>
-                  </tr>,
-                  ...course.sections.map((section) => (
-                    <tr key={section.key} className="border-t border-[#eef1f5]">
-                      <td className="py-1.5 pl-8 pr-2 text-[#475467]">{section.label}</td>
-                      <td className="px-2 py-1.5 text-left">{section.crn || <span className="text-[#c0c7d1]">—</span>}</td>
-                      <td className="px-2 py-1.5 text-left">
+                    <td className={courseCell} />
+                    <td className={`${courseCell} text-right`}>{hours(total)}</td>
+                  </tr>
+                  {course.sections.map((section) => (
+                    <tr key={section.key} className="group">
+                      <td className={`${cell} sticky left-0 z-[5] bg-white pl-6 text-[#344054]`}>{section.label}</td>
+                      <td className={`${cell} text-left text-[#344054]`}>{section.crn || <span className="text-[#667085]">–</span>}</td>
+                      <td className={`${cell} text-left`}>
                         {section.teacher ? (
                           <>
                             {teacherName(section.teacherId, section.teacher)}
                             <StatusPill status={section.status} />
                           </>
                         ) : (
-                          <span className="text-[#a6292f]">Nobody yet</span>
+                          <span className="font-semibold text-[#a6292f]">Nobody yet</span>
                         )}
                       </td>
                       {kinds.map((kind) => (
-                        <td key={kind} className="px-2 py-1.5 text-right">
+                        <td key={kind} className={`${cell} text-right text-[#171717]`}>
                           {section.kind === kind && section.hours ? hours(section.hours) : ""}
                         </td>
                       ))}
-                      <td className="px-2 py-1.5 text-right text-[#475467]">{section.students || ""}</td>
-                      <td className="px-4 py-1.5 text-right">{hours(section.hours)}</td>
+                      <td className={`${cell} text-right text-[#344054]`}>{section.students || ""}</td>
+                      <td className={`${cell} text-right font-semibold text-[#171717]`}>{hours(section.hours)}</td>
                     </tr>
-                  )),
-                ];
-              })}
-            </tbody>
+                  ))}
+                </tbody>
+              );
+            })}
           </table>
-        </section>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }

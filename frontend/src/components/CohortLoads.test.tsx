@@ -59,7 +59,7 @@ describe("Teacher hours, cohort by cohort", () => {
 
     fireEvent.click(within(screen.getByRole("group", { name: "Cohort" })).getByRole("button", { name: "Foundation Year" }));
 
-    expect(screen.getByText(/coeff\. 15/)).toBeTruthy();
+    expect(screen.getByText("Coeff. 15")).toBeTruthy();
     const tutorial = screen.getByText("23223").closest("tr") as HTMLElement;
     expect(tutorial.textContent).toContain("Jad Tarsissi");
     expect(tutorial.textContent).toContain("PT");
@@ -69,5 +69,22 @@ describe("Teacher hours, cohort by cohort", () => {
     // A name opens the teacher's record.
     fireEvent.click(within(tutorial).getByRole("button", { name: "Jad Tarsissi" }));
     expect(opened).toHaveBeenCalledWith({ id: "act-2", fullName: "Jad Tarsissi" });
+  });
+
+  it("is searched and filtered as the other tables are, and counts only what it shows", () => {
+    show();
+    fireEvent.click(within(screen.getByRole("group", { name: "Cohort" })).getByRole("button", { name: "Foundation Year" }));
+    expect(screen.getByText("3 of 3 sections")).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText("Search sections"), { target: { value: "tarsissi" } });
+
+    expect(screen.getByText("1 of 3 sections")).toBeTruthy();
+    expect(screen.queryByText("22151")).toBeNull();
+    // The split is the sections shown, and says so.
+    const split = screen.getByText("Who teaches the hours of the sections shown").closest("section") as HTMLElement;
+    expect(within(split).getByText("PT").closest("tr")?.textContent).toContain("50 · 100%");
+
+    fireEvent.click(screen.getByRole("button", { name: "Every section" }));
+    expect(screen.getByText("3 of 3 sections")).toBeTruthy();
   });
 });
