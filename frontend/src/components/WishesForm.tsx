@@ -1365,22 +1365,25 @@ export function WishesForm({
         <section aria-label={`${Yours} week`} className={section}>
           <div data-tour="week-head">
             <h3 className="text-sm font-semibold text-[#171717]">{Yours} week</h3>
-            <HowTo
-              steps={[
-                { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
-                { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; yellow, ${meaning("preference", voice)}` },
-                { icon: Repeat, title: "How it repeats", hint: "Every week, from a week on, or one week only" },
-              ]}
-            >
-              <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
-                <span className="text-[11px] text-[#a6292f]">Away for a day or a week?</span>
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
-                  <CalendarX2 size={12} aria-hidden="true" /> Whole day · Whole week
-                </span>
-              </div>
-            </HowTo>
+            {/* The how-to is for teachers answering themselves; a coordinator knows the form. */}
+            {voice === "you" ? (
+              <HowTo
+                steps={[
+                  { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
+                  { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; yellow, ${meaning("preference", voice)}` },
+                  { icon: Repeat, title: "How it repeats", hint: "Every week, from a week on, or one week only" },
+                ]}
+              >
+                <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e8b4b7] bg-[#fdf6f6] px-3 py-2">
+                  <span className="text-[11px] text-[#a6292f]">Away for a day or a week?</span>
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#a6292f]">
+                    <CalendarX2 size={12} aria-hidden="true" /> Whole day · Whole week
+                  </span>
+                </div>
+              </HowTo>
+            ) : null}
           </div>
-          <div data-tour="toolbar" className="mt-5 flex flex-wrap items-center gap-x-3 gap-y-2">
+          <div data-tour="toolbar" className={`${voice === "you" ? "mt-5" : "mt-3"} flex flex-wrap items-center gap-x-3 gap-y-2`}>
             <div data-tour="weeks" className="flex items-center gap-1">
               <button
                 type="button"

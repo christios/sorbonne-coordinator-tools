@@ -74,6 +74,8 @@ describe("an invited teacher's link", () => {
     page();
     expect(await screen.findByText(/You answered for Semester 1 2026-27 before/)).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Your week" })).toBeTruthy();
+    // The teacher answering for themselves gets the how-to over the calendar.
+    expect(screen.getByText("Drag across the hours")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Start from it" }));
     expect(screen.getByRole("button", { name: /^Tuesday \d+ \w+ 14:00: constraint, every week/ })).toBeTruthy();
     // Submit is on the last page, after the limits and the needs.

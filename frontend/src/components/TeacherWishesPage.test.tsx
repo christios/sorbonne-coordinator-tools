@@ -68,6 +68,8 @@ describe("a teacher's answer, opened from the list", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" }));
     expect(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeTruthy();
     expect(screen.getByText(/on .*behalf/)).toBeTruthy();
+    // A coordinator knows the form: no how-to over the calendar.
+    expect(screen.queryByText("Drag across the hours")).toBeNull();
   });
 });
 
