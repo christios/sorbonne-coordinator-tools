@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users, Scale } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -13,6 +13,7 @@ import { GroupSchema } from "@/components/GroupSchema";
 import { InfoTip } from "@/components/InfoTip";
 import { CapacityPage } from "@/components/CapacityPage";
 import { TeacherHours } from "@/components/TeacherHours";
+import { TeachingLoads } from "@/components/TeachingLoads";
 import { TeacherRecord, type TeacherRef } from "@/components/TeacherRecord";
 import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
@@ -86,6 +87,10 @@ const PAGES = [
   // What every teacher is carrying: the workbook's Teacher Hours sheet, on a page. It
   // belongs to the request rather than to the teacher list, which is why it sits here.
   { id: "teacher-hours", name: "Teacher hours", icon: Clock3, group: "Timetables", parent: "groups" },
+  // The department's teaching-load workbook, cohort by cohort over the year: every course
+  // and section, and how the hours split between full-timers, part-timers, visiting
+  // professors and PhDs — what the Head of Department and the budget ask about.
+  { id: "teaching-loads", name: "Teaching loads", icon: Scale, group: "Timetables", parent: "groups" },
   { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
 ] as const;
 
@@ -148,6 +153,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   "part-time-teachers": {
     title: "Part-time Teachers",
     blurb: "Teacher profiles, their recruitment requests, and the links to their time sheets.",
+  },
+  "teaching-loads": {
+    title: "Teaching loads",
+    blurb: "Every cohort's courses and sections over the academic year, who teaches each, and how the hours split between full-timers, part-timers, visiting professors and PhDs.",
   },
   "teacher-hours": {
     title: "Teacher hours",
@@ -473,6 +482,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             <ScreenLoading label="Loading…" />
           ) : null}
           {page === "capacity" ? <CapacityPage header={pageHeader} /> : null}
+          {page === "teaching-loads" ? (
+            <TeachingLoads onOpenTeacher={setTeacherRecord} header={pageHeader} />
+          ) : null}
           {page === "teacher-hours" ? (
             <TeacherHours onOpenTeacher={setTeacherRecord} header={pageHeader} />
           ) : null}

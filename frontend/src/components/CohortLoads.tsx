@@ -12,7 +12,9 @@ import {
   bucketLabel,
   bucketOf,
   cohortLoads,
+  departmentKinds,
   departmentSplit,
+  departmentTeachers,
   loadSections,
   shareOf,
   splitTotal,
@@ -71,12 +73,21 @@ function StatusPill({ status }: { status: StaffStatus | "" }) {
   );
 }
 
-/** The hours and their share in a cell: "511 · 33%", or a dash for none. */
-function HoursShare({ value, total, warn = false }: { value: number; total: number; warn?: boolean }) {
+/**
+ * The hours and their share in a cell, or a dash for none. The share is a tag of its own,
+ * in its status's colour and of one width, so the shares read down a column apart from
+ * the hours beside them.
+ */
+function HoursShare({ value, total, bucket }: { value: number; total: number; bucket: Bucket }) {
   if (!value) return <span className="text-[#667085]">–</span>;
   return (
-    <span className={warn ? "font-semibold text-[#a6292f]" : "text-[#171717]"}>
-      {hours(value)} <span className={warn ? "" : "text-[#475467]"}>· {shareOf(value, total)}</span>
+    <span className="inline-flex items-center justify-end gap-2">
+      <span className={bucket === "NOBODY" ? "font-semibold text-[#a6292f]" : "text-[#171717]"}>{hours(value)}</span>
+      <span
+        className={`inline-block min-w-[3.25rem] rounded px-1.5 py-px text-center text-xs font-semibold ring-1 ring-inset ${PILL[bucket]}`}
+      >
+        {shareOf(value, total)}
+      </span>
     </span>
   );
 }
@@ -114,7 +125,7 @@ function SplitTable({ split, termIds, termLabel }: { split: Record<string, Split
             </td>
             {columns.map((id) => (
               <td key={id} className={`${lineCell} whitespace-nowrap pl-4 text-right`}>
-                <HoursShare value={split[id][bucket]} total={splitTotal(split[id])} warn={bucket === "NOBODY"} />
+                <HoursShare value={split[id][bucket]} total={splitTotal(split[id])} bucket={bucket} />
               </td>
             ))}
           </tr>
@@ -179,9 +190,9 @@ export function CohortLoads({
   teachers: ActiveTeacher[];
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
-  const [chosen, setChosen] = usePageState<string>("teacher-hours:cohort", DEPARTMENT);
-  const [filters, setFilters] = usePageState<FilterModel[]>("teacher-hours:cohort-filters", []);
-  const [query, setQuery] = usePageState("teacher-hours:cohort-search", "");
+  const [chosen, setChosen] = usePageState<string>("teaching-loads:cohort", DEPARTMENT);
+  const [filters, setFilters] = usePageState<FilterModel[]>("teaching-loads:filters", []);
+  const [query, setQuery] = usePageState("teaching-loads:search", "");
 
   // The cohorts on offer whatever is filtered, so a filter never takes a button away.
   const everyCohort = useMemo(() => cohortLoads(cards, termIds, teachers), [cards, termIds, teachers]);
@@ -284,7 +295,14 @@ export function CohortLoads({
       ) : shownCohort ? (
         <CohortBlock cohort={shownCohort} termIds={termIds} termLabel={termLabel} narrowed={narrowed} onOpenTeacher={onOpenTeacher} />
       ) : (
-        <DepartmentBlock cohorts={counted} termIds={termIds} termLabel={termLabel} narrowed={narrowed} onChoose={setChosen} />
+        <DepartmentBlock
+          cohorts={counted}
+          termIds={termIds}
+          termLabel={termLabel}
+          narrowed={narrowed}
+          onChoose={setChosen}
+          onOpenTeacher={onOpenTeacher}
+        />
       )}
     </div>
   );
@@ -307,20 +325,94 @@ const ABOUT = (
   </>
 );
 
+const MOST_TEACHERS = 8;
+/** The split beside the tiles and the teachers where both fit whole; stacked, split first, before that. */
+const summaryGrid = "grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]";
+
+/** The CM, TD, TP (and other, when there is any) hours, as tiles. */
+function KindTiles({ kinds }: { kinds: Record<LoadKind, number> }) {
+  const shown = LOAD_KINDS.filter((kind) => kind !== "OTHER" || kinds.OTHER > 0);
+  return (
+    <div className="grid grid-cols-[repeat(auto-fit,minmax(6.5rem,1fr))] gap-2">
+      {shown.map((kind) => (
+        <div key={kind} className="rounded-lg border border-[#c9d2de] bg-[#eef2f7] px-3 py-2">
+          <p className="text-xs font-semibold text-[#475467]">{KIND_LABEL[kind]}</p>
+          <p className="text-lg font-semibold tabular-nums text-[#171717]">{hours(kinds[kind])}</p>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Who teaches how many of the hours, most first; on the department, which cohorts too. */
+function TeacherList({
+  title,
+  teachers,
+  onOpenTeacher,
+}: {
+  title: string;
+  teachers: (CohortLoad["teachers"][number] & { cohorts?: string[] })[];
+  onOpenTeacher?: (teacher: TeacherRef) => void;
+}) {
+  const [all, setAll] = useState(false);
+  const listed = all ? teachers : teachers.slice(0, MOST_TEACHERS);
+  return (
+    <section className={card}>
+      <Heading>{title}</Heading>
+      {teachers.length ? (
+        <ul className="text-sm">
+          {listed.map((teacher) => (
+            <li key={teacher.teacherId || teacher.teacher} className="flex items-baseline justify-between gap-3 border-b border-[#dde3ea] py-1 last:border-b-0">
+              <span className="min-w-0">
+                <TeacherName teacherId={teacher.teacherId} name={teacher.teacher} onOpenTeacher={onOpenTeacher} />
+                <StatusPill status={teacher.status} />
+                {teacher.cohorts ? <span className="ml-2 text-xs text-[#475467]">{teacher.cohorts.join(" · ")}</span> : null}
+              </span>
+              <span className="tabular-nums font-semibold text-[#171717]">{hours(teacher.hours)}</span>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-[#475467]">Nobody is named on these sections yet.</p>
+      )}
+      {teachers.length > MOST_TEACHERS ? (
+        <button type="button" onClick={() => setAll((shown) => !shown)} className="mt-2 text-xs font-semibold text-[#1f4e79] hover:underline">
+          {all ? "Show fewer" : `Show all ${teachers.length}`}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+/** A teacher's name, which opens their record where there is one to open. */
+function TeacherName({ teacherId, name, onOpenTeacher }: { teacherId: string; name: string; onOpenTeacher?: (teacher: TeacherRef) => void }) {
+  return onOpenTeacher && teacherId ? (
+    <button type="button" onClick={() => onOpenTeacher({ id: teacherId, fullName: name })} className="text-left font-medium text-[#1f4e79] hover:underline">
+      {name}
+    </button>
+  ) : (
+    <span className="text-[#171717]">{name}</span>
+  );
+}
+
 function DepartmentBlock({
   cohorts,
   termIds,
   termLabel,
   narrowed,
   onChoose,
+  onOpenTeacher,
 }: {
   cohorts: CohortLoad[];
   termIds: string[];
   termLabel: (termId: string) => string;
   narrowed: boolean;
   onChoose: (cohortId: string) => void;
+  onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const split = useMemo(() => departmentSplit(cohorts, termIds), [cohorts, termIds]);
+  const kinds = useMemo(() => departmentKinds(cohorts), [cohorts]);
+  const teachers = useMemo(() => departmentTeachers(cohorts), [cohorts]);
   const shown = BUCKETS.filter(
     (bucket) => STAFF_STATUSES.some((entry) => entry.status === bucket) || cohorts.some((cohort) => cohort.split.year[bucket] > 0),
   );
@@ -333,14 +425,20 @@ function DepartmentBlock({
   }
   return (
     <div className="space-y-4">
-      <section className={`${card} max-w-3xl`}>
-        <Heading about={ABOUT}>
-          {narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the department’s hours"}
-        </Heading>
-        <div className="overflow-x-auto">
-          <SplitTable split={split} termIds={termIds} termLabel={termLabel} />
+      <div className={summaryGrid}>
+        <section className={card}>
+          <Heading about={ABOUT}>
+            {narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the department’s hours"}
+          </Heading>
+          <div className="overflow-x-auto">
+            <SplitTable split={split} termIds={termIds} termLabel={termLabel} />
+          </div>
+        </section>
+        <div className="space-y-4">
+          <KindTiles kinds={kinds} />
+          <TeacherList title="Each teacher in the department" teachers={teachers} onOpenTeacher={onOpenTeacher} />
         </div>
-      </section>
+      </div>
       <section className={card}>
         <Heading>Cohort by cohort, over the year</Heading>
         <div className="overflow-x-auto">
@@ -369,7 +467,7 @@ function DepartmentBlock({
                     <td className={`${lineCell} pl-4 text-right font-semibold text-[#171717]`}>{hours(total)}</td>
                     {shown.map((bucket) => (
                       <td key={bucket} className={`${lineCell} whitespace-nowrap pl-4 text-right`}>
-                        <HoursShare value={cohort.split.year[bucket]} total={total} warn={bucket === "NOBODY"} />
+                        <HoursShare value={cohort.split.year[bucket]} total={total} bucket={bucket} />
                       </td>
                     ))}
                   </tr>
@@ -382,8 +480,6 @@ function DepartmentBlock({
     </div>
   );
 }
-
-const MOST_TEACHERS = 8;
 
 /*
  * The section table's cells. The header row sticks to the top of the table's own scroll
@@ -408,21 +504,14 @@ function CohortBlock({
   narrowed: boolean;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
-  const [allTeachers, setAllTeachers] = useState(false);
   const kinds = LOAD_KINDS.filter((kind) => kind !== "OTHER" || cohort.kinds.OTHER > 0);
-  const listed = allTeachers ? cohort.teachers : cohort.teachers.slice(0, MOST_TEACHERS);
-  const teacherName = (teacherId: string, name: string) =>
-    onOpenTeacher && teacherId ? (
-      <button type="button" onClick={() => onOpenTeacher({ id: teacherId, fullName: name })} className="text-left font-medium text-[#1f4e79] hover:underline">
-        {name}
-      </button>
-    ) : (
-      <span className="text-[#171717]">{name}</span>
-    );
+  const teacherName = (teacherId: string, name: string) => (
+    <TeacherName teacherId={teacherId} name={name} onOpenTeacher={onOpenTeacher} />
+  );
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+      <div className={summaryGrid}>
         <section className={card}>
           <Heading about={ABOUT}>{narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the hours"}</Heading>
           <div className="overflow-x-auto">
@@ -430,37 +519,8 @@ function CohortBlock({
           </div>
         </section>
         <div className="space-y-4">
-          <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${kinds.length}, minmax(0, 1fr))` }}>
-            {kinds.map((kind) => (
-              <div key={kind} className="rounded-lg border border-[#c9d2de] bg-[#eef2f7] px-3 py-2">
-                <p className="text-xs font-semibold text-[#475467]">{KIND_LABEL[kind]}</p>
-                <p className="text-lg font-semibold tabular-nums text-[#171717]">{hours(cohort.kinds[kind])}</p>
-              </div>
-            ))}
-          </div>
-          <section className={card}>
-            <Heading>Each teacher in {cohort.cohortName}</Heading>
-            {cohort.teachers.length ? (
-              <ul className="text-sm">
-                {listed.map((teacher) => (
-                  <li key={teacher.teacherId || teacher.teacher} className="flex items-baseline justify-between gap-3 border-b border-[#dde3ea] py-1 last:border-b-0">
-                    <span className="min-w-0">
-                      {teacherName(teacher.teacherId, teacher.teacher)}
-                      <StatusPill status={teacher.status} />
-                    </span>
-                    <span className="tabular-nums font-semibold text-[#171717]">{hours(teacher.hours)}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-[#475467]">Nobody is named on these sections yet.</p>
-            )}
-            {cohort.teachers.length > MOST_TEACHERS ? (
-              <button type="button" onClick={() => setAllTeachers((shown) => !shown)} className="mt-2 text-xs font-semibold text-[#1f4e79] hover:underline">
-                {allTeachers ? "Show fewer" : `Show all ${cohort.teachers.length}`}
-              </button>
-            ) : null}
-          </section>
+          <KindTiles kinds={cohort.kinds} />
+          <TeacherList title={`Each teacher in ${cohort.cohortName}`} teachers={cohort.teachers} onOpenTeacher={onOpenTeacher} />
         </div>
       </div>
 

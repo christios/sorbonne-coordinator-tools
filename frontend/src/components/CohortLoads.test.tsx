@@ -49,9 +49,13 @@ describe("Teacher hours, cohort by cohort", () => {
     expect(screen.getByRole("button", { name: "Department", pressed: true })).toBeTruthy();
     const split = screen.getByText(/Who teaches the department/).closest("section") as HTMLElement;
     // 50 of 150 hours to a full-timer, 50 to a part-timer, 50 nobody's yet.
-    expect(within(split).getByText("FT").closest("tr")?.textContent).toContain("50 · 33%");
-    expect(within(split).getByText("Nobody yet").closest("tr")?.textContent).toContain("50 · 33%");
+    expect(within(split).getByText("FT").closest("tr")?.textContent).toContain("5033%");
+    expect(within(split).getByText("Nobody yet").closest("tr")?.textContent).toContain("5033%");
     expect(within(split).getByText("Total").closest("tr")?.textContent).toContain("150");
+    // Every teacher of the department, with their hours and the cohorts they teach in.
+    const teachers = screen.getByText("Each teacher in the department").closest("section") as HTMLElement;
+    expect(within(teachers).getByText("Bilal Maaz").closest("li")?.textContent).toContain("Foundation Year");
+    expect(within(teachers).getByText("Jad Tarsissi").closest("li")?.textContent).toContain("50");
   });
 
   it("shows a cohort as the sheet does: its courses with their coefficient, and every section", () => {
@@ -82,7 +86,7 @@ describe("Teacher hours, cohort by cohort", () => {
     expect(screen.queryByText("22151")).toBeNull();
     // The split is the sections shown, and says so.
     const split = screen.getByText("Who teaches the hours of the sections shown").closest("section") as HTMLElement;
-    expect(within(split).getByText("PT").closest("tr")?.textContent).toContain("50 · 100%");
+    expect(within(split).getByText("PT").closest("tr")?.textContent).toContain("50100%");
 
     fireEvent.click(screen.getByRole("button", { name: "Every section" }));
     expect(screen.getByText("3 of 3 sections")).toBeTruthy();

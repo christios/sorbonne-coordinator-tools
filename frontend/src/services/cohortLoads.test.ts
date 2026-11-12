@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { cohortLoads, departmentSplit, shareOf, staffStatusOf, statusFromPortal } from "@/services/cohortLoads";
+import {
+  cohortLoads,
+  departmentKinds,
+  departmentSplit,
+  departmentTeachers,
+  shareOf,
+  staffStatusOf,
+  statusFromPortal,
+} from "@/services/cohortLoads";
 import { buildCards } from "@/services/courseCards";
 import type { ActiveCourse, ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
@@ -100,6 +108,10 @@ describe("a cohort's hours, as the teaching-load sheet has them", () => {
       ["Louis Malterre", "PHD", 20],
     ]);
     expect(departmentSplit([fy], ["s1", "s2"]).year).toEqual(fy.split.year);
+    expect(departmentKinds([fy, fy])).toEqual({ CM: 180, TD: 240, TP: 0, OTHER: 0 });
+    // A teacher in two cohorts is one line, their hours added up and both cohorts named.
+    const [bilal] = departmentTeachers([fy, { ...fy, cohortName: "L1" }]);
+    expect([bilal.teacher, bilal.hours, bilal.cohorts]).toEqual(["Bilal Maaz", 100, ["Foundation Year", "L1"]]);
     expect(shareOf(50, 210)).toBe("24%");
     // Twenty hours of a department's 6,600 are not none.
     expect(shareOf(20, 6600)).toBe("<1%");

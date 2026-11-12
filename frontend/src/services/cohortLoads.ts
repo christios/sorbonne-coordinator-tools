@@ -227,6 +227,28 @@ export function departmentSplit(cohorts: CohortLoad[], termIds: string[]): Recor
   return total;
 }
 
+/** The department's CM, TD, TP and other hours: every cohort's added up. */
+export function departmentKinds(cohorts: CohortLoad[]): Record<LoadKind, number> {
+  const total: Record<LoadKind, number> = { CM: 0, TD: 0, TP: 0, OTHER: 0 };
+  for (const cohort of cohorts) for (const kind of LOAD_KINDS) total[kind] += cohort.kinds[kind];
+  return total;
+}
+
+/** Each teacher's hours over every cohort they teach in, most first, with the cohorts named. */
+export function departmentTeachers(cohorts: CohortLoad[]): (CohortLoad["teachers"][number] & { cohorts: string[] })[] {
+  const byTeacher = new Map<string, CohortLoad["teachers"][number] & { cohorts: string[] }>();
+  for (const cohort of cohorts) {
+    for (const teacher of cohort.teachers) {
+      const key = teacher.teacherId || teacher.teacher.toLowerCase();
+      const held = byTeacher.get(key) ?? { ...teacher, hours: 0, cohorts: [] };
+      held.hours += teacher.hours;
+      held.cohorts.push(cohort.cohortName);
+      byTeacher.set(key, held);
+    }
+  }
+  return [...byTeacher.values()].sort((left, right) => right.hours - left.hours || left.teacher.localeCompare(right.teacher));
+}
+
 /**
  * "16%" of a total, or "" when there is nothing to share. Whole percents, as the sheet
  * reads — and "<1%" for a share too small to round to one, which "0%" would read as none.
