@@ -264,6 +264,11 @@ export type ActiveTeacher = {
   teacherStatus: string;
   category: string;
   type: string;
+  /**
+   * The department's word on what they are for the budget — FT, PT, VP, PHD — or blank to
+   * go by the portal's type. Absent from older readings. See `staffStatusOf`.
+   */
+  staffStatus?: string;
   lastTerm: string;
   department: string;
   rank: string;
@@ -356,6 +361,11 @@ export function addActiveTeachers(input: {
 }
 
 /** Off the list in one semester when `term` is said, keeping the record while another counts them. */
+/** A teacher's status for the budget: FT, PT, VP or PHD, or "" to go by the portal's type. */
+export function setStaffStatus(activeId: string, staffStatus: string): Promise<ActiveTeacher> {
+  return send(`/active-teachers/${encodeURIComponent(activeId)}`, "PATCH", { staffStatus });
+}
+
 export function removeActiveTeacher(activeId: string, term = ""): Promise<void> {
   return request<void>(`/active-teachers/${encodeURIComponent(activeId)}${term ? `?term=${encodeURIComponent(term)}` : ""}`, {
     method: "DELETE",
@@ -393,6 +403,8 @@ export type ActiveCourse = {
    * course starts and is not the same as "no".
    */
   mutualized: Mutualized;
+  /** The course's coefficient as the department writes it — "15", "1.5" — or blank. */
+  coefficient?: string;
   addedAt: string;
   addedBy: string;
   /** How many of its CRNs the register holds, and how many the portal lists. */
@@ -659,7 +671,8 @@ export function addActiveCourses(input: {
 /** A course's own facts. Not its name: that is the portal's, and follows it on every sync. */
 export function updateActiveCourse(
   activeId: string,
-  input: { ue: string; mutualized?: Mutualized },
+  /** A coefficient left out is kept as it is. */
+  input: { ue: string; mutualized?: Mutualized; coefficient?: string },
 ): Promise<ActiveCourse> {
   return send(`/active-courses/${encodeURIComponent(activeId)}`, "PATCH", input);
 }

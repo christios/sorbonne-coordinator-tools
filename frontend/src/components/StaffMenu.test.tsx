@@ -50,7 +50,7 @@ describe("StaffMenu", () => {
       "Users",
       "API tokens",
       "Checks",
-      "Programme codes",
+      "Programmes",
       "Exemption reasons",
       "Department",
       "This browser",

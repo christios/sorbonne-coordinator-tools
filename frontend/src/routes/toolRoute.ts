@@ -6,7 +6,7 @@ export type SettingsSection =
   | "users"
   | "tokens"
   | "checks"
-  | "programme-codes"
+  | "programmes"
   | "exemption-reasons"
   | "department"
   | "this-browser"

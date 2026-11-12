@@ -150,7 +150,7 @@ describe("a semester's whole week", () => {
     vi.spyOn(database, "fetchAssignments").mockImplementation(async (cohortId) => placed[cohortId] ?? {});
     vi.spyOn(database, "fetchAssignmentMajors").mockImplementation(async (cohortId) => subRows[cohortId] ?? {});
     vi.spyOn(roster, "fieldHeld").mockResolvedValue({ A001: "MAT - Mathematics", A002: "PHYS - Physics", A003: "PHYS - Physics" });
-    // As Settings → Programme codes says it.
+    // As Settings → Programmes says it.
     rememberProgrammeCodes([{ code: "MAT", sameAs: "MATH" }]);
     show();
     await screen.findByText("3 of 3");

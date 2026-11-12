@@ -8,10 +8,10 @@
  */
 
 import {
-  ArrowLeftRight,
   Building2,
   HardDrive,
   KeyRound,
+  Layers,
   MessageSquareText,
   MinusCircle,
   SlidersHorizontal,
@@ -25,8 +25,9 @@ export const SETTINGS_SECTIONS: { section: SettingsSection; label: string; Icon:
   { section: "users", label: "Users", Icon: Users, adminOnly: true },
   { section: "tokens", label: "API tokens", Icon: KeyRound, adminOnly: true },
   { section: "checks", label: "Checks", Icon: SlidersHorizontal, adminOnly: false },
-  // Everybody's to read, since placing a student depends on it; an administrator's to change.
-  { section: "programme-codes", label: "Programme codes", Icon: ArrowLeftRight, adminOnly: false },
+  // The students' programmes — official names, the codes that mean the same, the courses under
+  // each — which placing students and every Program filter read; an administrator's to change.
+  { section: "programmes", label: "Programmes", Icon: Layers, adminOnly: false },
   // What the Exempt button offers — "LEA track", "Repeater"; everybody's to read.
   { section: "exemption-reasons", label: "Exemption reasons", Icon: MinusCircle, adminOnly: false },
   // Who the Head of Department is, which every Part Time Sheet is signed with; an administrator's to set.
@@ -44,7 +45,9 @@ export function sectionsFor(isAdmin: boolean): typeof SETTINGS_SECTIONS {
 
 /** Which page an address names, or the first this person may open when it names none of theirs. */
 export function sectionFrom(hash: string, isAdmin: boolean): SettingsSection {
-  const named = hash.replace(/^#\/?/, "").split("/").filter(Boolean)[1] ?? "";
+  const written = hash.replace(/^#\/?/, "").split("/").filter(Boolean)[1] ?? "";
+  // Programme codes and course programs were two pages; a link to either opens the one.
+  const named = written === "programme-codes" || written === "course-programs" ? "programmes" : written;
   const mine = sectionsFor(isAdmin);
   return mine.find((entry) => entry.section === named)?.section ?? mine[0].section;
 }

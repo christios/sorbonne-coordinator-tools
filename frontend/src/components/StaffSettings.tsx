@@ -4,7 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { ChecksPanel } from "@/components/ChecksPanel";
 import { ExemptionReasonsPanel } from "@/components/ExemptionReasonsPanel";
-import { ProgrammeCodesPanel } from "@/components/ProgrammeCodesPanel";
+import { ProgrammesPanel } from "@/components/ProgrammesPanel";
 import { HeadOfDepartmentPanel } from "@/components/HeadOfDepartmentPanel";
 import { OutcomeModePanel } from "@/components/OutcomeModePanel";
 import { PayRatesPanel } from "@/components/PayRatesPanel";
@@ -93,8 +93,8 @@ export function StaffSettings() {
         <StaffDirectory />
       ) : page === "tokens" ? (
         <ApiTokens />
-      ) : page === "programme-codes" ? (
-        <AppProgrammeCodes />
+      ) : page === "programmes" ? (
+        <AppProgrammes />
       ) : page === "exemption-reasons" ? (
         <AppExemptionReasons />
       ) : page === "department" ? (
@@ -157,21 +157,21 @@ function AppExemptionReasons() {
 }
 
 /**
- * Which programme codes are the same students, for everybody at once.
- *
- * Admissions recodes a programme now and then — L2's MATH became MATS — and every group
- * row, cohort and check written in the old code stops matching. Said here once, it holds
- * everywhere. An administrator's to change, since it moves who can be placed where.
+ * The department's programmes, for everybody at once: the students' own, each with its
+ * official name, the codes admissions has also written it as (L2's MATH became MATS), and
+ * the courses under it. Placing students, the checks and every Program filter read it; an
+ * administrator's to change, since it moves who is placed where and what pages show.
  */
-function AppProgrammeCodes() {
+function AppProgrammes() {
   const user = useStaffUser();
   return (
-    <section className="mt-6 max-w-2xl">
-      <PageHeading title="Codes that mean the same programme" about="What a programme code line does">
-        When admissions gives a programme a new code, say here which code it means. Every group, cohort and check then
-        treats the two as the same students.
+    <section className="mt-6 max-w-3xl">
+      <PageHeading title="The department's programmes" about="What a programme's settings do">
+        Your students&apos; programmes. Give each its official name; when admissions writes a programme under a new code,
+        add the code here and every group, cohort and check treats the two as the same students; and choose the course codes
+        under each, which Teaching loads, the timetables, Groups &amp; CRNs, the active lists and Teacher hours filter by.
       </PageHeading>
-      <ProgrammeCodesPanel canChange={Boolean(user?.isAdmin)} />
+      <ProgrammesPanel canChange={Boolean(user?.isAdmin)} />
     </section>
   );
 }

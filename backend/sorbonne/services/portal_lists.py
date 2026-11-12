@@ -73,6 +73,11 @@ class PartTimeTeacherAlreadyLinked(Exception):
     pass
 
 
+#: A teacher's status for the budget: full-time, part-time, visiting professor, PhD or
+#: postdoc. Blank goes by the portal's type.
+STAFF_STATUSES = ("", "FT", "PT", "VP", "PHD")
+
+
 class ActiveTeacherNotFound(Exception):
     pass
 
@@ -1541,6 +1546,21 @@ class PortalListStore:
                 ).rowcount
         return added
 
+    def set_staff_status(self, active_id: str, staff_status: str) -> dict[str, Any]:
+        """The department's word on what a teacher is for the budget, or blank to go by the
+        portal's type again."""
+        status = _text(staff_status).upper()
+        if status not in STAFF_STATUSES:
+            raise ValueError("A status is FT, PT, VP or PHD, or blank to go by the portal.")
+        with self.engine.begin() as connection:
+            updated = connection.execute(
+                text("UPDATE active_teachers SET staff_status = :status WHERE id = :id"),
+                {"id": active_id, "status": status},
+            ).rowcount
+        if updated == 0:
+            raise ActiveTeacherNotFound(active_id)
+        return next(teacher for teacher in self.list_active_teachers() if teacher["id"] == active_id)
+
     def remove_active_teacher(self, active_id: str, term_code: str = "") -> int:
         """Take somebody off the department's list, and off the sections that chose them.
 
@@ -2342,16 +2362,26 @@ class PortalListStore:
             {"id": str(uuid4()), "code": code, "title": title, "now": now, "actor": _text(actor)},
         )
 
-    def update_active_course(self, active_id: str, *, ue: str, mutualized: str = "") -> dict[str, Any]:
-        """The course's own facts: its Sorbonne UE, and whether it is taught to both degrees
-        at once. Not its name, which is the portal's and follows it on every sync. The parent
-        CRN is a fact of each section, and lives on the register's CRN rows."""
+    def update_active_course(
+        self, active_id: str, *, ue: str, mutualized: str = "", coefficient: str | None = None
+    ) -> dict[str, Any]:
+        """The course's own facts: its Sorbonne UE, whether it is taught to both degrees at
+        once, and its coefficient. Not its name, which is the portal's and follows it on every
+        sync. The parent CRN is a fact of each section, and lives on the register's CRN rows.
+
+        The coefficient is kept as it is when not sent, so a page that edits the UE alone
+        cannot blank it."""
         if mutualized not in ("", "yes", "no"):
             raise ValueError("A course is mutualized, not mutualized, or nobody has said.")
+        fields = {"id": active_id, "ue": _text(ue), "mutualized": mutualized}
+        assignments = "ue = :ue, mutualized = :mutualized"
+        if coefficient is not None:
+            fields["coefficient"] = _coefficient(coefficient)
+            assignments += ", coefficient = :coefficient"
         with self.engine.begin() as connection:
             updated = connection.execute(
-                text("UPDATE active_courses SET ue = :ue, mutualized = :mutualized WHERE id = :id"),
-                {"id": active_id, "ue": _text(ue), "mutualized": mutualized},
+                text(f"UPDATE active_courses SET {assignments} WHERE id = :id"),  # noqa: S608
+                fields,
             ).rowcount
         if updated == 0:
             raise ActiveCourseNotFound(active_id)
@@ -3191,6 +3221,24 @@ def _active_crn(row: Any) -> dict[str, Any]:
     }
 
 
+#: The most a coefficient can sensibly be, and the decimals it may carry.
+MOST_COEFFICIENT = 100
+
+
+def _coefficient(value: str) -> str:
+    """A coefficient as it will be shown: a number, or blank. "15", "1.5"; "1,5" reads as 1.5."""
+    cleaned = _text(value).replace(",", ".")
+    if not cleaned:
+        return ""
+    try:
+        number = float(cleaned)
+    except ValueError as exc:
+        raise ValueError("A coefficient is a number, like 15 or 1.5.") from exc
+    if not 0 <= number <= MOST_COEFFICIENT:
+        raise ValueError(f"A coefficient is between 0 and {MOST_COEFFICIENT}.")
+    return f"{number:g}"
+
+
 def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -3199,6 +3247,8 @@ def _active_course(row: Any, parent: Any = None) -> dict[str, Any]:
         "ue": row["ue"],
         # "" unsaid · "yes" taught to both degrees at once · "no" to one of them alone.
         "mutualized": row["mutualized"] or "",
+        # As the department writes it — "15", "4" — or blank while nobody has.
+        "coefficient": row["coefficient"] or "",
         "addedAt": row["added_at"],
         "addedBy": row["added_by"],
         # How many of its CRNs the register holds, and how many the portal lists.
@@ -3435,6 +3485,8 @@ def _active(row: Any) -> dict[str, Any]:
         "teacherStatus": row["teacher_status"] or "",
         "category": row["category"] or "",
         "type": row["type"] or "",
+        # The department's word on it for the budget; blank goes by the portal's type.
+        "staffStatus": row["staff_status"] or "",
         "lastTerm": row["last_term"] or "",
         "department": row["department"] or "",
         "rank": row["rank"] or "",

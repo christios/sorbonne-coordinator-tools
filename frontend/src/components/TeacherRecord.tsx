@@ -1,4 +1,4 @@
-import { useQueries, useQuery } from "@tanstack/react-query";
+import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { useMemo, useState } from "react";
 
@@ -9,8 +9,18 @@ import { Modal } from "@/components/Modal";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
+import { STAFF_STATUSES, bucketLabel, statusFromPortal } from "@/services/cohortLoads";
 import { buildCards, parentsOf } from "@/services/courseCards";
-import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchFacilityHours, fetchTermLinks, type ActiveCrn, type ActiveTeacher } from "@/services/portalLists";
+import {
+  fetchActiveCourses,
+  fetchActiveCrns,
+  fetchActiveTeachers,
+  fetchFacilityHours,
+  fetchTermLinks,
+  setStaffStatus,
+  type ActiveCrn,
+  type ActiveTeacher,
+} from "@/services/portalLists";
 import { requisitionCheck } from "@/services/requisitionCheck";
 import { teacherTimetable } from "@/services/personTimetable";
 import { requisitionHours, totalAdminHours } from "@/services/requisitions";
@@ -37,6 +47,45 @@ function Fact({ label, value, source }: { label: string; value: string; source?:
         {source ? <SourceMark source={source} /> : null}
       </p>
       <p className={`mt-0.5 text-sm ${value ? "text-[#344054]" : "text-[#c8d0da]"}`}>{value || "not said"}</p>
+    </div>
+  );
+}
+
+/**
+ * What they are for the budget — full-time, part-time, visiting professor, PhD or postdoc —
+ * which Teacher hours splits each cohort's hours by. The department's word where it has
+ * given one, and the portal's type read as one where it has not: the portal lists some PhD
+ * students as full time, and some part-timers as a local professional assignment.
+ */
+export function StaffStatusFact({ teacher }: { teacher: ActiveTeacher | null }) {
+  const client = useQueryClient();
+  const save = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => setStaffStatus(id, status),
+    onSuccess: () => client.invalidateQueries({ queryKey: ["active-teachers"] }),
+  });
+  if (!teacher) return <Fact label="Status for the budget" value="" source="planning" />;
+  const fromPortal = statusFromPortal(teacher.type, teacher.source);
+  return (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
+        Status for the budget
+        <SourceMark source="planning" />
+      </p>
+      <select
+        aria-label="Status for the budget"
+        value={(teacher.staffStatus ?? "").toUpperCase()}
+        disabled={save.isPending}
+        onChange={(event) => save.mutate({ id: teacher.id, status: event.target.value })}
+        className="mt-0.5 max-w-full rounded-md border border-[#cbd5e1] bg-white px-2 py-1 text-sm text-[#344054]"
+      >
+        <option value="">As the portal says ({fromPortal ? bucketLabel(fromPortal) : "nothing"})</option>
+        {STAFF_STATUSES.map(({ status, label, long }) => (
+          <option key={status} value={status}>
+            {label} — {long}
+          </option>
+        ))}
+      </select>
+      {save.error ? <p role="alert" className="mt-1 text-xs text-[#a6292f]">{(save.error as Error).message}</p> : null}
     </div>
   );
 }
@@ -314,6 +363,7 @@ export function TeacherRecord({
           <Fact label="E-mail" value={facts.email || teacher.psuadEmail || ""} source="portal" />
           <Fact label="Rank" value={facts.rank ?? ""} source="portal" />
           <Fact label="Category" value={facts.category ?? ""} source="portal" />
+          <StaffStatusFact teacher={held ?? null} />
           <Fact label="Department" value={facts.department ?? ""} source="portal" />
           <Fact label="Institution" value={facts.institution ?? ""} source="portal" />
           <Fact label="Last term in the portal" value={facts.lastTerm ?? ""} source="portal" />

@@ -10,6 +10,8 @@ import { ScreenLoading } from "@/components/ScreenLoading";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import { useTicks } from "@/components/useTicks";
+import { useCoursePrograms } from "@/components/useCoursePrograms";
+import { withProgrammeColumn } from "@/services/coursePrograms";
 
 const FILTER_KEY = "scen-portal-filter:courses";
 
@@ -61,6 +63,7 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
   // What Portal sync pulls this list for: the semester on screen, by its portal term.
   const syncing = semester && term ? { code: term, name: semester.name } : null;
   const [selected, setSelected] = useTicks(term);
+  const coursePrograms = useCoursePrograms();
   const courses = useQuery({ queryKey: ["portal", "courses", filterId], queryFn: () => fetchPortalCourses("", filterId) });
   const active = useQuery({ queryKey: ["active-courses", term], queryFn: () => fetchActiveCourses(term) });
   const activeCodes = useMemo(() => new Set((active.data ?? []).map((row) => row.courseCode.toUpperCase())), [active.data]);
@@ -76,8 +79,14 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
       client.invalidateQueries({ queryKey: ["register-check"] });
     },
   });
-  // The Active column reads the department's list, so the column model borrows it here.
-  const columns = COLUMNS.map((column) => (column.id === "active" ? { ...column, accessor: (row: PortalCourse) => (isActive(row) ? "Active" : "") } : column));
+  // The Active column reads the department's list, so the column model borrows it here; and
+  // a Program column after Course, the course's programme (Settings → Programmes).
+  const columns = withProgrammeColumn(
+    COLUMNS.map((column) => (column.id === "active" ? { ...column, accessor: (row: PortalCourse) => (isActive(row) ? "Active" : "") } : column)),
+    coursePrograms,
+    (row) => row.courseCode,
+    "courseCode",
+  );
   const renderCell = (row: PortalCourse, column: GridColumn<PortalCourse>) => {
     if (column.id === "status") return row.status === "in_portal" ? <StatePill tone="good">In portal</StatePill> : <StatePill tone="bad">No longer listed</StatePill>;
     if (column.id === "active") return isActive(row) ? <StatePill tone="good">Active</StatePill> : <span className="text-[#98a2b3]">—</span>;

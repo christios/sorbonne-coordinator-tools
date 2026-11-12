@@ -191,6 +191,13 @@ class ActiveCourseUpdate(BaseModel):
     ue: str = Field(default="", max_length=40)
     #: "" nobody has said · "yes" taught to both degrees at once · "no" to one alone.
     mutualized: str = Field(default="", max_length=10)
+    #: Left out, it is kept as it is; "" clears it.
+    coefficient: str | None = Field(default=None, max_length=10)
+
+
+class ActiveTeacherUpdate(BaseModel):
+    #: FT · PT · VP · PHD, or "" to go by the portal's type.
+    staffStatus: str = Field(default="", max_length=10)
 
 
 class RegisterCrn(BaseModel):
@@ -434,6 +441,19 @@ def activate_teachers(body: ActivateTeachersInput, store: PortalListStore = Depe
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
 
 
+@router.patch("/active-teachers/{active_id}")
+def update_active_teacher(
+    active_id: str, body: ActiveTeacherUpdate, store: PortalListStore = Depends(get_store)
+) -> dict[str, Any]:
+    """A teacher's status for the budget: what Teacher hours splits a cohort's hours by."""
+    try:
+        return store.set_staff_status(active_id, body.staffStatus)
+    except ActiveTeacherNotFound as exc:
+        raise _missing("active teacher") from exc
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
 @router.delete("/active-teachers/{active_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_active_teacher(active_id: str, term: str = "", store: PortalListStore = Depends(get_store)) -> None:
     """Off the list in one semester when `term` is said; off it altogether otherwise."""
@@ -467,7 +487,9 @@ def update_active_course(
     active_id: str, body: ActiveCourseUpdate, store: PortalListStore = Depends(get_store)
 ) -> dict[str, Any]:
     try:
-        return store.update_active_course(active_id, ue=body.ue, mutualized=body.mutualized)
+        return store.update_active_course(
+            active_id, ue=body.ue, mutualized=body.mutualized, coefficient=body.coefficient
+        )
     except ActiveCourseNotFound as exc:
         raise _missing("active course") from exc
     except ValueError as exc:
