@@ -51,6 +51,7 @@ export function ListGrid<T>({
   rowLead,
   rowActions,
   onRowClick,
+  filterNote,
 }: {
   columns: GridColumn<T>[];
   rows: T[];
@@ -77,6 +78,11 @@ export function ListGrid<T>({
   rowLead?: (row: T) => ReactNode;
   rowActions?: (row: T) => ReactNode;
   onRowClick?: (row: T) => void;
+  /**
+   * A note under the filters about what the ones applied mean, given the filters that have
+   * values: Teacher hours says a Program filter picks teachers without splitting their hours.
+   */
+  filterNote?: (applied: FilterModel[]) => ReactNode;
 }) {
   const [layout, setLayout] = useState<ColumnLayout | null>(null);
   // Kept ten minutes, so a step to a record or another page does not undo them.
@@ -212,6 +218,8 @@ export function ListGrid<T>({
           className="border border-[#b7bec8] bg-white p-2 hover:bg-[#f8fafc]"
         />
       </div>
+
+      {filterNote?.(filters.filter((filter) => filter.values.length > 0))}
 
       <p className="mt-2 text-xs text-[#98a2b3]">
         {rows.length} {noun}

@@ -184,4 +184,20 @@ describe("filtering on what is not on screen", () => {
     fireEvent.change(screen.getByLabelText("Course value"), { target: { value: "scen" } });
     await waitFor(() => expect(firstCells()).toEqual(["23302"]));
   });
+
+  it("shows the page's note about a filter while that filter is applied, and only then", () => {
+    // A filter applied a moment ago, as the page keeps it.
+    window.localStorage.setItem(
+      "scen-page:list:note-layout:filters",
+      JSON.stringify({ value: [{ columnId: "teacher", type: "option", operator: "is", values: ["Dr Maaz"] }], at: Date.now() }),
+    );
+    const note = (applied: { columnId: string }[]) =>
+      applied.some((filter) => filter.columnId === "teacher") ? <p>Teacher filter note</p> : null;
+    show({ layoutKey: "note-layout", filterNote: note });
+    expect(screen.getByText("Teacher filter note")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.queryByText("Teacher filter note")).toBeNull();
+    window.localStorage.removeItem("scen-page:list:note-layout:filters");
+  });
 });
