@@ -3,6 +3,7 @@ import { fireEvent, render, screen, within, waitFor } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ActiveCourses, CrnDialog } from "@/components/ActiveCourses";
+import { HeaderSemester } from "@/components/HeaderSemester";
 import * as lists from "@/services/portalLists";
 import * as timetables from "@/services/timetables";
 import * as dismissals from "@/services/warningDismissals";
@@ -27,6 +28,8 @@ function show(props: { onShowStudents?: (ids: string[]) => void } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
+      {/* The header's semester, the only semester menu: the page follows it. */}
+      <HeaderSemester />
       <ActiveCourses {...props} />
     </QueryClientProvider>,
   );
@@ -282,7 +285,7 @@ describe("classes the registrar has changed", () => {
  * every page shares — and a course added by hand is active in that semester alone.
  */
 describe("the register of one semester", () => {
-  it("shows the semester chosen, and adds a course to it", async () => {
+  it("shows the semester chosen in the header, and adds a course to it", async () => {
     vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY);
     vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
       { id: "plan:262710", name: "Semester 1 2026-27" },

@@ -11,7 +11,7 @@ import { REMEDIES, warningsByCrn, worstOf, WORDS, type CrnWarning, type CrnWarni
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ClassChangesBanner } from "@/components/ClassChanges";
 import { Modal } from "@/components/Modal";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SelectionBar } from "@/components/SelectionActions";
@@ -126,15 +126,13 @@ const labelOf = (row: ActiveCrn) => `${row.courseCode} ${row.crn}`;
  */
 export function ActiveCourses({
   onShowStudents,
-  header,
 }: {
   onShowStudents?: (ids: string[]) => void;
-  /** The slot on the page's title line, top right, where the semester goes. */
-  header?: HTMLElement | null;
 } = {}) {
   const client = useQueryClient();
   // The semester the register is shown for: its CRNs, and the courses active in it.
-  const { semesters, semester, setTermId, term } = usePortalSemester();
+  // The header's semester: chosen there for every page.
+  const { semester, term } = usePortalSemester();
   const [selected, setSelected] = useTicks(term);
   // A Program column after Course: the CRN's course's programme (Settings → Programmes).
   const coursePrograms = useCoursePrograms();
@@ -303,7 +301,6 @@ export function ActiveCourses({
             empty={`Nothing registered for ${semester?.name ?? "this semester"} yet. Choose its courses on the Courses page and their CRNs come with them.`}
             toolbar={
               <>
-                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
                 <button
                   type="button"
                   onClick={() => {

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SemesterTimetable } from "@/components/SemesterTimetable";
@@ -29,7 +29,7 @@ function show(props: Partial<Parameters<typeof SemesterTimetable>[0]> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={client}>
-      <SemesterTimetable termId="" onPickTerm={vi.fn()} {...props} />
+      <SemesterTimetable termId="" {...props} />
     </QueryClientProvider>,
   );
 }
@@ -261,17 +261,18 @@ describe("a semester's whole week", () => {
     });
   });
 
-  it("opens on the published semester, and on any other the picker chooses", async () => {
-    const onPickTerm = vi.fn();
-    show({ onPickTerm });
+  it("opens on the semester it is given, and has no semester menu of its own", async () => {
+    // The header's menu is the only one: this page follows it.
+    show({ termId: "term-2" });
 
-    const semester = await screen.findByRole("combobox", { name: "Semester" });
-    expect(semester.textContent).toContain("Semester 1");
-    expect(lists.fetchTermCrns).toHaveBeenCalledWith("term-1");
+    await waitFor(() => expect(lists.fetchTermCrns).toHaveBeenCalledWith("term-2"));
+    expect(screen.queryByRole("combobox", { name: "Semester" })).toBeNull();
+  });
 
-    fireEvent.click(semester);
-    fireEvent.click(await screen.findByRole("option", { name: /Semester 2/ }));
-    expect(onPickTerm).toHaveBeenCalledWith("term-2");
+  it("opens on the published semester when it is given none it knows", async () => {
+    show();
+
+    await waitFor(() => expect(lists.fetchTermCrns).toHaveBeenCalledWith("term-1"));
   });
 
   it("puts the filters on a row of their own, under the one the page steers by", async () => {

@@ -1,11 +1,10 @@
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarRange, DoorOpen, Download, Search, TriangleAlert } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 
 import { CrnRecord } from "@/components/CrnRecord";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { RoomsEditor } from "@/components/RoomsEditor";
 import { SemesterExport } from "@/components/SemesterExport";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
@@ -29,7 +28,6 @@ import { fetchSessionChanges } from "@/services/sessionChanges";
 import { useRooms } from "@/services/rooms";
 import type { SemesterExportInput } from "@/services/semesterPdf";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
-import { useSemesterShown } from "@/services/semesterYears";
 
 /*
  * On a phone a week one screen wide is a column of slivers — "MATH-" and "SCEN" — so it
@@ -117,16 +115,13 @@ function placedByGroup(reads: { data?: Record<string, Record<string, string>> }[
 export function SemesterTimetable({
   layout = "days",
   termId,
-  onPickTerm,
 }: {
   /** Days down the side — the Timetable page — or rooms, for the Rooms page. */
   layout?: Layout;
   /** The semester the address names; the published one when it names none we know. */
   termId: string;
-  onPickTerm: (termId: string) => void;
 }) {
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms });
-  const shownOf = useSemesterShown();
   const all = terms.data ?? [];
   if (terms.isLoading) return <ScreenLoading label="Loading semesters…" />;
   if (terms.isError) {
@@ -138,27 +133,13 @@ export function SemesterTimetable({
   }
   if (all.length === 0) return <p className="text-sm text-[#667085]">The Student Hub holds no semester yet.</p>;
   const term = all.find((candidate) => candidate.id === termId) ?? all.find((candidate) => candidate.isPublished) ?? all[0];
-  const picker = (
-    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
-      <SelectMenu
-        label="Semester"
-        value={term.id}
-        onChange={(next) => next && onPickTerm(next)}
-        options={all.map((candidate) => ({
-          value: candidate.id,
-          ...shownOf(candidate),
-          detail: candidate.isPublished ? "Published" : "Hidden",
-        }))}
-      />
-    </div>
-  );
   // Keyed on the semester, so one semester's week and coverage never carry into another's.
-  return <SemesterWeek key={term.id} layout={layout} term={term} picker={picker} />;
+  return <SemesterWeek key={term.id} layout={layout} term={term} />;
 }
 
 type Layout = "days" | "rooms";
 
-function SemesterWeek({ layout, term, picker }: { layout: Layout; term: TimetableTerm; picker: ReactNode }) {
+function SemesterWeek({ layout, term }: { layout: Layout; term: TimetableTerm }) {
   const client = useQueryClient();
   const rooms = layout === "rooms";
   /*
@@ -441,7 +422,6 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
           {rooms ? <DoorOpen size={18} aria-hidden="true" /> : <CalendarRange size={18} aria-hidden="true" />}
           {rooms ? "Rooms" : "Semester Timetable"}
         </h2>
-        {picker}
         {/*
           * Everything you steer by on one row, pushed to the right; the filters get the row
           * under it, where a long run of them has the whole width to grow into.

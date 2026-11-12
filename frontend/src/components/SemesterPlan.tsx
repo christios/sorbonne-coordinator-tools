@@ -8,7 +8,6 @@ import { FilterMenu, FilterPills } from "@/components/PanelFilter";
 import { PlanWishesPanel, WISH_VIEWS, type WishView } from "@/components/PlanWishesPanel";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TeachingWeek } from "@/components/SectionTimetable";
-import { SelectMenu } from "@/components/SelectMenu";
 import { SemesterExport } from "@/components/SemesterExport";
 import { SortMenu } from "@/components/SortMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -61,10 +60,8 @@ import {
   type CalendarCourse,
   type PlacedSession,
 } from "@/services/weekSchedule";
-import { fetchSemesterShortNames } from "@/services/portalLists";
 import { judgeSlot } from "@/services/planJudge";
 import { checkWishes, describeBlock, fetchWishSemester, mondayOfIso, periodShades, shadingFor } from "@/services/teacherWishes";
-import { semesterShown, yearOfTermCode } from "@/services/semesterYears";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
 type PlanRow = {
@@ -184,12 +181,10 @@ const STEP =
  */
 export function SemesterPlan({
   termCode,
-  onPickTerm,
   onOpenGroups,
   onOpenSemesters,
 }: {
   termCode: string;
-  onPickTerm: (termCode: string) => void;
   onOpenGroups?: () => void;
   /** Where a semester is made and its weeks are set: this page only picks one. */
   onOpenSemesters?: () => void;
@@ -197,7 +192,6 @@ export function SemesterPlan({
   const client = useQueryClient();
   const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans });
   // A plan is the semester `plan:<code>`, and may have a short name like any other.
-  const shortNames = useQuery({ queryKey: ["semester-short-names"], queryFn: fetchSemesterShortNames, retry: false, staleTime: 60_000 });
   const chosen = termCode || plans.data?.[0]?.termCode || "";
   const plan = useQuery({
     queryKey: ["plan", chosen],
@@ -414,17 +408,6 @@ export function SemesterPlan({
 
   if (plans.isLoading || (chosen && plan.isLoading)) return <ScreenLoading label="Reading the plan…" />;
 
-  // In the portal's order, as every semester menu lists them; the latest is still the one opened.
-  const planOptions = [...(plans.data ?? [])].sort((left, right) => left.termCode.localeCompare(right.termCode)).map((entry) => ({
-    value: entry.termCode,
-    // The name, its year and its short name, as every other semester menu says them.
-    ...semesterShown(entry.name || entry.termCode, yearOfTermCode(entry.termCode), shortNames.data?.[`plan:${entry.termCode}`] ?? ""),
-  }));
-  const semesterPicker = (
-    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
-      <SelectMenu label="Semester" value={chosen} onChange={onPickTerm} options={planOptions} placeholder="No plan yet" />
-    </div>
-  );
   // The semester is made, named and given its weeks on the Semesters page.
   const semestersLink = (words: string) =>
     onOpenSemesters ? (
@@ -438,7 +421,6 @@ export function SemesterPlan({
   if (!data) {
     return (
       <section className="flex h-full min-h-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">{semesterPicker}</div>
         <p className="text-sm text-[#667085]">
           {plan.isError ? (
             (plan.error as Error).message
@@ -453,7 +435,6 @@ export function SemesterPlan({
   if (!data.weekOne || !data.weeks) {
     return (
       <section className="flex h-full min-h-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-3">{semesterPicker}</div>
         <div className="rounded-lg border border-[#f0c36d] bg-[#fdf6e3] px-4 py-3 text-sm text-[#7a5d00]">
           Say when {data.name || data.termCode} starts and how many teaching weeks it has, in its Settings on the{" "}
           {semestersLink("Semesters")} page. Classes are placed by teaching week, so the calendar needs them first.
@@ -761,7 +742,6 @@ export function SemesterPlan({
         <h2 className="flex shrink-0 items-center gap-2 text-lg font-semibold text-[#171717]">
           <CalendarCheck size={18} aria-hidden="true" /> Semester plan
         </h2>
-        {semesterPicker}
         <div className="flex flex-wrap items-center gap-1.5">
           <button type="button" aria-label="Previous week" disabled={monday <= firstMonday} onClick={() => goTo(shiftWeek(monday, -1))} className={STEP}>
             <ChevronLeft size={14} aria-hidden="true" />

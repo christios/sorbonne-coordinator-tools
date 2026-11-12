@@ -481,17 +481,16 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "students" && (cohorts.isLoading || views.isLoading) ? (
             <ScreenLoading label="Loading…" />
           ) : null}
-          {page === "capacity" ? <CapacityPage header={pageHeader} /> : null}
+          {page === "capacity" ? <CapacityPage /> : null}
           {page === "teaching-loads" ? (
-            <TeachingLoads onOpenTeacher={setTeacherRecord} header={pageHeader} />
+            <TeachingLoads onOpenTeacher={setTeacherRecord} />
           ) : null}
           {page === "teacher-hours" ? (
-            <TeacherHours onOpenTeacher={setTeacherRecord} header={pageHeader} />
+            <TeacherHours onOpenTeacher={setTeacherRecord} />
           ) : null}
           {page === "courses" ? <PortalCourses header={pageHeader} /> : null}
           {page === "active-courses" ? (
             <ActiveCourses
-              header={pageHeader}
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);
                 openPage("students");
@@ -504,11 +503,11 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (
-            <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} header={pageHeader} />
+            <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />
           ) : null}
           {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
-            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} onFocusTaken={() => setCohortFocus(null)} header={pageHeader} />
+            <CohortsPage cohorts={knownCohorts} focus={cohortFocus} onFocusTaken={() => setCohortFocus(null)} />
           ) : null}
           {page === "cohorts" ? (
             <DiscrepancyRulesEditor open={sharedRulesOpen} scope={{ kind: "shared" }} onClose={() => setSharedRulesOpen(false)} />
@@ -550,14 +549,12 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             <SemesterTimetable
               layout={page === "rooms" ? "rooms" : "days"}
               termId={detail || semesterInView}
-              onPickTerm={openDetail}
             />
           ) : null}
           {page === "announcements" && status.data?.configured ? <AnnouncementEditor /> : null}
           {page === "plan" ? (
             <SemesterPlan
               termCode={detail || planOf(semesterInView)}
-              onPickTerm={openDetail}
               onOpenGroups={() => openPage("groups")}
               onOpenSemesters={() => openPage("semesters")}
             />

@@ -4,7 +4,7 @@ import { Tooltip } from "radix-ui";
 import { type ReactNode, useMemo, useState } from "react";
 
 import { CohortMenu, studentsIn } from "@/components/CohortMenu";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
@@ -352,7 +352,7 @@ function GroupBar({
  * cohort's students among everybody else's, and their seats are not this cohort's to
  * count.
  */
-export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
+export function CapacityPage() {
   const client = useQueryClient();
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -373,7 +373,7 @@ export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
   };
 
   // The semester every page is on: its sets alone, since a room is booked a semester at a time.
-  const { semesters, semester, setTermId, term: portalTerm } = usePortalSemester();
+  const { semester, term: portalTerm } = usePortalSemester();
   const rows = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
     const teacherName = (id: string) => (teachers.data ?? []).find((teacher) => teacher.id === id)?.fullName ?? "";
@@ -500,14 +500,10 @@ export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
 
   if (catalogues.isLoading) return <ScreenLoading label="Counting the seats…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
-  // Top right, on the page's title line, as on every page with a semester.
-  const semesterMenu = header ? (
-    <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />
-  ) : null;
+  // The semester is the header's, chosen there for every page.
   if (!chosen) {
     return (
       <>
-        {semesterMenu}
         <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-8 text-center text-sm text-[#667085]">
           No groups in {semester?.name ?? "this semester"} yet. Groups &amp; CRNs is where they are made.
         </p>
@@ -517,7 +513,6 @@ export function CapacityPage({ header }: { header?: HTMLElement | null } = {}) {
 
   return (
     <section>
-      {semesterMenu}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <LabelledPicker label="Cohort">
           <CohortMenu cohorts={cohorts} semesterId={semester?.id} value={chosen.id} onChange={setCohortId} />

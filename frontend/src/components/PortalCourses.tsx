@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar, PortalSyncLine } from "@/components/PortalFilterBar";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type PortalCourse, addActiveCourses, fetchActiveCourses, fetchPortalCourses } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
@@ -59,7 +59,8 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
   const client = useQueryClient();
   const [filterId, setFilterId] = useState(() => remembered(FILTER_KEY));
   // The semester the portal's list is shown for, and the one a course taken in is active in.
-  const { semesters, semester, setTermId, term } = usePortalSemester();
+  // The header's semester: chosen there for every page.
+  const { semester, term } = usePortalSemester();
   // What Portal sync pulls this list for: the semester on screen, by its portal term.
   const syncing = semester && term ? { code: term, name: semester.name } : null;
   const [selected, setSelected] = useTicks(term);
@@ -118,7 +119,6 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
             <div className="flex flex-col items-end gap-1">
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <PortalFilterBar kind="courses" filterId={filterId} onChoose={choose} inline semester={syncing} />
-                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
               </div>
               <PortalSyncLine kind="courses" filterId={filterId} semester={syncing} />
             </div>,
@@ -156,7 +156,6 @@ export function PortalCourses({ header }: { header?: HTMLElement | null } = {}) 
           }
           toolbar={
             <>
-              {header ? null : <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />}
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}
