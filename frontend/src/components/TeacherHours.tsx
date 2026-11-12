@@ -6,6 +6,7 @@ import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDial
 import { HourWindowPicker } from "@/components/HourWindowPicker";
 import { InfoTip } from "@/components/InfoTip";
 import { ListGrid, StatePill } from "@/components/ListGrid";
+import { ProgrammeFilterNote } from "@/components/ProgrammeFilterNote";
 import { SourceMark, WindowMark } from "@/components/DataTable";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { CommentThread } from "@/components/CommentThread";
@@ -492,6 +493,10 @@ export function TeacherHours({
           searchLabel="Search teachers"
           noun="teachers"
           empty="No hours this semester. A section's hours are set on Groups & CRNs."
+          filterNote={(applied) => {
+            const programme = applied.find((filter) => filter.columnId === "programme");
+            return programme ? <ProgrammeFilterNote filter={programme} /> : null;
+          }}
           renderCell={(row, column) =>
             column.id === "warnings" ? (
               <Warnings
