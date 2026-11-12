@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, Hand, MousePointerClick, Timer, X } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -59,6 +59,53 @@ export type TourStep = {
  * the wait set it to 0, and every card lets the reader on at once.
  */
 export const tourPace = { scale: 1 };
+
+/**
+ * A component drawing one of the page's controls inside a card — a button, a pill, a switch —
+ * marks itself `tourLook`: the number of words it shows when it takes no children (a switch's
+ * "Constraint Preference"), else 0. Each one is a thing to find on the page.
+ */
+type Look = { tourLook?: number };
+
+/** What a card asks of its reader: the words to read, and the controls to find on the page. */
+export function tally(nodes: ReactNode[]): { words: number; controls: number } {
+  let words = 0;
+  let controls = 0;
+  const walk = (node: ReactNode): void => {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") {
+      // A word has a letter or a digit: "·" and "–" alone are not read; "14:00–16:00" is one.
+      words += String(node)
+        .split(/\s+/)
+        .filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!isValidElement(node)) return;
+    const look = typeof node.type === "function" ? (node.type as Look).tourLook : undefined;
+    if (look !== undefined) {
+      controls += 1;
+      words += look;
+    }
+    walk((node.props as { children?: ReactNode }).children);
+  };
+  nodes.forEach(walk);
+  return { words, controls };
+}
+
+/**
+ * A card's reading time, from how much it asks (12 Nov 2026): a second to take it in, a fifth
+ * of a second a word, half a second an instruction, three quarters of one for each control to
+ * find on the page. Never under 3 seconds, nor over 15.
+ */
+export function readingTime(step: Pick<TourStep, "title" | "body" | "steps">): number {
+  const { words, controls } = tally([step.title, step.body, ...(step.steps ?? [])]);
+  const seconds = 1 + words * 0.2 + (step.steps?.length ?? 0) * 0.5 + controls * 0.75;
+  return Math.min(15, Math.max(3, Math.round(seconds)));
+}
 
 type Part = Element | null | undefined;
 /** One part of the page, or several, or groups of several. */

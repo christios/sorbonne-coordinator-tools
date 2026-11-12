@@ -438,7 +438,8 @@ describe("the guided tour", () => {
     expect(step("How the tour works")).toBeTruthy();
   });
 
-  it("is taught by doing each part with one block only, opened by a click, and clears what was tried at the end", () => {
+  // The whole tour, step by step: a second alone, more under the full suite's load.
+  it("is taught by doing each part with one block only, opened by a click, and clears what was tried at the end", { timeout: 20_000 }, () => {
     // The clock too, for the step that goes on by itself: faked afresh, as faking twice does nothing.
     vi.useRealTimers();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
@@ -614,26 +615,38 @@ describe("the guided tour", () => {
     expect(said("Tuesday", "14:00")).toContain("fine");
   });
 
-  it("holds each card for its reading time before going on, with no hover bubbles meanwhile", () => {
+  it("holds each card for a reading time that follows how much it asks, before going on", () => {
     vi.useRealTimers();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     vi.setSystemTime(new Date(2026, 10, 10));
     tourPace.scale = 1;
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(within(step("New here? Take the two-minute tour")).getByRole("button", { name: "Start the tour" }));
-    const next = () => within(step("How the tour works")).getByRole("button", { name: "Next" }) as HTMLButtonElement;
-    expect(next().disabled).toBe(true);
+    const seconds = (title: string) => Number(/next step in (\d+) s/.exec(step(title).textContent ?? "")?.[1]);
+    const next = (title: string) => within(step(title)).getByRole("button", { name: "Next" }) as HTMLButtonElement;
+    const intro = seconds("How the tour works");
     expect(step("How the tour works").textContent).toContain("Read this card first");
-    wait(6000);
-    expect(next().disabled).toBe(true);
+    expect(next("How the tour works").disabled).toBe(true);
+    wait((intro - 1) * 1000);
+    expect(next("How the tour works").disabled).toBe(true);
     wait(1000);
-    expect(next().disabled).toBe(false);
-    fireEvent.click(next());
+    expect(next("How the tour works").disabled).toBe(false);
+    fireEvent.click(next("How the tour works"));
+    // Two short lines to read, against three longer ones: a shorter wait.
+    const paint = seconds("Mark a time");
+    expect(paint).toBeLessThan(intro);
     // A block made at once: Next waits for the card's own reading time all the same.
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     expect(within(step("Mark a time")).getByText("Nicely done")).toBeTruthy();
-    expect((within(step("Mark a time")).getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
-    wait(4000);
-    expect((within(step("Mark a time")).getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(next("Mark a time").disabled).toBe(true);
+    wait(paint * 1000);
+    expect(next("Mark a time").disabled).toBe(false);
+    fireEvent.click(next("Mark a time"));
+    // One line, "Click the block you made", against four with two controls once its box is open.
+    const opening = seconds("Open the block");
+    tap("Tuesday", "14:00");
+    wait(opening * 1000);
+    wait(2000);
+    expect(seconds("Set the block")).toBeGreaterThan(opening + 4);
   });
 });

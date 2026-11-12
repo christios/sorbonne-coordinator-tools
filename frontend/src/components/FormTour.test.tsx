@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { FormTour, tourPace, type TourStep } from "@/components/FormTour";
+import { FormTour, readingTime, tally, tourPace, type TourStep } from "@/components/FormTour";
 import { Tip } from "@/components/InfoTip";
 
 /** A control with a place on the screen, as a browser would give it. */
@@ -225,5 +225,48 @@ describe("a card's reading time", () => {
   it("is none on a card that is only a suggestion", () => {
     render(<FormTour hint steps={[{ id: "welcome", title: "Take the tour?", readFor: 5, actions: [{ label: "Start", onClick: () => {} }] }]} at={0} onStep={() => {}} onClose={() => {}} />);
     expect(document.querySelector("[data-tour-timer]")).toBeNull();
+  });
+});
+
+describe("how long a card holds", () => {
+  /** A control drawn in a card, as the form draws its buttons. */
+  function Button({ children }: { children: string }) {
+    return <span>{children}</span>;
+  }
+  Button.tourLook = 0;
+  function Switch() {
+    return <span>Constraint Preference</span>;
+  }
+  Switch.tourLook = 2;
+
+  it("counts the words read, through the elements they sit in, and the controls named", () => {
+    expect(
+      tally([
+        "Press Done.",
+        <>
+          Choose <Switch />, then press <Button>Done</Button> · now
+        </>,
+      ]),
+    ).toEqual({ words: 2 + 1 + 2 + 2 + 1 + 1, controls: 2 });
+    // A time is a word; a dash or a dot alone is not.
+    expect(tally(["Tue 14:00–16:00 – ·"]).words).toBe(2);
+  });
+
+  it("grows with the words, the instructions and the controls, from 3 seconds to 15", () => {
+    const short = readingTime({ title: "Open the block", steps: ["Click the block you made."] });
+    const longer = readingTime({ title: "Open the block", steps: ["Click the block you made.", "Then look at it closely, and read what it says."] });
+    const withControls = readingTime({
+      title: "Open the block",
+      steps: [
+        "Click the block you made.",
+        <>
+          Then press <Button>Done</Button> and <Button>Next</Button>.
+        </>,
+      ],
+    });
+    expect(short).toBe(3);
+    expect(longer).toBeGreaterThan(short);
+    expect(withControls).toBeGreaterThan(readingTime({ title: "Open the block", steps: ["Click the block you made.", "Then press Done and Next."] }));
+    expect(readingTime({ title: "Long", steps: Array.from({ length: 20 }, () => "Many words to read in this line, one after another.") })).toBe(15);
   });
 });

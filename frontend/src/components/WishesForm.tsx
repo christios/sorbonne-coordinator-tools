@@ -19,7 +19,7 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { FormTour, rememberTourTaken, tourTaken, type TourStep } from "@/components/FormTour";
+import { FormTour, readingTime, rememberTourTaken, tourTaken, type TourStep } from "@/components/FormTour";
 import { Tip, TipDo } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
@@ -142,6 +142,12 @@ function DateLook({ children }: { children: ReactNode }) {
     </span>
   );
 }
+
+// Each a control to find on the page, for a card's reading time; the switch shows two words of its own.
+ToggleLook.tourLook = 2;
+PillLook.tourLook = 0;
+ButtonLook.tourLook = 0;
+DateLook.tourLook = 0;
 
 /** "Constraint" or "Preference", as a small tag in its colour. */
 export function KindTag({ kind }: { kind: WishKind }) {
@@ -1061,10 +1067,22 @@ export function WishesForm({
   const gridBody = () => gridBox.current?.querySelector("tbody");
   /*
    * The cards' words (12 Nov 2026): short, plain orders, one line per thing to do, each
-   * control drawn as it looks on the page. `readFor` is each card's reading time, in seconds.
+   * control drawn as it looks on the page. Each card's reading time follows from them (below).
    */
   const Done = <ButtonLook>Done</ButtonLook>;
-  const tourSteps: (TourStep & { id: (typeof TOUR)[number] })[] = [
+  // How to set a block, as the card says it once the block's box is open.
+  const setTheBlock = {
+    body: <span className="font-semibold text-[#15803d]">Your click opened this box.</span>,
+    steps: [
+      <>
+        Choose <ToggleLook />. <b>Constraint</b>: can&rsquo;t teach. <b>Preference</b>: would like to teach.
+      </>,
+      <>Choose how often it repeats.</>,
+      <>Type a reason. Required for a constraint.</>,
+      <>Press {Done}.</>,
+    ],
+  };
+  const tourCards: (TourStep & { id: (typeof TOUR)[number] })[] = [
     {
       // Before anything: that this is a tour, and that only what its card says works.
       id: "intro",
@@ -1074,7 +1092,6 @@ export function WishesForm({
         <>Only that step works. The rest of the form is locked.</>,
         <>Read each card until its timer ends, then go on.</>,
       ],
-      readFor: 7,
     },
     {
       id: "paint",
@@ -1085,7 +1102,6 @@ export function WishesForm({
       done: Boolean(tourMade) && !drag,
       target: () => [part("toolbar"), gridBox.current],
       allow: () => gridBody(),
-      readFor: 4,
     },
     {
       id: "open",
@@ -1098,23 +1114,14 @@ export function WishesForm({
       autoNext: 2000,
       target: () => gridBox.current,
       allow: () => gridBody(),
-      readFor: 2,
     },
     {
       id: "repeat",
       title: "Set the block",
-      body: open && openBlock ? <span className="font-semibold text-[#15803d]">Your click opened this box.</span> : undefined,
-      steps:
-        open && openBlock
-          ? [
-              <>
-                Choose <ToggleLook />. <b>Constraint</b>: can&rsquo;t teach. <b>Preference</b>: would like to teach.
-              </>,
-              <>Choose how often it repeats.</>,
-              <>Type a reason. Required for a constraint.</>,
-              <>Press {Done}.</>,
-            ]
-          : [<>Click your block to open its box.</>],
+      body: open && openBlock ? setTheBlock.body : undefined,
+      steps: open && openBlock ? setTheBlock.steps : [<>Click your block to open its box.</>],
+      // Timed by what it asks once the box is open, as it is a moment after the step begins.
+      readFor: readingTime({ title: "Set the block", ...setTheBlock }),
       tryIt: open && openBlock ? "Set the block in its box, then press Done." : "Click your block to open its box.",
       done: tourBase.sawOpen && !open,
       // Done pressed: straight on.
@@ -1127,7 +1134,6 @@ export function WishesForm({
       pointAt: () => popover.current?.querySelector('[aria-label="Constraint or preference"]'),
       // Beside the choice, outside its box: over it would cover the box's words.
       pointFrom: "left",
-      readFor: 8,
     },
     {
       id: "weeks",
@@ -1143,7 +1149,6 @@ export function WishesForm({
       target: () => [part("toolbar"), gridBox.current],
       allow: () => [part("week-before"), part("week-after"), part("weeks")?.querySelector("[aria-haspopup]")],
       pointAt: () => part(after_ || !before_ ? "week-after" : "week-before"),
-      readFor: 3,
     },
     {
       id: "day",
@@ -1164,7 +1169,6 @@ export function WishesForm({
       allow: () => [gridBox.current?.querySelector("thead"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : gridBox.current?.querySelector("thead button[data-day-name]")),
       pointFrom: open ? "left" : undefined,
-      readFor: 6,
     },
     {
       id: "week",
@@ -1184,7 +1188,6 @@ export function WishesForm({
       allow: () => [part("whole-week"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : part("whole-week")),
       pointFrom: open ? "left" : undefined,
-      readFor: 6,
     },
     {
       id: "summary",
@@ -1205,7 +1208,6 @@ export function WishesForm({
       allow: () => [part("summary"), open ? popover.current : null],
       pointAt: () => (open ? popover.current?.querySelector("[data-why]") : part("summary")?.querySelector("li button")),
       pointFrom: "left",
-      readFor: 5,
     },
     {
       id: "next",
@@ -1221,7 +1223,6 @@ export function WishesForm({
       target: () => part("nav"),
       allow: () => part("next"),
       pointAt: () => part("next"),
-      readFor: 2,
     },
     {
       id: "limits",
@@ -1236,7 +1237,6 @@ export function WishesForm({
       ],
       target: () => part("limits"),
       allow: () => part("limits"),
-      readFor: 7,
     },
     {
       id: "save",
@@ -1251,7 +1251,6 @@ export function WishesForm({
         voice === "you" ? <>You can change your answer until the deadline.</> : <>It is saved as entered by you.</>,
       ],
       target: () => part("nav"),
-      readFor: 5,
     },
     {
       id: "again",
@@ -1266,9 +1265,15 @@ export function WishesForm({
       ],
       target: () => tourButtonAt.current,
       pointAt: () => tourButtonAt.current,
-      readFor: 4,
     },
   ];
+
+  /*
+   * Each card holds as long as it is complex (12 Nov 2026): its words, its instructions, the
+   * controls it names. Read as the step begins; "One block is enough", said once a block is
+   * made, does not lengthen it.
+   */
+  const tourSteps = tourCards.map((card) => ({ ...card, readFor: card.readFor ?? readingTime({ ...card, body: card.id === "paint" ? undefined : card.body }) }));
 
   const hintStep: TourStep | null =
     tourHint === "welcome"
