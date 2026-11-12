@@ -14,6 +14,7 @@ from sorbonne.api.dev_tools import is_local as dev_is_local
 from sorbonne.api.dev_tools import router as dev_router
 from sorbonne.api.export import router as export_router
 from sorbonne.api.restore import router as restore_router
+from sorbonne.api.course_programs import router as course_programs_router
 from sorbonne.api.programme_codes import router as programme_codes_router
 from sorbonne.api.exemption_reasons import router as exemption_reasons_router
 from sorbonne.api.rooms import router as rooms_router
@@ -96,6 +97,7 @@ app.include_router(publication_router, prefix="/api/v1")
 app.include_router(export_router, prefix="/api/v1")
 app.include_router(restore_router, prefix="/api/v1")
 app.include_router(programme_codes_router, prefix="/api/v1")
+app.include_router(course_programs_router, prefix="/api/v1")
 app.include_router(exemption_reasons_router, prefix="/api/v1")
 app.include_router(rooms_router, prefix="/api/v1")
 app.include_router(semester_plans_router, prefix="/api/v1")

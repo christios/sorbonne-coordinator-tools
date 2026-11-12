@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TeachingLoads } from "@/components/TeachingLoads";
+import * as coursePrograms from "@/services/coursePrograms";
 import * as lists from "@/services/portalLists";
 import type { ActiveTeacher } from "@/services/portalLists";
 import * as database from "@/services/studentDatabase";
@@ -42,6 +43,7 @@ beforeEach(() => {
   vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([{ id: "act-1", fullName: "Bilal Maaz", type: "Full Time", source: "portal" } as ActiveTeacher]);
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ old: "252610", s1: "262710", s2: "262720" });
   vi.spyOn(lists, "fetchSemesterShortNames").mockResolvedValue({ s1: "S1", s2: "S2" });
+  vi.spyOn(coursePrograms, "fetchCoursePrograms").mockResolvedValue({ programmes: [], courses: {} });
   // The semester chosen in the header.
   window.localStorage.setItem("scen-remembered:schema-term", "s2");
 });

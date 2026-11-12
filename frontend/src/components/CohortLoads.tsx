@@ -1,10 +1,13 @@
-import { Search } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { Search, Settings2 } from "lucide-react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { InfoTip } from "@/components/InfoTip";
+import { SelectMenu } from "@/components/SelectMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
+import { TeachingLoadsSettings } from "@/components/TeachingLoadsSettings";
 import { usePageState } from "@/components/usePageState";
+import { useRemembered } from "@/components/useRemembered";
 import {
   BUCKETS,
   LOAD_KINDS,
@@ -26,7 +29,9 @@ import {
   type StaffStatus,
 } from "@/services/cohortLoads";
 import type { Card } from "@/services/courseCards";
+import { NO_COURSE_PROGRAMS, programmeName, type CoursePrograms } from "@/services/coursePrograms";
 import type { ActiveTeacher } from "@/services/portalLists";
+import { TEACHING_LOADS_HIDDEN, TEACHING_LOADS_PROGRAM } from "@/services/remembered";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 
@@ -175,12 +180,18 @@ const KIND_LABEL: Record<LoadKind, string> = { CM: "CM", TD: "TD", TP: "TP", OTH
  * Searched and filtered as the other tables are — a section is kept or not — and every
  * figure on the page is then counted on the sections kept, so "what share of the year do
  * visiting professors teach in L2" is a chip, and the page says when it is narrowed.
+ *
+ * Narrowed to a program too, as the workbook's Maths and Physics tabs are: every tab then
+ * counts only that program's courses. Its settings say which course counts as which, and
+ * which tabs show — this browser's to choose, so a coordinator who looks after L1 and L2
+ * alone need not step over the others.
  */
 export function CohortLoads({
   cards,
   termIds,
   termLabel,
   teachers,
+  programs = NO_COURSE_PROGRAMS,
   onOpenTeacher,
 }: {
   cards: Card[];
@@ -188,19 +199,40 @@ export function CohortLoads({
   termIds: string[];
   termLabel: (termId: string) => string;
   teachers: ActiveTeacher[];
+  /** The department's programmes and which courses count as each (Settings → Programmes). */
+  programs?: CoursePrograms;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const [chosen, setChosen] = usePageState<string>("teaching-loads:cohort", DEPARTMENT);
   const [filters, setFilters] = usePageState<FilterModel[]>("teaching-loads:filters", []);
   const [query, setQuery] = usePageState("teaching-loads:search", "");
+  const [programSaid, setProgram] = useRemembered(TEACHING_LOADS_PROGRAM);
+  // A program since taken away, or another department's, is every course.
+  const program = programs.programmes.some((entry) => entry.code === programSaid) ? programSaid : "";
+  const [hiddenSaid, setHiddenSaid] = useRemembered(TEACHING_LOADS_HIDDEN);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const hidden = useMemo(() => new Set(hiddenSaid.split("\n").filter(Boolean)), [hiddenSaid]);
 
-  // The cohorts on offer whatever is filtered, so a filter never takes a button away.
-  const everyCohort = useMemo(() => cohortLoads(cards, termIds, teachers), [cards, termIds, teachers]);
-  const cohort = everyCohort.find((entry) => entry.cohortId === chosen) ?? null;
+  // Every cohort of the year, whatever the program: the tabs one can choose from.
+  const yearCohorts = useMemo(() => cohortLoads(cards, termIds, teachers, undefined, programs), [cards, termIds, teachers, programs]);
+  const inProgram = useCallback((section: LoadSection) => !program || section.program === program, [program]);
+  // The cohorts with something in the program, whatever is filtered, so a filter never takes a tab away.
+  const everyCohort = useMemo(
+    () => (program ? cohortLoads(cards, termIds, teachers, inProgram, programs) : yearCohorts),
+    [program, cards, termIds, teachers, inProgram, programs, yearCohorts],
+  );
+  const tabs = [
+    ...(hidden.has(DEPARTMENT) ? [] : [{ id: DEPARTMENT, name: "Department" }]),
+    ...everyCohort.filter((entry) => !hidden.has(entry.cohortId)).map((entry) => ({ id: entry.cohortId, name: entry.cohortName })),
+  ];
+  // A tab put away, or with nothing in the program, gives way to the first one shown.
+  const tab = tabs.some((entry) => entry.id === chosen) ? chosen : (tabs[0]?.id ?? DEPARTMENT);
+  const cohort = everyCohort.find((entry) => entry.cohortId === tab) ?? null;
 
   const rows = useMemo<Row[]>(
     () =>
-      loadSections(cards, termIds, teachers)
+      loadSections(cards, termIds, teachers, programs)
+        .filter(inProgram)
         .filter((section) => !cohort || section.cohortId === cohort.cohortId)
         .map((section) => ({
           ...section,
@@ -210,7 +242,7 @@ export function CohortLoads({
           teacherShown: section.teacher || "Nobody yet",
           statusShown: bucketLabel(bucketOf(section)),
         })),
-    [cards, termIds, teachers, cohort, termLabel],
+    [cards, termIds, teachers, programs, cohort, termLabel, inProgram],
   );
   const kept = useMemo(() => {
     const words = query.trim().toLowerCase();
@@ -223,12 +255,12 @@ export function CohortLoads({
   }, [rows, query, filters]);
   const narrowed = Boolean(query.trim()) || filters.some((filter) => filter.values.length);
   const counted = useMemo(
-    () => (narrowed ? cohortLoads(cards, termIds, teachers, (section) => kept.has(section.key)) : everyCohort),
-    [narrowed, cards, termIds, teachers, kept, everyCohort],
+    () => (narrowed ? cohortLoads(cards, termIds, teachers, (section) => kept.has(section.key), programs) : everyCohort),
+    [narrowed, cards, termIds, teachers, kept, programs, everyCohort],
   );
   const shownCohort = cohort ? (counted.find((entry) => entry.cohortId === cohort.cohortId) ?? null) : null;
 
-  if (!everyCohort.length) {
+  if (!yearCohorts.length) {
     return (
       <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
         Nothing is planned for this academic year yet. Groups &amp; CRNs is where sections are made.
@@ -243,26 +275,39 @@ export function CohortLoads({
     setFilters([]);
     setQuery("");
   };
+  const tabChoices = [{ value: DEPARTMENT, label: "Department" }, ...yearCohorts.map((entry) => ({ value: entry.cohortId, label: entry.cohortName }))];
+  const programName = program ? programmeName(program, programs) : "";
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-3">
         <div role="group" aria-label="Cohort" className="flex flex-wrap gap-1.5">
-          <button type="button" aria-pressed={!cohort} onClick={() => setChosen(DEPARTMENT)} className={chip(!cohort)}>
-            Department
-          </button>
-          {everyCohort.map((entry) => (
-            <button
-              key={entry.cohortId}
-              type="button"
-              aria-pressed={cohort?.cohortId === entry.cohortId}
-              onClick={() => setChosen(entry.cohortId)}
-              className={chip(cohort?.cohortId === entry.cohortId)}
-            >
-              {entry.cohortName}
+          {tabs.map((entry) => (
+            <button key={entry.id} type="button" aria-pressed={tab === entry.id} onClick={() => setChosen(entry.id)} className={chip(tab === entry.id)}>
+              {entry.name}
             </button>
           ))}
         </div>
+        {/* No programme with courses under it, nothing to narrow to: Settings → Programmes is where they are grouped. */}
+        {programs.programmes.length ? (
+          <div className="w-40">
+            <SelectMenu
+              label="Program"
+              value={program}
+              onChange={setProgram}
+              align="start"
+              options={[{ value: "", label: "All programs" }, ...programs.programmes.map((entry) => ({ value: entry.code, label: entry.name }))]}
+            />
+          </div>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="inline-flex items-center gap-1.5 rounded-md border border-[#b8c2cf] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:border-[#1f4e79] hover:text-[#1f4e79]"
+        >
+          <Settings2 size={14} aria-hidden="true" />
+          Settings
+        </button>
         <div className="flex w-full flex-wrap items-center gap-3 sm:ml-auto sm:w-auto">
           <label className="relative block w-full sm:w-64">
             <Search size={15} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[#475467]" aria-hidden="true" />
@@ -283,9 +328,25 @@ export function CohortLoads({
           ) : null}
         </div>
       </div>
+      {settingsOpen ? (
+        <TeachingLoadsSettings
+          open
+          onClose={() => setSettingsOpen(false)}
+          tabChoices={tabChoices}
+          hidden={hidden}
+          onHide={(next) => setHiddenSaid(next.join("\n"))}
+        />
+      ) : null}
       <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
 
-      {cohort && !shownCohort ? (
+      {!everyCohort.length ? (
+        <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
+          No {programName} course is planned for this academic year yet.{" "}
+          <button type="button" onClick={() => setProgram("")} className="font-semibold text-[#1f4e79] underline">
+            All programs
+          </button>
+        </p>
+      ) : cohort && !shownCohort ? (
         <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
           No section of {cohort.cohortName} matches.{" "}
           <button type="button" onClick={clear} className="font-semibold text-[#1f4e79] underline">
@@ -293,13 +354,22 @@ export function CohortLoads({
           </button>
         </p>
       ) : shownCohort ? (
-        <CohortBlock cohort={shownCohort} termIds={termIds} termLabel={termLabel} narrowed={narrowed} onOpenTeacher={onOpenTeacher} />
+        <CohortBlock
+          cohort={shownCohort}
+          termIds={termIds}
+          termLabel={termLabel}
+          narrowed={narrowed}
+          programName={programName}
+          onOpenTeacher={onOpenTeacher}
+        />
       ) : (
         <DepartmentBlock
           cohorts={counted}
           termIds={termIds}
           termLabel={termLabel}
           narrowed={narrowed}
+          programName={programName}
+          canOpen={(cohortId) => tabs.some((entry) => entry.id === cohortId)}
           onChoose={setChosen}
           onOpenTeacher={onOpenTeacher}
         />
@@ -400,6 +470,8 @@ function DepartmentBlock({
   termIds,
   termLabel,
   narrowed,
+  programName,
+  canOpen,
   onChoose,
   onOpenTeacher,
 }: {
@@ -407,6 +479,10 @@ function DepartmentBlock({
   termIds: string[];
   termLabel: (termId: string) => string;
   narrowed: boolean;
+  /** "Maths" when the page is narrowed to a program; blank for every course. */
+  programName: string;
+  /** Whether a cohort has a tab to open: not when it is put away in Tabs. */
+  canOpen: (cohortId: string) => boolean;
   onChoose: (cohortId: string) => void;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
@@ -428,7 +504,9 @@ function DepartmentBlock({
       <div className={summaryGrid}>
         <section className={card}>
           <Heading about={ABOUT}>
-            {narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the department’s hours"}
+            {narrowed
+              ? "Who teaches the hours of the sections shown"
+              : `Who teaches the department’s ${programName ? `${programName} ` : ""}hours`}
           </Heading>
           <div className="overflow-x-auto">
             <SplitTable split={split} termIds={termIds} termLabel={termLabel} />
@@ -436,11 +514,15 @@ function DepartmentBlock({
         </section>
         <div className="space-y-4">
           <KindTiles kinds={kinds} />
-          <TeacherList title="Each teacher in the department" teachers={teachers} onOpenTeacher={onOpenTeacher} />
+          <TeacherList
+            title={programName ? `Each teacher of ${programName} in the department` : "Each teacher in the department"}
+            teachers={teachers}
+            onOpenTeacher={onOpenTeacher}
+          />
         </div>
       </div>
       <section className={card}>
-        <Heading>Cohort by cohort, over the year</Heading>
+        <Heading>{programName ? `${programName}, cohort by cohort, over the year` : "Cohort by cohort, over the year"}</Heading>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm tabular-nums">
             <thead>
@@ -460,9 +542,16 @@ function DepartmentBlock({
                 return (
                   <tr key={cohort.cohortId} className="hover:bg-[#f5f8fc]">
                     <td className={`${lineCell} pr-3`}>
-                      <button type="button" onClick={() => onChoose(cohort.cohortId)} className="font-semibold text-[#1f4e79] hover:underline">
-                        {cohort.cohortName}
-                      </button>
+                      {canOpen(cohort.cohortId) ? (
+                        <button type="button" onClick={() => onChoose(cohort.cohortId)} className="font-semibold text-[#1f4e79] hover:underline">
+                          {cohort.cohortName}
+                        </button>
+                      ) : (
+                        // Still counted in the department; its tab is only put away.
+                        <span className="font-semibold text-[#171717]" title="Its tab is put away: tick it in Tabs to open it">
+                          {cohort.cohortName}
+                        </span>
+                      )}
                     </td>
                     <td className={`${lineCell} pl-4 text-right font-semibold text-[#171717]`}>{hours(total)}</td>
                     {shown.map((bucket) => (
@@ -496,12 +585,14 @@ function CohortBlock({
   termIds,
   termLabel,
   narrowed,
+  programName,
   onOpenTeacher,
 }: {
   cohort: CohortLoad;
   termIds: string[];
   termLabel: (termId: string) => string;
   narrowed: boolean;
+  programName: string;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const kinds = LOAD_KINDS.filter((kind) => kind !== "OTHER" || cohort.kinds.OTHER > 0);
@@ -513,14 +604,22 @@ function CohortBlock({
     <div className="space-y-4">
       <div className={summaryGrid}>
         <section className={card}>
-          <Heading about={ABOUT}>{narrowed ? "Who teaches the hours of the sections shown" : "Who teaches the hours"}</Heading>
+          <Heading about={ABOUT}>
+            {narrowed
+              ? "Who teaches the hours of the sections shown"
+              : `Who teaches ${cohort.cohortName}’s ${programName ? `${programName} ` : ""}hours`}
+          </Heading>
           <div className="overflow-x-auto">
             <SplitTable split={cohort.split} termIds={termIds} termLabel={termLabel} />
           </div>
         </section>
         <div className="space-y-4">
           <KindTiles kinds={cohort.kinds} />
-          <TeacherList title={`Each teacher in ${cohort.cohortName}`} teachers={cohort.teachers} onOpenTeacher={onOpenTeacher} />
+          <TeacherList
+            title={`Each teacher ${programName ? `of ${programName} ` : ""}in ${cohort.cohortName}`}
+            teachers={cohort.teachers}
+            onOpenTeacher={onOpenTeacher}
+          />
         </div>
       </div>
 

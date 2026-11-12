@@ -23,7 +23,7 @@
  *
  * Admissions may move the code itself, not just the words after it — L2's MATH became
  * MATS in September 2026, and every mathematician stopped matching the rows they sat on.
- * Settings → Programme codes says so once ("MATS means MATH"), and every comparison below
+ * Settings → Programmes says so once ("MATS means MATH"), and every comparison below
  * reads it. Loaded before the student pages open; empty until then, which is what the
  * application meant before there was a list.
  */

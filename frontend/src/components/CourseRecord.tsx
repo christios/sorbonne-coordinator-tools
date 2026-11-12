@@ -252,7 +252,7 @@ export function CourseRecord({
 /**
  * The UE, whether both degrees sit in it together, and the coefficient, written where they
  * belong. The coefficient is the one the teaching-load sheet lists beside the course, and
- * Teacher hours shows it there.
+ * Teaching loads shows it there.
  */
 function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () => void }) {
   const [ue, setUe] = useState(course.ue);
@@ -283,8 +283,8 @@ function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () =>
         <span className="flex items-center gap-1">
           Coefficient
           <InfoTip label="Where the coefficient is used">
-            The course&apos;s coefficient, as the department&apos;s teaching-load sheet lists it. Teacher hours shows it beside
-            the course in its By cohort view.
+            The course&apos;s coefficient, as the department&apos;s teaching-load sheet lists it. Teaching loads shows it
+            beside the course.
           </InfoTip>
         </span>
         <input

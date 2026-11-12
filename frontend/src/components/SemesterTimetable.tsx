@@ -11,6 +11,7 @@ import { SemesterExport } from "@/components/SemesterExport";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { usePageState } from "@/components/usePageState";
+import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { Zoom } from "@/components/TimelineZoom";
 import { useKeptNumber } from "@/services/keptNumber";
 import { HEIGHT, WIDTH } from "@/services/timelineZoom";
@@ -20,6 +21,7 @@ import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
 import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
 import { programCode } from "@/services/programmes";
+import { withProgrammeColumn } from "@/services/coursePrograms";
 import { fieldHeld } from "@/services/rosterStore";
 import { fetchAssignmentMajors, fetchAssignments, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
@@ -334,6 +336,9 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
       }),
     [all, classesOf, cohortOf, majorsOf],
   );
+  // A Program filter beside Major: by the course's programme, where Major is the students'.
+  const coursePrograms = useCoursePrograms();
+  const columns = useMemo(() => withProgrammeColumn(COLUMNS, coursePrograms, (row) => row.code, "majors"), [coursePrograms]);
   const searched = useMemo(() => {
     const words = query.trim().toLowerCase();
     if (!words) return rows;
@@ -344,7 +349,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
         .includes(words),
     );
   }, [rows, query]);
-  const shown = useMemo(() => applyFilters(searched, COLUMNS, filters), [searched, filters]);
+  const shown = useMemo(() => applyFilters(searched, columns, filters), [searched, columns, filters]);
   // The classes of a kept section that the room and weekday filters keep.
   const perClass = useMemo(() => filters.filter((filter) => filter.columnId === "rooms" || filter.columnId === "days"), [filters]);
   const sessionFilter = useMemo(
@@ -524,7 +529,7 @@ function SemesterWeek({ layout, term, picker }: { layout: Layout; term: Timetabl
         </div>
       </div>
       <div className="mb-3 flex shrink-0 flex-wrap items-center gap-2">
-        <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+        <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
       </div>
 
       {held.isError ? (

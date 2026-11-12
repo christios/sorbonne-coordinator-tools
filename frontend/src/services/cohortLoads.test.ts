@@ -5,6 +5,7 @@ import {
   departmentKinds,
   departmentSplit,
   departmentTeachers,
+  loadSections,
   shareOf,
   staffStatusOf,
   statusFromPortal,
@@ -140,5 +141,29 @@ describe("a teacher's status for the budget", () => {
     expect(statusFromPortal("", "part-time")).toBe("PT");
     expect(statusFromPortal("")).toBe("");
     expect(staffStatusOf(null)).toBe("");
+  });
+});
+
+/** SCEN's programmes: MATH's course codes are MATH and CPSC, PHYS's are PHYS. */
+const SCEN = {
+  programmes: [
+    { code: "MATH", name: "Mathematics", officialName: "", registrarName: "Mathematics", aliases: [], prefixes: ["MATH", "CPSC"] },
+    { code: "PHYS", name: "Physics", officialName: "", registrarName: "Physics", aliases: [], prefixes: ["PHYS"] },
+  ],
+  courses: {},
+};
+
+describe("a section's programme", () => {
+  it("is its course's, carried by every section, and narrows the hours counted", () => {
+    // The department puts Pre-calculus with PHYS; Elements of calculus goes by its code.
+    const programs = { ...SCEN, courses: { "MATH-001": "PHYS" } };
+    const sections = loadSections(cards(), ["s1", "s2"], TEACHERS, programs);
+    expect(new Set(sections.map((section) => `${section.courseCode} ${section.program}`))).toEqual(
+      new Set(["MATH-001 PHYS", "MATH-002 MATH"]),
+    );
+
+    const [maths] = cohortLoads(cards(), ["s1", "s2"], TEACHERS, (section) => section.program === "MATH", programs);
+    // Elements of calculus alone: its 40 hours, a visiting professor's.
+    expect(maths.split.year).toEqual({ FT: 0, PHD: 0, VP: 40, PT: 0, UNSET: 0, NOBODY: 0 });
   });
 });

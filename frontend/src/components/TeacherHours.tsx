@@ -28,8 +28,10 @@ import {
 } from "@/services/teachers";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { usePageState } from "@/components/usePageState";
+import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { useRemembered } from "@/components/useRemembered";
-import { buildCards, parentsOf } from "@/services/courseCards";
+import { buildCards, parentsOf, sectionsOf } from "@/services/courseCards";
+import { programmeName, programmeOf } from "@/services/coursePrograms";
 import {
   fetchActiveCourses,
   fetchActiveCrns,
@@ -339,7 +341,41 @@ export function TeacherHours({
       setExporting(false);
     }
   };
-  const columns = useMemo(() => hoursColumns(sheetTitles, chosenWindow.tag), [sheetTitles, chosenWindow.tag]);
+  /*
+   * A Program filter: the programmes of the courses a teacher is given this semester
+   * (Settings → Programmes). It picks the teachers who teach Maths, say — it does not
+   * split their hours, which the registrar books and the pay sheets count per teacher, not
+   * per course. Teaching loads is where the hours are split by programme.
+   */
+  const coursePrograms = useCoursePrograms();
+  const codeByCrn = useMemo(() => {
+    const held = new Map<string, string>();
+    for (const card of cards) {
+      if (card.termId !== chosenTerm) continue;
+      for (const row of sectionsOf(card)) if (row.section?.crn) held.set(row.section.crn.trim(), card.code);
+    }
+    return held;
+  }, [cards, chosenTerm]);
+  const columns = useMemo(() => {
+    const base = hoursColumns(sheetTitles, chosenWindow.tag);
+    if (!coursePrograms.programmes.length) return base;
+    const programmes: GridColumn<LoadRow> = {
+      id: "programme",
+      displayName: "Program",
+      type: "multiOption",
+      accessor: (row) => [
+        ...new Set(
+          row.crns
+            .map((crn) => codeByCrn.get(crn.trim()) ?? "")
+            .filter(Boolean)
+            .map((code) => programmeName(programmeOf(code, coursePrograms), coursePrograms)),
+        ),
+      ],
+      defaultWidth: 160,
+    };
+    const at = base.findIndex((column) => column.id === "standing") + 1;
+    return [...base.slice(0, at), programmes, ...base.slice(at)];
+  }, [sheetTitles, chosenWindow.tag, coursePrograms, codeByCrn]);
   const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
 
   if (catalogues.isLoading) return <ScreenLoading label="Adding up the hours…" />;

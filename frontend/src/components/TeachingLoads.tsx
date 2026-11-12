@@ -7,6 +7,7 @@ import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectMenu } from "@/components/SelectMenu";
 import type { TeacherRef } from "@/components/TeacherRecord";
+import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveTeachers, fetchTermLinks } from "@/services/portalLists";
@@ -41,6 +42,8 @@ export function TeachingLoads({
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
+  // The department's programmes and which courses count as each (Settings → Programmes).
+  const programs = useCoursePrograms();
   const shownOf = useSemesterShown();
   // The semester every page is on, chosen in the header or in any page's own menu.
   const [termId, setTermId] = useRemembered(SCHEMA_TERM);
@@ -106,6 +109,7 @@ export function TeachingLoads({
         termIds={yearTermIds}
         termLabel={termLabel}
         teachers={teachers.data ?? []}
+        programs={programs}
         onOpenTeacher={onOpenTeacher}
       />
     </section>

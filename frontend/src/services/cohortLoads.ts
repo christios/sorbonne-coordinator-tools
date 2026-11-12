@@ -16,6 +16,7 @@
 
 import { cardSeats, rowsPerPart, subRowLabel, type Card } from "@/services/courseCards";
 import { filled } from "@/services/courseRequest";
+import { NO_COURSE_PROGRAMS, programmeOf, type CoursePrograms } from "@/services/coursePrograms";
 import type { ActiveTeacher } from "@/services/portalLists";
 
 export type StaffStatus = "FT" | "PHD" | "VP" | "PT";
@@ -74,6 +75,8 @@ export type LoadSection = {
   cardKey: string;
   courseCode: string;
   courseName: string;
+  /** The course's student programme ("MATH"), which the page can be narrowed to; "" for none. */
+  program: string;
   /** "TD 1", "CM 1 · Physics", with the part when a section is handed over. */
   label: string;
   crn: string;
@@ -117,12 +120,18 @@ function kindOf(component: string): LoadKind {
 }
 
 /** Every line of the given semesters' cards, in the order the cards and their sets come. */
-export function loadSections(cards: Card[], termIds: string[], teachers: ActiveTeacher[]): LoadSection[] {
+export function loadSections(
+  cards: Card[],
+  termIds: string[],
+  teachers: ActiveTeacher[],
+  programs: CoursePrograms = NO_COURSE_PROGRAMS,
+): LoadSection[] {
   const byId = new Map(teachers.map((teacher) => [teacher.id, teacher]));
   const byName = new Map(teachers.map((teacher) => [teacher.fullName.trim().toLowerCase(), teacher]));
   const lines: LoadSection[] = [];
   for (const card of cards) {
     if (!termIds.includes(card.termId)) continue;
+    const program = programmeOf(card.code, programs);
     for (const set of card.sets) {
       for (const row of set.rows.flatMap((entry) => rowsPerPart(entry))) {
         // A shared cell is one class however many sub-rows show it: counted on the first.
@@ -140,6 +149,7 @@ export function loadSections(cards: Card[], termIds: string[], teachers: ActiveT
           cardKey: card.key,
           courseCode: card.code,
           courseName: card.name || card.code,
+          program,
           label: `${set.scope.code} ${group}`.trim() + part,
           crn: section.crn.trim(),
           teacherId: record?.id ?? section.teacherId,
@@ -167,8 +177,9 @@ export function cohortLoads(
   termIds: string[],
   teachers: ActiveTeacher[],
   keep: (section: LoadSection) => boolean = () => true,
+  programs: CoursePrograms = NO_COURSE_PROGRAMS,
 ): CohortLoad[] {
-  const lines = loadSections(cards, termIds, teachers).filter(keep);
+  const lines = loadSections(cards, termIds, teachers, programs).filter(keep);
   const cohorts = new Map<string, CohortLoad>();
   for (const card of cards) {
     if (!termIds.includes(card.termId)) continue;

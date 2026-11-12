@@ -23,6 +23,10 @@ const PREFIX = "scen-remembered:";
 export const COHORT = "cohort";
 /** The semester the Group schema and Groups & CRNs open on. */
 export const SCHEMA_TERM = "schema-term";
+/** The program Teaching loads is narrowed to — "MATH", "PHYS" — or blank for every course. */
+export const TEACHING_LOADS_PROGRAM = "teaching-loads-program";
+/** The tabs Teaching loads is not to show, one per line: "department", or a cohort's id. */
+export const TEACHING_LOADS_HIDDEN = "teaching-loads-hidden-tabs";
 
 export function recall(key: string): string {
   try {

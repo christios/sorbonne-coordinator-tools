@@ -14,9 +14,11 @@ import { SortMenu } from "@/components/SortMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { Zoom } from "@/components/TimelineZoom";
 import { usePageState } from "@/components/usePageState";
+import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { WeekTimeline, type GhostJudgement, type GridSlot, type Shade } from "@/components/WeekTimeline";
 import { useKeptNumber } from "@/services/keptNumber";
 import { programCode } from "@/services/programmes";
+import { withProgrammeColumn } from "@/services/coursePrograms";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterColumn, type FilterModel } from "@/services/tableFilter";
 import { HEIGHT, WIDTH } from "@/services/timelineZoom";
@@ -370,6 +372,9 @@ export function SemesterPlan({
       };
     });
   }, [data?.classes, data?.sections]);
+  // A Program filter beside Major, as the Semester Timetable has: by the course's programme.
+  const coursePrograms = useCoursePrograms();
+  const columns = useMemo(() => withProgrammeColumn(COLUMNS, coursePrograms, (row) => row.code, "majors"), [coursePrograms]);
   const searched = useMemo(() => {
     const words = query.trim().toLowerCase();
     if (!words) return rows;
@@ -378,8 +383,8 @@ export function SemesterPlan({
     );
   }, [rows, query]);
   const shownIds = useMemo(
-    () => new Set(applyFilters(searched, COLUMNS, filters).map((row) => row.section.id)),
-    [searched, filters],
+    () => new Set(applyFilters(searched, columns, filters).map((row) => row.section.id)),
+    [searched, columns, filters],
   );
   /*
    * The classes still to place answer every filter but the room and the day, which only a
@@ -390,11 +395,11 @@ export function SemesterPlan({
       new Set(
         applyFilters(
           searched,
-          COLUMNS,
+          columns,
           filters.filter((filter) => filter.columnId !== "rooms" && filter.columnId !== "days"),
         ).map((row) => row.section.id),
       ),
-    [searched, filters],
+    [searched, columns, filters],
   );
   const perClass = useMemo(() => filters.filter((filter) => filter.columnId === "rooms" || filter.columnId === "days"), [filters]);
   const narrowed = filters.some((filter) => filter.values.length) || Boolean(query.trim());
@@ -819,7 +824,7 @@ export function SemesterPlan({
       {/* The filters, over the week; the banners sit above them. */}
       <div className="mb-3 flex shrink-0 items-end gap-3">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
-          <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+          <TableFilterBar columns={columns} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
         </div>
       </div>
 

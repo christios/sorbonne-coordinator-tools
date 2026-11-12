@@ -13,6 +13,7 @@ import type { FillReport } from "@/components/FillBlock";
 import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
+import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { useRemembered } from "@/components/useRemembered";
 import { WorkbookTools } from "@/components/WorkbookTools";
 import { usePageState } from "@/components/usePageState";
@@ -22,6 +23,7 @@ import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegister
 import { fetchPublication } from "@/services/publication";
 import { clashName, clashesIn, describeClashCoverage } from "@/services/publicationView";
 import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
+import { withProgrammeColumn } from "@/services/coursePrograms";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
@@ -126,7 +128,12 @@ export function CourseCards({
   };
 
   const nameOf = (teacherId: string) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
-  const columns = useMemo(() => cardColumns(nameOf), [teachers.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  // A Program filter after Course: the card's course's programme (Settings → Programmes).
+  const coursePrograms = useCoursePrograms();
+  const columns = useMemo(
+    () => withProgrammeColumn(cardColumns(nameOf), coursePrograms, (card) => card.code, "code"),
+    [teachers.data, coursePrograms], // eslint-disable-line react-hooks/exhaustive-deps
+  );
   const [filters, setFilters] = usePageState<FilterModel[]>("course-cards:filters", []);
   // The two panes fill the room under the toolbar, and each scrolls inside itself.
   const [query, setQuery] = usePageState("course-cards:search", "");
