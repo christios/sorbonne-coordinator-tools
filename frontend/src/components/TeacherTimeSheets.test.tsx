@@ -142,6 +142,42 @@ const closure = (over = {}) => ({
   reason: "No classes in this period", hours: 0, by: "Coordinator Name", at: "2026-11-16T11:20:00Z", ...over,
 }) as never;
 
+const note = (over = {}) => ({
+  id: "n1", termCode: "262710", crn: "23644", meetsOn: "2026-09-18", startsAt: "08:30", endsAt: "10:00",
+  kind: "covered", coverTeacherId: "act-9", coverTeacherName: "Somebody Else", note: "", authorEmail: "",
+  authorName: "", createdAt: "", updatedAt: "", ...over,
+}) as never;
+
+describe("notes about an hour the portal has moved", () => {
+  it("counts this teacher's own, not every other teacher's in the semester", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet()]);
+    vi.spyOn(sessions, "fetchSessionChanges").mockResolvedValue([
+      // Their own class, on a day the registrar no longer has it.
+      note(),
+      // Somebody else's classes the same month: not theirs to explain.
+      note({ id: "n2", crn: "70001", meetsOn: "2026-09-20" }),
+      note({ id: "n3", crn: "70002", meetsOn: "2026-09-21", kind: "cancelled", coverTeacherId: "" }),
+    ]);
+
+    show();
+
+    expect(await screen.findByText("1 note about an hour the portal has moved")).toBeTruthy();
+  });
+
+  it("says nothing when every note is about somebody else's classes", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet()]);
+    vi.spyOn(sessions, "fetchSessionChanges").mockResolvedValue([
+      note({ id: "n2", crn: "70001", meetsOn: "2026-09-20" }),
+      note({ id: "n3", crn: "70002", meetsOn: "2026-10-22" }),
+    ]);
+
+    show();
+
+    expect(await screen.findAllByText("1.5 h")).toHaveLength(2);
+    expect(screen.queryByText(/about an hour the portal has moved/)).toBeNull();
+  });
+});
+
 describe("a period the Timesheets app closed with nothing to pay", () => {
   it("says so, and why, rather than that no sheet was filed", async () => {
     vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet()]);

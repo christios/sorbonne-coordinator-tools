@@ -170,18 +170,24 @@ export function TimeSheetsCard({
   });
   const opensOn = opensOnFor(cycles.data?.cycles ?? {}, chosenTerm, cycles.data?.default ?? PERIOD_OPENS_ON);
 
+  /** Their own sections this semester. */
+  const ownCrns = useMemo(() => {
+    if (!mine) return [];
+    return sectionsTaughtBy(built, mine.id, mine.fullName)
+      .filter((section) => section.termId === chosenTerm && section.crn)
+      .map((section) => section.crn);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the id and name are what is read
+  }, [built, mine?.id, mine?.fullName, chosenTerm]);
+
   /** Their own sections this semester, and any CRN they stood in on. */
   const crns = useMemo(() => {
     if (!mine) return [];
-    const own = sectionsTaughtBy(built, mine.id, mine.fullName)
-      .filter((section) => section.termId === chosenTerm && section.crn)
-      .map((section) => section.crn);
     const stoodIn = (notes.data ?? [])
       .filter((note) => note.kind === "covered" && note.coverTeacherId === mine.id)
       .map((note) => note.crn);
-    return [...new Set([...own, ...stoodIn])];
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the id and name are what is read
-  }, [built, notes.data, mine?.id, mine?.fullName, chosenTerm]);
+    return [...new Set([...ownCrns, ...stoodIn])];
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the id is what is read
+  }, [ownCrns, notes.data, mine?.id]);
 
   const met = useQuery({
     queryKey: ["facility-sections", termCode, crns.join(",")],
@@ -254,13 +260,19 @@ export function TimeSheetsCard({
           minutes: minutesByTeacher(hours)[mine?.id ?? ""] ?? 0,
           classes: ours.length,
           covered: ours.filter((hour) => hour.covered).length,
-          stranded: stranded.length,
+          /*
+           * Only this teacher's: a note on one of their own classes, or one saying they stood
+           * in. The notes are the whole semester's, so every other teacher's would otherwise
+           * read as stranded here — on 16 Nov a part-timer's August showed "11 notes", none theirs.
+           */
+          stranded: stranded.filter((note) => ownCrns.includes(note.crn) || note.coverTeacherId === mine?.id)
+            .length,
           sheet: rows.find((sheet) => sheet.periodStart === start) ?? null,
           submitted: (submitted.data ?? []).find((sheet) => sheet.periodStart === start) ?? null,
           closure: closed.find((said) => said.periodStart === start) ?? null,
         };
       });
-  }, [met.data, notes.data, rows, submitted.data, closures.data, opensOn, mine?.id, mine?.fullName]);
+  }, [met.data, notes.data, rows, submitted.data, closures.data, ownCrns, opensOn, mine?.id, mine?.fullName]);
 
   /** Sheets against no period, or a period nothing else knows about. Nothing disappears. */
   const loose = rows.filter((sheet) => !periods.some((period) => period.sheet?.id === sheet.id));
