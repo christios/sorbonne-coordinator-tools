@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CommentPeek } from "@/components/CommentPeek";
 import * as comments from "@/services/studentComments";
+import * as teachers from "@/services/teachers";
+import { TEACHER_THREAD } from "@/services/threads";
 
 const THREAD: comments.StudentComment[] = [
   {
@@ -148,5 +150,25 @@ describe("the thread under the pointer", () => {
     await tick(0);
 
     expect(screen.getByRole("group", { name: "Comments on Amira Haddad" })).toBeTruthy();
+  });
+});
+
+describe("a teacher's thread under the pointer", () => {
+  it("reads the teacher's comments, not a student's of the same id (Teacher hours)", async () => {
+    const theirs = vi.spyOn(teachers, "listTeacherComments").mockResolvedValue([
+      { id: "t1", teacherId: "T-1", body: "Swapped with Lama for S2.", authorEmail: "chris@sorbonne.ae", authorName: "Chris", createdAt: "2026-11-16T08:00:00Z" },
+    ]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={client}>
+        <CommentPeek studentId="T-1" label="Grace Younes" count={1} onOpen={() => {}} thread={TEACHER_THREAD} />
+      </QueryClientProvider>,
+    );
+
+    await hover(screen.getByRole("button", { name: "1 comment on Grace Younes" }));
+
+    expect(screen.getByRole("group", { name: "Comments on Grace Younes" }).textContent).toContain("Swapped with Lama for S2.");
+    expect(theirs).toHaveBeenCalledWith("T-1");
+    expect(comments.fetchComments).not.toHaveBeenCalled();
   });
 });

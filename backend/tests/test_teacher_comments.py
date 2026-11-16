@@ -100,3 +100,19 @@ def test_an_empty_line_is_refused(client: TestClient, store: TeacherStore):
     teacher = a_teacher(store)
 
     assert client.post(f"{BASE}/{teacher['id']}/comments", json={"body": "  "}).status_code in {201, 422}
+
+
+def test_a_line_is_its_authors_to_rewrite(client: TestClient, store: TeacherStore):
+    teacher = a_teacher(store)
+    written = client.post(f"{BASE}/{teacher['id']}/comments", json={"body": "Swapped with Grace."}).json()
+
+    rewritten = client.patch(f"{BASE}/comments/{written['id']}", json={"body": "Swapped with Grace for S2."})
+
+    assert rewritten.status_code == 200
+    said = rewritten.json()
+    assert (said["body"], said["createdAt"]) == ("Swapped with Grace for S2.", written["createdAt"])
+    assert [line["body"] for line in client.get(f"{BASE}/{teacher['id']}/comments").json()["comments"]] == [
+        "Swapped with Grace for S2."
+    ]
+    assert client.patch(f"{BASE}/comments/{written['id']}", json={"body": " "}).status_code == 422
+    assert client.patch(f"{BASE}/comments/no-such-line", json={"body": "x"}).status_code == 404

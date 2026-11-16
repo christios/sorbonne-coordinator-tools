@@ -40,11 +40,37 @@ describe("a student's thread", () => {
     expect(lines[1].textContent).toContain("Me");
   });
 
-  it("offers to remove only one's own lines, whatever the case of the address", async () => {
+  it("offers to edit and delete only one's own lines, whatever the case of the address", async () => {
     show();
     await screen.findAllByRole("listitem");
 
-    expect(screen.getAllByRole("button", { name: "Remove this comment" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Edit this comment" })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: "Delete this comment" })).toHaveLength(1);
+  });
+
+  it("rewrites one's own line in place", async () => {
+    const edited = vi.spyOn(comments, "editComment").mockResolvedValue({ ...THREAD[1], body: "Transfer lands on Monday." });
+    show();
+    await screen.findAllByRole("listitem");
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit this comment" }));
+    fireEvent.change(screen.getByLabelText("Edit the comment"), { target: { value: " Transfer lands on Monday. " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(edited).toHaveBeenCalledWith("c2", "Transfer lands on Monday."));
+    await waitFor(() => expect(screen.queryByLabelText("Edit the comment")).toBeNull());
+  });
+
+  it("deletes one's own line only once it is confirmed", async () => {
+    const deleted = vi.spyOn(comments, "deleteComment").mockResolvedValue(undefined);
+    show();
+    await screen.findAllByRole("listitem");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete this comment" }));
+    expect(deleted).not.toHaveBeenCalled();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete comment" }));
+
+    await waitFor(() => expect(deleted).toHaveBeenCalledWith("c2"));
   });
 
   it("posts what was typed and clears the box", async () => {

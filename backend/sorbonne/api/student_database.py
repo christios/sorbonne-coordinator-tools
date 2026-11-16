@@ -1106,6 +1106,24 @@ def add_comment(
     )
 
 
+@router.patch("/comments/{comment_id}")
+def edit_comment(
+    comment_id: str, body: CommentInput, request: Request, database: StudentDatabase = Depends(get_database)
+) -> dict[str, Any]:
+    """A line rewritten by whoever wrote it."""
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        return database.edit_comment(comment_id, body=body.body, author_email=getattr(staff, "email", "") or "")
+    except CommentNotFound as exc:
+        raise _missing(exc, "comment") from exc
+    except NotTheAuthor as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Only the person who wrote a comment can change it."
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+
+
 @router.delete("/comments/{comment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def remove_comment(comment_id: str, request: Request, database: StudentDatabase = Depends(get_database)) -> None:
     staff = getattr(request.state, "staff_user", None)
