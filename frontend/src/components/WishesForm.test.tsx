@@ -346,7 +346,7 @@ describe("a teacher's week, marked block by block", () => {
   });
 });
 
-describe("the guided tour", () => {
+describe("the guided tour, for a teacher answering through their link", () => {
   // Each card's reading time is its own test, below: here the cards let the reader on at once.
   beforeEach(() => {
     window.localStorage.clear();
@@ -384,7 +384,7 @@ describe("the guided tour", () => {
   const gotIt = () => fireEvent.click(within(step("Take the tour again")).getByRole("button", { name: "Got it" }));
 
   it("is suggested the first time, and declined, says how to take it later while the form waits for it", () => {
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     const welcome = step("New here? Take the two-minute tour");
     expect(within(welcome).getAllByRole("listitem")).toHaveLength(3);
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
@@ -408,7 +408,7 @@ describe("the guided tour", () => {
 
   it("cannot be skipped, holds the form, and asks before it is ended", () => {
     const onCancel = vi.fn();
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} onCancel={onCancel} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} onCancel={onCancel} />);
     begin();
     const first = step("Mark a time");
     expect(within(first).queryByRole("button", { name: "Skip" })).toBeNull();
@@ -444,7 +444,7 @@ describe("the guided tour", () => {
     vi.useRealTimers();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     vi.setSystemTime(new Date(2026, 10, 10));
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     begin();
     // How to mark, shown.
     expect(document.querySelector("[data-tour-demo]")).not.toBeNull();
@@ -528,7 +528,7 @@ describe("the guided tour", () => {
     // Back from the limits: to the step about Next, on the calendar, and it stays there until Next is pressed again.
     fireEvent.click(within(step("Set limits")).getByRole("button", { name: "Back" }));
     expect(step("Go to the next page")).toBeTruthy();
-    expect(screen.getByRole("region", { name: "Their week" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Your week" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
     fireEvent.click(within(step("Set limits")).getByRole("button", { name: "Next" }));
 
@@ -550,7 +550,7 @@ describe("the guided tour", () => {
     vi.useRealTimers();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     vi.setSystemTime(new Date(2026, 10, 10));
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     begin();
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     next("Mark a time");
@@ -571,7 +571,7 @@ describe("the guided tour", () => {
     vi.useRealTimers();
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
     vi.setSystemTime(new Date(2026, 10, 10));
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     begin();
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     next("Mark a time");
@@ -595,7 +595,7 @@ describe("the guided tour", () => {
 
   it("once taken, starts only from its button, and ending it early clears what was tried", () => {
     window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
@@ -622,7 +622,7 @@ describe("the guided tour", () => {
     vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     vi.setSystemTime(new Date(2026, 10, 10));
     tourPace.scale = 1;
-    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(within(step("New here? Take the two-minute tour")).getByRole("button", { name: "Start the tour" }));
     const seconds = (title: string) => Number(/next step in (\d+) s/.exec(step(title).textContent ?? "")?.[1]);
     const next = (title: string) => within(step(title)).getByRole("button", { name: "Next" }) as HTMLButtonElement;
@@ -650,5 +650,31 @@ describe("the guided tour", () => {
     wait(opening * 1000);
     wait(2000);
     expect(seconds("Set the block")).toBeGreaterThan(opening + 4);
+  });
+});
+
+describe("the guided tour, for a coordinator answering for a teacher", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+    tourPace.scale = 0;
+  });
+  afterEach(() => {
+    tourPace.scale = 1;
+  });
+
+  it("is not asked for: no card suggesting it, Save and Submit open at once; Guided tour still starts it", () => {
+    // A browser that has never taken it, as a coordinator's often has not.
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
+    expect(screen.getByRole("dialog", { name: "Guided tour: How the tour works" })).toBeTruthy();
+    // Ended early: nothing pops up to say how to take it again, and nothing waits for it.
+    fireEvent.click(screen.getByRole("button", { name: "End the tour" }));
+    const sure = screen.getByRole("dialog", { name: "End the guided tour?" });
+    expect(sure.textContent).not.toContain("Save and Submit stay off");
+    fireEvent.click(within(sure).getByRole("button", { name: "End the tour" }));
+    expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
   });
 });
