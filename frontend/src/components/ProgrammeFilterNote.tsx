@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import type { ReactNode } from "react";
 
 import type { FilterModel } from "@/services/tableFilter";
 
@@ -29,12 +30,34 @@ function kept(filter: FilterModel): string {
  */
 export function ProgrammeFilterNote({ filter }: { filter: FilterModel }) {
   return (
-    <p role="status" className="mt-2 flex items-center gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+    <NoteBox className="mt-2">
+      {kept(filter)} <span className="font-semibold">Their hours are not filtered:</span> each total still counts all their
+      courses.
+    </NoteBox>
+  );
+}
+
+/**
+ * What a page narrowed to one programme is showing, said while it is: Teaching loads counts
+ * that programme's courses alone — the opposite of Teacher hours, which keeps each total
+ * whole — so a teacher's hours there are not their year.
+ */
+export function ProgrammeScopeNote({ programName }: { programName: string }) {
+  return (
+    <NoteBox>
+      Only courses in the {programName} program are counted.{" "}
+      <span className="font-semibold">Every figure is for those courses alone:</span> a teacher&rsquo;s hours in other programs are
+      left out, and what full-timers owe is hidden.
+    </NoteBox>
+  );
+}
+
+/** The amber line both notes are drawn in. */
+function NoteBox({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return (
+    <p role="status" className={`flex items-center gap-2 rounded-md border border-[#e8d9ac] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116] ${className}`}>
       <AlertTriangle size={16} className="shrink-0" aria-hidden="true" />
-      <span>
-        {kept(filter)} <span className="font-semibold">Their hours are not filtered:</span> each total still counts all their
-        courses.
-      </span>
+      <span>{children}</span>
     </p>
   );
 }

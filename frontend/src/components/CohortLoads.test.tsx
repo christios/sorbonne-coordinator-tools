@@ -147,6 +147,8 @@ describe("Teaching loads, by program and with the tabs one wants", () => {
 
     fireEvent.click(screen.getByRole("combobox", { name: "Program" }));
     fireEvent.click(screen.getByRole("option", { name: "Physics" }));
+    // The page says what it is showing: Physics courses alone, every figure.
+    expect(screen.getByRole("status").textContent).toContain("Only courses in the Physics program are counted.");
 
     // Only Mechanics' 28 hours, all a part-timer's.
     const split = screen.getByText("Who teaches the department’s Physics hours").closest("section") as HTMLElement;

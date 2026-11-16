@@ -2,6 +2,7 @@ import { Search, Settings2 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { InfoTip } from "@/components/InfoTip";
+import { ProgrammeScopeNote } from "@/components/ProgrammeFilterNote";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
@@ -348,6 +349,7 @@ export function CohortLoads({
         />
       ) : null}
       <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+      {programName ? <ProgrammeScopeNote programName={programName} /> : null}
 
       {!everyCohort.length ? (
         <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">

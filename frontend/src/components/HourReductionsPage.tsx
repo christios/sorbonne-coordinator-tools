@@ -287,9 +287,14 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
   // the heading and on every row. Never narrower than they add up to: a narrow screen
   // scrolls the list sideways instead.
   const widths = [...kinds.map((rule) => WIDTH[rule.kind] ?? "3.4rem"), "3rem", "3.2rem"];
-  const least = 12 + widths.reduce((sum, width) => sum + Number.parseFloat(width), 0) + widths.length * 0.25 + 2;
+  const least = 11 + widths.reduce((sum, width) => sum + Number.parseFloat(width), 0) + widths.length * 0.25 + 2;
   const columns = "gap-x-1 gap-y-1 px-4 items-center";
-  const grid = { gridTemplateColumns: `minmax(12rem,1fr) ${widths.join(" ")}`, minWidth: `${least}rem` };
+  // The teacher's column is as wide as a name needs and no wider; what is left goes to the
+  // figures, every kind's column growing alike.
+  const grid = {
+    gridTemplateColumns: `11rem ${widths.slice(0, -2).map((width) => `minmax(${width},1fr)`).join(" ")} ${widths.slice(-2).join(" ")}`,
+    minWidth: `${least}rem`,
+  };
   const change = (teacher: Teacher, items: Record<string, ReductionInput>) =>
     save.mutate({ teacherId: teacher.teacherId, name: teacher.name, items });
   const filterColumns = reductionColumns(year.rules);
@@ -521,14 +526,17 @@ function TeacherCell({
   const declared = teacher.items.filter((item) => item.state === "declared");
   return (
     // Stays in view when a narrow screen scrolls the list sideways.
-    <div className="sticky left-0 z-10 flex min-w-0 items-center gap-3 bg-white group-hover:bg-[#f4f7fb]">
-      <TeacherAvatar fullName={teacher.name} />
+    <div className="sticky left-0 z-10 flex min-w-0 items-center gap-2 bg-white group-hover:bg-[#f4f7fb]">
+      <TeacherAvatar fullName={teacher.name} size="tiny" />
       <span className="min-w-0">
-        <span className="flex min-w-0 items-center gap-1.5">
-          <span title={teacher.name} className="truncate font-semibold text-[#171717]">
-            {teacher.name}
-          </span>
-          {teacher.head ? <span className="shrink-0 rounded border border-[#1f4e79] px-1 text-[10px] font-semibold text-[#1f4e79]">HoD</span> : null}
+        {/* A long name wraps rather than losing its end: the column is kept narrow for the figures. */}
+        <span className="block break-words font-semibold leading-tight text-[#171717]">
+          {teacher.name}
+          {teacher.head ? (
+            <span className="ml-1.5 inline-block rounded border border-[#1f4e79] px-1 align-[1px] text-[10px] font-semibold leading-4 text-[#1f4e79]">
+              HoD
+            </span>
+          ) : null}
         </span>
         <span className="block truncate text-xs text-[#344054]" title={teacher.note || undefined}>
           {teacher.declaredAt ? `Declared ${dayWords(teacher.declaredAt)}` : <span className="italic text-[#475467]">Not declared yet</span>}
