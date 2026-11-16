@@ -67,6 +67,37 @@ describe("Part Time Sheets for the ticked teachers", () => {
   });
 });
 
+describe("a period whose record is our own sheet", () => {
+  it("leaves those sheets out of the download and says why", async () => {
+    vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([
+      approved("50", "t1", "2026-08-15", { hrSubmittedAt: "2026-11-17T08:00:00Z", ownRecord: true }),
+      approved("51", "t2", "2026-08-15"),
+    ]);
+    const download = vi.spyOn(teachers, "downloadPartTimeSheets").mockResolvedValue({ notPlaced: 0 });
+
+    show(["t1", "t2"]);
+    fireEvent.click(screen.getByRole("button", { name: /Part Time Sheets/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    expect(await within(dialog).findByText(/Our own sheet · not downloaded/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Download the sheet" }));
+    await waitFor(() => expect(download).toHaveBeenCalledWith(["51"]));
+  });
+
+  it("has nothing to download when every sheet of the period is covered by our own", async () => {
+    vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([
+      approved("50", "t1", "2026-08-15", { hrSubmittedAt: "2026-11-17T08:00:00Z", ownRecord: true }),
+    ]);
+
+    show(["t1"]);
+    fireEvent.click(screen.getByRole("button", { name: /Part Time Sheets/ }));
+    const dialog = await screen.findByRole("dialog");
+
+    await within(dialog).findByText(/Our own sheet/);
+    expect((within(dialog).getByRole("button", { name: /Download/ }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
 describe("a teacher whose period is paid at two rates", () => {
   it("counts their sheets, not their period, in what the zip will hold", async () => {
     vi.spyOn(teachers, "listEverySubmittedTimeSheet").mockResolvedValue([

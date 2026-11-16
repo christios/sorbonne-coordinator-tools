@@ -309,6 +309,86 @@ describe("the approved sheet in its pop-up", () => {
   });
 });
 
+describe("which sheet is a period's record", () => {
+  const ours = () => sheet({ id: "ts-own", label: "Part time sheet, October", periodStart: "2026-10-15", chosenOverApp: true });
+
+  it("shows both sheets, with our own as the record, and the app's not going to HR", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([ours()]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({ hrSubmittedAt: "2026-11-16T08:02:00Z", ownRecord: true }),
+    ]);
+
+    show();
+
+    expect(await screen.findByText("Submitted 1.5 h")).toBeTruthy();
+    const own = screen.getByRole("radio", { name: /Our own/ }) as HTMLInputElement;
+    expect(own.checked).toBe(true);
+    expect(screen.getByRole("link", { name: /Part time sheet, October/ }).getAttribute("href")).toBe(
+      "https://psuadacae.sharepoint.com/sheet.xlsx",
+    );
+    expect(screen.getByText("HR gets our own sheet")).toBeTruthy();
+    expect(screen.queryByText(/Sent to HR/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Submitted 1.5 h/ }));
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/Our own sheet is this period's record/)).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Mark as submitted to HR" })).toBeNull();
+  });
+
+  it("asks before giving the period back to the app's sheet, which may already be paid", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([ours()]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted({ ownRecord: true })]);
+    const choose = vi.spyOn(teachers, "chooseTimeSheetRecord").mockResolvedValue([]);
+
+    show();
+    fireEvent.click(await screen.findByRole("radio", { name: /The app.s sheet is the record/ }));
+
+    const dialog = await screen.findByRole("dialog");
+    expect(within(dialog).getByText(/pays the month twice/)).toBeTruthy();
+    expect(choose).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Use the app's sheet" }));
+    await waitFor(() => expect(choose).toHaveBeenCalledWith("pt-1", "2026-10-15", ""));
+  });
+
+  it("makes our own sheet the record in one click", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet({ id: "ts-own", label: "Part time sheet, October", periodStart: "2026-10-15", chosenOverApp: false })]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+    const choose = vi.spyOn(teachers, "chooseTimeSheetRecord").mockResolvedValue([]);
+
+    show();
+    fireEvent.click(await screen.findByRole("radio", { name: /Our own/ }));
+
+    await waitFor(() => expect(choose).toHaveBeenCalledWith("pt-1", "2026-10-15", "ts-own"));
+  });
+
+  it("offers our own sheet instead where only the app's is filed, and says what that does", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+    const create = vi.spyOn(teachers, "createTeacherTimeSheet").mockResolvedValue(ours() as never);
+
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Use our own sheet instead" }));
+
+    expect(await screen.findByText(/This workbook will be the record for 15 Oct – 14 Nov 2026/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/Link/), { target: { value: "https://psuadacae.sharepoint.com/own.xlsx" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add the link" }));
+    await waitFor(() =>
+      expect(create).toHaveBeenCalledWith(
+        "pt-1",
+        expect.objectContaining({ periodStart: "2026-10-15", chosenOverApp: true }),
+      ),
+    );
+  });
+
+  it("keeps a workbook as the row's sheet where the app has none for that period", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([ours()]);
+
+    show();
+
+    expect(await screen.findByRole("link", { name: /^Part time sheet, October/ })).toBeTruthy();
+    expect(screen.queryByRole("radio")).toBeNull();
+  });
+});
+
 describe("what each sheet is paid at", () => {
   it("says the rate, and why a sheet will go out with none", async () => {
     vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);

@@ -91,11 +91,17 @@ export type TeacherTimeSheet = {
    * said which period it is for, which is not the same as the sheet being overdue.
    */
   periodStart: string;
+  /**
+   * A coordinator chose this workbook as its period's record instead of the app's sheet:
+   * it is what HR gets, and the app's is left out of HR's downloads. Every workbook linked
+   * before the app took over starts chosen, because HR already has those.
+   */
+  chosenOverApp?: boolean;
   createdAt: string;
   updatedAt: string;
 };
 
-export type TimeSheetInput = { label: string; academicYear: string; url: string; periodStart: string };
+export type TimeSheetInput = { label: string; academicYear: string; url: string; periodStart: string; chosenOverApp?: boolean };
 
 /**
  * What a teacher's row shows, asked once for everybody rather than once per row.
@@ -163,6 +169,11 @@ export type SubmittedTimeSheet = {
   submittedOn?: string;
   /** When its "Submitted to HR" task was ticked; "" while it is open. */
   hrSubmittedAt?: string;
+  /**
+   * A coordinator chose their own workbook as this period's record: that is what HR gets,
+   * so this sheet is not sent and is left out of HR's downloads.
+   */
+  ownRecord?: boolean;
   /**
    * `kind` from October 2026; "" on a line from before, when the sheet never said.
    * `component` is the class's type when the app says it, and `sheet` which Part Time Sheet —
@@ -274,6 +285,20 @@ export async function listTeacherTimeSheets(teacherId: string): Promise<TeacherT
 export function createTeacherTimeSheet(teacherId: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export function updateTeacherTimeSheet(teacherId: string, id: string, input: TimeSheetInput): Promise<TeacherTimeSheet> { return request<TeacherTimeSheet>(`/teachers/${teacherId}/time-sheets/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }); }
 export async function deleteTeacherTimeSheet(teacherId: string, id: string): Promise<void> { await emptyRequest(`/teachers/${teacherId}/time-sheets/${id}`, { method: "DELETE" }); }
+
+/**
+ * Which sheet is a period's record, and so the one that goes to HR: one of the teacher's
+ * linked workbooks, or ("") the sheet approved in the Timesheets app.
+ */
+export async function chooseTimeSheetRecord(teacherId: string, periodStart: string, timeSheetId: string): Promise<TeacherTimeSheet[]> {
+  return (
+    await request<{ items: TeacherTimeSheet[] }>(`/teachers/${teacherId}/time-sheet-record`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ periodStart, timeSheetId }),
+    })
+  ).items;
+}
 /**
  * Several of one teacher's requisitions at once, as a zip of the same documents.
  *

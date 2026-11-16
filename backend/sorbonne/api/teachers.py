@@ -77,6 +77,15 @@ class TimeSheetRequest(BaseModel):
     url: str = Field(min_length=1, max_length=2000)
     #: The day the pay period starts, as a date. Empty where nobody has said.
     periodStart: str = Field(default="", max_length=10)
+    #: On adding: this workbook is the period's record instead of the app's sheet.
+    chosenOverApp: bool = False
+
+
+class RecordChoice(BaseModel):
+    """Which sheet is a period's record: one of the teacher's linked workbooks, or "" for the app's."""
+
+    periodStart: str = Field(min_length=10, max_length=10)
+    timeSheetId: str = Field(default="", max_length=64)
 
 
 class RequisitionExportRequest(BaseModel):
@@ -466,11 +475,30 @@ def create_teacher_time_sheet(
             academic_year=request.academicYear,
             url=request.url,
             period_start=request.periodStart,
+            chosen_over_app=request.chosenOverApp,
         )
     except TeacherNotFound as exc:
         raise HTTPException(status_code=404, detail="Teacher not found.") from exc
     except InvalidTimeSheetLink as exc:
         raise _bad_link() from exc
+    except InvalidPeriod as exc:
+        raise _bad_period() from exc
+
+
+@router.put("/{teacher_id}/time-sheet-record")
+def choose_time_sheet_record(
+    teacher_id: str, request: RecordChoice, store: TeacherStore = Depends(get_store)
+) -> dict[str, list[dict[str, Any]]]:
+    """Which of a period's sheets goes to HR: a workbook linked here, or the app's.
+
+    Only one may, or the month is paid twice. The other stays on the record for reference.
+    """
+    try:
+        return {"items": store.choose_record(teacher_id, request.periodStart, request.timeSheetId)}
+    except TeacherNotFound as exc:
+        raise HTTPException(status_code=404, detail="Teacher not found.") from exc
+    except TimeSheetNotFound as exc:
+        raise HTTPException(status_code=404, detail="That workbook is not linked for this period.") from exc
     except InvalidPeriod as exc:
         raise _bad_period() from exc
 

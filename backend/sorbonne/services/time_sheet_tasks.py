@@ -69,6 +69,17 @@ HR_DESCRIPTION = (
     "The download on the Time sheets tab and on the teachers list can tick a batch at once."
 )
 
+#: What a "Submitted to HR" task says while a coordinator's own workbook is the period's record.
+OWN_MARK = "our own sheet is this period's record"
+OWN_DESCRIPTION = (
+    "Nothing to send from the app: " + OWN_MARK + " (“{workbook}”, linked on the teacher's record), "
+    "and that is what HR gets."
+)
+SWITCHED_DESCRIPTION = (
+    "The app's sheet is this period's record again, chosen on {day}. If HR already has the period's "
+    "own sheet, sending this one too pays the month twice. " + HR_DESCRIPTION
+)
+
 
 def academic_year_of(today: date) -> str:
     """"2026-2027" — the year August starts, not the one January is in."""
@@ -134,7 +145,7 @@ class TimeSheetTasks:
         now = datetime.now(UTC).isoformat()
         made = closed = 0
         with self.engine.begin() as connection:
-            to_hr = _catch_up_hr(connection, now)
+            to_hr = file_hr_tasks(connection, now)
             contracted = [
                 str(row[0])
                 for row in connection.execute(
@@ -193,7 +204,7 @@ class TimeSheetTasks:
         day = now[:10]
         marked = 0
         with self.engine.begin() as connection:
-            _catch_up_hr(connection, now)
+            file_hr_tasks(connection, now)
             for row in connection.execute(
                 text("SELECT teacher_id, period_start FROM pushed_time_sheets WHERE period_id = ANY(:ids)"),
                 {"ids": list(period_ids)},
@@ -215,8 +226,17 @@ class TimeSheetTasks:
         return marked
 
 
-def _catch_up_hr(connection: Any, now: str) -> int:
-    """One "Submitted to HR" task per approved sheet, made the first time it is seen."""
+def file_hr_tasks(connection: Any, now: str) -> int:
+    """One "Submitted to HR" task per approved sheet, made the first time it is seen.
+
+    Run when a sheet arrives as well as when the tasks are read, so that a sheet is never
+    listed without its answer to "has this gone to HR" — the download lists one with no task
+    as not sent.
+
+    A sheet for a period where a coordinator chose their own workbook as the record (every
+    workbook linked before the app took over starts that way: HR has those) is filed as
+    nothing to send. Sending the app's as well is how a month gets paid twice.
+    """
     held = {
         str(row[0])
         for row in connection.execute(
@@ -225,9 +245,16 @@ def _catch_up_hr(connection: Any, now: str) -> int:
         )
     }
     waived = {str(row[0]) for row in connection.execute(text("SELECT task_id FROM waived_time_sheet_tasks"))}
+    own = {
+        (str(row[0]), str(row[1])): str(row[2])
+        for row in connection.execute(
+            text("""SELECT teacher_id, period_start, MIN(label) FROM teacher_time_sheets
+                    WHERE chosen_over_app AND period_start <> '' GROUP BY teacher_id, period_start""")
+        )
+    }
     made = 0
     for teacher_id, period_start in connection.execute(
-        text("SELECT teacher_id, period_start FROM pushed_time_sheets ORDER BY period_start, teacher_id")
+        text("SELECT DISTINCT teacher_id, period_start FROM pushed_time_sheets ORDER BY period_start, teacher_id")
     ).all():
         task_id = hr_task_id_for(str(teacher_id), str(period_start))
         if task_id in held or task_id in waived:
@@ -236,32 +263,61 @@ def _catch_up_hr(connection: Any, now: str) -> int:
             title = f"Submitted to HR: {period_label(date.fromisoformat(str(period_start)))}"
         except ValueError:
             title = f"Submitted to HR: {period_start}"
+        workbook = own.get((str(teacher_id), str(period_start)))
+        already = workbook is not None
         connection.execute(
             text("""INSERT INTO tasks (
                         id, resource_type, resource_id, template_item_id, title, description, due_date,
                         status, completed_at, revision, created_at, updated_at
                     ) VALUES (
                         :id, :kind, :teacher_id, NULL, :title, :description, NULL,
-                        'NOT_STARTED', NULL, 1, :now, :now
+                        :status, :completed_at, 1, :now, :now
                     )"""),
             {
                 "id": task_id,
                 "kind": TASK_RESOURCE_TYPE,
                 "teacher_id": str(teacher_id),
                 "title": title,
-                "description": HR_DESCRIPTION,
+                "description": OWN_DESCRIPTION.format(workbook=workbook) if already else HR_DESCRIPTION,
+                "status": "COMPLETED" if already else "NOT_STARTED",
+                "completed_at": now if already else None,
                 "now": now,
             },
         )
+        if already:
+            _activity(connection, task_id, "COMPLETED", now)
+        held.add(task_id)
         made += 1
     return made
 
 
 def reopen_hr_task(connection: Any, teacher_id: str, period_start: str, *, approved_on: str = "") -> bool:
-    """A corrected version was approved: what HR holds is the old one, so the task is open again."""
+    """A corrected version was approved: what HR holds is the old one, so the task is open again.
+
+    Except for a period whose record is a coordinator's own workbook: that is what HR gets,
+    not any version of the app's sheet, so sending the correction would pay the month twice.
+    The task stays done and says a correction came, for whoever settles the difference.
+    """
     now = datetime.now(UTC).isoformat()
     task_id = hr_task_id_for(teacher_id, period_start)
     when = f" on {approved_on[:10]}" if approved_on else ""
+    own = connection.execute(
+        text("""SELECT MIN(label) FROM teacher_time_sheets
+                WHERE teacher_id = :t AND period_start = :p AND chosen_over_app"""),
+        {"t": teacher_id, "p": period_start},
+    ).scalar()
+    if own is not None:
+        connection.execute(
+            text("""UPDATE tasks SET description = :description, revision = revision + 1, updated_at = :now
+                     WHERE id = :id"""),
+            {
+                "id": task_id,
+                "now": now,
+                "description": f"A corrected version was approved{when}; compare it with our own sheet before "
+                "sending anything. " + OWN_DESCRIPTION.format(workbook=own),
+            },
+        )
+        return False
     reopened = connection.execute(
         text("""UPDATE tasks SET status = 'NOT_STARTED', completed_at = NULL,
                      description = :description, revision = revision + 1, updated_at = :now
@@ -276,6 +332,40 @@ def reopen_hr_task(connection: Any, teacher_id: str, period_start: str, *, appro
     if reopened.rowcount:
         _activity(connection, task_id, "REOPENED", now)
     return bool(reopened.rowcount)
+
+
+def follow_the_record(connection: Any, teacher_id: str, period_start: str, workbook: str | None) -> None:
+    """The period's "Submitted to HR" task, brought in line with which sheet is its record.
+
+    `workbook` is the label of the coordinator's own sheet that is the record, or None for the
+    app's. A period with no app sheet has no such task yet; it is made right when one arrives.
+    A task ticked because the app's sheet really went to HR is left alone either way: that is
+    a fact about HR, not a choice.
+    """
+    now = datetime.now(UTC).isoformat()
+    task_id = hr_task_id_for(teacher_id, period_start)
+    held = connection.execute(text("SELECT status, description FROM tasks WHERE id = :id"), {"id": task_id}).first()
+    if held is None:
+        return
+    status, description = str(held[0]), str(held[1] or "")
+    ours = OWN_MARK in description
+    if workbook is not None and (status != "COMPLETED" or ours):
+        connection.execute(
+            text("""UPDATE tasks SET status = 'COMPLETED', completed_at = COALESCE(completed_at, :now),
+                         description = :description, revision = revision + 1, updated_at = :now
+                     WHERE id = :id"""),
+            {"id": task_id, "now": now, "description": OWN_DESCRIPTION.format(workbook=workbook)},
+        )
+        if status != "COMPLETED":
+            _activity(connection, task_id, "COMPLETED", now)
+    elif workbook is None and status == "COMPLETED" and ours:
+        connection.execute(
+            text("""UPDATE tasks SET status = 'NOT_STARTED', completed_at = NULL,
+                         description = :description, revision = revision + 1, updated_at = :now
+                     WHERE id = :id"""),
+            {"id": task_id, "now": now, "description": SWITCHED_DESCRIPTION.format(day=now[:10])},
+        )
+        _activity(connection, task_id, "REOPENED", now)
 
 
 def _activity(connection: Any, task_id: str, kind: str, now: str) -> None:

@@ -293,8 +293,13 @@ function PartTimeSheets({
     .filter((sheet) => sheet.periodStart === period)
     .sort((left, right) => nameOf(left.teacherId).localeCompare(nameOf(right.teacherId)));
   const without = chosen.filter((id) => !sheets.some((sheet) => sheet.teacherId === id));
+  /*
+   * Left out of the download: a sheet of a period whose record a coordinator made their own
+   * workbook. That is what HR gets; sending this one too is how a month is paid twice.
+   */
+  const toSend = sheets.filter((sheet) => !sheet.ownRecord);
   // Files, not periods: a teacher who gave lectures and tutorials is a sheet at each rate.
-  const files = sheets.reduce((sum, sheet) => sum + Math.max(1, sheet.partTimeSheets?.length ?? 1), 0);
+  const files = toSend.reduce((sum, sheet) => sum + Math.max(1, sheet.partTimeSheets?.length ?? 1), 0);
   // What the last download held, so the offer to mark them is about exactly those.
   const [made, setMade] = useState<{ ids: string[]; notPlaced: number } | null>(null);
   const download = useMutation({
@@ -350,8 +355,8 @@ function PartTimeSheets({
           ) : null}
           <button
             type="button"
-            disabled={!sheets.length || download.isPending}
-            onClick={() => download.mutate(sheets.map((sheet) => sheet.periodId))}
+            disabled={!toSend.length || download.isPending}
+            onClick={() => download.mutate(toSend.map((sheet) => sheet.periodId))}
             className="inline-flex items-center gap-1.5 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
           >
             <Download size={14} aria-hidden="true" />
@@ -405,7 +410,14 @@ function PartTimeSheets({
                       {[sheet.approvedBy, sheet.approvedOn ? localDay(sheet.approvedOn) : ""].filter(Boolean).join(", ") || "—"}
                     </td>
                     <td className="px-3 py-2">
-                      {sheet.hrSubmittedAt ? (
+                      {sheet.ownRecord ? (
+                        <span
+                          title="Our own sheet, linked on the teacher's record, is this period's record and is what HR gets. This one is left out of the download."
+                          className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f6b47]"
+                        >
+                          <CheckCircle2 size={13} aria-hidden="true" /> Our own sheet · not downloaded
+                        </span>
+                      ) : sheet.hrSubmittedAt ? (
                         <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f6b47]">
                           <CheckCircle2 size={13} aria-hidden="true" /> Sent {localDay(sheet.hrSubmittedAt)}
                         </span>

@@ -179,6 +179,37 @@ def test_a_time_sheet_carries_the_period_it_covers(client: TestClient, store: Te
     assert [row["label"] for row in held] == ["Part time sheet", "Undated"]
 
 
+def test_a_period_is_given_its_record_and_given_it_back(client: TestClient, store: TeacherStore):
+    """Which sheet goes to HR for a period: a workbook linked here, or the app's ("")."""
+    teacher = a_teacher(store)
+    own = client.post(
+        f"{BASE}/{teacher['id']}/time-sheets",
+        json={
+            "label": "Our own",
+            "academicYear": "2026-2027",
+            "url": "https://example.org/own",
+            "periodStart": "2026-08-15",
+            "chosenOverApp": True,
+        },
+    ).json()
+    assert own["chosenOverApp"] is True
+
+    back = client.put(f"{BASE}/{teacher['id']}/time-sheet-record", json={"periodStart": "2026-08-15"})
+    assert back.status_code == status.HTTP_200_OK, back.text
+    assert [row["chosenOverApp"] for row in back.json()["items"]] == [False]
+
+    again = client.put(
+        f"{BASE}/{teacher['id']}/time-sheet-record", json={"periodStart": "2026-08-15", "timeSheetId": own["id"]}
+    )
+    assert [row["chosenOverApp"] for row in again.json()["items"]] == [True]
+
+    # Another period's, or another teacher's, workbook is not this period's to choose.
+    wrong = client.put(
+        f"{BASE}/{teacher['id']}/time-sheet-record", json={"periodStart": "2026-09-15", "timeSheetId": own["id"]}
+    )
+    assert wrong.status_code == status.HTTP_404_NOT_FOUND
+
+
 def test_several_teachers_requisitions_come_back_in_a_folder_each(client: TestClient, store: TeacherStore):
     """A payroll run of a dozen people unpacked into one directory is a wall of files."""
     first = a_teacher(store)

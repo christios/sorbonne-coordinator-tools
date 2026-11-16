@@ -39,6 +39,7 @@ import {
   type PartTimeSheetType,
   type SubmittedTimeSheet,
   type TeacherTimeSheet,
+  chooseTimeSheetRecord,
   createTeacherTimeSheet,
   deleteTeacherTimeSheet,
   downloadPartTimeSheets,
@@ -61,7 +62,8 @@ import {
 } from "@/services/payPeriods";
 import { isWebLink, linkHost } from "@/services/timeSheetLinks";
 
-type Draft = { label: string; academicYear: string; url: string; periodStart: string };
+/** `chosenOverApp` when the workbook being added is to be its period's record instead of the app's sheet. */
+type Draft = { label: string; academicYear: string; url: string; periodStart: string; chosenOverApp?: boolean };
 
 /** The columns of a period's row, as Requisitions lays out a requisition's. */
 const SHEET_GRID =
@@ -106,6 +108,8 @@ export function TimeSheetsCard({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pendingDeletion, setPendingDeletion] = useState<TeacherTimeSheet | null>(null);
+  /** A period being given back to the app's sheet, asked about first: it may already be paid. */
+  const [pendingSwitchBack, setPendingSwitchBack] = useState<string | null>(null);
 
   /*
    * What the teacher actually taught, so a period can be read beside the sheet claiming
@@ -176,6 +180,8 @@ export function TimeSheetsCard({
 
   const refresh = () => {
     void client.invalidateQueries({ queryKey: ["teacher-time-sheets", teacherId] });
+    // Which sheet is a period's record is read off the app's sheets too: whether HR gets it.
+    void client.invalidateQueries({ queryKey: ["submitted-time-sheets"] });
     // The period's task closes itself once a sheet claims the period, so the list of
     // tasks on this same profile is stale the moment one is filed.
     void client.invalidateQueries({ queryKey: ["tasks", "teacher"] });
@@ -196,6 +202,14 @@ export function TimeSheetsCard({
   });
   const remove = useMutation({
     mutationFn: (id: string) => deleteTeacherTimeSheet(teacherId, id),
+    onSuccess: () => void refresh(),
+  });
+  /*
+   * Which of a period's two sheets is its record — the one that goes to HR. Only one may, or
+   * the month is paid twice; the other stays on the row for reference.
+   */
+  const record = useMutation({
+    mutationFn: ({ start, id }: { start: string; id: string }) => chooseTimeSheetRecord(teacherId, start, id),
     onSuccess: () => void refresh(),
   });
 
@@ -239,9 +253,9 @@ export function TimeSheetsCard({
   const contracted = summary.data?.[teacherId]?.contractedHours ?? 0;
   const admin = summary.data?.[teacherId]?.adminHours ?? 0;
 
-  const fileFor = (start: string) => {
+  const fileFor = (start: string, chosenOverApp = false) => {
     setEditingId(null);
-    setDraft({ label: periodLabel(start), academicYear: "2026-2027", url: "", periodStart: start });
+    setDraft({ label: periodLabel(start), academicYear: "2026-2027", url: "", periodStart: start, chosenOverApp });
     save.reset();
   };
   const editSheet = (sheet: TeacherTimeSheet) => {
@@ -336,6 +350,12 @@ export function TimeSheetsCard({
             if (ready) save.mutate({ ...draft, url: draft.url.trim() });
           }}
         >
+          {draft.chosenOverApp ? (
+            <p className="rounded-md border border-[#d7e5f3] bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
+              This workbook will be the record for {periodLabel(draft.periodStart)}: it is what HR gets, and the sheet
+              approved in the Timesheets app is not sent.
+            </p>
+          ) : null}
           <div className="grid gap-3 sm:grid-cols-[1fr_9rem]">
             <Field
               label="Label"
@@ -465,7 +485,33 @@ export function TimeSheetsCard({
                   {period.covered ? ` · ${period.covered} covered for somebody` : ""}
                 </span>
                 <div className="min-w-0 max-sm:col-span-2 max-sm:row-start-2">
-                  {period.sheet ? (
+                  {/*
+                   * The app's sheet is the period's record wherever there is one. A workbook
+                   * linked by hand for the same period — the way sheets went to HR before the
+                   * app — stays one click away beneath it, as the old sheet.
+                   */}
+                  {period.submitted ? (
+                    <>
+                      <Submitted sheet={period.submitted} taught={asHours(period.minutes)} teacherId={teacherId} />
+                      {period.sheet ? (
+                        <RecordChoice
+                          period={periodLabel(period.start)}
+                          own={period.sheet}
+                          busy={record.isPending}
+                          onApp={() => setPendingSwitchBack(period.start)}
+                          onOwn={() => period.sheet && record.mutate({ start: period.start, id: period.sheet.id })}
+                        />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => fileFor(period.start, true)}
+                          className="mt-1 text-xs font-semibold text-[#1f4e79] hover:underline"
+                        >
+                          Use our own sheet instead
+                        </button>
+                      )}
+                    </>
+                  ) : period.sheet ? (
                     <a
                       href={period.sheet.url}
                       target="_blank"
@@ -477,8 +523,6 @@ export function TimeSheetsCard({
                       <span className="truncate">{period.sheet.label}</span>
                       <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
                     </a>
-                  ) : period.submitted ? (
-                    <Submitted sheet={period.submitted} taught={asHours(period.minutes)} teacherId={teacherId} />
                   ) : (
                     <span className="text-sm text-[#a6292f]">No sheet filed</span>
                   )}
@@ -574,9 +618,25 @@ export function TimeSheetsCard({
         * hesitate over whether this deletes the workbook in OneDrive.
         */}
       <ConfirmDialog
+        open={Boolean(pendingSwitchBack)}
+        title="Use the app's sheet instead?"
+        description={`For ${pendingSwitchBack ? periodLabel(pendingSwitchBack) : "this period"}, the sheet approved in the Timesheets app becomes the record and is listed as not sent to HR. If HR already has our own sheet for it, sending the app's too pays the month twice.`}
+        confirmLabel="Use the app's sheet"
+        onClose={() => setPendingSwitchBack(null)}
+        onConfirm={() => {
+          if (pendingSwitchBack) record.mutate({ start: pendingSwitchBack, id: "" });
+          setPendingSwitchBack(null);
+        }}
+      />
+      <ConfirmDialog
         open={Boolean(pendingDeletion)}
         title="Remove this link?"
-        description={`Remove the link to ${pendingDeletion?.label ?? "this time sheet"}? The workbook in OneDrive is untouched.`}
+        description={`Remove the link to ${pendingDeletion?.label ?? "this time sheet"}? The workbook in OneDrive is untouched.${
+          pendingDeletion?.chosenOverApp &&
+          (submitted.data ?? []).some((sheet) => sheet.periodStart === pendingDeletion.periodStart)
+            ? " It is this period's record, so the app's sheet becomes the record and is listed as not sent to HR."
+            : ""
+        }`}
         confirmLabel="Remove the link"
         onClose={() => setPendingDeletion(null)}
         onConfirm={() => {
@@ -668,8 +728,65 @@ function apartSaid(apart: number): string {
   return apart > 0 ? `${apart} h more than` : `${Math.abs(apart)} h less than`;
 }
 
+/**
+ * Which of a period's two sheets is its record: the one approved in the Timesheets app, or
+ * the coordinators' own workbook linked here. The record is the one that goes to HR.
+ */
+function RecordChoice({
+  period,
+  own,
+  busy,
+  onApp,
+  onOwn,
+}: {
+  period: string;
+  own: TeacherTimeSheet;
+  busy: boolean;
+  onApp: () => void;
+  onOwn: () => void;
+}) {
+  const ours = Boolean(own.chosenOverApp);
+  return (
+    <fieldset className="mt-1.5 grid gap-0.5 text-xs text-[#344054]" disabled={busy}>
+      <legend className="sr-only">Which sheet is the record for {period}</legend>
+      <label className="flex items-center gap-1.5">
+        <input type="radio" name={`record-${own.periodStart}`} checked={!ours} onChange={() => !ours || onApp()} />
+        The app&rsquo;s sheet is the record
+      </label>
+      <label className="flex min-w-0 items-center gap-1.5">
+        <input type="radio" name={`record-${own.periodStart}`} checked={ours} onChange={() => ours || onOwn()} />
+        <span className="shrink-0">Our own:</span>
+        <a
+          href={own.url}
+          target="_blank"
+          rel="noreferrer"
+          title={own.url}
+          className="flex min-w-0 items-center gap-1 font-semibold text-[#1f4e79] hover:underline"
+        >
+          <span className="truncate">{own.label}</span>
+          <ExternalLink size={11} className="shrink-0" aria-hidden="true" />
+        </a>
+      </label>
+    </fieldset>
+  );
+}
+
+/** Why the app's sheet of a period whose record is our own workbook does not go to HR. */
+const OWN_SAID =
+  "Our own sheet is this period's record: it is what HR gets, so this one is not sent. Sending both pays the month twice.";
+
 /** Whether the sheet has gone to HR: the "Submitted to HR" task, read off the sheet. */
 function HrMark({ sheet }: { sheet: SubmittedTimeSheet }) {
+  if (sheet.ownRecord) {
+    return (
+      <span
+        title={OWN_SAID}
+        className="whitespace-nowrap rounded bg-[#e8f5ee] px-1.5 py-0.5 text-xs font-semibold text-[#1f6b47]"
+      >
+        HR gets our own sheet
+      </span>
+    );
+  }
   return sheet.hrSubmittedAt ? (
     <span className="whitespace-nowrap rounded bg-[#e8f5ee] px-1.5 py-0.5 text-xs font-semibold text-[#1f6b47]">
       Sent to HR {dayLabel(localDay(sheet.hrSubmittedAt))}
@@ -755,7 +872,11 @@ function SubmittedSheet({
             <Download size={15} aria-hidden="true" />
             {download.isPending ? "Preparing…" : parts.length > 1 ? `Download ${parts.length} sheets (.zip)` : "Download Excel"}
           </button>
-          {sheet.hrSubmittedAt ? (
+          {sheet.ownRecord ? (
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f6b47]">
+              <CheckCircle2 size={15} aria-hidden="true" /> HR gets our own sheet
+            </span>
+          ) : sheet.hrSubmittedAt ? (
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#1f6b47]">
               <CheckCircle2 size={15} aria-hidden="true" /> Sent to HR {dayLabel(localDay(sheet.hrSubmittedAt))}
             </span>
@@ -773,6 +894,11 @@ function SubmittedSheet({
         </div>
       }
     >
+      {sheet.ownRecord ? (
+        <p className="mb-3 rounded-md border border-[#b9dfc9] bg-[#e8f5ee] px-3 py-2 text-sm text-[#1f6b47]">
+          {OWN_SAID}
+        </p>
+      ) : null}
       {parts.length > 1 ? (
         <p className="mb-3 rounded-md border border-[#d7e5f3] bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
           Paid at {parts.length} rates, so it goes to HR as {parts.length} Part Time Sheets:{" "}
