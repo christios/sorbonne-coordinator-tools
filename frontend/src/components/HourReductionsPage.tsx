@@ -1,8 +1,9 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, SlidersHorizontal } from "lucide-react";
+import { Check, Loader2, Plus, SlidersHorizontal } from "lucide-react";
 import { Popover } from "radix-ui";
-import { type FormEvent, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, type ReactNode, useRef, useState } from "react";
 
+import { Tip, TipDo, TipPoint } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
@@ -282,22 +283,54 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
             <>
               {/* Which kinds are the teacher's to declare and which the Head of Department's. */}
               <span />
-              <span style={{ gridColumn: `span ${research.length}` }} className="border-b border-[#98a2b3] pb-0.5 text-[#171717]">
-                Research, through SAFIR
-              </span>
-              <span style={{ gridColumn: `span ${department.length}` }} className="border-b border-[#98a2b3] pb-0.5 text-[#171717]">
-                Set by the Head of Department
-              </span>
+              <HeadTip
+                title="Research, through SAFIR"
+                tip={
+                  <>
+                    <TipDo>Check each figure with SAFIR, then tick it.</TipDo>
+                    <TipPoint tone="caution">The teacher declares these on the first step of their timetable preferences request.</TipPoint>
+                    <TipPoint tone="good">A ticked figure is validated; one the teacher changes afterwards waits to be checked again.</TipPoint>
+                  </>
+                }
+                style={{ gridColumn: `span ${research.length}` }}
+                className="border-b border-[#98a2b3] pb-0.5 text-[#171717]"
+              />
+              <HeadTip
+                title="Set by the Head of Department"
+                tip={
+                  <>
+                    <TipDo>Set these for each teacher.</TipDo>
+                    <TipPoint>The teacher reads them, without changing them, on their first step.</TipPoint>
+                  </>
+                }
+                style={{ gridColumn: `span ${department.length}` }}
+                className="border-b border-[#98a2b3] pb-0.5 text-[#171717]"
+              />
               <span />
               <span />
               <span>Teacher</span>
               {kinds.map((rule) => (
-                <span key={rule.kind} title={`${rule.label}: ${rule.rule}`} className="leading-tight">
+                <HeadTip key={rule.kind} title={rule.label} tip={<RuleTip rule={rule} canChange={year.canChange} />} className="leading-tight">
                   {SHORT[rule.kind] ?? rule.label}
-                </span>
+                </HeadTip>
               ))}
-              <span>Total</span>
-              <span>Owes</span>
+              <HeadTip
+                title="Total"
+                tip={<TipPoint>Every reduction the teacher has this year, in hours.</TipPoint>}
+              >
+                Total
+              </HeadTip>
+              <HeadTip
+                title="Teaching owed"
+                tip={
+                  <>
+                    <TipPoint>The year&rsquo;s service, {year.service} h, less the total. Never below 0 h.</TipPoint>
+                    <TipPoint>Teaching loads shows it beside each full-timer&rsquo;s planned hours.</TipPoint>
+                  </>
+                }
+              >
+                Owes
+              </HeadTip>
             </>
           }
         >
@@ -332,6 +365,57 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
 
       {rules ? <RulesDialog year={year} term={term} onClose={() => setRules(false)} /> : null}
     </div>
+  );
+}
+
+/**
+ * A heading that explains itself in the app's bubble on hover. The pointer stays the arrow:
+ * a heading is read, not typed into or pressed.
+ */
+function HeadTip({
+  title,
+  tip,
+  children,
+  className = "",
+  style,
+}: {
+  title: string;
+  tip: ReactNode;
+  children?: ReactNode;
+  className?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <Tip title={title} content={tip} side="bottom" wide={false}>
+      <span style={style} className={`cursor-default ${className}`}>
+        {children ?? title}
+      </span>
+    </Tip>
+  );
+}
+
+/** What a column takes, how its hours are worked out, and who gives it. */
+function RuleTip({ rule, canChange }: { rule: ReductionRule; canChange: boolean }) {
+  const enter =
+    rule.unit === "students"
+      ? "Click a cell and enter how many students. The hours are worked out."
+      : rule.unit === "hours"
+        ? "Click a cell and enter the hours."
+        : rule.unit === "yes"
+          ? "Click a cell and tick it if it applies this year."
+          : rule.unit === "committees"
+            ? "Click a cell and tick each committee the teacher sits on."
+            : "Click a cell and choose the one that applies.";
+  return (
+    <>
+      {canChange ? <TipDo>{enter}</TipDo> : null}
+      <TipPoint>{rule.rule}</TipPoint>
+      <TipPoint tone={rule.group === "safir" ? "caution" : "info"}>
+        {rule.group === "safir"
+          ? "Declared by the teacher, validated with SAFIR."
+          : "Set by the Head of Department; the teacher reads it."}
+      </TipPoint>
+    </>
   );
 }
 
@@ -380,7 +464,6 @@ function TeacherCell({
 function ReductionFigure({ teacher, item }: { teacher: Teacher; item: ReductionItem }) {
   return (
     <span
-      title={standing(item.state) || undefined}
       aria-label={`${item.label}, ${teacher.name}: ${figureWords(item)}`}
       className="flex min-w-0"
     >
@@ -403,6 +486,18 @@ function FigureFace({ item }: { item: ReductionItem }) {
       faint={!item.hours}
       tone={item.state === "declared" ? "text-[#8a6116]" : "text-[#171717]"}
     />
+  );
+}
+
+/**
+ * An empty cell that takes a figure: a dashed box with a plus, so it reads as somewhere to
+ * add one. A dash said "nothing here" and nothing about what to do.
+ */
+function AddMark() {
+  return (
+    <span className="inline-flex h-7 w-9 items-center justify-center rounded-md border border-dashed border-[#98a2b3] text-[#475467] transition-colors group-hover/figure:border-solid group-hover/figure:border-[#1f4e79] group-hover/figure:text-[#1f4e79]">
+      <Plus size={14} aria-hidden="true" />
+    </span>
   );
 }
 
@@ -541,12 +636,11 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
         <button
           type="button"
           aria-label={`${item.label}, ${teacher.name}: ${figureWords(item)}`}
-          title={standing(item.state) || "Click to change"}
-          className={`-mx-1 flex min-w-0 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[#eef4fa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d7e5f3] ${
+          className={`group/figure -mx-1 flex min-w-0 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[#eef4fa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d7e5f3] ${
             open ? "bg-[#eef4fa]" : ""
           }`}
         >
-          <FigureFace item={item} />
+          {item.hours ? <FigureFace item={item} /> : <AddMark />}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
