@@ -41,6 +41,8 @@ import {
   type TeacherTimeSheet,
   type TimeSheetClosure,
   chooseTimeSheetRecord,
+  claimedAdmin,
+  claimedTeaching,
   createTeacherTimeSheet,
   deleteTeacherTimeSheet,
   downloadPartTimeSheets,
@@ -712,7 +714,8 @@ function Field({
  */
 function Submitted({ sheet, taught, teacherId }: { sheet: SubmittedTimeSheet; taught: number; teacherId: string }) {
   const [open, setOpen] = useState(false);
-  const apart = Math.round((sheet.claimedHours - taught) * 100) / 100;
+  // Its teaching against the timetable: the admin it claims besides is never on it.
+  const apart = Math.round((claimedTeaching(sheet) - taught) * 100) / 100;
   // A column a quarter of the card wide holds the figure and the state, nothing more;
   // the sentence behind the figure is the pop-up's.
   return (
@@ -726,7 +729,7 @@ function Submitted({ sheet, taught, teacherId }: { sheet: SubmittedTimeSheet; ta
         Submitted {sheet.claimedHours} h
       </button>
       <span
-        title={apart ? `${apartSaid(apart)} the timetable has (${taught} h)` : "The same as the timetable has"}
+        title={`${againstTimetable(sheet, taught)}.`.replace(/^./, (first) => first.toUpperCase())}
         className={`whitespace-nowrap text-xs ${apart ? "text-[#8a6116]" : "text-[#667085]"}`}
       >
         {apart ? `${apart > 0 ? "+" : "−"}${Math.abs(apart)} h vs timetable` : "matches timetable"}
@@ -735,6 +738,18 @@ function Submitted({ sheet, taught, teacherId }: { sheet: SubmittedTimeSheet; ta
       <SubmittedSheet sheet={sheet} taught={taught} teacherId={teacherId} open={open} onClose={() => setOpen(false)} />
     </span>
   );
+}
+
+/**
+ * What a claim comes to beside the timetable, its teaching held against what met and its
+ * admin said apart: "16 h of teaching, matching the timetable, and 4 h of admin".
+ */
+function againstTimetable(sheet: SubmittedTimeSheet, taught: number): string {
+  const teaching = claimedTeaching(sheet);
+  const admin = claimedAdmin(sheet);
+  const apart = Math.round((teaching - taught) * 100) / 100;
+  const said = apart ? `${apartSaid(apart)} the timetable has (${taught} h)` : "matching the timetable";
+  return admin ? `${teaching} h of teaching, ${said}, and ${admin} h of admin, which the timetable never holds` : said;
 }
 
 /** "2.5 h more than", "45.5 h less than". */
@@ -880,9 +895,7 @@ function SubmittedSheet({
       onClose={onClose}
       title={`${sheet.staff.name || "Time sheet"} · ${periodLabel(sheet.periodStart) || sheet.periodLabel}`}
       description={[
-        `Submitted ${sheet.claimedHours} h — ${
-          sheet.claimedHours === taught ? "matching the timetable" : `${apartSaid(Math.round((sheet.claimedHours - taught) * 100) / 100)} the timetable has (${taught} h)`
-        }.`,
+        `Submitted ${sheet.claimedHours} h — ${againstTimetable(sheet, taught)}.`,
         sheet.approvedBy
           ? `Approved by ${sheet.approvedBy}${sheet.approvedOn ? ` on ${dayLabel(localDay(sheet.approvedOn))}` : ""}.`
           : "",

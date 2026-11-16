@@ -223,6 +223,27 @@ describe("a period the Part-Time Timesheets app has had approved", () => {
     expect(within(await screen.findByRole("dialog")).getByText(/2.5 h more than the timetable has \(1.5 h\)/)).toBeTruthy();
   });
 
+  it("holds the teaching against the timetable, and says the admin apart", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([
+      submitted({
+        claimedHours: 3.5,
+        days: [
+          { day: "Wed", date: "2026-10-21", from: "08:30", to: "10:00", hours: 1.5, details: "", kind: "teaching" },
+          { day: "Thu", date: "2026-10-22", from: "16:00", to: "18:00", hours: 2, details: "MATH-100 test", kind: "admin" },
+        ],
+      }),
+    ]);
+
+    show();
+
+    expect(await screen.findByText("matches timetable")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Submitted 3.5 h/ }));
+    expect(
+      within(await screen.findByRole("dialog")).getByText(/1.5 h of teaching, matching the timetable, and 2 h of admin/),
+    ).toBeTruthy();
+  });
+
   it("says so plainly when the two agree", async () => {
     vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
     vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);

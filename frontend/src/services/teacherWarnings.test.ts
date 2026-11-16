@@ -47,6 +47,15 @@ describe("ours against the registrar's", () => {
     expect(warningsFor(figures({ registrar: 192 }), 2)).toHaveLength(1);
     expect(warningsFor(figures({ registrar: 192 }), 5)).toHaveLength(0);
   });
+
+  it("holds the portal against the plan as the semester went, since the portal books cover and drops cancelled classes", () => {
+    // 45 h planned; two of their classes went to a colleague (-4 h) and they covered three (+6 h).
+    expect(warningsFor(figures({ planned: 45, asItWent: 47, registrar: 48 }))).toEqual([]);
+
+    const [warning] = warningsFor(figures({ planned: 45, asItWent: 47, registrar: 51 }));
+    expect(warning.label).toBe("Portal over 4 h");
+    expect(warning.sentence).toContain("our plan comes to 47 h once its cancelled and covered classes are counted (45 h as planned)");
+  });
 });
 
 describe("ours against their contract", () => {
@@ -80,6 +89,16 @@ describe("what was claimed against what met", () => {
 
   it("shows an under-claim too", () => {
     expect(warningsFor(figures({ claims: [claim({ claimed: 50 })] }))[0].label).toBe("Claim under 11 h");
+  });
+
+  it("holds only the teaching against the timetable, never the admin claimed besides it", () => {
+    // 16 h of classes to the hour, and two tests invigilated: nothing to answer.
+    expect(warningsFor(figures({ claims: [claim({ claimed: 16, admin: 4, taught: 16 })] }))).toEqual([]);
+
+    const [warning] = warningsFor(figures({ claims: [claim({ claimed: 16, admin: 4, taught: 18 })] }));
+    expect(warning.label).toBe("Claim under 2 h");
+    expect(warning.sentence).toContain("claimed 16 h of teaching");
+    expect(warning.sentence).toContain("4 h of admin");
   });
 
   it("judges each period on its own", () => {

@@ -31,7 +31,7 @@ import {
 } from "@/services/teacherLoad";
 import type { ActiveTeacher, FacilityHours, FacilitySection } from "@/services/portalLists";
 import type { RequestSheet } from "@/services/timetableExport";
-import type { SubmittedTimeSheet, TeacherSummary } from "@/services/teachers";
+import { claimedAdmin, claimedTeaching, type SubmittedTimeSheet, type TeacherSummary } from "@/services/teachers";
 import type { Dismissal } from "@/services/warningDismissals";
 import { DEFAULT_APART, warningsFor } from "@/services/teacherWarnings";
 
@@ -352,7 +352,9 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
       .map((sheet) => ({
         periodStart: sheet.periodStart,
         periodLabel: sheet.periodLabel || periodLabel(sheet.periodStart),
-        claimed: sheet.claimedHours,
+        // The teaching only: admin lines are paid but never on the timetable.
+        claimed: claimedTeaching(sheet),
+        admin: claimedAdmin(sheet),
         taught: hoursBetween(source, row, { from: sheet.periodStart, to: periodEnd(sheet.periodStart) }),
       }));
     /*
@@ -365,11 +367,20 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
     const planKey = row.teacherId || row.teacher.trim().toLowerCase();
     const plan = planOf.get(planKey);
     const taughtSoFar = hoursBetween(source, row, { from: "0000-01-01", to: today });
+    /*
+     * The plan as the semester went, for holding against the portal: the portal drops a
+     * cancelled class and names whoever covered one, so the plan as first written read a
+     * teacher who had covered three classes as "Portal over". Every note of the semester,
+     * not the window's, so the warning holds still whatever window is on screen.
+     */
+    const changed = adjustmentsFor(notes, { id: row.active?.id ?? row.teacherId, name: row.teacher }, new Set(row.crns), sameTeacher);
+    const asItWent = Math.round(((plan?.total ?? 0) - changed.cancelled - changed.coveredByOthers + changed.coveredForOthers) * 100) / 100;
     const warnings = warningsFor(
       {
         teacherKey: row.active?.id || row.teacherId || row.teacher,
         teacher: row.teacher,
         planned: plan?.total ?? 0,
+        asItWent,
         registrar: registrarHoursFor(booked, row.teacher, sameTeacher),
         // Teaching only: admin hours are paid, not taught, and have nothing to meet. The
         // semester's year's requisitions, as the column shows, not every year's.
