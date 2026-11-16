@@ -1,11 +1,13 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Loader2, SlidersHorizontal } from "lucide-react";
-import { useRef, useState, type ReactNode } from "react";
+import { Popover } from "radix-ui";
+import { type FormEvent, useRef, useState } from "react";
 
 import { Modal } from "@/components/Modal";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
+import { TeacherAvatar } from "@/components/TeacherDatabase";
 import {
   type ReductionInput,
   type ReductionItem,
@@ -35,37 +37,63 @@ const SHORT: Record<string, string> = {
   innovation: "Pedag. innov.",
 };
 
-/** An option as a table cell has room for it; the open list adds its hours. */
+/** Each column's width, so a figure's label has room under it and the list lines up. */
+const WIDTH: Record<string, string> = {
+  phd: "4rem",
+  masters: "4.2rem",
+  project: "3.4rem",
+  hdr: "2.8rem",
+  irg: "2.8rem",
+  internships: "4.8rem",
+  committees: "4.8rem",
+  hop: "4rem",
+  hod: "4rem",
+  new_joiner: "3.2rem",
+  accreditation: "3.2rem",
+  innovation: "3.2rem",
+};
+
+/** An option as the line under a figure has room for it; the editor gives it in full. */
 const SHORT_OPTION: Record<string, string> = {
   master: "Master's",
   bachelor: "Bachelor's",
-  foundation: "FY",
+  foundation: "Foundation",
   "foundation-200": "FY 200+",
   "foundation-500": "FY 500+",
   hod: "Up to 200",
-  "hod-200": "200+",
-  "hod-500": "500+",
+  "hod-200": "Over 200",
+  "hod-500": "Over 500",
 };
-
-/** What a column takes, under its head, so nobody types hours where students are counted. */
-function takes(rule: ReductionRule): string {
-  if (rule.unit === "students") return "students";
-  if (rule.unit === "hours") return "hours";
-  if (rule.unit === "yes") return `${rule.per ?? 0} h`;
-  if (rule.unit === "committees") return (rule.options ?? []).map((option) => option.label[0]).join(" · ");
-  return "";
-}
 
 type Teacher = ReductionYear["teachers"][number];
 /** One save: some of one teacher's kinds. */
 type Edit = { teacherId: string; name: string; items: Record<string, ReductionInput> };
+type Draft = { amount: number; detail: string; validated: boolean };
 
-// Each cell draws its own right and bottom edge, the frame the rest: with the table's borders
-// collapsed, a stuck header would leave its lines behind as it scrolls.
-const cell = "border-b border-r border-[#d0d5dd] px-1.5 py-1.5";
 const SAVE_KEY = ["hour-reductions", "save"];
 
 const hoursText = (value: number) => `${Number.isInteger(value) ? value : value.toFixed(1)} h`;
+const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
+
+/** What a kind's hours are made of, in the few words under its figure: "12 students", "Ethics". */
+function madeOf(item: Pick<ReductionItem, "unit" | "amount" | "detail" | "options">): string {
+  if (item.unit === "students") return item.amount ? plural(item.amount, "student") : "";
+  if (item.unit === "committees" || item.unit === "choice") {
+    return item.detail
+      .split(",")
+      .filter(Boolean)
+      .map((key) => SHORT_OPTION[key] ?? item.options?.find((option) => option.key === key)?.label ?? key)
+      .join(", ");
+  }
+  return "";
+}
+
+/** Where a figure stands, said in words for a screen reader and a pointer's hover. */
+function standing(state: ReductionState): string {
+  if (state === "declared") return "declared by the teacher, to validate with SAFIR";
+  if (state === "validated") return "validated with SAFIR";
+  return "";
+}
 
 /**
  * A teacher's year with some kinds changed, worked out as the server will: shown at once,
@@ -86,7 +114,7 @@ function applied(teacher: Teacher, items: Record<string, ReductionInput>): Teach
 }
 
 /** What a kind is given, keeping a research figure's validation as it stands unless said. */
-function input(item: ReductionItem, change: Partial<{ amount: number; detail: string; validated: boolean }>): ReductionInput {
+function input(item: ReductionItem, change: Partial<Draft>): ReductionInput {
   return {
     amount: change.amount ?? item.amount,
     detail: change.detail ?? item.detail,
@@ -94,16 +122,27 @@ function input(item: ReductionItem, change: Partial<{ amount: number; detail: st
   };
 }
 
+/** "16 Nov", as a row says when a teacher declared. */
+function dayWords(iso: string): string {
+  const day = new Date(iso);
+  return Number.isNaN(day.getTime()) ? iso.slice(0, 10) : day.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
+}
+
 /**
- * Hour reductions: every full-timer's year, as the department's table had it.
+ * Hour reductions: every full-timer's year, on the department's record list.
  *
- * A column per kind — research through SAFIR, then the department's own — the total, and the
- * teaching each still owes of the year's service. The Head of Department and the
- * administrators change the figures in the table itself, a cell at a time, and each change is
- * saved as they leave the cell: the department's table was a spreadsheet, and opening a
- * window per teacher to change one figure was not how anybody worked in it. A research
- * figure a teacher declared and nobody has checked with SAFIR yet is amber, with its tick
- * beside it. An administrator changes the rules' figures; everybody else reads.
+ * The list the Part-time Teachers page uses, one full-timer a row, with a column per kind
+ * as the department's table had them — research through SAFIR, then the department's own —
+ * the total, and the teaching each still owes of the year's service.
+ *
+ * Every figure is in hours, with what makes it under it: "6 h" over 12 STUDENTS. A count
+ * and its hours side by side, both bare, read as two numbers nobody could place. A research
+ * figure the teacher declared and nobody has checked with SAFIR yet is amber, marked "!".
+ *
+ * The Head of Department and the administrators change a figure where it stands: clicking
+ * it opens it in place, with the rule it is worked out by and, for research, the SAFIR
+ * tick. It is saved when it closes; Escape leaves it as it was. Nobody opens a teacher to
+ * change one figure. An administrator changes the rules' figures; everybody else reads.
  */
 export function HourReductionsPage({ header }: { header?: HTMLElement | null }) {
   const client = useQueryClient();
@@ -168,25 +207,37 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
   const year = held.data;
   const research = year.rules.filter((rule) => rule.group === "safir");
   const department = year.rules.filter((rule) => rule.group === "department");
+  const kinds = [...research, ...department];
   const waiting = year.teachers.reduce(
     (count, teacher) => count + teacher.items.filter((item) => item.state === "declared").length,
     0,
   );
+  // The teacher, a column per kind, the total and what is owed: fixed widths, the same on
+  // the heading and on every row. Never narrower than they add up to: a narrow screen
+  // scrolls the list sideways instead.
+  const widths = [...kinds.map((rule) => WIDTH[rule.kind] ?? "3.4rem"), "3rem", "3.4rem"];
+  const least = 13 + widths.reduce((sum, width) => sum + Number.parseFloat(width), 0) + widths.length * 0.375 + 2;
+  const columns = "gap-x-1.5 gap-y-1 px-4 items-center";
+  const grid = { gridTemplateColumns: `minmax(13rem,1fr) ${widths.join(" ")}`, minWidth: `${least}rem` };
   const change = (teacher: Teacher, items: Record<string, ReductionInput>) =>
     save.mutate({ teacherId: teacher.teacherId, name: teacher.name, items });
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {menu}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-[#344054]">
-          <b className="text-[#171717]">{yearWords(year.year)}</b> · yearly service {year.service} h ·{" "}
-          {year.teachers.length} full-time teacher{year.teachers.length === 1 ? "" : "s"}
-          {waiting ? <span className="text-[#7a5410]"> · {waiting} research figure{waiting === 1 ? "" : "s"} to validate</span> : null}
+      {problem ? (
+        <p role="alert" className="rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">
+          {problem}
         </p>
-        <div className="flex items-center gap-3">
+      ) : null}
+      <section className={RECORD_CARD}>
+        <RecordToolbar>
+          <p className="min-w-0 flex-1 text-sm text-[#344054]">
+            <b className="text-[#171717]">{yearWords(year.year)}</b> · yearly service {year.service} h
+            {waiting ? <span className="text-[#8a6116]"> · {plural(waiting, "research figure")} to validate</span> : null}
+          </p>
           {year.canChange ? (
-            <span role="status" className="inline-flex items-center gap-1.5 text-xs text-[#667085]">
+            <span role="status" className="inline-flex shrink-0 items-center gap-1.5 text-xs text-[#667085]">
               {saving ? (
                 <>
                   <Loader2 size={13} className="animate-spin" aria-hidden="true" /> Saving…
@@ -202,68 +253,69 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
             <button
               type="button"
               onClick={() => setRules(true)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#344054]"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-sm font-semibold text-[#344054]"
             >
               <SlidersHorizontal size={14} aria-hidden="true" /> Rules
             </button>
           ) : null}
-        </div>
-      </div>
-      {problem ? (
-        <p role="alert" className="rounded-md border border-[#f3c5c5] bg-[#fdf3f3] px-3 py-2 text-sm text-[#a6292f]">
-          {problem}
-        </p>
-      ) : null}
-
-      {year.teachers.length === 0 ? (
-        <p className="text-sm text-[#667085]">No full-time teacher teaches this year yet.</p>
-      ) : (
-        <div className="always-scrollbar max-h-[min(78vh,64rem)] overflow-auto overscroll-x-none rounded-lg border border-[#d0d5dd]">
-          <table className="w-full border-separate border-spacing-0 text-sm [&_tbody_tr:last-child_td]:border-b-0">
-            {/* Stuck to the top of the table's own scroll, so a column keeps its name down the list. */}
-            <thead className="sticky top-0 z-20 bg-[#f2f4f7] text-xs font-semibold text-[#344054]">
-              <tr>
-                <th rowSpan={2} className={`${cell} sticky left-0 z-10 bg-[#f2f4f7] text-left`}>Teacher</th>
-                <th colSpan={research.length} className={cell}>Research, through SAFIR</th>
-                <th colSpan={department.length} className={cell}>Set by the Head of Department</th>
-                <th rowSpan={2} className={cell}>Total</th>
-                <th rowSpan={2} className={`${cell} border-r-0`}>Teaching owed</th>
-              </tr>
-              <tr>
-                {[...research, ...department].map((rule) => (
-                  <th key={rule.kind} title={`${rule.label}: ${rule.rule}`} className={`${cell} leading-tight`}>
-                    {SHORT[rule.kind] ?? rule.label}
-                    {year.canChange && takes(rule) ? (
-                      <span className="block text-[10px] font-normal text-[#667085]">{takes(rule)}</span>
-                    ) : null}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {year.teachers.map((teacher, row) => (
-                <TeacherRow
-                  key={teacher.teacherId}
-                  teacher={teacher}
-                  row={row}
-                  canChange={year.canChange}
-                  onChange={(items) => change(teacher, items)}
-                />
+          <span className="shrink-0 text-xs tabular-nums text-[#98a2b3]">{year.teachers.length}</span>
+        </RecordToolbar>
+        <RecordList
+          label="Full-time teachers"
+          columns={columns}
+          grid={grid}
+          scrollX
+          isEmpty={!year.teachers.length}
+          empty="No full-time teacher teaches this year yet."
+          head={
+            <>
+              {/* Which kinds are the teacher's to declare and which the Head of Department's. */}
+              <span />
+              <span style={{ gridColumn: `span ${research.length}` }} className="border-b border-[#e5e7eb] pb-0.5 text-[#667085]">
+                Research, through SAFIR
+              </span>
+              <span style={{ gridColumn: `span ${department.length}` }} className="border-b border-[#e5e7eb] pb-0.5 text-[#667085]">
+                Set by the Head of Department
+              </span>
+              <span />
+              <span />
+              <span>Teacher</span>
+              {kinds.map((rule) => (
+                <span key={rule.kind} title={`${rule.label}: ${rule.rule}`} className="leading-tight">
+                  {SHORT[rule.kind] ?? rule.label}
+                </span>
               ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              <span>Total</span>
+              <span>Owes</span>
+            </>
+          }
+        >
+          {year.teachers.map((teacher) => (
+            <RecordRow key={teacher.teacherId} columns={columns} grid={grid}>
+              <TeacherCell teacher={teacher} canChange={year.canChange} onChange={(items) => change(teacher, items)} />
+              {teacher.items.map((item) =>
+                year.canChange ? (
+                  <FigureEditor
+                    key={item.kind}
+                    teacher={teacher}
+                    item={item}
+                    onChange={(draft) => change(teacher, { [item.kind]: input(item, draft) })}
+                  />
+                ) : (
+                  <ReductionFigure key={item.kind} teacher={teacher} item={item} />
+                ),
+              )}
+              <LabelledFigure value={hoursText(teacher.total)} faint={!teacher.total} />
+              <LabelledFigure value={hoursText(teacher.owed)} label={`of ${teacher.service}`} tone="text-[#1f4e79]" />
+            </RecordRow>
+          ))}
+        </RecordList>
+      </section>
       <p className="text-xs text-[#475467]">
-        <span className="rounded bg-[#fff8e6] px-1 font-semibold text-[#7a5410]">Amber</span> figures were declared by the
-        teacher and are still to be validated with SAFIR
-        {year.canChange ? (
-          <>
-            : tick ✓ beside one once SAFIR has confirmed it. Every change is saved as you leave the cell; Enter goes to the next teacher.
-          </>
-        ) : (
-          "."
-        )}{" "}
+        Every figure is in hours, with what it is made of under it.{" "}
+        <span className="font-semibold text-[#8a6116]">Amber, marked !</span>: declared by the teacher, still to validate with
+        SAFIR. <Check size={11} className="inline align-[-1px] text-[#2e7d55]" aria-hidden="true" /> validated.
+        {year.canChange ? " Click a figure to change it: it is saved when it closes, and Escape leaves it as it was." : ""}{" "}
         Full-time teachers declare theirs as the first step of the timetable preferences request.
       </p>
 
@@ -272,213 +324,258 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
   );
 }
 
-/** One full-timer's row: their name and where they stand, a cell per kind, and the sums. */
-function TeacherRow({
+/** Who, and where their year stands: declared or not, their note, and what is left to validate. */
+function TeacherCell({
   teacher,
-  row,
   canChange,
   onChange,
 }: {
   teacher: Teacher;
-  row: number;
   canChange: boolean;
   onChange: (items: Record<string, ReductionInput>) => void;
 }) {
   const declared = teacher.items.filter((item) => item.state === "declared");
   return (
-    <tr className="hover:bg-[#f8fafc]">
-      <td className={`${cell} sticky left-0 z-10 min-w-[10.5rem] bg-white text-left`}>
-        <span className="font-semibold text-[#171717]">{teacher.name}</span>
-        {teacher.head ? <span className="ml-1.5 rounded border border-[#1f4e79] px-1 text-[10px] font-semibold text-[#1f4e79]">HoD</span> : null}
-        {!teacher.fullTime ? <span className="ml-1.5 text-[11px] text-[#7a5410]">not full time now</span> : null}
-        <span className="block text-[11px] text-[#667085]">
-          {teacher.declaredAt ? `Declared ${teacher.declaredAt.slice(0, 10)}` : "Not declared yet"}
-        </span>
-        {teacher.note ? (
-          <span title={teacher.note} className="block max-w-[12rem] truncate text-[11px] italic text-[#475467]">
-            “{teacher.note}”
+    // Stays in view when a narrow screen scrolls the list sideways.
+    <div className="sticky left-0 z-10 flex min-w-0 items-center gap-3 bg-white group-hover:bg-[#fafbfd]">
+      <TeacherAvatar fullName={teacher.name} />
+      <span className="min-w-0">
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span title={teacher.name} className="truncate font-semibold text-[#171717]">
+            {teacher.name}
           </span>
-        ) : null}
-        {canChange && declared.length > 1 ? (
+          {teacher.head ? <span className="shrink-0 rounded border border-[#1f4e79] px-1 text-[10px] font-semibold text-[#1f4e79]">HoD</span> : null}
+        </span>
+        <span className="block truncate text-xs text-[#667085]" title={teacher.note || undefined}>
+          {teacher.declaredAt ? `Declared ${dayWords(teacher.declaredAt)}` : <span className="italic text-[#98a2b3]">Not declared yet</span>}
+          {teacher.note ? <span className="italic"> · “{teacher.note}”</span> : null}
+          {!teacher.fullTime ? <span className="text-[#8a6116]"> · not full time now</span> : null}
+        </span>
+        {canChange && declared.length ? (
           <button
             type="button"
             onClick={() => onChange(Object.fromEntries(declared.map((item) => [item.kind, input(item, { validated: true })])))}
-            className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-[#1f5c3d] underline-offset-2 hover:underline"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f5c3d] underline-offset-2 hover:underline"
           >
-            <Check size={11} aria-hidden="true" /> Validate all {declared.length}
+            <Check size={12} aria-hidden="true" /> Validate {declared.length === 1 ? "it" : `all ${declared.length}`} with SAFIR
           </button>
         ) : null}
-      </td>
-      {teacher.items.map((item) =>
-        canChange ? (
-          <EditCell key={item.kind} teacher={teacher} item={item} row={row} onChange={(change) => onChange({ [item.kind]: input(item, change) })} />
-        ) : (
-          <td
-            key={item.kind}
-            title={item.state === "declared" ? "Declared, to be validated with SAFIR" : undefined}
-            className={`${cell} text-center tabular-nums ${
-              item.state === "declared" ? "bg-[#fff8e6] font-semibold text-[#7a5410]" : item.hours ? "text-[#171717]" : "text-[#98a2b3]"
-            }`}
-          >
-            {item.hours || "·"}
-          </td>
-        ),
-      )}
-      <td className={`${cell} text-center font-semibold tabular-nums`}>{teacher.total}</td>
-      <td className={`${cell} border-r-0 text-center font-semibold tabular-nums`}>{teacher.owed}</td>
-    </tr>
+      </span>
+    </div>
   );
 }
 
-type Change = Partial<{ amount: number; detail: string; validated: boolean }>;
+/** A kind's hours, with what makes them under it, and where a research figure stands. */
+function ReductionFigure({ teacher, item }: { teacher: Teacher; item: ReductionItem }) {
+  return (
+    <span
+      title={standing(item.state) || undefined}
+      aria-label={`${item.label}, ${teacher.name}: ${figureWords(item)}`}
+      className="flex min-w-0"
+    >
+      <FigureFace item={item} />
+    </span>
+  );
+}
 
-/** One kind for one teacher, changed where it stands. */
-function EditCell({ teacher, item, row, onChange }: { teacher: Teacher; item: ReductionItem; row: number; onChange: (change: Change) => void }) {
-  const label = `${item.label}, ${teacher.name}`;
-  const declared = item.state === "declared";
-  const tone = declared ? "bg-[#fff8e6]" : "";
-  const under = (text: string) => <span className="block text-[11px] tabular-nums text-[#667085]">{text}</span>;
+/** The figure itself: its hours and their mark on the first line, what makes them under. */
+function FigureFace({ item }: { item: ReductionItem }) {
+  return (
+    <LabelledFigure
+      value={
+        <span className="inline-flex items-center gap-1">
+          {item.hours ? hoursText(item.hours) : "—"}
+          <StateMark state={item.state} />
+        </span>
+      }
+      label={madeOf(item)}
+      faint={!item.hours}
+      tone={item.state === "declared" ? "text-[#8a6116]" : "text-[#171717]"}
+    />
+  );
+}
 
-  let control: ReactNode;
+function figureWords(item: ReductionItem): string {
+  return [item.hours ? hoursText(item.hours) : "none", madeOf(item), standing(item.state)].filter(Boolean).join(", ");
+}
+
+function StateMark({ state }: { state: ReductionState }) {
+  if (state === "declared") {
+    return (
+      <span aria-hidden="true" className="inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full bg-[#f5c451] text-[9px] font-bold text-[#5c3d00]">
+        !
+      </span>
+    );
+  }
+  if (state === "validated") return <Check size={13} aria-hidden="true" className="shrink-0 text-[#2e7d55]" />;
+  return null;
+}
+
+/**
+ * A figure the Head of Department may change, opened where it stands: the count or the
+ * choice, what it comes to, the rule, and the SAFIR tick for research. Closing it saves —
+ * Done, Enter, or a click elsewhere, as leaving a cell does — and Escape or Cancel leaves it
+ * as it was.
+ */
+function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: ReductionItem; onChange: (draft: Draft) => void }) {
+  const fromItem = (): Draft => ({ amount: item.amount, detail: item.detail, validated: item.state === "validated" });
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState<Draft>(fromItem);
+  const keep = useRef(true);
+  const hours = hoursOf(item, draft.amount, draft.detail);
+
+  const openChange = (next: boolean) => {
+    if (next) {
+      setDraft(fromItem());
+      keep.current = true;
+      setOpen(true);
+      return;
+    }
+    const changed =
+      draft.amount !== item.amount ||
+      draft.detail !== item.detail ||
+      (item.group === "safir" && draft.validated !== (item.state === "validated"));
+    if (keep.current && changed) onChange(draft);
+    setOpen(false);
+  };
+  const cancel = () => {
+    keep.current = false;
+    openChange(false);
+  };
+  const done = (event: FormEvent) => {
+    event.preventDefault();
+    openChange(false);
+  };
+  const set = (change: Partial<Draft>) => setDraft((current) => ({ ...current, ...change }));
+  const number = (value: string) => Math.max(0, Number(value.replace(",", ".")) || 0);
+  const field = "h-8 w-20 rounded-md border border-[#b7bec8] bg-white px-2 text-sm tabular-nums text-[#171717] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
+
+  let control;
   if (item.unit === "students" || item.unit === "hours") {
-    control = <FigureInput item={item} label={label} row={row} onCommit={(amount) => onChange({ amount })} />;
+    control = (
+      <label className="flex items-center gap-2 text-sm text-[#344054]">
+        <input
+          type="number"
+          inputMode="decimal"
+          min={0}
+          step={item.unit === "students" ? 1 : 0.5}
+          aria-label={item.unit === "students" ? "Students" : "Hours"}
+          value={draft.amount || ""}
+          placeholder="0"
+          onChange={(event) => set({ amount: number(event.target.value) })}
+          className={field}
+        />
+        {item.unit === "students" ? (
+          <span>
+            students = <b className="tabular-nums text-[#171717]">{hoursText(hours)}</b>
+          </span>
+        ) : (
+          "h"
+        )}
+      </label>
+    );
   } else if (item.unit === "yes") {
     control = (
-      <input
-        type="checkbox"
-        aria-label={label}
-        checked={Boolean(item.amount)}
-        onChange={(event) => onChange({ amount: event.target.checked ? 1 : 0 })}
-        className="h-4 w-4 accent-[#1f4e79]"
-      />
+      <label className="flex items-center gap-2 text-sm text-[#344054]">
+        <input type="checkbox" checked={Boolean(draft.amount)} onChange={(event) => set({ amount: event.target.checked ? 1 : 0 })} />
+        Yes = <b className="tabular-nums text-[#171717]">{hoursText(item.per ?? 0)}</b>
+      </label>
     );
   } else if (item.unit === "committees") {
-    const chosen = item.detail.split(",").filter(Boolean);
+    const chosen = draft.detail.split(",").filter(Boolean);
     control = (
-      <span className="inline-flex gap-1">
-        {(item.options ?? []).map((option) => {
-          const on = chosen.includes(option.key);
-          return (
-            <button
-              key={option.key}
-              type="button"
-              aria-pressed={on}
-              aria-label={`${option.label} committee, ${teacher.name}`}
-              title={`${option.label} committee`}
-              onClick={() => {
-                const next = (item.options ?? []).map((entry) => entry.key).filter((key) => (key === option.key ? !on : chosen.includes(key)));
-                onChange({ detail: next.join(","), amount: next.length });
+      <div className="space-y-1.5">
+        {(item.options ?? []).map((option) => (
+          <label key={option.key} className="flex items-center gap-2 text-sm text-[#344054]">
+            <input
+              type="checkbox"
+              checked={chosen.includes(option.key)}
+              onChange={(event) => {
+                const next = (item.options ?? [])
+                  .map((entry) => entry.key)
+                  .filter((key) => (key === option.key ? event.target.checked : chosen.includes(key)));
+                set({ detail: next.join(","), amount: next.length });
               }}
-              className={`h-6 w-6 rounded border text-[11px] font-semibold ${
-                on ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#b7bec8] bg-white text-[#667085] hover:border-[#1f4e79]"
-              }`}
-            >
-              {option.label[0]}
-            </button>
-          );
-        })}
-      </span>
+            />
+            {option.label}
+          </label>
+        ))}
+        <p className="text-sm text-[#344054]">
+          = <b className="tabular-nums text-[#171717]">{hoursText(hours)}</b>
+        </p>
+      </div>
     );
   } else {
     control = (
-      <div className="w-[6.25rem]">
-        <SelectMenu
-          size="small"
-          label={label}
-          value={item.detail}
-          placeholder="None"
-          align="start"
-          onChange={(detail) => onChange({ detail, amount: detail ? 1 : 0 })}
-          options={[
-            { value: "", label: "None" },
-            ...(item.options ?? []).map((option) => ({
-              value: option.key,
-              label: SHORT_OPTION[option.key] ?? option.label,
-              detail: `${option.hours} h`,
-            })),
-          ]}
-        />
+      <div role="radiogroup" aria-label={item.label} className="space-y-1.5">
+        {[{ key: "", label: "None", hours: 0 }, ...(item.options ?? [])].map((option) => (
+          <label key={option.key || "none"} className="flex items-center gap-2 text-sm text-[#344054]">
+            <input
+              type="radio"
+              name={`${teacher.teacherId}-${item.kind}`}
+              checked={draft.detail === option.key}
+              onChange={() => set({ detail: option.key, amount: option.key ? 1 : 0 })}
+            />
+            <span className="min-w-0 flex-1">{option.label}</span>
+            {option.key ? <span className="tabular-nums text-[#667085]">{hoursText(option.hours)}</span> : null}
+          </label>
+        ))}
       </div>
     );
   }
 
   return (
-    <td title={declared ? "Declared by the teacher, to be validated with SAFIR" : undefined} className={`${cell} text-center align-middle ${tone}`}>
-      <span className="inline-flex items-center gap-1">
-        {control}
-        {item.group === "safir" && item.hours ? (
-          <button
-            type="button"
-            aria-pressed={item.state === "validated"}
-            aria-label={`${item.label} validated with SAFIR, ${teacher.name}`}
-            title={item.state === "validated" ? "Validated with SAFIR. Click to take it back." : "Click once SAFIR has confirmed it."}
-            onClick={() => onChange({ validated: item.state !== "validated" })}
-            className={`inline-flex h-5 w-5 items-center justify-center rounded border ${
-              item.state === "validated"
-                ? "border-[#2e7d55] bg-[#2e7d55] text-white"
-                : "border-[#d99b1c] bg-white text-[#d99b1c] hover:bg-[#fff1cc]"
-            }`}
-          >
-            <Check size={12} aria-hidden="true" />
-          </button>
-        ) : null}
-      </span>
-      {item.hours && item.unit !== "hours" ? under(hoursText(item.hours)) : null}
-    </td>
-  );
-}
-
-/**
- * A count or some hours, typed into the cell. It is saved when the cell is left — Tab, a
- * click elsewhere, or Enter, which goes on to the same column's next teacher, as in a
- * spreadsheet. Escape puts back what is saved.
- */
-function FigureInput({ item, label, row, onCommit }: { item: ReductionItem; label: string; row: number; onCommit: (amount: number) => void }) {
-  const [text, setText] = useState<string | null>(null);
-  // The same, read at once: leaving by Enter moves the focus before the state is drawn again.
-  const typed = useRef<string | null>(null);
-  const edit = (value: string | null) => {
-    typed.current = value;
-    setText(value);
-  };
-  const shown = text ?? (item.amount ? String(item.amount) : "");
-  const commit = () => {
-    const value = typed.current;
-    if (value === null) return;
-    edit(null);
-    const amount = Math.max(0, Number(value.trim().replace(",", ".")) || 0);
-    if (amount !== item.amount) onCommit(amount);
-  };
-  return (
-    <input
-      type="text"
-      inputMode="decimal"
-      aria-label={label}
-      data-reduction-kind={item.kind}
-      data-reduction-row={row}
-      value={shown}
-      placeholder="·"
-      onFocus={(event) => {
-        edit(shown);
-        event.target.select();
-      }}
-      onChange={(event) => edit(event.target.value)}
-      onBlur={commit}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          edit(null);
-        } else if (event.key === "Enter") {
-          event.preventDefault();
-          commit();
-          const next = document.querySelector<HTMLInputElement>(
-            `input[data-reduction-kind="${item.kind}"][data-reduction-row="${row + 1}"]`,
-          );
-          if (next) next.focus();
-          else event.currentTarget.blur();
-        }
-      }}
-      className="h-7 w-11 rounded-md border border-[#b7bec8] bg-white px-1.5 text-center text-sm tabular-nums text-[#171717] placeholder:text-[#98a2b3] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]"
-    />
+    <Popover.Root open={open} onOpenChange={openChange}>
+      <Popover.Trigger asChild>
+        <button
+          type="button"
+          aria-label={`${item.label}, ${teacher.name}: ${figureWords(item)}`}
+          title={standing(item.state) || "Click to change"}
+          className={`-mx-1 flex min-w-0 rounded-md px-1 py-0.5 text-left transition-colors hover:bg-[#eef4fa] focus:outline-none focus-visible:ring-2 focus-visible:ring-[#d7e5f3] ${
+            open ? "bg-[#eef4fa]" : ""
+          }`}
+        >
+          <FigureFace item={item} />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="bottom"
+          align="start"
+          sideOffset={6}
+          collisionPadding={12}
+          onEscapeKeyDown={() => {
+            keep.current = false;
+          }}
+          aria-label={`${item.label}, ${teacher.name}`}
+          className="z-[100] isolate w-72 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg outline-none"
+        >
+          <form onSubmit={done}>
+            <p className="text-sm font-semibold text-[#171717]">{item.label}</p>
+            <p className="text-xs text-[#667085]">{teacher.name}</p>
+            <div className="mt-3">{control}</div>
+            <p className="mt-2 text-xs text-[#475467]">{item.rule}</p>
+            {item.kind === "irg" && item.available !== undefined ? (
+              <p className="text-xs text-[#475467]">This year: {hoursText(item.available)} left of the project&rsquo;s hours.</p>
+            ) : null}
+            {item.group === "safir" && hours ? (
+              <label className="mt-3 flex items-center gap-2 rounded-md bg-[#f2f7f4] px-2 py-1.5 text-sm font-semibold text-[#1f5c3d]">
+                <input type="checkbox" checked={draft.validated} onChange={(event) => set({ validated: event.target.checked })} />
+                Validated with SAFIR
+              </label>
+            ) : null}
+            <div className="mt-3 flex justify-end gap-2">
+              <button type="button" onClick={cancel} className="rounded-md border border-[#b7bec8] px-3 py-1.5 text-sm font-semibold text-[#344054]">
+                Cancel
+              </button>
+              <button type="submit" className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white">
+                Done
+              </button>
+            </div>
+          </form>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
 

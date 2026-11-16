@@ -22,6 +22,7 @@ import {
 } from "@/components/AutoSaveStatus";
 import { AutoResizeTextarea } from "@/components/AutoResizeTextarea";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import {
   CountryCodeCombobox,
@@ -524,11 +525,11 @@ export function TeacherLibrary({
         id={panelId}
         role="tabpanel"
         aria-labelledby={`${tabId}-${libraryView}`}
-        className="flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white lg:overflow-hidden"
+        className={RECORD_CARD}
       >
         {libraryView === "teachers" ? (
           <>
-            <div className="group/toolbar flex shrink-0 items-center gap-3 border-b border-[#e5e7eb] px-4 py-2">
+            <RecordToolbar>
               {/*
                 * Choosing everybody the search has narrowed to, which is how a payroll
                 * run starts: filter to who you want, tick once, download.
@@ -566,35 +567,33 @@ export function TeacherLibrary({
               <span className="shrink-0 text-xs tabular-nums text-[#98a2b3]">
                 {visible.length === inView.length ? `${inView.length}` : `${visible.length} of ${inView.length}`}
               </span>
-            </div>
-            {isLoading ? (
-              <p className="grid min-h-60 flex-1 place-items-center p-8 text-center text-sm text-[#667085]">
-                Loading teachers…
-              </p>
-            ) : visible.length ? (
-              <div role="list" aria-label="Teachers" className="min-h-0 flex-1 lg:overflow-y-auto">
-                {/*
-                  * Columns that line up down the list, under a quiet heading: who, what
-                  * the requisitions pay for, their tasks, and what can be done.
-                  */}
-                <div aria-hidden="true" className={`${ROW_GRID} sticky top-0 z-10 hidden border-b border-[#e5e7eb] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3] sm:grid`}>
+            </RecordToolbar>
+            {/*
+              * Columns that line up down the list, under a quiet heading: who, what
+              * the requisitions pay for, their tasks, and what can be done.
+              */}
+            <RecordList
+              label="Teachers"
+              columns={ROW_GRID}
+              loading={isLoading}
+              loadingText="Loading teachers…"
+              isEmpty={!visible.length}
+              empty={`No ${showArchived ? "archived" : "active"} teachers found.`}
+              head={
+                <>
                   <span />
                   <span>Teacher</span>
                   <span>Requisitions</span>
                   <span>Tasks</span>
                   <span />
-                </div>
+                </>
+              }
+            >
                 {visible.map((teacher) => {
                   const theirTasks = tasksByTeacher.get(teacher.id) ?? [];
                   const folderPath = pathName(teacher.folderId);
                   return (
-                    <div
-                      key={teacher.id}
-                      role="listitem"
-                      className={`${ROW_GRID} group grid border-b border-[#eef1f5] py-2.5 transition-colors hover:bg-[#fafbfd] ${
-                        chosen.has(teacher.id) ? "bg-[#f5f9fd]" : ""
-                      }`}
-                    >
+                    <RecordRow key={teacher.id} columns={ROW_GRID} selected={chosen.has(teacher.id)}>
                       {/*
                         * Out of the way until it is wanted: it appears under the pointer,
                         * under the keyboard, and stays out once anything is ticked. Kept in
@@ -660,15 +659,10 @@ export function TeacherLibrary({
                           onChange={(folderId) => move.mutate({ id: teacher.id, folderId })}
                         />
                       </span>
-                    </div>
+                    </RecordRow>
                   );
                 })}
-              </div>
-            ) : (
-              <p className="grid min-h-60 flex-1 place-items-center p-12 text-center text-sm text-[#667085]">
-                No {showArchived ? "archived" : "active"} teachers found.
-              </p>
-            )}
+            </RecordList>
             <TeacherBulkActions
               chosen={picked}
               teachers={teachers}
