@@ -64,7 +64,7 @@ export function TeachingLoads({
   const academicYear = academicYearOfTerm(links.data?.[chosenTerm] ?? "");
   /*
    * Each full-timer's teaching owed this year, after their hour reductions, read from the
-   * semester's year — what Teachers → Hour reductions shows. Nobody's while it loads.
+   * semester's year — what Budget → Hour reductions shows. Nobody's while it loads.
    */
   const portalTerm = links.data?.[chosenTerm] ?? "";
   const reductions = useQuery({

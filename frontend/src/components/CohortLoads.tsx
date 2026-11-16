@@ -39,7 +39,7 @@ const DEPARTMENT = "department";
 
 /**
  * What each full-timer owes of the year's service once their hour reductions are taken off
- * (Teachers → Hour reductions), by their Active teachers row.
+ * (Budget → Hour reductions), by their Active teachers row.
  */
 export type TeachingOwed = Record<string, { owed: number; service: number; reductions: number }>;
 const NO_OWED: TeachingOwed = {};
@@ -482,7 +482,7 @@ function OwedTag({ planned, due }: { planned: number; due: TeachingOwed[string] 
   const said = gap < 0 ? `${hours(-gap)} short` : gap > 0 ? `${hours(gap)} over` : "as owed";
   return (
     <span
-      title={`Owes ${hours(due.owed)} h this year: ${hours(due.service)} h of service less ${hours(due.reductions)} h of hour reductions (Teachers → Hour reductions). ${hours(planned)} h are planned.`}
+      title={`Owes ${hours(due.owed)} h this year: ${hours(due.service)} h of service less ${hours(due.reductions)} h of hour reductions (Budget → Hour reductions). ${hours(planned)} h are planned.`}
       className="whitespace-nowrap text-xs tabular-nums text-[#475467]"
     >
       owes {hours(due.owed)}

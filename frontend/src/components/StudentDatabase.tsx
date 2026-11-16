@@ -67,8 +67,6 @@ const PAGES = [
   { id: "part-time-teachers", name: "Part-time Teachers", icon: Contact, group: "Portal validation", parent: "teachers" },
   // When each teacher can and can't teach, collected once a semester for the Semester plan.
   { id: "teacher-preferences", name: "Timetable preferences", icon: CalendarHeart, group: "Portal validation", parent: "teachers" },
-  // What each full-timer is let off teaching this year, and what they still owe of 192 h.
-  { id: "hour-reductions", name: "Hour reductions", icon: Hourglass, group: "Portal validation", parent: "teachers" },
   // Where a semester is made and managed; the pages under it pick one.
   { id: "semesters", name: "Semesters", icon: CalendarDays, group: "Timetables" },
   // The department's own timetable, drawn before the registrar books it: the source a
@@ -90,11 +88,18 @@ const PAGES = [
   // What every teacher is carrying: the workbook's Teacher Hours sheet, on a page. It
   // belongs to the request rather than to the teacher list, which is why it sits here.
   { id: "teacher-hours", name: "Teacher hours", icon: Clock3, group: "Timetables", parent: "groups" },
+  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
+  /*
+   * Budget: what the department's teaching costs and who owes it. The two pages were under
+   * Teachers and Groups & CRNs; they answer the same question for the same people — the
+   * Head of Department and the budget — so they sit together (16 November 2026).
+   */
+  // What each full-timer is let off teaching this year, and what they still owe of 192 h.
+  { id: "hour-reductions", name: "Hour reductions", icon: Hourglass, group: "Budget" },
   // The department's teaching-load workbook, cohort by cohort over the year: every course
   // and section, and how the hours split between full-timers, part-timers, visiting
-  // professors and PhDs — what the Head of Department and the budget ask about.
-  { id: "teaching-loads", name: "Teaching loads", icon: Scale, group: "Timetables", parent: "groups" },
-  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
+  // professors and PhDs.
+  { id: "teaching-loads", name: "Teaching loads", icon: Scale, group: "Budget" },
 ] as const;
 
 type PageId = (typeof PAGES)[number]["id"];

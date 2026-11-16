@@ -56,33 +56,91 @@ describe("Hour reductions, every full-timer's year", () => {
     vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(false));
     page();
 
-    const lama = (await screen.findByRole("button", { name: "Lama Tarsissi" })).closest("tr") as HTMLElement;
+    const lama = (await screen.findByText("Lama Tarsissi")).closest("tr") as HTMLElement;
     // PhD 10, HoD 42, total 52, owed 140.
-    expect(within(lama).getAllByRole("cell").map((cell) => cell.textContent)).toEqual(["Lama TarsissiHoD", "10", "42", "52", "140"]);
+    expect(within(lama).getAllByRole("cell").slice(1).map((cell) => cell.textContent)).toEqual(["10", "42", "52", "140"]);
     expect(within(lama).getByText("10").getAttribute("title")).toBe("Declared, to be validated with SAFIR");
+    // The teacher's note and when they declared, on the row itself.
+    expect(within(lama).getByText("“Two theses”")).toBeTruthy();
+    expect(within(lama).getByText("Declared 2026-11-16")).toBeTruthy();
     expect(screen.getByText(/1 research figure to validate/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Grace Younes" }).closest("tr") as HTMLElement).textContent).toContain("Not declared yet");
-    // Reading only: no rules to change.
+    expect((screen.getByText("Grace Younes").closest("tr") as HTMLElement).textContent).toContain("Not declared yet");
+    // Reading only: nothing to type into, no rules to change.
+    expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: /Rules/ })).toBeNull();
   });
+});
 
-  it("lets an administrator validate a research figure and set the department's own", async () => {
+describe("changing the figures in the table itself", () => {
+  it("validates a research figure with its tick, keeping its count", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({ amount: 2, hours: 10, state: "validated" }, { detail: "hod-200", amount: 1, hours: 42, state: "set" }));
+    page();
+
+    fireEvent.click(await screen.findByRole("button", { name: "PhD students validated with SAFIR, Lama Tarsissi" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("2026-2027", "t-lama", { phd: { amount: 2, detail: "", validated: true } }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "PhD students validated with SAFIR, Lama Tarsissi" }).getAttribute("aria-pressed")).toBe("true"),
+    );
+  });
+
+  it("sets the department's own from the cell's menu", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({ amount: 2, hours: 10, state: "declared" }, { detail: "hod", amount: 1, hours: 32, state: "set" }));
+    page();
+
+    fireEvent.click(await screen.findByRole("combobox", { name: "Head of department, Lama Tarsissi" }));
+    fireEvent.click(screen.getByRole("option", { name: /Up to 200/ }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("2026-2027", "t-lama", { hod: { amount: 1, detail: "hod" } }));
+  });
+
+  it("saves a count typed into a cell as it is left, and shows the sums at once", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    let answer: (sheet: ReturnType<typeof sheetOf>) => void = () => {};
+    const save = vi.spyOn(reductions, "saveDepartmentReductions").mockReturnValue(new Promise((resolve) => (answer = resolve)));
+    page();
+
+    const cell = await screen.findByRole("textbox", { name: "PhD students, Grace Younes" });
+    fireEvent.focus(cell);
+    fireEvent.change(cell, { target: { value: "3" } });
+    fireEvent.blur(cell);
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("2026-2027", "t-grace", { phd: { amount: 3, detail: "", validated: false } }));
+    // 3 students at 5 h each, before the server has answered.
+    const grace = screen.getByText("Grace Younes").closest("tr") as HTMLElement;
+    await waitFor(() => expect(within(grace).getAllByRole("cell").slice(-2).map((sum) => sum.textContent)).toEqual(["15", "177"]));
+    answer(sheetOf({ amount: 3, hours: 15, state: "declared" }, {}));
+    expect(await screen.findByText("Saved")).toBeTruthy();
+  });
+
+  it("goes on to the next teacher's cell on Enter, and puts a cell back on Escape", async () => {
     vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
     const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({}, {}));
     page();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Lama Tarsissi" }));
-    expect(await screen.findByText(/“Two theses”/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("checkbox", { name: "PhD students validated with SAFIR" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Head of department" }), { target: { value: "hod" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    const lama = await screen.findByRole("textbox", { name: "PhD students, Lama Tarsissi" });
+    lama.focus();
+    fireEvent.change(lama, { target: { value: "7" } });
+    fireEvent.keyDown(lama, { key: "Escape" });
+    expect((lama as HTMLInputElement).value).toBe("2");
+    fireEvent.keyDown(lama, { key: "Enter" });
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "PhD students, Grace Younes" }));
+    expect(save).not.toHaveBeenCalled();
+  });
 
-    await waitFor(() =>
-      expect(save).toHaveBeenCalledWith("2026-2027", "t-lama", {
-        phd: { amount: 2, detail: "", validated: true },
-        hod: { amount: 1, detail: "hod", validated: false },
-      }),
-    );
+  it("says what the server refused, and for whom", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    vi.spyOn(reductions, "saveDepartmentReductions").mockRejectedValue(new Error("PhD students: give a whole number of students."));
+    page();
+
+    const cell = await screen.findByRole("textbox", { name: "PhD students, Grace Younes" });
+    fireEvent.focus(cell);
+    fireEvent.change(cell, { target: { value: "1.5" } });
+    fireEvent.blur(cell);
+
+    expect((await screen.findByRole("alert")).textContent).toBe("Grace Younes: PhD students: give a whole number of students.");
   });
 });
 
@@ -98,7 +156,7 @@ describe("the hours a rule gives", () => {
     vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true, false));
     page();
 
-    expect(await screen.findByRole("button", { name: "Lama Tarsissi" })).toBeTruthy();
+    expect(await screen.findByRole("textbox", { name: "PhD students, Lama Tarsissi" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Rules/ })).toBeNull();
   });
 });
