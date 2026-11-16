@@ -285,6 +285,22 @@ def teacher_comment_counts(store: TeacherStore = Depends(get_store)) -> dict[str
     return {"counts": store.comment_counts()}
 
 
+@router.patch("/comments/{comment_id}")
+def edit_teacher_comment(
+    comment_id: str, body: CommentInput, request: Request, store: TeacherStore = Depends(get_store)
+) -> dict[str, Any]:
+    """A line rewritten by whoever wrote it, and nobody else."""
+    staff = getattr(request.state, "staff_user", None)
+    try:
+        return store.edit_comment(comment_id, body=body.body, author_email=getattr(staff, "email", "") or "")
+    except CommentNotFound as exc:
+        raise HTTPException(status_code=404, detail="That comment is not there any more.") from exc
+    except NotTheAuthor as exc:
+        raise HTTPException(status_code=403, detail="A comment can only be changed by whoever wrote it.") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.delete("/comments/{comment_id}", status_code=204)
 def delete_teacher_comment(comment_id: str, request: Request, store: TeacherStore = Depends(get_store)) -> Response:
     """A line is its author's to take back, and nobody else's."""

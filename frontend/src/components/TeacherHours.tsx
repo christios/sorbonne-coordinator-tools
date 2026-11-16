@@ -29,6 +29,7 @@ import { usePageState } from "@/components/usePageState";
 import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards, parentsOf, sectionsOf } from "@/services/courseCards";
+import { bucketLabel, staffStatusOf } from "@/services/cohortLoads";
 import { programmeName, programmeOf } from "@/services/coursePrograms";
 import {
   fetchActiveCourses,
@@ -350,7 +351,22 @@ export function TeacherHours({
     return held;
   }, [cards, chosenTerm]);
   const columns = useMemo(() => {
-    const base = hoursColumns(sheetTitles, chosenWindow.tag);
+    /*
+     * What each teacher is for the budget — FT, PhD/Pdoc, VP, PT — by the same rule
+     * Teaching loads splits its hours by: the department's word on the record, else the
+     * portal's type. Filterable like any column, so "the part-timers over forty hours" is
+     * two chips.
+     */
+    const teacherType: GridColumn<LoadRow> = {
+      id: "teacherType",
+      displayName: "Teacher type",
+      type: "option",
+      accessor: (row) => (row.teacher ? bucketLabel(staffStatusOf(row.active) || "UNSET") : bucketLabel("NOBODY")),
+      defaultWidth: 130,
+    };
+    const listed = hoursColumns(sheetTitles, chosenWindow.tag);
+    const after = listed.findIndex((column) => column.id === "standing") + 1;
+    const base = [...listed.slice(0, after), teacherType, ...listed.slice(after)];
     if (!coursePrograms.programmes.length) return base;
     const programmes: GridColumn<LoadRow> = {
       id: "programme",
@@ -366,7 +382,7 @@ export function TeacherHours({
       ],
       defaultWidth: 160,
     };
-    const at = base.findIndex((column) => column.id === "standing") + 1;
+    const at = base.findIndex((column) => column.id === "teacherType") + 1;
     return [...base.slice(0, at), programmes, ...base.slice(at)];
   }, [sheetTitles, chosenWindow.tag, coursePrograms, codeByCrn]);
   const shown = useMemo(() => shownHoursColumns(sheetTitles), [sheetTitles]);
@@ -523,6 +539,7 @@ export function TeacherHours({
                     studentId={id}
                     label={row.teacher}
                     count={count}
+                    thread={TEACHER_THREAD}
                     onOpen={() => setCommentingOn({ id, label: row.teacher })}
                     className={`inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[11px] tabular-nums hover:bg-[#f2f7fb] ${
                       count ? "text-[#1f4e79]" : "text-[#98a2b3] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"

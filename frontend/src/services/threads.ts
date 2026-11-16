@@ -2,7 +2,7 @@
  * How to reach one record's thread of comments.
  *
  * A thread is the same thing wherever it hangs — lines, signed and dated, one's own to
- * take back — so the component that draws one takes the three calls rather than growing a
+ * rewrite or take back — so the component that draws one takes its calls rather than growing a
  * second copy of itself for every kind of record.
  *
  * The calls are wrapped rather than handed over, so the binding is read when the call is
@@ -12,11 +12,13 @@
 
 import {
   deleteComment,
+  editComment,
   fetchComments,
   postComment,
 } from "@/services/studentComments";
 import {
   deleteTeacherComment,
+  editTeacherComment,
   listTeacherComments,
   postTeacherComment,
 } from "@/services/teachers";
@@ -33,6 +35,8 @@ export type ThreadLine = {
 export type Thread = {
   list: (subjectId: string) => Promise<ThreadLine[]>;
   post: (subjectId: string, body: string) => Promise<unknown>;
+  /** One's own line, rewritten. */
+  edit: (commentId: string, body: string) => Promise<unknown>;
   remove: (commentId: string) => Promise<unknown>;
   /** What the row's mark is read under, so the right count is refreshed after a line. */
   countsKey: string;
@@ -43,6 +47,7 @@ export type Thread = {
 export const STUDENT_THREAD: Thread = {
   list: (studentId) => fetchComments(studentId),
   post: (studentId, body) => postComment(studentId, body),
+  edit: (commentId, body) => editComment(commentId, body),
   remove: (commentId) => deleteComment(commentId),
   countsKey: "comment-summary",
   noun: "student",
@@ -51,6 +56,7 @@ export const STUDENT_THREAD: Thread = {
 export const TEACHER_THREAD: Thread = {
   list: (teacherId) => listTeacherComments(teacherId),
   post: (teacherId, body) => postTeacherComment(teacherId, body),
+  edit: (commentId, body) => editTeacherComment(commentId, body),
   remove: (commentId) => deleteTeacherComment(commentId),
   countsKey: "teacher-comment-counts",
   noun: "teacher",

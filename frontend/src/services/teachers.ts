@@ -249,6 +249,15 @@ export function postTeacherComment(teacherId: string, body: string): Promise<Tea
   });
 }
 
+/** A line rewritten by whoever wrote it; it keeps its date and signature. */
+export function editTeacherComment(commentId: string, body: string): Promise<TeacherComment> {
+  return request<TeacherComment>(`/teachers/comments/${commentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
 export async function deleteTeacherComment(commentId: string): Promise<void> {
   await emptyRequest(`/teachers/comments/${commentId}`, { method: "DELETE" });
 }

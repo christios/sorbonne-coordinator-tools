@@ -101,7 +101,10 @@ export function ProgrammesPanel({ canChange }: { canChange: boolean }) {
             />
           </label>
         </div>
-        <p className="mb-2 text-sm text-[#475467]">A course goes by its code until it is put somewhere here.</p>
+        <p className="mb-2 text-sm text-[#475467]">
+          A course goes by its code until it is put somewhere here. A mutualized course too: it counts in the budget of the
+          program its code says, whichever students take it.
+        </p>
         <div className="max-h-[min(60vh,36rem)] overflow-auto rounded-lg border border-[#d9dee7] bg-white">
           <table className="w-full border-separate border-spacing-0 text-sm">
             <thead>

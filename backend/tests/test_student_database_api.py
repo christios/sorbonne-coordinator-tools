@@ -1554,6 +1554,26 @@ def test_only_its_author_may_remove_a_comment(client: TestClient, monkeypatch: p
     assert client.get("/api/v1/student-database/students/A001/comments").json()["comments"] == []
 
 
+def test_only_its_author_may_rewrite_a_comment(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    made = client.post("/api/v1/student-database/students/A001/comments", json={"body": "mine"}).json()
+
+    rewritten = client.patch(f"/api/v1/student-database/comments/{made['id']}", json={"body": "mine, said better"})
+    assert rewritten.status_code == status.HTTP_200_OK
+    # Its date and signature stay; only what it says changes.
+    assert (rewritten.json()["body"], rewritten.json()["createdAt"]) == ("mine, said better", made["createdAt"])
+    assert client.patch(f"/api/v1/student-database/comments/{made['id']}", json={"body": "  "}).status_code == 422
+
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="colleague@sorbonne.ae", name="Colleague", is_admin=False),
+    )
+    refused = client.patch(f"/api/v1/student-database/comments/{made['id']}", json={"body": "theirs now"})
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    listed = client.get("/api/v1/student-database/students/A001/comments").json()["comments"]
+    assert [c["body"] for c in listed] == ["mine, said better"]
+
+
 def test_a_comment_is_signed_with_the_name_settings_gives_its_author(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ):

@@ -81,6 +81,15 @@ export function postComment(
   );
 }
 
+/** A line rewritten by whoever wrote it; it keeps its date and signature. */
+export function editComment(commentId: string, body: string): Promise<StudentComment> {
+  return request<StudentComment>(`${BASE}/comments/${encodeURIComponent(commentId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ body }),
+  });
+}
+
 export function deleteComment(commentId: string): Promise<void> {
   return request<void>(`${BASE}/comments/${encodeURIComponent(commentId)}`, {
     method: "DELETE",

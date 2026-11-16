@@ -3,7 +3,9 @@ import { MessageSquare } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { type StudentComment, fetchComments, writtenAt } from "@/services/studentComments";
+import { threadKey } from "@/components/CommentThread";
+import { writtenAt } from "@/services/studentComments";
+import { STUDENT_THREAD, type Thread, type ThreadLine } from "@/services/threads";
 
 /**
  * The comment icon on a roster row, and the thread under the pointer.
@@ -14,7 +16,12 @@ import { type StudentComment, fetchComments, writtenAt } from "@/services/studen
  * where it stands.
  *
  * Read-only on purpose. A panel that disappears when the pointer leaves is a bad place to
- * be typing, so adding a line stays behind the click, where the dialog holds still.
+ * be typing, so adding, editing or deleting a line stays behind the click, where the
+ * dialog holds still.
+ *
+ * Any record's thread, not only a student's: it reads the thread it is given — a teacher's
+ * on Teacher hours — from the same place the dialog does. It read every thread as a
+ * student's, so a teacher's comments showed nothing on hover (16 November 2026).
  */
 
 /** Long enough that sweeping the pointer down a table opens nothing. */
@@ -30,6 +37,7 @@ export function CommentPeek({
   count,
   onOpen,
   className,
+  thread = STUDENT_THREAD,
 }: {
   studentId: string;
   /** The student as a person reads them, for the labels. */
@@ -37,6 +45,8 @@ export function CommentPeek({
   count: number;
   onOpen: () => void;
   className?: string;
+  /** Whose thread: a student's unless said. */
+  thread?: Thread;
 }) {
   const [peeking, setPeeking] = useState(false);
   const [at, setAt] = useState<{ top: number; left: number } | null>(null);
@@ -45,8 +55,8 @@ export function CommentPeek({
   const closing = useRef<number>(0);
 
   const comments = useQuery({
-    queryKey: ["comments", studentId],
-    queryFn: () => fetchComments(studentId),
+    queryKey: threadKey(thread, studentId),
+    queryFn: () => thread.list(studentId),
     // Nothing to peek at on a student nobody has said anything about, and the same key the
     // dialog uses — so opening it after a hover draws from what the hover already read.
     enabled: peeking && count > 0,
@@ -104,7 +114,7 @@ export function CommentPeek({
         ref={anchor}
         type="button"
         aria-label={count ? `${count} comment${count === 1 ? "" : "s"} on ${label}` : `Comment on ${label}`}
-        title={count ? "Read the comments on this student, or add one" : "Add a comment on this student"}
+        title={count ? `Read the comments on this ${thread.noun}, or add one` : `Add a comment on this ${thread.noun}`}
         onClick={() => {
           stopTimers();
           setPeeking(false);
@@ -137,16 +147,16 @@ export function CommentPeek({
               className="fixed z-[120] max-h-80 overflow-auto rounded-md border border-[#d9dee7] bg-white p-3 shadow-lg"
             >
               {comments.isLoading ? (
-                <p className="text-sm text-[#98a2b3]">Reading…</p>
+                <p className="text-sm text-[#475467]">Reading…</p>
               ) : comments.error ? (
                 <p className="text-sm text-[#a6292f]">{(comments.error as Error).message}</p>
               ) : lines.length === 0 ? (
-                <p className="text-sm text-[#98a2b3]">Nothing said yet.</p>
+                <p className="text-sm text-[#475467]">Nothing said yet.</p>
               ) : (
                 <ol className="space-y-2.5">
-                  {lines.map((comment: StudentComment) => (
+                  {lines.map((comment: ThreadLine) => (
                     <li key={comment.id} className="rounded-md border border-[#e4e8ef] bg-white px-3 py-2">
-                      <div className="flex items-baseline justify-between gap-3 text-xs text-[#667085]">
+                      <div className="flex items-baseline justify-between gap-3 text-xs text-[#475467]">
                         <span className="font-semibold text-[#344054]">
                           {comment.authorName || comment.authorEmail || "Somebody"}
                         </span>
@@ -159,7 +169,7 @@ export function CommentPeek({
                   ))}
                 </ol>
               )}
-              <p className="mt-2 text-xs text-[#98a2b3]">Click to add a line.</p>
+              <p className="mt-2 text-xs text-[#475467]">Click to add a comment, or to edit or delete one of yours.</p>
             </div>,
             document.body,
           )

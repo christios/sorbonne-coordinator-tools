@@ -616,6 +616,30 @@ class TeacherStore:
             )
         return _teacher_comment(row)
 
+    def edit_comment(self, comment_id: str, *, body: str, author_email: str) -> dict[str, Any]:
+        """A line rewritten by whoever wrote it, and nobody else: it keeps its date and signature."""
+        said = str(body or "").strip()
+        if not said:
+            raise ValueError("A comment has to say something.")
+        with self.engine.begin() as connection:
+            held = (
+                connection.execute(
+                    text("""SELECT id, teacher_id, body, author_email, author_name, created_at
+                            FROM teacher_comments WHERE id = :id"""),
+                    {"id": comment_id},
+                )
+                .mappings()
+                .first()
+            )
+            if held is None:
+                raise CommentNotFound(comment_id)
+            if str(held["author_email"]).casefold() != str(author_email or "").strip().casefold():
+                raise NotTheAuthor(comment_id)
+            connection.execute(
+                text("UPDATE teacher_comments SET body = :body WHERE id = :id"), {"id": comment_id, "body": said}
+            )
+        return _teacher_comment({**held, "body": said})
+
     def remove_comment(self, comment_id: str, *, author_email: str) -> None:
         """A line is its author's to take back, and nobody else's."""
         with self.engine.begin() as connection:
