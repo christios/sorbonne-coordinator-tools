@@ -269,7 +269,7 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
               <SlidersHorizontal size={14} aria-hidden="true" /> Rules
             </button>
           ) : null}
-          <span className="shrink-0 text-xs tabular-nums text-[#667085]">{year.teachers.length}</span>
+          <span className="shrink-0 text-xs tabular-nums text-[#475467]">{year.teachers.length}</span>
         </RecordToolbar>
         <RecordList
           label="Full-time teachers"
@@ -282,10 +282,10 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
             <>
               {/* Which kinds are the teacher's to declare and which the Head of Department's. */}
               <span />
-              <span style={{ gridColumn: `span ${research.length}` }} className="border-b border-[#d0d5dd] pb-0.5 text-[#344054]">
+              <span style={{ gridColumn: `span ${research.length}` }} className="border-b border-[#98a2b3] pb-0.5 text-[#171717]">
                 Research, through SAFIR
               </span>
-              <span style={{ gridColumn: `span ${department.length}` }} className="border-b border-[#d0d5dd] pb-0.5 text-[#344054]">
+              <span style={{ gridColumn: `span ${department.length}` }} className="border-b border-[#98a2b3] pb-0.5 text-[#171717]">
                 Set by the Head of Department
               </span>
               <span />
@@ -348,7 +348,7 @@ function TeacherCell({
   const declared = teacher.items.filter((item) => item.state === "declared");
   return (
     // Stays in view when a narrow screen scrolls the list sideways.
-    <div className="sticky left-0 z-10 flex min-w-0 items-center gap-3 bg-white group-hover:bg-[#fafbfd]">
+    <div className="sticky left-0 z-10 flex min-w-0 items-center gap-3 bg-white group-hover:bg-[#f4f7fb]">
       <TeacherAvatar fullName={teacher.name} />
       <span className="min-w-0">
         <span className="flex min-w-0 items-center gap-1.5">
@@ -357,8 +357,8 @@ function TeacherCell({
           </span>
           {teacher.head ? <span className="shrink-0 rounded border border-[#1f4e79] px-1 text-[10px] font-semibold text-[#1f4e79]">HoD</span> : null}
         </span>
-        <span className="block truncate text-xs text-[#475467]" title={teacher.note || undefined}>
-          {teacher.declaredAt ? `Declared ${dayWords(teacher.declaredAt)}` : <span className="italic text-[#667085]">Not declared yet</span>}
+        <span className="block truncate text-xs text-[#344054]" title={teacher.note || undefined}>
+          {teacher.declaredAt ? `Declared ${dayWords(teacher.declaredAt)}` : <span className="italic text-[#475467]">Not declared yet</span>}
           {teacher.note ? <span className="italic"> · “{teacher.note}”</span> : null}
           {!teacher.fullTime ? <span className="text-[#8a6116]"> · not full time now</span> : null}
         </span>
