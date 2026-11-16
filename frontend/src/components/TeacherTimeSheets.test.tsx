@@ -65,6 +65,7 @@ beforeEach(() => {
   vi.spyOn(teachers, "fetchTeacherSummary").mockResolvedValue({ "pt-1": { contractedHours: 100 } } as never);
   vi.spyOn(sessions, "fetchSessionChanges").mockResolvedValue([]);
   vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([]);
+  vi.spyOn(teachers, "listTimeSheetClosures").mockResolvedValue([]);
   vi.spyOn(lists, "fetchFacilitySections").mockResolvedValue({
     termCode: "262710",
     pulledAt: "",
@@ -133,6 +134,66 @@ describe("time sheets, read by pay period", () => {
     show();
 
     expect(await screen.findByText(/Not joined to an Active teacher/)).toBeTruthy();
+  });
+});
+
+const closure = (over = {}) => ({
+  periodId: "112", periodStart: "2026-10-15", periodLabel: "15 Oct - 14 Nov 2026", state: "closed",
+  reason: "No classes in this period", hours: 0, by: "Coordinator Name", at: "2026-11-16T11:20:00Z", ...over,
+}) as never;
+
+describe("a period the Timesheets app closed with nothing to pay", () => {
+  it("says so, and why, rather than that no sheet was filed", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet()]);
+    vi.spyOn(teachers, "listTimeSheetClosures").mockResolvedValue([closure()]);
+
+    show();
+
+    expect(await screen.findByText("Nothing to pay")).toBeTruthy();
+    expect(screen.getByText(/No classes in this period · Coordinator Name/)).toBeTruthy();
+    expect(screen.queryByText("No sheet filed")).toBeNull();
+    // Nothing is owed, so nothing is offered to file: reopening it in the app is the way back.
+    expect(screen.queryByRole("button", { name: "File a sheet for 15 Oct – 14 Nov 2026" })).toBeNull();
+  });
+
+  it("says what the draft held when the closing overrode a timetable", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet()]);
+    vi.spyOn(teachers, "listTimeSheetClosures").mockResolvedValue([closure({ hours: 3 })]);
+
+    show();
+
+    expect(await screen.findByText(/3 h in the draft/)).toBeTruthy();
+  });
+
+  it("shows the period even when nothing else puts it on the list", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listTimeSheetClosures").mockResolvedValue([closure({ periodStart: "2026-08-15" })]);
+
+    show();
+
+    expect(await screen.findByText("15 Aug – 14 Sep 2026")).toBeTruthy();
+    expect(screen.getByText("Nothing to pay")).toBeTruthy();
+  });
+
+  it("goes back to unfiled once the period is reopened", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([sheet()]);
+    vi.spyOn(teachers, "listTimeSheetClosures").mockResolvedValue([closure({ state: "reopened", reason: "" })]);
+
+    show();
+
+    expect(await screen.findByText("No sheet filed")).toBeTruthy();
+    expect(screen.queryByText("Nothing to pay")).toBeNull();
+  });
+
+  it("gives way to an approved sheet for the same period", async () => {
+    vi.spyOn(teachers, "listTeacherTimeSheets").mockResolvedValue([]);
+    vi.spyOn(teachers, "listSubmittedTimeSheets").mockResolvedValue([submitted()]);
+    vi.spyOn(teachers, "listTimeSheetClosures").mockResolvedValue([closure()]);
+
+    show();
+
+    expect(await screen.findByText("Submitted 1.5 h")).toBeTruthy();
+    expect(screen.queryByText("Nothing to pay")).toBeNull();
   });
 });
 

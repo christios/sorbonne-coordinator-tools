@@ -17,8 +17,9 @@ from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
 from sorbonne.config import config
-from sorbonne.api.timesheets import get_intake
+from sorbonne.api.timesheets import get_closures, get_intake
 from sorbonne.services import coordinator_directory
+from sorbonne.services.time_sheet_closures import TimeSheetClosures
 from sorbonne.services.time_sheet_intake import TimeSheetIntake
 from sorbonne.services.requisition_export import build_requisition_docx
 from sorbonne.services.pay_rates import with_pay
@@ -438,6 +439,15 @@ def _bad_link() -> HTTPException:
 
 def _bad_period() -> HTTPException:
     return HTTPException(status_code=422, detail="A pay period is named by the day it starts, as a date.")
+
+
+@router.get("/{teacher_id}/time-sheet-closures")
+def list_time_sheet_closures(
+    teacher_id: str, closures: TimeSheetClosures = Depends(get_closures)
+) -> dict[str, list[dict[str, Any]]]:
+    """What the Part-Time Timesheets app last said of each of this teacher's periods it closed:
+    closed with nothing to pay, and why — or reopened since."""
+    return {"items": closures.for_teacher(teacher_id)}
 
 
 @router.get("/{teacher_id}/submitted-time-sheets")

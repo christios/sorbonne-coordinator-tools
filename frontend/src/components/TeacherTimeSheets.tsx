@@ -39,6 +39,7 @@ import {
   type PartTimeSheetType,
   type SubmittedTimeSheet,
   type TeacherTimeSheet,
+  type TimeSheetClosure,
   chooseTimeSheetRecord,
   claimedAdmin,
   claimedTeaching,
@@ -51,6 +52,7 @@ import {
   SHEET_WORDS,
   listSubmittedTimeSheets,
   listTeacherTimeSheets,
+  listTimeSheetClosures,
   updateTeacherTimeSheet,
 } from "@/services/teachers";
 import {
@@ -104,6 +106,14 @@ export function TimeSheetsCard({
   const submitted = useQuery({
     queryKey: ["submitted-time-sheets", teacherId],
     queryFn: () => listSubmittedTimeSheets(teacherId),
+  });
+  /*
+   * The periods the app closed with nothing to pay. Nothing will be filed for them, so the row
+   * says why instead of "No sheet filed" — until a sheet arrives, which answers it anyway.
+   */
+  const closures = useQuery({
+    queryKey: ["time-sheet-closures", teacherId],
+    queryFn: () => listTimeSheetClosures(teacherId),
   });
   // One form for both jobs: adding, or correcting the one being edited. A pasted link is
   // got wrong often enough that fixing it must not mean deleting the row and retyping.
@@ -227,7 +237,8 @@ export function TimeSheetsCard({
     );
     const filed = rows.map((sheet) => sheet.periodStart).filter(Boolean);
     const approved = (submitted.data ?? []).map((sheet) => sheet.periodStart).filter(Boolean);
-    return [...new Set([...met_in, ...filed, ...approved])]
+    const closed = (closures.data ?? []).filter((said) => said.state === "closed");
+    return [...new Set([...met_in, ...filed, ...approved, ...closed.map((said) => said.periodStart)])]
       .sort()
       .reverse()
       .map((start) => {
@@ -246,9 +257,10 @@ export function TimeSheetsCard({
           stranded: stranded.length,
           sheet: rows.find((sheet) => sheet.periodStart === start) ?? null,
           submitted: (submitted.data ?? []).find((sheet) => sheet.periodStart === start) ?? null,
+          closure: closed.find((said) => said.periodStart === start) ?? null,
         };
       });
-  }, [met.data, notes.data, rows, submitted.data, opensOn, mine?.id, mine?.fullName]);
+  }, [met.data, notes.data, rows, submitted.data, closures.data, opensOn, mine?.id, mine?.fullName]);
 
   /** Sheets against no period, or a period nothing else knows about. Nothing disappears. */
   const loose = rows.filter((sheet) => !periods.some((period) => period.sheet?.id === sheet.id));
@@ -525,12 +537,14 @@ export function TimeSheetsCard({
                       <span className="truncate">{period.sheet.label}</span>
                       <ExternalLink size={13} className="shrink-0" aria-hidden="true" />
                     </a>
+                  ) : period.closure ? (
+                    <NothingToPay closure={period.closure} />
                   ) : (
                     <span className="text-sm text-[#a6292f]">No sheet filed</span>
                   )}
                 </div>
                 <div className="flex shrink-0 items-center justify-end gap-1 max-sm:col-start-2 max-sm:row-start-1">
-                  {period.submitted && !period.sheet ? null : period.sheet ? (
+                  {(period.submitted || period.closure) && !period.sheet ? null : period.sheet ? (
                     <>
                       <button
                         type="button"
@@ -747,6 +761,27 @@ function apartSaid(apart: number): string {
  * Which of a period's two sheets is its record: the one approved in the Timesheets app, or
  * the coordinators' own workbook linked here. The record is the one that goes to HR.
  */
+/** A period the Timesheets app closed with nothing to pay: why, who, and what the draft held. */
+function NothingToPay({ closure }: { closure: TimeSheetClosure }) {
+  const held = closure.hours ? `${asHours(closure.hours * 60)} h were in the draft, not paid. ` : "";
+  return (
+    <div className="min-w-0">
+      <span
+        title={`${held}Closed in the Timesheets app${closure.by ? ` by ${closure.by}` : ""}. Reopening it there brings it back here.`}
+        className="whitespace-nowrap rounded bg-[#f2f4f7] px-1.5 py-0.5 text-xs font-semibold text-[#344054]"
+      >
+        Nothing to pay
+      </span>
+      <span className="mt-0.5 block truncate text-xs text-[#667085]">
+        {closure.reason || "No reason given"}
+        {closure.by ? ` · ${closure.by}` : ""}
+        {closure.at ? `, ${dayLabel(localDay(closure.at))}` : ""}
+        {closure.hours ? ` · ${asHours(closure.hours * 60)} h in the draft` : ""}
+      </span>
+    </div>
+  );
+}
+
 function RecordChoice({
   period,
   own,

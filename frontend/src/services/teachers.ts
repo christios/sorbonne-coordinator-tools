@@ -296,6 +296,26 @@ export async function fetchTeacherCommentCounts(): Promise<Record<string, { coun
   return (await request<{ counts: Record<string, { count: number; lastAt: string }> }>("/teachers/comment-counts")).counts;
 }
 
+/**
+ * What the Part-Time Timesheets app last said of a period it closed: "closed" with nothing to
+ * pay, and why — or "reopened" since. A closed period never arrives as a sheet.
+ */
+export type TimeSheetClosure = {
+  periodId: string;
+  periodStart: string;
+  periodLabel: string;
+  state: "closed" | "reopened";
+  reason: string;
+  /** What the draft still held when it was closed: shown, never paid. */
+  hours: number | null;
+  by: string;
+  at: string;
+};
+
+export async function listTimeSheetClosures(teacherId: string): Promise<TimeSheetClosure[]> {
+  return (await request<{ items: TimeSheetClosure[] }>(`/teachers/${teacherId}/time-sheet-closures`)).items;
+}
+
 export async function listSubmittedTimeSheets(teacherId: string): Promise<SubmittedTimeSheet[]> {
   return (await request<{ items: SubmittedTimeSheet[] }>(`/teachers/${teacherId}/submitted-time-sheets`)).items;
 }
