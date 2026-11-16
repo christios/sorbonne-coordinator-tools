@@ -4,8 +4,10 @@ from datetime import date
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import text
 
-from sorbonne.services.teacher_store import TeacherStore
+from sorbonne.services.engine import engine_for
+from sorbonne.services.teacher_store import TeacherStore, TimeSheetNotFound
 from sorbonne.services.time_sheet_tasks import (
     TimeSheetTasks,
     academic_year_of,
@@ -347,3 +349,185 @@ def test_a_submitted_to_hr_task_deleted_by_hand_stays_deleted(
 
     assert to_hr(tasks, teacher["id"]) == []
 
+
+
+# ------------------------------------- which sheet is the period's record
+
+
+def link(store: TeacherStore, teacher: dict, *, before_the_app: bool = False, chosen: bool = False) -> dict:
+    """A workbook linked by hand for August's period; `before_the_app` as the migration marks it."""
+    sheet = store.create_time_sheet(
+        teacher["id"],
+        label="Part time sheet, August–September",
+        academic_year="2026-2027",
+        url="https://psuadacae.sharepoint.com/sheet.xlsx",
+        period_start="2026-08-15",
+        chosen_over_app=chosen,
+    )
+    if before_the_app:
+        with engine_for(TEST_DATABASE_URL).begin() as connection:
+            connection.execute(
+                text("UPDATE teacher_time_sheets SET chosen_over_app = true WHERE id = :id"), {"id": sheet["id"]}
+            )
+    return sheet
+
+
+def test_a_workbook_linked_before_the_app_is_the_record_so_the_apps_sheet_is_not_sent(
+    store: TeacherStore, tasks: WorkflowStore
+):
+    """HR paid August from the linked workbook: the app's sheet must not ask to be sent again."""
+    teacher = a_teacher(store)
+    link(store, teacher, before_the_app=True)
+
+    approve(store, teacher=teacher)
+
+    # At once, before anybody reads the tasks: the download must never list it as unsent.
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["status"] == "COMPLETED"
+    assert task["description"].startswith("Nothing to send from the app: our own sheet is this period's record")
+    assert "Part time sheet, August–September" in task["description"]
+    [sheet] = TimeSheetIntake(TEST_DATABASE_URL).for_teacher(teacher["id"])
+    assert sheet["ownRecord"] is True
+
+
+def test_a_workbook_linked_since_is_not_the_record_unless_somebody_says_so(store: TeacherStore, tasks: WorkflowStore):
+    """The button stays for a period with no class in it; a link made with it was never sent anywhere."""
+    teacher = a_teacher(store)
+    link(store, teacher)
+
+    approve(store, teacher=teacher)
+
+    assert [task["status"] for task in to_hr(tasks, teacher["id"])] == ["NOT_STARTED"]
+    [sheet] = TimeSheetIntake(TEST_DATABASE_URL).for_teacher(teacher["id"])
+    assert (sheet["ownRecord"], sheet["hrSubmittedAt"]) == (False, "")
+
+
+def test_choosing_our_own_sheet_takes_the_apps_out_of_hrs_pile(store: TeacherStore, tasks: WorkflowStore):
+    teacher = a_teacher(store)
+    approve(store, teacher=teacher)
+    own = link(store, teacher)
+
+    [chosen] = store.choose_record(teacher["id"], "2026-08-15", own["id"])
+
+    assert chosen["chosenOverApp"] is True
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["status"] == "COMPLETED"
+    assert "our own sheet is this period's record" in task["description"]
+    assert TimeSheetIntake(TEST_DATABASE_URL).for_teacher(teacher["id"])[0]["ownRecord"] is True
+
+
+def test_adding_our_own_sheet_as_the_record_does_the_same(store: TeacherStore, tasks: WorkflowStore):
+    teacher = a_teacher(store)
+    approve(store, teacher=teacher)
+
+    link(store, teacher, chosen=True)
+
+    assert [task["status"] for task in to_hr(tasks, teacher["id"])] == ["COMPLETED"]
+
+
+def test_switching_back_to_the_apps_sheet_asks_for_it_to_be_sent_and_warns(store: TeacherStore, tasks: WorkflowStore):
+    teacher = a_teacher(store)
+    link(store, teacher, before_the_app=True)
+    approve(store, teacher=teacher)
+
+    [kept] = store.choose_record(teacher["id"], "2026-08-15", "")
+
+    assert kept["chosenOverApp"] is False
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["status"] == "NOT_STARTED"
+    assert task["description"].startswith("The app's sheet is this period's record again")
+    assert "pays the month twice" in task["description"]
+    assert TimeSheetIntake(TEST_DATABASE_URL).for_teacher(teacher["id"])[0]["ownRecord"] is False
+
+
+def test_an_apps_sheet_that_really_went_to_hr_stays_sent_whichever_is_chosen(
+    store: TeacherStore, tasks: WorkflowStore, keeper: TimeSheetTasks
+):
+    """Ticked because it went: that is a fact about HR, not a choice to undo."""
+    teacher, period_id = approve(store)
+    keeper.mark_submitted_to_hr([period_id], by="Christian")
+    own = link(store, teacher)
+
+    store.choose_record(teacher["id"], "2026-08-15", own["id"])
+    store.choose_record(teacher["id"], "2026-08-15", "")
+
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["status"] == "COMPLETED"
+    assert task["description"].startswith("Submitted to HR — marked by Christian")
+
+
+def test_removing_the_record_leaves_the_apps_sheet_as_the_record(store: TeacherStore, tasks: WorkflowStore):
+    teacher = a_teacher(store)
+    own = link(store, teacher, before_the_app=True)
+    approve(store, teacher=teacher)
+
+    store.delete_time_sheet(own["id"])
+
+    assert [task["status"] for task in to_hr(tasks, teacher["id"])] == ["NOT_STARTED"]
+
+
+def test_only_a_workbook_of_that_teacher_and_period_can_be_chosen(store: TeacherStore):
+    teacher = a_teacher(store)
+    someone_else = link(store, a_teacher(store))
+
+    with pytest.raises(TimeSheetNotFound):
+        store.choose_record(teacher["id"], "2026-08-15", someone_else["id"])
+
+
+def test_another_period_of_the_same_teacher_still_goes_to_hr(store: TeacherStore, tasks: WorkflowStore):
+    teacher = a_teacher(store)
+    link(store, teacher, before_the_app=True)
+
+    TimeSheetIntake(TEST_DATABASE_URL).receive(
+        {
+            "schema": "timesheet.period.v1",
+            "periodId": f"sep-{teacher['id'][:8]}",
+            "version": 1,
+            "periodStart": "2026-09-15",
+            "periodEnd": "2026-10-14",
+            "staff": {"email": teacher["email"], "name": teacher["fullName"]},
+            "totals": {"hours": 6},
+            "approval": {"approvedOn": "2026-10-16T08:00:00Z"},
+            "days": [],
+        }
+    )
+
+    [task] = to_hr(tasks, teacher["id"])
+    assert (task["title"], task["status"]) == ("Submitted to HR: 15 Sep – 14 Oct 2026", "NOT_STARTED")
+
+
+def test_two_app_sheets_for_one_period_share_one_hr_task(store: TeacherStore, tasks: WorkflowStore):
+    """Two items approved for the same teacher and period used to stop the tasks being made at all."""
+    teacher, _ = approve(store)
+    TimeSheetIntake(TEST_DATABASE_URL).receive(
+        {
+            "schema": "timesheet.period.v1",
+            "periodId": f"twin-{teacher['id'][:8]}",
+            "version": 1,
+            "periodStart": "2026-08-15",
+            "periodEnd": "2026-09-14",
+            "staff": {"email": teacher["email"], "name": teacher["fullName"]},
+            "totals": {"hours": 6},
+            "approval": {"approvedOn": "2026-09-16T08:00:00Z"},
+            "days": [],
+        }
+    )
+
+    assert len(to_hr(tasks, teacher["id"])) == 1
+
+
+def test_a_correction_of_a_period_whose_record_is_our_own_does_not_ask_to_send_it(
+    store: TeacherStore, tasks: WorkflowStore
+):
+    """HR gets our own sheet, not any version of the app's."""
+    teacher = a_teacher(store)
+    link(store, teacher, before_the_app=True)
+    approve(store, teacher=teacher)
+
+    approve(store, version=2, teacher=teacher)
+
+    [task] = to_hr(tasks, teacher["id"])
+    assert task["status"] == "COMPLETED"
+    assert task["description"].startswith("A corrected version was approved on 2026-09-17; compare it")
+    # And it is still ours, so switching back to the app's sheet would open it.
+    assert "our own sheet is this period's record" in task["description"]

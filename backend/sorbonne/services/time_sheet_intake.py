@@ -30,7 +30,7 @@ from sqlalchemy import Engine, text
 
 from sorbonne.services.engine import engine_for
 from sorbonne.services.part_time_sheet import sheet_type, split
-from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX, reopen_hr_task
+from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX, file_hr_tasks, reopen_hr_task
 
 #: The only body shape this understands. The app sends its name so a later one can differ.
 SCHEMA = "timesheet.period.v1"
@@ -131,6 +131,9 @@ class TimeSheetIntake:
                     _day(body.get("periodStart")),
                     approved_on=str((body.get("approval") or {}).get("approvedOn") or ""),
                 )
+            # Its "Submitted to HR" task now, not when somebody next reads the tasks: until
+            # then the download would list it as not sent, even one HR had the old way.
+            file_hr_tasks(connection, stamp)
         return {
             "stored": True,
             "reason": "replaced" if held is not None else "new",
@@ -180,7 +183,11 @@ _COLUMNS = f"""period_id, version, teacher_id, period_start, period_end, period_
               approved_by, approved_by_email, approved_on, submitted_on, days, sent_at, received_at,
               (SELECT t.completed_at FROM tasks t
                WHERE t.id = '{HR_TASK_PREFIX}:' || teacher_id || ':' || period_start
-                 AND t.status = 'COMPLETED') AS hr_submitted_at"""
+                 AND t.status = 'COMPLETED') AS hr_submitted_at,
+              EXISTS (SELECT 1 FROM teacher_time_sheets l
+                      WHERE l.teacher_id = pushed_time_sheets.teacher_id
+                        AND l.period_start = pushed_time_sheets.period_start
+                        AND l.chosen_over_app) AS own_record"""
 
 
 def teacher_for(connection: Any, *, email: str, number: str) -> str:
@@ -304,6 +311,9 @@ def _sheet(row: Any) -> dict[str, Any]:
         "submittedOn": row["submitted_on"],
         # When its "Submitted to HR" task was ticked; "" while it is open.
         "hrSubmittedAt": row["hr_submitted_at"] or "",
+        # A coordinator chose their own workbook as this period's record: that is what HR
+        # gets, and this sheet is left out of HR's downloads.
+        "ownRecord": bool(row["own_record"]),
         # Each line says which Part Time Sheet it goes on, and the period which sheets it makes:
         # a period of CM and TD/TP lines is two sheets, at two rates.
         "days": [{**line, "sheet": sheet_type(line)} for line in (row["days"] or [])],

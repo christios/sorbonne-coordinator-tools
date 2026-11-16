@@ -491,7 +491,7 @@ class TeacherStore:
                     text(
                         """
                         SELECT id, teacher_id, label, academic_year, url, period_start,
-                               created_at, updated_at
+                               chosen_over_app, created_at, updated_at
                         FROM teacher_time_sheets WHERE teacher_id = :teacher_id
                         ORDER BY period_start DESC, academic_year DESC, label
                         """
@@ -503,9 +503,17 @@ class TeacherStore:
             )
         return [_time_sheet_from_row(row) for row in rows]
 
-    def create_time_sheet(
-        self, teacher_id: str, *, label: str, academic_year: str, url: str, period_start: str = ""
+    def create_time_sheet(  # noqa: PLR0913 - one argument per field of the form
+        self,
+        teacher_id: str,
+        *,
+        label: str,
+        academic_year: str,
+        url: str,
+        period_start: str = "",
+        chosen_over_app: bool = False,
     ) -> dict[str, Any]:
+        """A link to a workbook; `chosen_over_app` when it is to be the period's record instead of the app's sheet."""
         self.get_teacher(teacher_id)
         now = _timestamp()
         record = {
@@ -515,6 +523,7 @@ class TeacherStore:
             "academicYear": academic_year.strip(),
             "url": _web_link(url),
             "periodStart": _period(period_start),
+            "chosenOverApp": bool(chosen_over_app and _period(period_start)),
             "createdAt": now,
             "updatedAt": now,
         }
@@ -525,14 +534,18 @@ class TeacherStore:
                 text(
                     """
                     INSERT INTO teacher_time_sheets (
-                        id, teacher_id, label, academic_year, url, period_start, created_at, updated_at
+                        id, teacher_id, label, academic_year, url, period_start, chosen_over_app,
+                        created_at, updated_at
                     ) VALUES (
-                        :id, :teacher_id, :label, :academic_year, :url, :period_start, :created_at, :updated_at
+                        :id, :teacher_id, :label, :academic_year, :url, :period_start, :chosen_over_app,
+                        :created_at, :updated_at
                     )
                     """
                 ),
                 _time_sheet_params(record),
             )
+            if record["chosenOverApp"]:
+                _choose(connection, teacher_id, record["periodStart"], record["id"])
         return record
 
     def get_time_sheet(self, time_sheet_id: str | None) -> dict[str, Any]:
@@ -685,7 +698,7 @@ class TeacherStore:
             sheets = (
                 connection.execute(
                     text("""SELECT id, teacher_id, label, academic_year, url, period_start,
-                                   created_at, updated_at
+                                   chosen_over_app, created_at, updated_at
                             FROM teacher_time_sheets
                             ORDER BY period_start DESC, updated_at DESC""")
                 )
@@ -742,9 +755,37 @@ class TeacherStore:
         return found
 
     def delete_time_sheet(self, time_sheet_id: str) -> None:
-        self.get_time_sheet(time_sheet_id)
+        """Gone; and if it was its period's record, the app's sheet is the record again."""
+        sheet = self.get_time_sheet(time_sheet_id)
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id})
+            if sheet["chosenOverApp"]:
+                from sorbonne.services.time_sheet_tasks import follow_the_record  # noqa: PLC0415 - it imports this
+
+                still = _record_label(connection, sheet)
+                follow_the_record(connection, sheet["teacherId"], sheet["periodStart"], still)
+
+    def choose_record(self, teacher_id: str, period_start: str, time_sheet_id: str = "") -> list[dict[str, Any]]:
+        """Which sheet is the period's record: one of the teacher's linked workbooks, or ("") the app's.
+
+        Only one goes to HR. Choosing a workbook leaves the app's sheet out of HR's downloads
+        and files its "Submitted to HR" task as nothing to send; choosing the app's opens that
+        task again if it was closed for a workbook. Returns the period's links as they now are.
+        """
+        self.get_teacher(teacher_id)
+        start = _period(period_start)
+        if not start:
+            raise InvalidPeriod(period_start)
+        with self.engine.begin() as connection:
+            if time_sheet_id:
+                owner = connection.execute(
+                    text("SELECT teacher_id, period_start FROM teacher_time_sheets WHERE id = :id"),
+                    {"id": time_sheet_id},
+                ).first()
+                if owner is None or (str(owner[0]), str(owner[1])) != (teacher_id, start):
+                    raise TimeSheetNotFound
+            _choose(connection, teacher_id, start, time_sheet_id)
+        return [sheet for sheet in self.list_time_sheets(teacher_id) if sheet["periodStart"] == start]
 
     def list_academic_years(self) -> list[str]:
         """The academic years the course list's courses belong to.
@@ -1006,9 +1047,39 @@ def _time_sheet_from_row(row: Any) -> dict[str, Any]:
         "academicYear": row["academic_year"],
         "url": row["url"],
         "periodStart": row["period_start"] or "",
+        # The period's record, over the app's sheet for the same period.
+        "chosenOverApp": bool(row["chosen_over_app"]),
         "createdAt": row["created_at"],
         "updatedAt": row["updated_at"],
     }
+
+
+def _choose(connection: Any, teacher_id: str, period_start: str, time_sheet_id: str) -> None:
+    """One link at most is the period's record, and the HR task follows whichever it is."""
+    from sorbonne.services.time_sheet_tasks import follow_the_record  # noqa: PLC0415 - it imports this
+
+    connection.execute(
+        text("""UPDATE teacher_time_sheets SET chosen_over_app = (id = :chosen)
+                WHERE teacher_id = :teacher AND period_start = :period"""),
+        {"chosen": time_sheet_id, "teacher": teacher_id, "period": period_start},
+    )
+    label = (
+        connection.execute(
+            text("SELECT label FROM teacher_time_sheets WHERE id = :id"), {"id": time_sheet_id}
+        ).scalar()
+        if time_sheet_id
+        else None
+    )
+    follow_the_record(connection, teacher_id, period_start, label)
+
+
+def _record_label(connection: Any, sheet: dict[str, Any]) -> str | None:
+    """The label of whichever link is still its period's record, once one has gone."""
+    return connection.execute(
+        text("""SELECT MIN(label) FROM teacher_time_sheets
+                WHERE teacher_id = :teacher AND period_start = :period AND chosen_over_app"""),
+        {"teacher": sheet["teacherId"], "period": sheet["periodStart"]},
+    ).scalar()
 
 
 def _time_sheet_params(sheet: dict[str, Any]) -> dict[str, Any]:
@@ -1019,6 +1090,7 @@ def _time_sheet_params(sheet: dict[str, Any]) -> dict[str, Any]:
         "academic_year": sheet["academicYear"],
         "url": sheet["url"],
         "period_start": sheet["periodStart"],
+        "chosen_over_app": bool(sheet.get("chosenOverApp")),
         "created_at": sheet["createdAt"],
         "updated_at": sheet["updatedAt"],
     }
