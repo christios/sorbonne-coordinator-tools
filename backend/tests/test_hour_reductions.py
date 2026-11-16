@@ -229,6 +229,52 @@ def test_the_year_lists_every_full_timer_and_only_the_head_or_an_administrator_c
     assert client.put(f"{AT}/rules", json={"service": 180}).status_code == status.HTTP_403_FORBIDDEN
 
 
+def test_an_admin_of_students_and_timetables_sets_the_reductions_but_not_the_rules(
+    client: TestClient, store: HourReductions, monkeypatch: pytest.MonkeyPatch
+):
+    """Lama Tarsissi was admin of Students and Timetables and named Head of Department, and still
+    could not change a figure (16 Nov 2026): she signs in with another address than her record's."""
+    signed_in = "st-admin@example.com"
+    with store.engine.begin() as connection:
+        connection.execute(text("DELETE FROM account_apps WHERE email = :email"), {"email": signed_in})
+        connection.execute(
+            text("INSERT INTO account_apps (email, app, role) VALUES (:email, 'database', 'admin')"),
+            {"email": signed_in},
+        )
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email=signed_in, name="Lama", is_admin=False),
+    )
+    try:
+        seen = client.get(AT, params={"year": YEAR}).json()
+        assert (seen["canChange"], seen["canChangeRules"]) == (True, False)
+        changed = client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"accreditation": {"amount": 1}}})
+        assert changed.status_code == 200
+        assert client.put(f"{AT}/rules", json={"service": 180}).status_code == status.HTTP_403_FORBIDDEN
+
+        # A member of Students and Timetables reads, as everybody does.
+        with store.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE account_apps SET role = 'member' WHERE email = :email"), {"email": signed_in}
+            )
+        assert client.get(AT, params={"year": YEAR}).json()["canChange"] is False
+        refused = client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"accreditation": {"amount": 0}}})
+        assert refused.status_code == status.HTTP_403_FORBIDDEN
+        assert "Students and Timetables" in refused.json()["detail"]
+
+        # An admin of another app is not one of Students and Timetables.
+        with store.engine.begin() as connection:
+            connection.execute(
+                text("UPDATE account_apps SET app = 'syllabus', role = 'admin' WHERE email = :email"),
+                {"email": signed_in},
+            )
+        assert client.get(AT, params={"year": YEAR}).json()["canChange"] is False
+    finally:
+        with store.engine.begin() as connection:
+            connection.execute(text("DELETE FROM account_apps WHERE email = :email"), {"email": signed_in})
+
+
 def test_an_administrator_adjusts_the_rules_and_every_total_follows(client: TestClient):
     code = _invitee(client, FT, "lama@example.com")
     client.put(f"{DOOR}/{code}/reductions", json={"items": {"phd": {"amount": 3}}})

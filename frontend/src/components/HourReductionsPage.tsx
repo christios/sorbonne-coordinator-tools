@@ -208,7 +208,8 @@ function reductionColumns(rules: ReductionRule[]): GridColumn<Teacher>[] {
  * and its hours side by side, both bare, read as two numbers nobody could place. A research
  * figure the teacher declared and nobody has checked with SAFIR yet is amber, marked "!".
  *
- * The Head of Department and the administrators change a figure where it stands: clicking
+ * The Head of Department, the admins of Students and Timetables and the administrators
+ * change a figure where it stands (the server says who, in canChange): clicking
  * it opens it in place, with the rule it is worked out by and, for research, the SAFIR
  * tick. It is saved when it closes; Escape leaves it as it was. Nobody opens a teacher to
  * change one figure. An administrator changes the rules' figures; everybody else reads.
