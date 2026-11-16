@@ -69,9 +69,10 @@ describe("a full-timer's first step: their hour reductions", () => {
     page();
 
     expect(await screen.findByText("Your hour reductions for 2026–2027")).toBeTruthy();
-    // Not the form yet, and step 2 waits for step 1.
+    // Not the form yet; step 2 is a click away, and step 1 can be skipped for now.
     expect(screen.queryByRole("heading", { name: "Your week" })).toBeNull();
-    expect((screen.getByRole("button", { name: /Preferences and constraints/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: /Preferences and constraints/ }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
     // The department's own are there to read, not to change.
     expect(screen.queryByRole("checkbox", { name: "Budget committee" })).toBeNull();
     expect(screen.getByText("Budget")).toBeTruthy();
@@ -95,6 +96,17 @@ describe("a full-timer's first step: their hour reductions", () => {
     // And back, with nothing lost.
     fireEvent.click(screen.getByRole("button", { name: /Hour reductions/ }));
     expect(await screen.findByText("Your hour reductions for 2026–2027")).toBeTruthy();
+  });
+
+  it("can be skipped for now: on to the preferences, nothing saved", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeReductions");
+    page();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Skip for now" }));
+
+    expect(await screen.findByRole("heading", { name: "Your week" })).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
   });
 
   it("opens on the preferences once it has been through them, with step 1 a click away", async () => {

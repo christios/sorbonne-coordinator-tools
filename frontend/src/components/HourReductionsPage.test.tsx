@@ -26,11 +26,12 @@ const sheetOf = (phd: Partial<ReductionItem>, hod: Partial<ReductionItem>) => {
   const total = items.reduce((sum, item) => sum + item.hours, 0);
   return { year: "2026-2027", service: 192, items, total, owed: 192 - total, declaredAt: "", declaredBy: "", note: "" };
 };
-const YEAR = (canChange: boolean): ReductionYear => ({
+const YEAR = (canChange: boolean, canChangeRules = canChange): ReductionYear => ({
   year: "2026-2027",
   service: 192,
   rules: RULES,
   canChange,
+  canChangeRules,
   teachers: [
     {
       teacherId: "t-lama", name: "Lama Tarsissi", fullTime: true, head: true,
@@ -91,5 +92,13 @@ describe("the hours a rule gives", () => {
     expect(reductions.hoursOf(RULES[0], 9, "")).toBe(20);
     expect(reductions.hoursOf(RULES[1], 1, "hod-200")).toBe(42);
     expect(reductions.hoursOf({ ...RULES[0], kind: "committees", unit: "committees", per: 3 }, 2, "budget,ethics")).toBe(6);
+  });
+
+  it("lets the Head of Department set reductions, but not the rules", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true, false));
+    page();
+
+    expect(await screen.findByRole("button", { name: "Lama Tarsissi" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Rules/ })).toBeNull();
   });
 });

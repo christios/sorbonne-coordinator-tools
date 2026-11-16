@@ -84,7 +84,7 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
           {year.teachers.length} full-time teacher{year.teachers.length === 1 ? "" : "s"}
           {waiting ? <span className="text-[#7a5410]"> · {waiting} research figure{waiting === 1 ? "" : "s"} to validate</span> : null}
         </p>
-        {year.canChange ? (
+        {year.canChangeRules ? (
           <button
             type="button"
             onClick={() => setRules(true)}

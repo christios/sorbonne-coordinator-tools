@@ -42,42 +42,126 @@ COMMITTEES = (("budget", "Budget"), ("ethics", "Ethics"), ("compliance", "Compli
 #: for each student or each committee; `cap` the most a kind gives in a year. An
 #: administrator may change any figure; the words of each rule are written from the figures.
 RULES: list[dict[str, Any]] = [
-    {"kind": "phd", "group": SAFIR, "label": "PhD students", "unit": "students", "per": 5, "cap": 20,
-     "counts": "PhD student inscribed in or financed by SAFIR"},
-    {"kind": "masters", "group": SAFIR, "label": "Master's internship students", "unit": "students", "per": 1,
-     "cap": 10, "counts": "master's student on internship"},
-    {"kind": "project", "group": SAFIR, "label": "Research project", "unit": "hours", "per": 1, "cap": None,
-     "after": "The hours SAFIR validated for the project."},
-    {"kind": "hdr", "group": SAFIR, "label": "HDR (Habilitation à diriger des recherches)", "unit": "hours",
-     "per": 1, "cap": 96, "after": "{cap} h by default, the year it is prepared."},
-    {"kind": "irg", "group": SAFIR, "label": "IRG project, as principal investigator", "unit": "hours", "per": 1,
-     "cap": 40, "threeYears": 80,
-     "after": "{threeYears} h over the project's three years, at most {cap} h in one year. The PI only."},
-    {"kind": "internships", "group": SAFIR, "label": "Internship supervision", "unit": "students", "per": 0.5,
-     "cap": 10, "counts": "student whose internship you supervise (L2, L3 or elsewhere)"},
-    {"kind": "committees", "group": DEPARTMENT, "label": "University committees", "unit": "committees", "per": 3,
-     "cap": None, "after": "{per} h for each: budget, ethics, compliance."},
-    {"kind": "hop", "group": DEPARTMENT, "label": "Head of programme", "unit": "choice", "per": 0, "cap": None,
-     "options": [
-         {"key": "master", "label": "Master's programme", "hours": 32},
-         {"key": "bachelor", "label": "Bachelor's programme", "hours": 32},
-         {"key": "foundation", "label": "Foundation Year", "hours": 16},
-         {"key": "foundation-200", "label": "Foundation Year, over 200 students", "hours": 32},
-         {"key": "foundation-500", "label": "Foundation Year, over 500 students", "hours": 48},
-     ],
-     "after": "Given with Head of department to somebody who is both."},
-    {"kind": "hod", "group": DEPARTMENT, "label": "Head of department", "unit": "choice", "per": 0, "cap": None,
-     "options": [
-         {"key": "hod", "label": "Department of up to 200 students", "hours": 32},
-         {"key": "hod-200", "label": "Department of over 200 students", "hours": 42},
-         {"key": "hod-500", "label": "Department of over 500 students", "hours": 52},
-     ]},
-    {"kind": "new_joiner", "group": DEPARTMENT, "label": "New joiner", "unit": "yes", "per": 32, "cap": None,
-     "after": "{per} h in the first year."},
-    {"kind": "accreditation", "group": DEPARTMENT, "label": "Accreditation work", "unit": "yes", "per": 5,
-     "cap": None, "after": "{per} h a year."},
-    {"kind": "innovation", "group": DEPARTMENT, "label": "Pedagogical innovation project", "unit": "hours",
-     "per": 1, "cap": 18, "after": "Up to {cap} h, once the EMC has validated the project."},
+    {
+        "kind": "phd",
+        "group": SAFIR,
+        "label": "PhD students",
+        "unit": "students",
+        "per": 5,
+        "cap": 20,
+        "counts": "PhD student inscribed in or financed by SAFIR",
+    },
+    {
+        "kind": "masters",
+        "group": SAFIR,
+        "label": "Master's internship students",
+        "unit": "students",
+        "per": 1,
+        "cap": 10,
+        "counts": "master's student on internship",
+    },
+    {
+        "kind": "project",
+        "group": SAFIR,
+        "label": "Research project",
+        "unit": "hours",
+        "per": 1,
+        "cap": None,
+        "after": "The hours SAFIR validated for the project.",
+    },
+    {
+        "kind": "hdr",
+        "group": SAFIR,
+        "label": "HDR (Habilitation à diriger des recherches)",
+        "unit": "hours",
+        "per": 1,
+        "cap": 96,
+        "after": "{cap} h by default, the year it is prepared.",
+    },
+    {
+        "kind": "irg",
+        "group": SAFIR,
+        "label": "IRG project, as principal investigator",
+        "unit": "hours",
+        "per": 1,
+        "cap": 40,
+        "threeYears": 80,
+        "after": "{threeYears} h over the project's three years, at most {cap} h in one year. The PI only.",
+    },
+    {
+        "kind": "internships",
+        "group": SAFIR,
+        "label": "Internship supervision",
+        "unit": "students",
+        "per": 0.5,
+        "cap": 10,
+        "counts": "student whose internship you supervise (L2, L3 or elsewhere)",
+    },
+    {
+        "kind": "committees",
+        "group": DEPARTMENT,
+        "label": "University committees",
+        "unit": "committees",
+        "per": 3,
+        "cap": None,
+        "after": "{per} h for each: budget, ethics, compliance.",
+    },
+    {
+        "kind": "hop",
+        "group": DEPARTMENT,
+        "label": "Head of programme",
+        "unit": "choice",
+        "per": 0,
+        "cap": None,
+        "options": [
+            {"key": "master", "label": "Master's programme", "hours": 32},
+            {"key": "bachelor", "label": "Bachelor's programme", "hours": 32},
+            {"key": "foundation", "label": "Foundation Year", "hours": 16},
+            {"key": "foundation-200", "label": "Foundation Year, over 200 students", "hours": 32},
+            {"key": "foundation-500", "label": "Foundation Year, over 500 students", "hours": 48},
+        ],
+        "after": "Given with Head of department to somebody who is both.",
+    },
+    {
+        "kind": "hod",
+        "group": DEPARTMENT,
+        "label": "Head of department",
+        "unit": "choice",
+        "per": 0,
+        "cap": None,
+        "options": [
+            {"key": "hod", "label": "Department of up to 200 students", "hours": 32},
+            {"key": "hod-200", "label": "Department of over 200 students", "hours": 42},
+            {"key": "hod-500", "label": "Department of over 500 students", "hours": 52},
+        ],
+    },
+    {
+        "kind": "new_joiner",
+        "group": DEPARTMENT,
+        "label": "New joiner",
+        "unit": "yes",
+        "per": 32,
+        "cap": None,
+        "after": "{per} h in the first year.",
+    },
+    {
+        "kind": "accreditation",
+        "group": DEPARTMENT,
+        "label": "Accreditation work",
+        "unit": "yes",
+        "per": 5,
+        "cap": None,
+        "after": "{per} h a year.",
+    },
+    {
+        "kind": "innovation",
+        "group": DEPARTMENT,
+        "label": "Pedagogical innovation project",
+        "unit": "hours",
+        "per": 1,
+        "cap": 18,
+        "after": "Up to {cap} h, once the EMC has validated the project.",
+    },
 ]
 KINDS = {rule["kind"]: rule for rule in RULES}
 #: The figures an administrator may change, per unit.
@@ -125,13 +209,14 @@ def _terms_prefix(year: str) -> str:
     return f"{year[2:4]}{year[7:9]}"
 
 
-def full_time(staff_status: str | None, portal_type: str | None) -> bool:
-    """The department's word where it has given one (FT), the portal's type otherwise — as the
-    Teaching loads page reads a teacher's status."""
-    said = (staff_status or "").strip().upper()
-    if said:
-        return said == "FT"
-    return (portal_type or "").strip().lower().startswith("full")
+def full_time(staff_status: str | None) -> bool:
+    """Full time for hour reductions: the department's word on the teacher's record, FT, alone.
+
+    The portal's "Full Time" type is not enough here: it covers the language teachers and
+    other departments' staff who teach our students, 32 people against the 21 or so on the
+    Head of Department's sheet. Teaching loads still reads the portal type for its budget
+    split, where any full-time contract counts."""
+    return (staff_status or "").strip().upper() == "FT"
 
 
 def _fmt(value: float) -> str:
@@ -224,7 +309,7 @@ class HourReductions:
             .mappings()
             .first()
         )
-        return bool(row) and full_time(row["staff_status"], row["type"])
+        return bool(row) and full_time(row["staff_status"])
 
     def _held(self, connection: Any, year: str, teacher_ids: list[str] | None = None) -> dict[str, dict[str, Any]]:
         clause = "" if teacher_ids is None else " AND teacher_id = ANY(:ids)"
@@ -338,12 +423,12 @@ class HourReductions:
                 {
                     "teacherId": person["id"],
                     "name": person["name"],
-                    "fullTime": full_time(person["staff_status"], person["type"]),
+                    "fullTime": full_time(person["staff_status"]),
                     "head": person["id"] == head,
                     **self._sheet(connection, year, person["id"], rules, service, held.get(person["id"], {})),
                 }
                 for person in people
-                if full_time(person["staff_status"], person["type"]) or person["id"] in held
+                if full_time(person["staff_status"]) or person["id"] in held
             ]
         return {"year": year, "service": service, "rules": [_shown_rule(rule) for rule in rules], "teachers": teachers}
 
@@ -435,9 +520,7 @@ class HourReductions:
         else:
             state = VALIDATED if validated else DECLARED
         was_validated = previous is not None and previous["state"] == VALIDATED
-        validated_at = (
-            (previous["validated_at"] if was_validated else _now()) if state == VALIDATED else ""
-        )
+        validated_at = (previous["validated_at"] if was_validated else _now()) if state == VALIDATED else ""
         validated_by = (previous["validated_by"] if was_validated else actor) if state == VALIDATED else ""
         if unchanged and previous["state"] == state:
             return

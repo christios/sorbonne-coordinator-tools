@@ -52,7 +52,7 @@ function Frame({ children, wide = false, aside }: { children: ReactNode; wide?: 
  * A teacher with an answer from another semester may start from it.
  *
  * A full-timer has a first step before the form: their hour reductions for the year. They land
- * on it until they have been through it once; afterwards it is one click back.
+ * on it until they have saved it once, and may skip it for now; afterwards it is one click back.
  */
 export function InvitedWishesPage({ code }: { code: string }) {
   const client = useQueryClient();
@@ -251,7 +251,6 @@ export function InvitedWishesPage({ code }: { code: string }) {
                     type="button"
                     aria-current={onStep === key ? "step" : undefined}
                     onClick={() => setStep(key)}
-                    disabled={key === "preferences" && !reductions.declaredAt}
                     className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold disabled:opacity-50 ${
                       onStep === key ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#b7bec8] bg-white text-[#344054]"
                     }`}
@@ -275,6 +274,8 @@ export function InvitedWishesPage({ code }: { code: string }) {
                 busy={declare.isPending}
                 error={declare.isError ? (declare.error as Error).message : ""}
                 onSave={(items, note) => declare.mutate({ items, note })}
+                // Not declared yet is allowed: the Head of Department's page says who has not.
+                onSkip={reductions.declaredAt ? undefined : () => setStep("preferences")}
               />
             ) : null}
             <div hidden={onStep !== "preferences"}>

@@ -68,7 +68,10 @@ export type ReductionYear = {
   service: number;
   rules: ReductionRule[];
   teachers: (ReductionSheet & { teacherId: string; name: string; fullTime: boolean; head: boolean })[];
+  /** The teachers' reductions: the Head of Department named in Settings, or an administrator. */
   canChange: boolean;
+  /** The rules they are worked out from (192 h, rates, caps): an administrator alone. */
+  canChangeRules?: boolean;
 };
 
 /** What a kind is given: how many, which, and — the Head of Department's — whether SAFIR confirmed it. */

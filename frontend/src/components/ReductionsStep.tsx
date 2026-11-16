@@ -17,11 +17,14 @@ export function ReductionsStep({
   busy,
   error,
   onSave,
+  onSkip,
 }: {
   sheet: ReductionSheet;
   busy: boolean;
   error: string;
   onSave: (items: Record<string, ReductionInput>, note: string) => void;
+  /** On to the preferences without saving: the Head of Department's page shows them as not declared yet. */
+  onSkip?: () => void;
 }) {
   const { draft, set, total, owed, changes } = useReductionDraft(sheet.items, sheet.service);
   const [note, setNote] = useState(sheet.note);
@@ -73,7 +76,12 @@ export function ReductionsStep({
           {error}
         </p>
       ) : null}
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-end gap-4">
+        {onSkip ? (
+          <button type="button" onClick={onSkip} className="text-sm font-semibold text-[#1f4e79] underline">
+            Skip for now
+          </button>
+        ) : null}
         <button
           type="button"
           disabled={busy}

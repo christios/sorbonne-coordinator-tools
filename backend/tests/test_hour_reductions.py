@@ -52,15 +52,15 @@ def store() -> HourReductions:
             text("""INSERT INTO portal_teachers (teacher_id, full_name, type, first_seen_at, last_seen_at)
                     VALUES ('reduce-portal', 'Portal Fulltimer', 'Full Time Employee', 'x', 'x')""")
         )
-        for teacher, name, staff_status, portal in (
-            (FT, "Lama Tarsissi", "FT", ""),
-            (PT, "Samar Ghantous", "PT", ""),
-            (PORTAL_FT, "Portal Fulltimer", "", "reduce-portal"),
+        for teacher, name, staff_status, portal, email in (
+            (FT, "Lama Tarsissi", "FT", "", "lama.tarsissi@sorbonne.ae"),
+            (PT, "Samar Ghantous", "PT", "", ""),
+            (PORTAL_FT, "Portal Fulltimer", "", "reduce-portal", ""),
         ):
             connection.execute(
-                text("""INSERT INTO active_teachers (id, full_name, staff_status, portal_teacher_id, added_at)
-                        VALUES (:id, :name, :status, :portal, '2026-11-16')"""),
-                {"id": teacher, "name": name, "status": staff_status, "portal": portal},
+                text("""INSERT INTO active_teachers (id, full_name, staff_status, portal_teacher_id, email, added_at)
+                        VALUES (:id, :name, :status, :portal, :email, '2026-11-16')"""),
+                {"id": teacher, "name": name, "status": staff_status, "portal": portal, "email": email},
             )
             connection.execute(
                 text("INSERT INTO active_teacher_terms (active_id, term_code) VALUES (:id, :term)"),
@@ -111,11 +111,12 @@ def test_both_semesters_are_one_academic_year():
         year_of("2026")
 
 
-def test_full_time_goes_by_the_departments_word_then_the_portals():
-    assert full_time("FT", "")
-    assert not full_time("PT", "Full Time Employee")
-    assert full_time("", "Full Time Employee")
-    assert not full_time("", "Part-Time")
+def test_full_time_is_the_departments_word_alone():
+    assert full_time("FT")
+    assert full_time(" ft ")
+    assert not full_time("PT")
+    # The portal's Full Time type covers language teachers and other departments' staff: not enough.
+    assert not full_time("")
 
 
 def test_a_full_timer_declares_research_and_reads_what_the_head_of_department_set(client: TestClient):
@@ -155,6 +156,9 @@ def test_nobody_but_a_full_timer_is_asked(client: TestClient):
     assert client.get(f"{DOOR}/{code}/form").json()["reductions"] is None
     refused = client.put(f"{DOOR}/{code}/reductions", json={"items": {"phd": {"amount": 1}}})
     assert refused.status_code == status.HTTP_403_FORBIDDEN
+    # Full Time on the portal, but not marked FT by the department: not asked either.
+    portal = _invitee(client, PORTAL_FT, "portal@example.com")
+    assert client.get(f"{DOOR}/{portal}/form").json()["reductions"] is None
 
 
 def test_a_validated_reduction_the_teacher_changes_is_to_be_checked_again(client: TestClient):
@@ -189,7 +193,7 @@ def test_after_the_deadline_the_declaration_is_closed(client: TestClient):
     assert closed.status_code == status.HTTP_409_CONFLICT
 
 
-def test_the_year_lists_every_full_timer_and_only_an_administrator_changes_it(
+def test_the_year_lists_every_full_timer_and_only_the_head_or_an_administrator_changes_it(
     client: TestClient, store: HourReductions, monkeypatch: pytest.MonkeyPatch
 ):
     with store.engine.begin() as connection:
@@ -201,8 +205,8 @@ def test_the_year_lists_every_full_timer_and_only_an_administrator_changes_it(
     held = client.get(AT, params={"term": "262720"}).json()
     assert held["year"] == YEAR and held["canChange"] is True
     listed = {row["teacherId"]: row for row in held["teachers"] if row["teacherId"].startswith("reduce-test-")}
-    # The department's FT, and the portal's Full Time where the department has not said; not a part-timer.
-    assert set(listed) == {FT, PORTAL_FT}
+    # The department's FT alone: not the portal's Full Time it has not marked, not a part-timer.
+    assert set(listed) == {FT}
     assert listed[FT]["head"] is True
 
     monkeypatch.setattr(
@@ -211,6 +215,18 @@ def test_the_year_lists_every_full_timer_and_only_an_administrator_changes_it(
     refused = client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"accreditation": {"amount": 1}}})
     assert refused.status_code == status.HTTP_403_FORBIDDEN
     assert client.get(AT, params={"year": YEAR}).json()["canChange"] is False
+
+    # The Head of Department named in Settings sets the reductions, without being an administrator.
+    monkeypatch.setattr(
+        auth_gate,
+        "user_for_request",
+        lambda *_args, **_kwargs: StaffUser(email="Lama.Tarsissi@sorbonne.ae", name="Lama", is_admin=False),
+    )
+    seen = client.get(AT, params={"year": YEAR}).json()
+    assert (seen["canChange"], seen["canChangeRules"]) == (True, False)
+    assert client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"accreditation": {"amount": 1}}}).status_code == 200
+    # The rules every reduction is worked out from stay an administrator's.
+    assert client.put(f"{AT}/rules", json={"service": 180}).status_code == status.HTTP_403_FORBIDDEN
 
 
 def test_an_administrator_adjusts_the_rules_and_every_total_follows(client: TestClient):

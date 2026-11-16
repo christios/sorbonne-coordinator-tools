@@ -1,9 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TeachingLoads } from "@/components/TeachingLoads";
 import * as coursePrograms from "@/services/coursePrograms";
+import * as reductions from "@/services/hourReductions";
+import type { ReductionYear } from "@/services/hourReductions";
 import * as lists from "@/services/portalLists";
 import type { ActiveTeacher } from "@/services/portalLists";
 import * as database from "@/services/studentDatabase";
@@ -44,6 +46,16 @@ beforeEach(() => {
   vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ old: "252610", s1: "262710", s2: "262720" });
   vi.spyOn(lists, "fetchSemesterShortNames").mockResolvedValue({ s1: "S1", s2: "S2" });
   vi.spyOn(coursePrograms, "fetchCoursePrograms").mockResolvedValue({ programmes: [], courses: {} });
+  // Bilal, full time, has 92 h of hour reductions: he owes 100 h of the 192.
+  vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue({
+    year: "2026-2027",
+    service: 192,
+    rules: [],
+    canChange: false,
+    teachers: [
+      { teacherId: "act-1", name: "Bilal Maaz", fullTime: true, head: false, year: "2026-2027", service: 192, items: [], total: 92, owed: 100, declaredAt: "", declaredBy: "", note: "" },
+    ],
+  } as ReductionYear);
   // The semester chosen in the header.
   window.localStorage.setItem("scen-remembered:schema-term", "s2");
 });
@@ -60,5 +72,13 @@ describe("Teaching loads", () => {
     expect(split.textContent).toContain("S2 · Semester 2");
     expect(screen.getByText("Total").closest("tr")?.textContent).toContain("100");
     expect(screen.getByText("2 of 2 sections")).toBeTruthy();
+  });
+
+  it("shows each full-timer's teaching owed beside their year's hours", async () => {
+    show();
+
+    const teachers = (await screen.findByText("Each teacher in the department")).closest("section") as HTMLElement;
+    // 100 h planned over the year, 100 h owed after his reductions.
+    expect((await within(teachers).findByText(/owes 100/)).textContent).toContain("as owed");
   });
 });

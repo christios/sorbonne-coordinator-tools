@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from sorbonne.config import config
+from sorbonne.services.department_roles import DepartmentRoles
 from sorbonne.services.engine import engine_for
 from sorbonne.services.hour_reductions import HourReductions, InvalidReductions, year_of
 
@@ -50,6 +51,28 @@ def _admin(request: Request) -> str:
     return str(getattr(staff, "email", "") or "")
 
 
+def _is_head(request: Request, reductions: HourReductions) -> bool:
+    """Whether the person signed in is the Head of Department named in Settings → Department."""
+    email = str(getattr(getattr(request.state, "staff_user", None), "email", "") or "").strip().casefold()
+    head = DepartmentRoles(reductions.engine).head()["email"].strip().casefold()
+    return bool(email) and email == head
+
+
+def _can_set(request: Request, reductions: HourReductions) -> bool:
+    """The department's reductions and the SAFIR validations are the Head of Department's to set,
+    and an administrator's."""
+    return bool(getattr(getattr(request.state, "staff_user", None), "is_admin", False)) or _is_head(request, reductions)
+
+
+def _setter(request: Request, reductions: HourReductions) -> str:
+    if not _can_set(request, reductions):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail="Only the Head of Department or an administrator can set hour reductions.",
+        )
+    return str(getattr(getattr(request.state, "staff_user", None), "email", "") or "")
+
+
 def _refused(exc: InvalidReductions) -> HTTPException:
     return HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc))
 
@@ -64,7 +87,13 @@ def year(
     except InvalidReductions as exc:
         raise _refused(exc) from exc
     staff = getattr(request.state, "staff_user", None)
-    return {**held, "canChange": bool(getattr(staff, "is_admin", False))}
+    return {
+        **held,
+        # The teachers' reductions: the Head of Department's and an administrator's to set.
+        "canChange": _can_set(request, reductions),
+        # The rules every reduction is worked out from: an administrator's alone.
+        "canChangeRules": bool(getattr(staff, "is_admin", False)),
+    }
 
 
 @router.get("/rules")
@@ -88,7 +117,7 @@ def set_teacher(
     year: str, teacher_id: str, body: SheetInput, request: Request, reductions: HourReductions = Depends(get_reductions)
 ) -> dict[str, Any]:
     """The Head of Department's word on one teacher's year."""
-    actor = _admin(request)
+    actor = _setter(request, reductions)
     try:
         return reductions.set_by_department(
             year, teacher_id, {kind: item.given() for kind, item in body.items.items()}, actor
