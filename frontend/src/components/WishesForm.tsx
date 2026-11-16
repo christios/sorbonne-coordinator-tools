@@ -504,7 +504,9 @@ export function WishesForm({
   // ---------------------------------------------------------------- the guided tour's state
   const [tourAt, setTourAt] = useState<number | null>(null);
   // Taken once, to its end, before the form is used in a browser; then again whenever wanted.
-  const [tourRequired, setTourRequired] = useState(() => !tourTaken());
+  // Asked of a teacher answering themselves; a coordinator knows the form, and takes the tour
+  // only if they press Guided tour (16 Nov 2026): no card asking, Save and Submit never wait.
+  const [tourRequired, setTourRequired] = useState(() => voice === "you" && !tourTaken());
   // Where each step started from — the week shown, whether its box was seen open — to tell when its "Try it" is done.
   const [tourBase, setTourBase] = useState({ week: "", sawOpen: false });
   // The one block made during the tour: after it, the tour makes no more.
@@ -1369,7 +1371,7 @@ export function WishesForm({
           onClose={() => {
             const early = tourAt !== tourSteps.length - 1;
             clearTried();
-            if (early) setTourHint("again");
+            if (early && voice === "you") setTourHint("again");
           }}
         />
       ) : null}
