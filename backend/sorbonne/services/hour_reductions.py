@@ -253,10 +253,16 @@ class HourReductions:
         for base in RULES:
             rule = {**base, **{k: v for k, v in overrides.get(base["kind"], {}).items() if k != "options"}}
             if base["unit"] == "choice":
-                hours = overrides.get(base["kind"], {}).get("options", {})
-                rule["options"] = [
-                    {**option, "hours": hours.get(option["key"], option["hours"])} for option in base["options"]
-                ]
+                given = overrides.get(base["kind"], {}).get("options")
+                if isinstance(given, list):
+                    # An administrator's own list: options added, renamed or taken away.
+                    rule["options"] = [dict(option) for option in given]
+                else:
+                    # The department's list, with only some hours changed (the first form kept).
+                    hours = given if isinstance(given, dict) else {}
+                    rule["options"] = [
+                        {**option, "hours": hours.get(option["key"], option["hours"])} for option in base["options"]
+                    ]
             rule["rule"] = _rule_words(rule)
             rules.append(rule)
         service = int(overrides.get("service", {}).get("hours", SERVICE_HOURS))
@@ -268,25 +274,38 @@ class HourReductions:
         return {"service": service, "rules": [_shown_rule(rule) for rule in rules]}
 
     def set_rules(self, given: dict[str, Any], actor: str = "") -> dict[str, Any]:
-        """An administrator's figures. Only what differs from the department's rules is kept."""
+        """An administrator's figures. Only what differs from the department's rules is kept.
+
+        A choice's options may be given as a list — `[{key, label, hours}]` — to add, rename or
+        take away options: a key kept keeps its teachers, an option without one is new.
+        """
         service = given.get("service")
         figures = given.get("rules") or {}
         if not isinstance(figures, dict):
             raise InvalidReductions("Give the rules' figures by kind.")
         kept: dict[str, dict[str, Any]] = {}
+        with self.engine.begin() as connection:
+            current = {rule["kind"]: rule for rule in self._rules(connection)[0]}
+            # A kind not mentioned keeps what it has: a call about the service alone must not
+            # take away the options somebody named.
+            for kind, held in self._overrides(connection).items():
+                if kind in KINDS and kind not in figures:
+                    kept[kind] = held
+            for kind, values in figures.items():
+                base = KINDS.get(kind)
+                if base is None or not isinstance(values, dict):
+                    raise InvalidReductions(f"{kind!r} is not a kind of hour reduction.")
+                changed = _changed_figures(base, values)
+                if base["unit"] == "choice":
+                    changed = _with_options(connection, base, current[kind]["options"], values, changed)
+                if changed:
+                    kept[kind] = changed
         if service is not None:
             hours = _number(service)
             if not 1 <= hours <= 500:  # noqa: PLR2004 - a year's service, generously
                 raise InvalidReductions("The yearly service is between 1 and 500 hours.")
             if int(hours) != SERVICE_HOURS:
                 kept["service"] = {"hours": int(hours)}
-        for kind, values in figures.items():
-            base = KINDS.get(kind)
-            if base is None or not isinstance(values, dict):
-                raise InvalidReductions(f"{kind!r} is not a kind of hour reduction.")
-            changed = _changed_figures(base, values)
-            if changed:
-                kept[kind] = changed
         with self.engine.begin() as connection:
             connection.execute(text("DELETE FROM hour_reduction_rules"))
             for kind, changed in kept.items():
@@ -609,6 +628,93 @@ def _changed_figures(base: dict[str, Any], values: dict[str, Any]) -> dict[str, 
         if options:
             changed["options"] = options
     return changed
+
+
+MOST_OPTIONS = 20
+OPTION_LABEL_LENGTH = 80
+
+
+def _option_key(label: str, taken: set[str]) -> str:
+    """A new option's key, from its name: "Data science programme" → "data-science-programme"."""
+    stem = re.sub(r"[^a-z0-9]+", "-", label.lower()).strip("-")[:40] or "option"
+    key, count = stem, 1
+    while key in taken:
+        count += 1
+        key = f"{stem}-{count}"
+    return key
+
+
+def _checked_options(base: dict[str, Any], held: list[dict[str, Any]], given: list[Any]) -> list[dict[str, Any]]:
+    """An administrator's list of options for a choice: each named, with its hours.
+
+    An option that keeps its key keeps every teacher who has it, whatever it is renamed to;
+    one without a key is new, and is given one from its name.
+    """
+    label = base["label"]
+    if len(given) > MOST_OPTIONS:
+        raise InvalidReductions(f"{label}: at most {MOST_OPTIONS} options.")
+    known = {option["key"] for option in held} | {option["key"] for option in base["options"]}
+    keys_given = {str(entry.get("key") or "") for entry in given if isinstance(entry, dict)}
+    taken = {key for key in keys_given if key in known}
+    names: set[str] = set()
+    options = []
+    for entry in given:
+        if not isinstance(entry, dict):
+            raise InvalidReductions(f"{label}: give each option a name and its hours.")
+        name = " ".join(str(entry.get("label") or "").split())
+        if not name:
+            raise InvalidReductions(f"{label}: every option needs a name.")
+        if len(name) > OPTION_LABEL_LENGTH:
+            raise InvalidReductions(f"{label}: an option's name is at most {OPTION_LABEL_LENGTH} characters.")
+        if name.casefold() in names:
+            raise InvalidReductions(f"{label}: {name} is there twice.")
+        names.add(name.casefold())
+        hours = _number(entry.get("hours"))
+        if not 0 <= hours <= SERVICE_HOURS:
+            raise InvalidReductions(f"{label}: {name} gives between 0 and {SERVICE_HOURS} h.")
+        key = str(entry.get("key") or "")
+        if key not in known:
+            key = _option_key(name, taken | known)
+            taken.add(key)
+        options.append({"key": key, "label": name, "hours": hours})
+    return options
+
+
+def _with_options(
+    connection: Any, base: dict[str, Any], held: list[dict[str, Any]], values: dict[str, Any], changed: dict[str, Any]
+) -> dict[str, Any]:
+    """A choice's figures with its options as they are to be kept: a list given replaces them,
+    hours alone (the first form) change only the hours, and nothing said keeps them."""
+    if isinstance(values.get("options"), list):
+        options = _checked_options(base, held, values["options"])
+        _refuse_taking_away_in_use(connection, base, held, options)
+        changed = {name: value for name, value in changed.items() if name != "options"}
+    elif "options" in values:
+        return changed
+    else:
+        options = held
+    if options != base["options"]:
+        changed = {**changed, "options": options}
+    return changed
+
+
+def _refuse_taking_away_in_use(
+    connection: Any, base: dict[str, Any], held: list[dict[str, Any]], options: list[dict[str, Any]]
+) -> None:
+    """An option a teacher has, in any year, stays until nobody has it: it would vanish from their hours."""
+    staying = {option["key"] for option in options}
+    for option in held:
+        if option["key"] in staying:
+            continue
+        count = connection.execute(
+            text("SELECT count(*) FROM hour_reductions WHERE kind = :kind AND detail = :key"),
+            {"kind": base["kind"], "key": option["key"]},
+        ).scalar_one()
+        if count:
+            who = "1 teacher has" if count == 1 else f"{count} teachers have"
+            raise InvalidReductions(
+                f"{base['label']}: {who} {option['label']}. Give them another option before taking it away."
+            )
 
 
 def _hours(rule: dict[str, Any], amount: float, detail: str) -> float:

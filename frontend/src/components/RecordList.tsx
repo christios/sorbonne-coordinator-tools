@@ -119,7 +119,7 @@ export function LabelledFigure({
   return (
     <span className={`flex min-w-0 flex-col leading-tight ${className}`}>
       <span className={`text-sm font-semibold tabular-nums ${faint ? "text-[#667085]" : tone}`}>{value}</span>
-      {label ? <span className="whitespace-nowrap text-[11px] font-semibold uppercase text-[#475467]">{label}</span> : null}
+      {label ? <span title={typeof label === "string" ? label : undefined} className="truncate text-[11px] font-semibold uppercase text-[#475467]">{label}</span> : null}
     </span>
   );
 }

@@ -240,3 +240,49 @@ def test_an_administrator_adjusts_the_rules_and_every_total_follows(client: Test
 
     sheet = client.get(f"{DOOR}/{code}/form").json()["reductions"]
     assert (_item(sheet, "phd")["hours"], sheet["service"], sheet["owed"]) == (18, 180, 162)
+
+
+def test_an_administrator_names_adds_and_takes_away_the_options_of_a_headship(client: TestClient):
+    # Lama heads a Foundation Year of over 200 students.
+    assert client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"hop": {"detail": "foundation-200"}}}).status_code == 200
+    hop = next(rule for rule in client.get(f"{AT}/rules").json()["rules"] if rule["kind"] == "hop")
+    options = [{**option} for option in hop["options"]]
+
+    # Renamed, its hours changed, one taken away nobody has, and one added.
+    for option in options:
+        if option["key"] == "foundation-200":
+            option.update(label="Foundation Year, 200 to 500 students", hours=36)
+    options = [option for option in options if option["key"] != "master"]
+    options.append({"label": "Data Science programme", "hours": 24})
+    saved = client.put(f"{AT}/rules", json={"rules": {"hop": {"options": options}}})
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    hop = next(rule for rule in saved.json()["rules"] if rule["kind"] == "hop")
+    assert [option["key"] for option in hop["options"]] == [
+        "bachelor",
+        "foundation",
+        "foundation-200",
+        "foundation-500",
+        "data-science-programme",
+    ]
+    assert "Data Science programme: 24 h" in hop["rule"]
+
+    # Lama keeps hers under its new name and hours; the new option can be given.
+    sheet = client.get(AT, params={"year": YEAR}).json()["teachers"][0]
+    assert (_item(sheet, "hop")["detail"], _item(sheet, "hop")["hours"]) == ("foundation-200", 36)
+    given = client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"hop": {"detail": "data-science-programme"}}})
+    assert _item(given.json(), "hop")["hours"] == 24
+
+    # An option a teacher has cannot be taken away until nobody has it.
+    kept = [option for option in hop["options"] if option["key"] != "data-science-programme"]
+    refused = client.put(f"{AT}/rules", json={"rules": {"hop": {"options": kept}}})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "1 teacher has Data Science programme" in refused.json()["detail"]
+
+    # Every option needs a name, once; and a call about the service alone keeps the options.
+    nameless = client.put(f"{AT}/rules", json={"rules": {"hop": {"options": [{"label": " ", "hours": 3}]}}})
+    assert nameless.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    twice = [{"label": "Bachelor's programme", "hours": 32}, {"label": "bachelor's programme", "hours": 32}]
+    assert "twice" in client.put(f"{AT}/rules", json={"rules": {"hop": {"options": twice}}}).json()["detail"]
+    client.put(f"{AT}/rules", json={"service": 190})
+    hop = next(rule for rule in client.get(f"{AT}/rules").json()["rules"] if rule["kind"] == "hop")
+    assert "data-science-programme" in [option["key"] for option in hop["options"]]

@@ -156,7 +156,8 @@ export async function fetchReductionRules(): Promise<ReductionRules> {
 /** An administrator's figures: the service, and per kind the figures that change. */
 export async function saveReductionRules(input: {
   service?: number;
-  rules: Record<string, { per?: number; cap?: number; threeYears?: number; options?: Record<string, number> }>;
+  /** A headship's options as a list: a key kept keeps its teachers; one without a key is new. */
+  rules: Record<string, { per?: number; cap?: number; threeYears?: number; options?: { key?: string; label: string; hours: number }[] }>;
 }): Promise<ReductionRules> {
   return answer(await apiFetch(`${BASE}/rules`, json("PUT", input)));
 }

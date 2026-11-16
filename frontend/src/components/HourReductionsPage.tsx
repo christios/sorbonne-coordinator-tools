@@ -1,7 +1,7 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, SlidersHorizontal } from "lucide-react";
+import { Check, Loader2, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Popover } from "radix-ui";
-import { type CSSProperties, type FormEvent, type ReactNode, useRef, useState } from "react";
+import { type CSSProperties, type FormEvent, Fragment, type ReactNode, useRef, useState } from "react";
 
 import { Tip, TipDo, TipPoint } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -57,16 +57,20 @@ const WIDTH: Record<string, string> = {
   innovation: "3.2rem",
 };
 
-/** An option as the line under a figure has room for it; the editor gives it in full. */
+/**
+ * The department's own options as the line under a figure has room for them; the editor
+ * gives them in full. Only while an option keeps its first name: one an administrator has
+ * renamed, or added, is shown by its own name.
+ */
 const SHORT_OPTION: Record<string, string> = {
-  master: "Master's",
-  bachelor: "Bachelor's",
-  foundation: "FY",
-  "foundation-200": "FY 200+",
-  "foundation-500": "FY 500+",
-  hod: "Up to 200",
-  "hod-200": "Over 200",
-  "hod-500": "Over 500",
+  "Master's programme": "Master's",
+  "Bachelor's programme": "Bachelor's",
+  "Foundation Year": "FY",
+  "Foundation Year, over 200 students": "FY 200+",
+  "Foundation Year, over 500 students": "FY 500+",
+  "Department of up to 200 students": "Up to 200",
+  "Department of over 200 students": "Over 200",
+  "Department of over 500 students": "Over 500",
 };
 
 type Teacher = ReductionYear["teachers"][number];
@@ -94,7 +98,10 @@ function madeOf(item: Pick<ReductionItem, "unit" | "amount" | "detail" | "option
     return item.detail
       .split(",")
       .filter(Boolean)
-      .map((key) => SHORT_OPTION[key] ?? item.options?.find((option) => option.key === key)?.label ?? key)
+      .map((key) => {
+        const label = item.options?.find((option) => option.key === key)?.label ?? key;
+        return SHORT_OPTION[label] ?? label;
+      })
       .join(", ");
   }
   return "";
@@ -363,7 +370,7 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
         Full-time teachers declare theirs as the first step of the timetable preferences request.
       </p>
 
-      {rules ? <RulesDialog year={year} term={term} onClose={() => setRules(false)} /> : null}
+      {rules ? <RulesDialog year={year} onClose={() => setRules(false)} /> : null}
     </div>
   );
 }
@@ -684,46 +691,59 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
   );
 }
 
-/** The figures each rule works with, an administrator's to change for everybody at once. */
-function RulesDialog({ year, term, onClose }: { year: ReductionYear; term: string; onClose: () => void }) {
+/** An option of a choice as the Rules window holds it: a new one has no key until it is saved. */
+type OptionDraft = { key: string; label: string; hours: number };
+
+/**
+ * The figures each rule works with, an administrator's to change for everybody at once —
+ * and, for a headship, its options: renamed, added, or taken away once nobody has them.
+ */
+function RulesDialog({ year, onClose }: { year: ReductionYear; onClose: () => void }) {
   const client = useQueryClient();
   const [service, setService] = useState(year.service);
   const [figures, setFigures] = useState<Record<string, Record<string, number>>>(() =>
     Object.fromEntries(
-      year.rules.map((rule) => [
-        rule.kind,
-        {
-          ...(rule.per !== null ? { per: rule.per } : {}),
-          ...(rule.cap !== null ? { cap: rule.cap } : {}),
-          ...(rule.threeYears !== undefined ? { threeYears: rule.threeYears } : {}),
-          ...Object.fromEntries((rule.unit === "choice" ? (rule.options ?? []) : []).map((option) => [`option:${option.key}`, option.hours])),
-        },
-      ]),
+      year.rules
+        .filter((rule) => rule.unit !== "choice")
+        .map((rule) => [
+          rule.kind,
+          {
+            ...(rule.per !== null ? { per: rule.per } : {}),
+            ...(rule.cap !== null ? { cap: rule.cap } : {}),
+            ...(rule.threeYears !== undefined ? { threeYears: rule.threeYears } : {}),
+          },
+        ]),
+    ),
+  );
+  const [options, setOptions] = useState<Record<string, OptionDraft[]>>(() =>
+    Object.fromEntries(
+      year.rules
+        .filter((rule) => rule.unit === "choice")
+        .map((rule) => [rule.kind, (rule.options ?? []).map((option) => ({ ...option }))]),
     ),
   );
   const save = useMutation({
     mutationFn: () =>
       saveReductionRules({
         service,
-        rules: Object.fromEntries(
-          Object.entries(figures).map(([kind, values]) => {
-            const options = Object.fromEntries(
-              Object.entries(values)
-                .filter(([name]) => name.startsWith("option:"))
-                .map(([name, hours]) => [name.slice("option:".length), hours]),
-            );
-            const plain = Object.fromEntries(Object.entries(values).filter(([name]) => !name.startsWith("option:")));
-            return [kind, { ...plain, ...(Object.keys(options).length ? { options } : {}) }];
-          }),
-        ),
+        rules: {
+          ...figures,
+          ...Object.fromEntries(
+            Object.entries(options).map(([kind, list]) => [
+              kind,
+              { options: list.map((option) => ({ ...(option.key ? { key: option.key } : {}), label: option.label, hours: option.hours })) },
+            ]),
+          ),
+        },
       }),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["hour-reductions", term] });
+      void client.invalidateQueries({ queryKey: ["hour-reductions"] });
       onClose();
     },
   });
+  const field = "rounded-md border border-[#b7bec8] px-1.5 py-1 text-sm text-[#171717] focus:border-[#1f4e79] focus:outline-none focus:ring-2 focus:ring-[#d7e5f3]";
   const number = (kind: string, name: string, label: string) => (
-    <label key={name} className="inline-flex items-center gap-1.5 text-xs text-[#475467]">
+    <label key={name} className="inline-flex items-center gap-1.5 text-xs text-[#344054]">
       {label}
       <input
         type="number"
@@ -732,18 +752,64 @@ function RulesDialog({ year, term, onClose }: { year: ReductionYear; term: strin
         aria-label={`${kind} ${label}`}
         value={figures[kind]?.[name] ?? 0}
         onChange={(event) => setFigures((current) => ({ ...current, [kind]: { ...current[kind], [name]: Number(event.target.value) || 0 } }))}
-        className="w-16 rounded-md border border-[#b7bec8] px-1.5 py-1 text-sm text-[#171717]"
+        className={`${field} w-16`}
       />
     </label>
+  );
+  const changeOption = (kind: string, at: number, change: Partial<OptionDraft>) =>
+    setOptions((current) => ({
+      ...current,
+      [kind]: current[kind].map((option, index) => (index === at ? { ...option, ...change } : option)),
+    }));
+  const choices = (rule: ReductionRule) => (
+    <div className="w-full space-y-1.5">
+      {(options[rule.kind] ?? []).map((option, at) => (
+        <div key={option.key || `new-${at}`} className="flex items-center gap-2">
+          <input
+            type="text"
+            aria-label={`${rule.label}: name of option ${at + 1}`}
+            value={option.label}
+            placeholder="Name of the option"
+            onChange={(event) => changeOption(rule.kind, at, { label: event.target.value })}
+            className={`${field} min-w-0 flex-1`}
+          />
+          <input
+            type="number"
+            min={0}
+            step={0.5}
+            aria-label={`${rule.label}: hours for option ${at + 1}`}
+            value={option.hours}
+            onChange={(event) => changeOption(rule.kind, at, { hours: Number(event.target.value) || 0 })}
+            className={`${field} w-16`}
+          />
+          <span className="text-xs text-[#344054]">h</span>
+          <button
+            type="button"
+            aria-label={`Take away ${option.label || `option ${at + 1}`}`}
+            onClick={() => setOptions((current) => ({ ...current, [rule.kind]: current[rule.kind].filter((_, index) => index !== at) }))}
+            className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-[#a6292f] hover:bg-[#fdf3f3]"
+          >
+            <Trash2 size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ))}
+      <button
+        type="button"
+        onClick={() => setOptions((current) => ({ ...current, [rule.kind]: [...(current[rule.kind] ?? []), { key: "", label: "", hours: 0 }] }))}
+        className="inline-flex items-center gap-1 text-sm font-semibold text-[#1f4e79] underline-offset-2 hover:underline"
+      >
+        <Plus size={14} aria-hidden="true" /> Add an option
+      </button>
+    </div>
   );
   const editable = (rule: ReductionRule) => {
     if (rule.unit === "students") return [number(rule.kind, "per", "h each"), number(rule.kind, "cap", "up to h")];
     if (rule.unit === "hours") {
       return rule.cap === null
-        ? [<span key="none" className="text-xs text-[#667085]">As validated</span>]
+        ? [<span key="none" className="text-xs text-[#475467]">As validated</span>]
         : [number(rule.kind, "cap", "up to h"), ...(rule.threeYears !== undefined ? [number(rule.kind, "threeYears", "over 3 years h")] : [])];
     }
-    if (rule.unit === "choice") return (rule.options ?? []).map((option) => number(rule.kind, `option:${option.key}`, `${option.label} h`));
+    if (rule.unit === "choice") return [<Fragment key="choices">{choices(rule)}</Fragment>];
     return [number(rule.kind, "per", rule.unit === "committees" ? "h each" : "h")];
   };
   return (
@@ -778,14 +844,21 @@ function RulesDialog({ year, term, onClose }: { year: ReductionYear; term: strin
           min={1}
           value={service}
           onChange={(event) => setService(Number(event.target.value) || 0)}
-          className="w-20 rounded-md border border-[#b7bec8] px-2 py-1 text-sm"
+          className={`${field} w-20`}
         />
         h
       </label>
-      <ul className="divide-y divide-[#e4e7ec] rounded-lg border border-[#d0d5dd]">
+      <ul className="divide-y divide-[#d0d5dd] rounded-lg border border-[#b8c2cf]">
         {year.rules.map((rule) => (
-          <li key={rule.kind} className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:items-center">
-            <p className="text-sm font-semibold text-[#171717]">{rule.label}</p>
+          <li key={rule.kind} className="grid gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,16rem)_minmax(0,1fr)] sm:items-start">
+            <div>
+              <p className="text-sm font-semibold text-[#171717]">{rule.label}</p>
+              {rule.unit === "choice" ? (
+                <p className="mt-0.5 text-xs text-[#475467]">
+                  An option a teacher has keeps them when it is renamed. One a teacher has cannot be taken away.
+                </p>
+              ) : null}
+            </div>
             <div className="flex flex-wrap gap-3">{editable(rule)}</div>
           </li>
         ))}
