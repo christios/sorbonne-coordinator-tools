@@ -57,8 +57,9 @@ const statusOf = (row: WishTeacher): Exclude<Shown, "all"> => row.wishes?.status
  * Record list, as on Part-time Teachers and Hour reductions: who, where their answer stands
  * and when it last changed, what it holds, how far their invitation got, and what can be done.
  */
+// Narrower screens keep the name readable: the figures go on two lines in a narrower Answer column.
 const ROW_GRID =
-  "gap-x-5 gap-y-2 px-4 sm:grid-cols-[minmax(11rem,2fr)_minmax(7rem,1fr)_13.5rem_minmax(0,1fr)_6rem] sm:items-center";
+  "gap-x-4 gap-y-2 px-4 sm:grid-cols-[minmax(9.5rem,2fr)_minmax(6rem,1fr)_9.5rem_minmax(7rem,1fr)_5.75rem] xl:grid-cols-[minmax(11rem,2fr)_minmax(7rem,1fr)_15.5rem_minmax(7.5rem,1fr)_6rem] sm:items-center";
 
 /** What an answer holds, as the Record list shows figures: each over what it counts, in small capitals. */
 function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
@@ -69,13 +70,14 @@ function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
   const weekly = recurringConstraintHours(blocks);
   const over = weekly > cap;
   return (
-    <span className="flex items-start gap-3">
-      <LabelledFigure value={constraints} label="constraints" tone="text-[#a6292f]" faint={!constraints} className="min-w-[4.75rem]" />
+    <span className="flex flex-wrap items-start gap-x-3 gap-y-1">
+      {/* Each figure as wide as its word, never cut: on a narrow screen the third goes under the first two. */}
+      <LabelledFigure value={constraints} label="constraints" tone="text-[#a6292f]" faint={!constraints} className="shrink-0" />
       {/* The constraints' hours a week, against the cap: red once over it. */}
-      <span title={`${weekly} h a week marked as constraints for the whole semester${over ? `: more than the ${cap} h allowed without a reason` : ""}`}>
-        <LabelledFigure value={`${weekly} h`} label="a week" tone={over ? "text-[#a6292f]" : "text-[#344054]"} faint={!weekly} className="min-w-[3rem]" />
+      <span className="shrink-0" title={`${weekly} h a week marked as constraints for the whole semester${over ? `: more than the ${cap} h allowed without a reason` : ""}`}>
+        <LabelledFigure value={`${weekly} h`} label="a week" tone={over ? "text-[#a6292f]" : "text-[#344054]"} faint={!weekly} className="shrink-0" />
       </span>
-      <LabelledFigure value={preferences} label="preferences" tone="text-[#8a6116]" faint={!preferences} className="min-w-[4.75rem]" />
+      <LabelledFigure value={preferences} label="preferences" tone="text-[#8a6116]" faint={!preferences} className="shrink-0" />
     </span>
   );
 }
