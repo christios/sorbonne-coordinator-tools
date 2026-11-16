@@ -63,7 +63,7 @@ export function RecordList({
       <div
         aria-hidden="true"
         style={grid}
-        className={`${columns} sticky top-0 z-20 hidden border-b border-[#e5e7eb] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#98a2b3] sm:grid`}
+        className={`${columns} sticky top-0 z-20 hidden border-b border-[#e5e7eb] bg-[#f8fafc] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#475467] sm:grid`}
       >
         {head}
       </div>
@@ -97,7 +97,9 @@ export function RecordRow({
 
 /**
  * A figure with what it is under it, in small capitals: "92 h" over TEACHING. A figure of
- * nothing is drawn faint, so the eye runs down a column to the ones that count.
+ * nothing is drawn lighter, so the eye runs down a column to the ones that count — but
+ * never so light it cannot be read: the heading, the labels and a figure of nothing all
+ * keep to a contrast of at least 3.5:1 on white, the labels and heading 4.5:1 and more.
  */
 export function LabelledFigure({
   value,
@@ -115,8 +117,8 @@ export function LabelledFigure({
 }) {
   return (
     <span className={`flex min-w-0 flex-col leading-tight ${className}`}>
-      <span className={`text-sm font-semibold tabular-nums ${faint ? "text-[#c8d0da]" : tone}`}>{value}</span>
-      {label ? <span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">{label}</span> : null}
+      <span className={`text-sm font-semibold tabular-nums ${faint ? "text-[#7d8799]" : tone}`}>{value}</span>
+      {label ? <span className="whitespace-nowrap text-[11px] font-semibold uppercase text-[#667085]">{label}</span> : null}
     </span>
   );
 }

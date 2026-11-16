@@ -37,19 +37,22 @@ const SHORT: Record<string, string> = {
   innovation: "Pedag. innov.",
 };
 
-/** Each column's width, so a figure's label has room under it and the list lines up. */
+/**
+ * Each column's width: as wide as the longest label it can hold ("20 STUDENTS",
+ * "BACHELOR'S"), measured, so no label runs into its neighbour and the list lines up.
+ */
 const WIDTH: Record<string, string> = {
-  phd: "4rem",
-  masters: "4.2rem",
-  project: "3.4rem",
+  phd: "4.5rem",
+  masters: "4.9rem",
+  project: "3.5rem",
   hdr: "2.8rem",
   irg: "2.8rem",
-  internships: "4.8rem",
-  committees: "4.8rem",
-  hop: "4rem",
-  hod: "4rem",
+  internships: "5rem",
+  committees: "5rem",
+  hop: "4.6rem",
+  hod: "3.8rem",
   new_joiner: "3.2rem",
-  accreditation: "3.2rem",
+  accreditation: "3.3rem",
   innovation: "3.2rem",
 };
 
@@ -57,7 +60,7 @@ const WIDTH: Record<string, string> = {
 const SHORT_OPTION: Record<string, string> = {
   master: "Master's",
   bachelor: "Bachelor's",
-  foundation: "Foundation",
+  foundation: "FY",
   "foundation-200": "FY 200+",
   "foundation-500": "FY 500+",
   hod: "Up to 200",
@@ -78,6 +81,14 @@ const plural = (count: number, word: string) => `${count} ${word}${count === 1 ?
 /** What a kind's hours are made of, in the few words under its figure: "12 students", "Ethics". */
 function madeOf(item: Pick<ReductionItem, "unit" | "amount" | "detail" | "options">): string {
   if (item.unit === "students") return item.amount ? plural(item.amount, "student") : "";
+  if (item.unit === "committees" && item.detail.includes(",")) {
+    // Two or three committees by their initials, "B · E"; the editor names them.
+    return item.detail
+      .split(",")
+      .filter(Boolean)
+      .map((key) => (item.options?.find((option) => option.key === key)?.label ?? key)[0])
+      .join(" · ");
+  }
   if (item.unit === "committees" || item.unit === "choice") {
     return item.detail
       .split(",")
@@ -215,10 +226,10 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
   // The teacher, a column per kind, the total and what is owed: fixed widths, the same on
   // the heading and on every row. Never narrower than they add up to: a narrow screen
   // scrolls the list sideways instead.
-  const widths = [...kinds.map((rule) => WIDTH[rule.kind] ?? "3.4rem"), "3rem", "3.4rem"];
-  const least = 13 + widths.reduce((sum, width) => sum + Number.parseFloat(width), 0) + widths.length * 0.375 + 2;
-  const columns = "gap-x-1.5 gap-y-1 px-4 items-center";
-  const grid = { gridTemplateColumns: `minmax(13rem,1fr) ${widths.join(" ")}`, minWidth: `${least}rem` };
+  const widths = [...kinds.map((rule) => WIDTH[rule.kind] ?? "3.4rem"), "3rem", "3.2rem"];
+  const least = 12 + widths.reduce((sum, width) => sum + Number.parseFloat(width), 0) + widths.length * 0.25 + 2;
+  const columns = "gap-x-1 gap-y-1 px-4 items-center";
+  const grid = { gridTemplateColumns: `minmax(12rem,1fr) ${widths.join(" ")}`, minWidth: `${least}rem` };
   const change = (teacher: Teacher, items: Record<string, ReductionInput>) =>
     save.mutate({ teacherId: teacher.teacherId, name: teacher.name, items });
 
@@ -258,7 +269,7 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
               <SlidersHorizontal size={14} aria-hidden="true" /> Rules
             </button>
           ) : null}
-          <span className="shrink-0 text-xs tabular-nums text-[#98a2b3]">{year.teachers.length}</span>
+          <span className="shrink-0 text-xs tabular-nums text-[#667085]">{year.teachers.length}</span>
         </RecordToolbar>
         <RecordList
           label="Full-time teachers"
@@ -271,10 +282,10 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
             <>
               {/* Which kinds are the teacher's to declare and which the Head of Department's. */}
               <span />
-              <span style={{ gridColumn: `span ${research.length}` }} className="border-b border-[#e5e7eb] pb-0.5 text-[#667085]">
+              <span style={{ gridColumn: `span ${research.length}` }} className="border-b border-[#d0d5dd] pb-0.5 text-[#344054]">
                 Research, through SAFIR
               </span>
-              <span style={{ gridColumn: `span ${department.length}` }} className="border-b border-[#e5e7eb] pb-0.5 text-[#667085]">
+              <span style={{ gridColumn: `span ${department.length}` }} className="border-b border-[#d0d5dd] pb-0.5 text-[#344054]">
                 Set by the Head of Department
               </span>
               <span />
@@ -305,7 +316,7 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
                   <ReductionFigure key={item.kind} teacher={teacher} item={item} />
                 ),
               )}
-              <LabelledFigure value={hoursText(teacher.total)} faint={!teacher.total} />
+              <LabelledFigure value={hoursText(teacher.total)} tone="text-[#171717]" />
               <LabelledFigure value={hoursText(teacher.owed)} label={`of ${teacher.service}`} tone="text-[#1f4e79]" />
             </RecordRow>
           ))}
@@ -346,8 +357,8 @@ function TeacherCell({
           </span>
           {teacher.head ? <span className="shrink-0 rounded border border-[#1f4e79] px-1 text-[10px] font-semibold text-[#1f4e79]">HoD</span> : null}
         </span>
-        <span className="block truncate text-xs text-[#667085]" title={teacher.note || undefined}>
-          {teacher.declaredAt ? `Declared ${dayWords(teacher.declaredAt)}` : <span className="italic text-[#98a2b3]">Not declared yet</span>}
+        <span className="block truncate text-xs text-[#475467]" title={teacher.note || undefined}>
+          {teacher.declaredAt ? `Declared ${dayWords(teacher.declaredAt)}` : <span className="italic text-[#667085]">Not declared yet</span>}
           {teacher.note ? <span className="italic"> · “{teacher.note}”</span> : null}
           {!teacher.fullTime ? <span className="text-[#8a6116]"> · not full time now</span> : null}
         </span>
