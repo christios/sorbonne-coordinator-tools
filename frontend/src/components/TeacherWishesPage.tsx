@@ -72,12 +72,16 @@ function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
   return (
     <span className="flex flex-wrap items-start gap-x-3 gap-y-1">
       {/* Each figure as wide as its word, never cut: on a narrow screen the third goes under the first two. */}
-      <LabelledFigure value={constraints} label="constraints" tone="text-[#a6292f]" faint={!constraints} className="shrink-0" />
+      <span className="shrink-0" title="Hard constraints: they can't teach then">
+        <LabelledFigure value={constraints} label="hard" tone="text-[#a6292f]" faint={!constraints} className="shrink-0" />
+      </span>
       {/* The constraints' hours a week, against the cap: red once over it. */}
-      <span className="shrink-0" title={`${weekly} h a week marked as constraints for the whole semester${over ? `: more than the ${cap} h allowed without a reason` : ""}`}>
+      <span className="shrink-0" title={`${weekly} h a week marked as hard constraints for the whole semester${over ? `: more than the ${cap} h allowed without a reason` : ""}`}>
         <LabelledFigure value={`${weekly} h`} label="a week" tone={over ? "text-[#a6292f]" : "text-[#344054]"} faint={!weekly} className="shrink-0" />
       </span>
-      <LabelledFigure value={preferences} label="preferences" tone="text-[#8a6116]" faint={!preferences} className="shrink-0" />
+      <span className="shrink-0" title="Soft constraints: they'd rather not teach then">
+        <LabelledFigure value={preferences} label="soft" tone="text-[#8a6116]" faint={!preferences} className="shrink-0" />
+      </span>
     </span>
   );
 }
@@ -141,7 +145,7 @@ function CollectionSettings({
             rows={3}
             value={draft.message}
             onChange={(event) => set({ message: event.target.value })}
-            placeholder="Please tell us by 10 January when you can and can't teach next semester."
+            placeholder="Please tell us by 10 January when you can't teach next semester, and when you'd rather not."
             className={`mt-1 ${field}`}
           />
         </label>
@@ -304,11 +308,12 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         mailbox, and they sign in with that Google account to give their own preferences and constraints until the deadline.
       </TipPoint>
       <TipPoint step={3}>
-        On <TipPage name="Semester plan" />, a class that breaks a preference is flagged, and its teacher&rsquo;s week is shaded while you move it.
+        On <TipPage name="Semester plan" />, a class in a teacher&rsquo;s hard constraint is flagged red, in a soft one amber, and their
+        week is shaded while you move it.
       </TipPoint>
       <TipUsage
         when={<>Bilal Maaz emails to say Tuesday afternoons are impossible.</>}
-        todo={<>Click Bilal&rsquo;s name, mark Tuesday 14:00–18:00 as a constraint every week, and submit.</>}
+        todo={<>Click Bilal&rsquo;s name, mark Tuesday 14:00–18:00 as a hard constraint for the whole semester, and submit.</>}
         then={<>On the plan, Bilal&rsquo;s classes on Tuesday afternoon are flagged red.</>}
       />
     </InfoTip>
@@ -338,7 +343,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
           <CalendarHeart size={22} className="mx-auto text-[#98a2b3]" aria-hidden="true" />
           <p className="mt-2 text-sm font-semibold text-[#344054]">No preferences collected for {semesterName} yet</p>
           <p className="mx-auto mt-1 max-w-md text-sm text-[#667085]">
-            Open the collection with a deadline, and each teacher can say when they can and can&rsquo;t teach. You can also answer for
+            Open the collection with a deadline, and each teacher can say when they can&rsquo;t teach, and when they&rsquo;d rather not. You can also answer for
             a teacher yourself.
           </p>
           <button

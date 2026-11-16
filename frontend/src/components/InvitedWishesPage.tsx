@@ -137,8 +137,8 @@ export function InvitedWishesPage({ code }: { code: string }) {
       <Frame>
         <p className="text-base font-semibold text-[#171717]">Hello {invite.teacherName},</p>
         <p className="mt-2 text-sm leading-6 text-[#475467]">
-          Please tell us when you can and can&rsquo;t teach{invite.semesterName ? ` in ${invite.semesterName}` : ""}, and what
-          matters most to you. We use your answer while we build the timetable.
+          Please tell us when you can&rsquo;t teach{invite.semesterName ? ` in ${invite.semesterName}` : ""}, when you&rsquo;d rather
+          not, and what matters most to you. We use your answer while we build the timetable.
         </p>
         {invite.message ? <p className="mt-3 whitespace-pre-line rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">{invite.message}</p> : null}
         {invite.deadline ? <p className="mt-3 text-sm text-[#344054]">Please answer by <b>{day(invite.deadline)}</b>.</p> : null}

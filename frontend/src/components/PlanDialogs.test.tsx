@@ -168,14 +168,14 @@ describe("a class beside its teacher's wishes", () => {
       }),
       2,
     );
-    expect(screen.getByText("1 constraint · 1 preference")).toBeTruthy();
+    expect(screen.getByText("1 hard constraint · 1 soft")).toBeTruthy();
     expect(screen.getByText("· 1 broken at this time")).toBeTruthy();
     expect(screen.queryByRole("list", { name: "Bilal Maaz's preferences" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show all" }));
     const items = within(screen.getByRole("list", { name: "Bilal Maaz's preferences" }))
       .getAllByRole("listitem")
       .map((item) => item.textContent);
-    expect(items).toEqual(["ConstraintTue 14:00–18:00 · whole semester — this time breaks it“School run”", "PreferenceMonday free"]);
+    expect(items).toEqual(["Hard constraintTue 14:00–18:00 · whole semester — this time breaks it“School run”", "Soft constraintMonday free"]);
     expect(screen.getByText("Needs: A lab")).toBeTruthy();
   });
 
@@ -191,7 +191,7 @@ describe("a class beside its teacher's wishes", () => {
     );
     const strip = screen.getByRole("status");
     expect(strip.textContent).toContain("1 problem at this time");
-    expect(within(strip).getByText("Constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”")).toBeTruthy();
+    expect(within(strip).getByText("Hard constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”")).toBeTruthy();
   });
 
   it("says when the teacher hasn't answered", () => {

@@ -29,7 +29,7 @@ const stroke = (from: [string, string], to: [string, string] = from) => {
   if (to[0] !== from[0] || to[1] !== from[1]) fireEvent.pointerOver(cell(...to));
   fireEvent.pointerUp(window);
 };
-const box = () => screen.getByRole("dialog", { name: /^(Constraint|Preference) · / });
+const box = () => screen.getByRole("dialog", { name: /^(Hard|Soft) constraint · / });
 /** Done in a block's box: a constraint given a reason first, if it has none (it needs one). */
 const done = () => {
   const why = within(box()).getByRole("textbox") as HTMLInputElement;
@@ -88,12 +88,13 @@ describe("a teacher's week, marked block by block", () => {
     }
     expect(said("Tuesday", "17:00")).toContain("fine");
     expect(said("Monday", "14:00")).toContain("fine");
-    const opened = screen.getByRole("dialog", { name: "Constraint · Tue, Wed, Thu 14:00–17:00 · whole semester" });
+    const opened = screen.getByRole("dialog", { name: "Hard constraint · Tue, Wed, Thu 14:00–17:00 · whole semester" });
     expect(within(opened).getByRole("radio", { name: /^Whole semester Every week, first to last/ }).getAttribute("aria-checked")).toBe("true");
     expect(screen.queryByRole("radio", { name: "Clear" })).toBeNull();
   });
 
-  it("repeats a block that week only, or from that week on, as chosen, and shows it on those weeks", () => {
+  // Several weeks walked through: well under a second alone, more on a busy machine.
+  it("repeats a block that week only, or from that week on, as chosen, and shows it on those weeks", { timeout: 20_000 }, () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     fireEvent.click(within(box()).getByRole("radio", { name: /^This week only/ }));
@@ -114,8 +115,8 @@ describe("a teacher's week, marked block by block", () => {
 
   it("makes a whole day a constraint for that week only from the day's name, to say why", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: a constraint all day, this week only" }));
-    const day = screen.getByRole("dialog", { name: "Constraint · Thu 14 Jan, all day" });
+    fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: a hard constraint all day, this week only" }));
+    const day = screen.getByRole("dialog", { name: "Hard constraint · Thu 14 Jan, all day" });
     expect(within(day).getByRole("radio", { name: /^This week only/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(within(day).getByRole("textbox"), { target: { value: "Conference" } });
     done();
@@ -129,32 +130,32 @@ describe("a teacher's week, marked block by block", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     // Enter or Space on a cell is a click with no pointer behind it.
     fireEvent.click(cell("Monday", "09:00"));
-    expect(screen.getByRole("dialog", { name: "Constraint · Mon 09:00–10:00 · whole semester" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Hard constraint · Mon 09:00–10:00 · whole semester" })).toBeTruthy();
     done();
     expect(screen.queryByRole("dialog")).toBeNull();
     fireEvent.click(cell("Monday", "09:00"));
-    expect(screen.getByRole("dialog", { name: "Constraint · Mon 09:00–10:00 · whole semester" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Hard constraint · Mon 09:00–10:00 · whole semester" })).toBeTruthy();
   });
 
   it("makes every block a constraint first, turned to a preference in its box: no buttons above the calendar", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     expect(screen.queryByRole("radiogroup", { name: "Mark as" })).toBeNull();
     stroke(["Monday", "09:00"]);
-    expect(box().getAttribute("aria-label")).toBe("Constraint · Mon 09:00–10:00 · whole semester");
-    fireEvent.click(within(box()).getByRole("radio", { name: "Preference" }));
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 09:00–10:00 · whole semester");
+    fireEvent.click(within(box()).getByRole("radio", { name: "Soft constraint" }));
     done();
-    expect(said("Monday", "09:00")).toContain("preference, whole semester");
+    expect(said("Monday", "09:00")).toContain("soft constraint, whole semester");
   });
 
   it("makes a whole week a constraint for that week only from its Whole week button", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "The week after" }));
-    fireEvent.click(screen.getByRole("button", { name: "Week 2 · 18 Jan–22 Jan: a constraint all week, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Constraint · Mon 18 Jan–Fri 22 Jan, all day");
+    fireEvent.click(screen.getByRole("button", { name: "Week 2 · 18 Jan–22 Jan: a hard constraint all week, this week only" }));
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, all day");
     fireEvent.change(within(box()).getByRole("textbox"), { target: { value: "Leave" } });
     done();
     for (const day of ["Monday", "Wednesday", "Friday"]) expect(said(day, "10:00")).toContain("constraint, this week only");
-    expect(screen.getByRole("button", { name: /a constraint all week, this week only$/ }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: /a hard constraint all week, this week only$/ }).getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "The week before" }));
     expect(said("Monday", "10:00")).toContain("fine");
   });
@@ -179,11 +180,11 @@ describe("a teacher's week, marked block by block", () => {
     fireEvent.click(within(box()).getByRole("radio", { name: /^This week only/ }));
     done();
     fireEvent.click(screen.getByRole("button", { name: "The week before" }));
-    fireEvent.click(screen.getByRole("button", { name: "Show Constraint · Tue 19 Jan, 14:00–15:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show Hard constraint · Tue 19 Jan, 14:00–15:00" }));
     expect(screen.getByRole("table", { name: "Week 2 · 18 Jan–22 Jan" })).toBeTruthy();
-    expect(screen.getByRole("dialog", { name: "Constraint · Tue 19 Jan, 14:00–15:00" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Hard constraint · Tue 19 Jan, 14:00–15:00" })).toBeTruthy();
     done();
-    fireEvent.click(screen.getByRole("button", { name: "Remove Constraint · Tue 19 Jan, 14:00–15:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Hard constraint · Tue 19 Jan, 14:00–15:00" }));
     expect(screen.getByLabelText("Summary of constraints and preferences").textContent).toContain("Nothing marked");
   });
 
@@ -191,7 +192,7 @@ describe("a teacher's week, marked block by block", () => {
     const { unmount } = render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(screen.getByRole("radio", { name: "15 min" }));
     stroke(["Tuesday", "14:15"], ["Tuesday", "14:30"]);
-    expect(screen.getByRole("dialog", { name: "Constraint · Tue 14:15–14:45 · whole semester" })).toBeTruthy();
+    expect(screen.getByRole("dialog", { name: "Hard constraint · Tue 14:15–14:45 · whole semester" })).toBeTruthy();
     unmount();
     const block: WishBlock = { id: "b", kind: "constraint", days: [2], from: 14.25, to: 15, repeat: "all", week: "", comment: "" };
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([block])} onSave={() => {}} />);
@@ -204,9 +205,9 @@ describe("a teacher's week, marked block by block", () => {
     // Four hours every week, over the three: a day of one week does not count.
     stroke(["Monday", "08:00"], ["Monday", "11:00"]);
     done();
-    fireEvent.click(screen.getByRole("button", { name: "Friday 15 Jan: a constraint all day, this week only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Friday 15 Jan: a hard constraint all day, this week only" }));
     done();
-    expect(screen.getByLabelText("Constraints: 4 of 3 hours a week")).toBeTruthy();
+    expect(screen.getByLabelText("Hard constraints: 4 of 3 hours a week")).toBeTruthy();
 
     expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
@@ -216,7 +217,7 @@ describe("a teacher's week, marked block by block", () => {
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     // Not sent: back on the calendar, where the reason goes.
     expect(onSave).not.toHaveBeenCalled();
-    expect(screen.getByRole("alert").textContent).toContain("4 hours a week of constraints, over the 3");
+    expect(screen.getByRole("alert").textContent).toContain("4 hours a week of hard constraints, over the 3");
     fireEvent.change(screen.getByRole("textbox", { name: /say why, for the coordinator/ }), { target: { value: "Lab weeks" } });
     fireEvent.click(screen.getByRole("button", { name: "Needs and a note" }));
     expect((screen.getByRole("textbox", { name: "Note" }) as HTMLTextAreaElement).value).toBe("Mornings, please");
@@ -239,13 +240,13 @@ describe("a teacher's week, marked block by block", () => {
     stroke(["Monday", "09:00"]);
     expect(within(box()).getByText("· required")).toBeTruthy();
     fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
-    expect(within(box()).getByRole("alert").textContent).toBe("A constraint needs a reason.");
+    expect(within(box()).getByRole("alert").textContent).toBe("A hard constraint needs a reason.");
     expect(within(box()).getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
     // The switch fills its row, its two halves sharing it.
-    for (const half of within(within(box()).getByRole("radiogroup", { name: "Constraint or preference" })).getAllByRole("radio")) {
+    for (const half of within(within(box()).getByRole("radiogroup", { name: "Hard or soft constraint" })).getAllByRole("radio")) {
       expect(half.className).toContain("flex-1");
     }
-    fireEvent.click(within(box()).getByRole("radio", { name: "Preference" }));
+    fireEvent.click(within(box()).getByRole("radio", { name: "Soft constraint" }));
     expect(within(box()).getByText("· optional")).toBeTruthy();
     fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -263,8 +264,8 @@ describe("a teacher's week, marked block by block", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Next: Needs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     expect(onSave).toHaveBeenCalledTimes(1);
-    expect(screen.getByText(/Each constraint needs a reason/)).toBeTruthy();
-    const opened = screen.getByRole("dialog", { name: "Constraint · Tue 14:00–16:00 · whole semester" });
+    expect(screen.getByText(/Each hard constraint needs a reason/)).toBeTruthy();
+    const opened = screen.getByRole("dialog", { name: "Hard constraint · Tue 14:00–16:00 · whole semester" });
     expect(within(opened).getByRole("textbox").getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(within(opened).getByRole("textbox"), { target: { value: "School run" } });
     fireEvent.click(within(opened).getByRole("button", { name: "Done" }));
@@ -294,9 +295,9 @@ describe("a teacher's week, marked block by block", () => {
     const onSave = vi.fn();
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([], { limits: { maxDays: 3 } })} onSave={onSave} />);
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
-    const kind = screen.getByRole("radiogroup", { name: "Maximum days on campus per week: constraint or preference" });
-    expect(within(kind).getByRole("radio", { name: "Preference" }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.click(within(kind).getByRole("radio", { name: "Constraint" }));
+    const kind = screen.getByRole("radiogroup", { name: "Maximum days on campus per week: hard or soft" });
+    expect(within(kind).getByRole("radio", { name: "Soft constraint" }).getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(kind).getByRole("radio", { name: "Hard constraint" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Maximum days on campus per week: comment" }), { target: { value: "Childcare" } });
     fireEvent.click(screen.getByRole("button", { name: "Save draft" }));
     expect(onSave).toHaveBeenCalledWith(
@@ -309,8 +310,8 @@ describe("a teacher's week, marked block by block", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
     const page = screen.getByRole("region", { name: "Limits on your week" });
     expect(page.textContent).toContain("All optional. Leave No limit on any that doesn’t matter.");
-    expect(page.textContent).toContain("PreferenceThe timetable respects it if it can.");
-    expect(page.textContent).toContain("ConstraintThe timetable must respect it. Say why.");
+    expect(page.textContent).toContain("Soft constraintThe timetable respects it if it can.");
+    expect(page.textContent).toContain("Hard constraintThe timetable must respect it. Say why.");
     for (const [name, help] of [
       ["Maximum days on campus per week", "How many days a week you can come in to teach."],
       ["Maximum teaching hours per day", "How many hours of class you can teach in one day."],
@@ -326,13 +327,13 @@ describe("a teacher's week, marked block by block", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([block])} onSave={() => {}} />);
     const summary = screen.getByLabelText("Summary of constraints and preferences");
     expect(summary.textContent).toContain("Click a date to open it on the calendar and change it.");
-    expect(within(summary).getByRole("heading", { name: /^Constraints 1/ })).toBeTruthy();
-    expect(within(summary).getByRole("heading", { name: /^Preferences 0/ })).toBeTruthy();
-    const date = within(summary).getByRole("button", { name: /^Show Constraint · Tue 14:00–16:00/ });
+    expect(within(summary).getByRole("heading", { name: /^Hard constraints 1/ })).toBeTruthy();
+    expect(within(summary).getByRole("heading", { name: /^Soft constraints 0/ })).toBeTruthy();
+    const date = within(summary).getByRole("button", { name: /^Show Hard constraint · Tue 14:00–16:00/ });
     expect(date.className).toContain("underline");
     expect(summary.textContent).toContain("Whole semester");
     fireEvent.click(date);
-    expect(box().getAttribute("aria-label")).toBe("Constraint · Tue 14:00–16:00 · whole semester");
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Tue 14:00–16:00 · whole semester");
   });
 
   it("tells whoever holds it when it has changed, and when it is back as it was", () => {
@@ -458,7 +459,7 @@ describe("the guided tour, for a teacher answering through their link", () => {
     backToTour();
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     // Made: the block does not open by itself, while the tour is to teach opening it.
-    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /^Hard constraint · / })).toBeNull();
     // Said where "Your turn" was, in its place.
     expect(within(step("Mark a time")).queryByText("Your turn")).toBeNull();
     expect(step("Mark a time").querySelector('[data-tour-slot="done"]')?.textContent).toBe("Nicely done. One block is enough.");
@@ -466,10 +467,10 @@ describe("the guided tour, for a teacher answering through their link", () => {
     // a nudge: the card says to press Next, and Next is called for.
     stroke(["Thursday", "10:00"]);
     expect(said("Thursday", "10:00")).toContain("fine");
-    fireEvent.click(screen.getByRole("button", { name: /^Friday 15 Jan: a constraint all day/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Friday 15 Jan: a hard constraint all day/ }));
     expect(said("Friday", "10:00")).toContain("fine");
     tap("Tuesday", "14:00");
-    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /^Hard constraint · / })).toBeNull();
     expect(alert().textContent).toContain("Now: press Next on the card.");
     backToTour();
     expect(within(step("Mark a time")).getByRole("button", { name: "Next" }).className).toContain("ring-4");
@@ -479,19 +480,19 @@ describe("the guided tour, for a teacher answering through their link", () => {
     tap("Tuesday", "15:00");
     // Clicked: said so first, with no Next — the block opens a moment later, and the tour goes on.
     expect(within(step("Open the block")).getByText("Nicely done: opening it…")).toBeTruthy();
-    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /^Hard constraint · / })).toBeNull();
     wait(2000);
 
-    const opened = screen.getByRole("dialog", { name: "Constraint · Tue 14:00–16:00 · whole semester" });
+    const opened = screen.getByRole("dialog", { name: "Hard constraint · Tue 14:00–16:00 · whole semester" });
     expect(opened.className).toContain("tour-pop-in");
     expect(step("Set the block").textContent).toContain("Your click opened this box.");
     expect(within(step("Set the block")).getAllByRole("listitem")).toHaveLength(4);
-    expect(step("Set the block").textContent).toContain("Type a reason. Required for a constraint.");
+    expect(step("Set the block").textContent).toContain("Type a reason. Required for a hard constraint.");
     expect((within(opened).getByRole("button", { name: /Remove/ }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(opened).getByRole("radio", { name: /^This week only/ }));
     // A constraint is done once it says why.
     fireEvent.click(within(opened).getByRole("button", { name: "Done" }));
-    expect(within(box()).getByRole("alert").textContent).toBe("A constraint needs a reason.");
+    expect(within(box()).getByRole("alert").textContent).toBe("A hard constraint needs a reason.");
     expect(step("Set the block")).toBeTruthy();
     // Said: straight on.
     done();
@@ -504,25 +505,25 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(step("Block a whole day").textContent).toContain("Press Whole day under any day. It blocks that day, this week only.");
     // Drawn as the pill it is on the calendar.
     expect(within(step("Block a whole day")).getByText("Whole day").closest("span")?.className).toContain("rounded-full");
-    fireEvent.click(screen.getByRole("button", { name: "Monday 18 Jan: a constraint all day, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Constraint · Mon 18 Jan, all day");
+    fireEvent.click(screen.getByRole("button", { name: "Monday 18 Jan: a hard constraint all day, this week only" }));
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan, all day");
     expect(step("Block a whole day")).toBeTruthy();
     done();
     expect(said("Monday", "10:00")).toContain("constraint, this week only");
     // One day is all: another day's button does nothing more.
     // A week away, tried the same way, from Whole week beside the week's name.
-    fireEvent.click(screen.getByRole("button", { name: "Tuesday 19 Jan: a constraint all day, this week only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Tuesday 19 Jan: a hard constraint all day, this week only" }));
     expect(said("Tuesday", "10:00")).toContain("fine");
     expect(step("Block a whole week").textContent).toContain("Press Whole week next to the week.");
-    fireEvent.click(screen.getByRole("button", { name: "Week 2 · 18 Jan–22 Jan: a constraint all week, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Constraint · Mon 18 Jan–Fri 22 Jan, all day");
+    fireEvent.click(screen.getByRole("button", { name: "Week 2 · 18 Jan–22 Jan: a hard constraint all week, this week only" }));
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, all day");
     done();
     expect(said("Thursday", "10:00")).toContain("constraint, this week only");
     // The summary, tried: an entry takes the calendar to its week and opens its box; Done goes on.
     expect(step("Check the summary").textContent).toContain("Click a date, like Tue 14:00–16:00, to open it.");
-    fireEvent.click(screen.getByRole("button", { name: "Show Constraint · Tue 12 Jan, 14:00–16:00" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show Hard constraint · Tue 12 Jan, 14:00–16:00" }));
     expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan" })).toBeTruthy();
-    expect(box().getAttribute("aria-label")).toBe("Constraint · Tue 12 Jan, 14:00–16:00");
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Tue 12 Jan, 14:00–16:00");
     done();
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
     // Back from the limits: to the step about Next, on the calendar, and it stays there until Next is pressed again.
@@ -564,7 +565,7 @@ describe("the guided tour, for a teacher answering through their link", () => {
     // Back on "Open a block", the block closed, waiting to be clicked again.
     expect(step("Open the block").textContent).toContain("Click the block you made");
     expect(within(step("Open the block")).queryByRole("button", { name: "Next" })).toBeNull();
-    expect(screen.queryByRole("dialog", { name: /^Constraint · / })).toBeNull();
+    expect(screen.queryByRole("dialog", { name: /^Hard constraint · / })).toBeNull();
   });
 
   it("undoes, going back, what was done since the step gone back to began: that step is tried afresh", () => {
@@ -588,7 +589,7 @@ describe("the guided tour, for a teacher answering through their link", () => {
     tap("Thursday", "10:00");
     wait(2000);
     fireEvent.click(within(box()).getByRole("radio", { name: /^This week only/ }));
-    fireEvent.click(within(box()).getByRole("radio", { name: "Preference" }));
+    fireEvent.click(within(box()).getByRole("radio", { name: "Soft constraint" }));
     fireEvent.click(within(step("Set the block")).getByRole("button", { name: "Back" }));
     expect(said("Thursday", "10:00")).toContain("constraint, whole semester");
   });

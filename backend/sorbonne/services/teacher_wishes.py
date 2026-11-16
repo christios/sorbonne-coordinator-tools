@@ -6,8 +6,9 @@ Each teacher then answers — in the SCEN Requests app, or on a page here once i
 coordinator answers for them after a call or an email.
 
 An answer is a set of *blocks* painted on the week, one week at a time: hours on one or more
-days that are a **constraint** (they can't teach then: the plan must keep to it) or a
-**preference** (they would like to teach then: the plan tries to). Each block repeats every
+days that are a **constraint**, shown as a hard constraint (they can't teach then: the plan must
+keep to it), or a **preference**, shown as a soft constraint since 16 Nov 2026 (they would rather
+not teach then: the plan keeps to it if it can). Each block repeats every
 week, every week from a given week on, or that one week only — a day away is a constraint for
 one week. Where blocks overlap in a week, the one-week block is on top, then the latest-starting
 one. Then a few limits on the week, each a constraint or a preference, room needs and a note.
@@ -29,7 +30,7 @@ from sqlalchemy.engine import Engine
 from sorbonne.services.coordinator_directory import name_for
 
 _TERM = re.compile(r"^\d{6}$")
-#: What a block is: hours a teacher can't teach (the plan must keep to them), or would like to.
+#: What a block is: hours a teacher can't teach (a hard constraint), or would rather not (a soft one).
 KINDS = ("constraint", "preference")
 #: How a block repeats: every week, every week from its week on, or its week only.
 REPEATS = ("all", "from", "once")
@@ -248,7 +249,7 @@ def _block(entry: dict[str, Any], index: int, collection: dict[str, Any]) -> dic
     """A block, checked against the semester's grid: what it is, its days and hours, how it repeats."""
     kind = str(entry.get("kind") or "")
     if kind not in KINDS:
-        raise InvalidWishes("A block is a constraint or a preference.")
+        raise InvalidWishes("A block is a hard or a soft constraint.")
     try:
         days = sorted({int(day) for day in entry.get("days") or []})
         start, end = float(entry.get("from")), float(entry.get("to"))  # type: ignore[arg-type]

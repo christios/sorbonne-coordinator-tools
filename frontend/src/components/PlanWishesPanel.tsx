@@ -18,15 +18,15 @@ type WishShow = "must" | "would" | "everybody" | "submitted" | "draft" | "commen
 type WishSort = "must" | "teacher" | "week" | "classes";
 
 const WISH_SHOW: { value: WishShow; label: string }[] = [
-  { value: "must", label: "Constraint" },
-  { value: "would", label: "Preference" },
+  { value: "must", label: "Hard constraint" },
+  { value: "would", label: "Soft constraint" },
   { value: "everybody", label: "Everybody" },
   { value: "submitted", label: "Submitted" },
   { value: "draft", label: "Draft" },
   { value: "comment", label: "With a comment" },
 ];
 const WISH_SORT: { value: WishSort; label: string }[] = [
-  { value: "must", label: "Constraints first" },
+  { value: "must", label: "Hard constraints first" },
   { value: "teacher", label: "Teacher" },
   { value: "week", label: "Week" },
   { value: "classes", label: "Classes affected" },
@@ -38,9 +38,9 @@ function Level({ about, level }: { about: Breach["about"]; level: WishLevel | nu
     return <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Everybody</span>;
   }
   return level === "must" ? (
-    <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Constraint</span>
+    <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Hard constraint</span>
   ) : (
-    <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Preference</span>
+    <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Soft constraint</span>
   );
 }
 
@@ -222,8 +222,8 @@ export function PlanWishesPanel({
             {tally.status === "draft" ? <span className="ml-1 font-normal text-[#98a2b3]">(draft)</span> : null}
           </span>
           <span className="shrink-0 tabular-nums text-[#667085]">
-            {tally.musts ? `${tally.mustsKept} of ${tally.musts} constraints kept` : "no constraints"} ·{" "}
-            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} preferences kept` : "no preferences"}
+            {tally.musts ? `${tally.mustsKept} of ${tally.musts} hard kept` : "no hard constraints"} ·{" "}
+            {tally.woulds ? `${tally.wouldsKept} of ${tally.woulds} soft kept` : "no soft constraints"}
           </span>
         </button>
       );
@@ -297,7 +297,7 @@ export function PlanWishesPanel({
         ) : null}
       </div>
 
-      <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto" aria-label={view === "teachers" ? "Teachers" : "Broken preferences"}>
+      <ul className="min-h-0 flex-1 divide-y divide-[#f2f4f7] overflow-y-auto" aria-label={view === "teachers" ? "Teachers" : "Broken constraints"}>
         {shown.map((item) => (
           <li key={item.key}>{line(item)}</li>
         ))}

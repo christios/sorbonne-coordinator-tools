@@ -34,9 +34,9 @@ export function enteredBy(row: WishTeacher): "No answer" | "The teacher" | "A co
 export const WISH_COLUMNS: GridColumn<WishTeacher>[] = [
   column("name", "Name", "text", (row) => row.name),
   column("email", "E-mail", "text", (row) => row.email || "No email"),
-  column("constraints", "Constraints", "number", (row) => count(row, "constraint")),
-  column("weekly", "Constraint hours a week", "number", (row) => (row.wishes ? recurringConstraintHours(row.wishes.blocks) : 0)),
-  column("preferences", "Preferences", "number", (row) => count(row, "preference")),
+  column("constraints", "Hard constraints", "number", (row) => count(row, "constraint")),
+  column("weekly", "Hard constraint hours a week", "number", (row) => (row.wishes ? recurringConstraintHours(row.wishes.blocks) : 0)),
+  column("preferences", "Soft constraints", "number", (row) => count(row, "preference")),
   column("entered", "Entered by", "option", enteredBy),
   column("invitation", "Invitation", "option", invitationStage),
 ];

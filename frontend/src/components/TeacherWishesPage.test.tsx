@@ -90,7 +90,7 @@ describe("closing the wishes window", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.queryByRole("dialog", { name: "Discard your changes?" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Monday \d+ \w+ 09:00: constraint, whole semester/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Monday \d+ \w+ 09:00: hard constraint, whole semester/ })).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
@@ -134,8 +134,8 @@ describe("the list, on the department's Record list as Part-time Teachers", () =
     // Each figure over what it counts, as the Record list draws figures.
     const row = screen.getByRole("button", { name: "Open Valerie Le Guyon's preferences" }).closest('[role="listitem"]') as HTMLElement;
     expect(within(row).getByText("2 h").nextElementSibling?.textContent).toBe("a week");
-    expect(within(row).getByText("constraints")).toBeTruthy();
-    expect(within(row).getByText("preferences")).toBeTruthy();
+    expect(within(row).getByText("hard")).toBeTruthy();
+    expect(within(row).getByText("soft")).toBeTruthy();
     expect(screen.getByText(/· by the teacher$/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Not started 1" }));

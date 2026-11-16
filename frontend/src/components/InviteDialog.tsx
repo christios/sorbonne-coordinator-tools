@@ -34,7 +34,7 @@ export function invitationEmail({
     body: [
       `Dear ${first},`,
       "",
-      `Please fill in the timetable preferences and constraints request for ${semesterName}: when you can and can't teach, any time away, and what matters most to you, so that we can take it into account while we build the timetable.`,
+      `Please fill in the timetable preferences and constraints request for ${semesterName}: when you can't teach, when you'd rather not, any time away, and the limits that matter to you, so that we can take it into account while we build the timetable.`,
       ...(collection.message.trim() ? ["", collection.message.trim()] : []),
       "",
       `Your link: ${link}`,

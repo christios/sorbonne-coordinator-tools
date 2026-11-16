@@ -196,7 +196,7 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   },
   "teacher-preferences": {
     title: "Timetable preferences",
-    blurb: "When each teacher can and can't teach this semester, and what matters most to them. The Semester plan shades and flags them.",
+    blurb: "When each teacher can't teach this semester, and when they'd rather not. The Semester plan shades and flags them.",
   },
   semesters: {
     title: "Semesters",

@@ -2,15 +2,16 @@
  * Timetable preferences: when each teacher can and can't teach, asked once a semester.
  *
  * An answer is a set of *blocks* painted on the week, one week at a time: hours on one or more
- * days that are a **constraint** (they can't teach then: the plan must keep to it) or a
- * **preference** (they would like to teach then: the plan tries to). Each block repeats every
+ * days that are a **hard constraint** (they can't teach then: the plan must keep to it) or a
+ * **soft constraint** (they would rather not teach then: the plan keeps to it if it can). Kept as
+ * "constraint" and "preference" underneath. Each block repeats every
  * week, every week from a given week on, or that one week only — a day away is a constraint for
  * one week. Where blocks overlap in a week the one-week block is on top, then the latest-starting
- * one, then the latest made. Then a few limits on the week, each a constraint or a preference,
+ * one, then the latest made. Then a few limits on the week, each hard or soft,
  * room needs and a note. The server keeps the same rules (`answer_lines`).
  *
  * The Semester plan reads the answers to shade a teacher's week and flag every placed class
- * that goes against them: a constraint broken is held to as a Must, a preference as a Would like.
+ * that goes against them: a hard constraint broken is held to as a Must, a soft one as a Would like.
  */
 
 import { apiFetch } from "@/services/http";
@@ -20,10 +21,20 @@ import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const BASE = `${API_BASE_URL}/api/v1/wishes`;
 
-/** What a block is: hours a teacher can't teach, or would like to. */
+/** What a block is: hours a teacher can't teach (a hard constraint), or would rather not (a soft one). */
 export type WishKind = "constraint" | "preference";
-/** How hard the plan holds to a line: a constraint as a Must, a preference as a Would like. */
+/** How hard the plan holds to a line: a hard constraint as a Must, a soft one as a Would like. */
 export type WishLevel = "must" | "would";
+
+/*
+ * What each kind, and each level, is called on screen (16 Nov 2026). "Preference" read as the
+ * times a teacher wanted to teach; a yellow block is now a soft constraint, times they would
+ * rather not teach, and a class there is what the plan flags. Stored as before: no answer changes.
+ */
+export const KIND_NAME: Record<WishKind, string> = { constraint: "Hard constraint", preference: "Soft constraint" };
+export const LEVEL_NAME: Record<WishLevel, string> = { must: "Hard constraint", would: "Soft constraint" };
+/** A block's words start with its kind: taken off where a tag beside them already says it. */
+export const KIND_PREFIX = /^(Hard|Soft) constraint · /;
 /** How a block repeats: every week, every week from its week on, or its week only. */
 export type WishRepeat = "all" | "from" | "once";
 /**
@@ -138,7 +149,7 @@ export function datesOf(block: Pick<WishBlock, "days" | "week">): string {
  * all day". A block of one week names its dates; given the grid, a whole day is "all day".
  */
 export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week">, grid?: { firstHour: number; lastHour: number }): string {
-  const kind = block.kind === "constraint" ? "Constraint" : "Preference";
+  const kind = KIND_NAME[block.kind];
   const whole = grid ? block.from <= grid.firstHour && block.to >= grid.lastHour : false;
   const hours = whole ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
   if (block.repeat === "once") return `${kind} · ${datesOf(block)}, ${hours}`;
@@ -170,7 +181,6 @@ export type WishCollection = {
 /** A line of an answer, as the plan reads it: a block, or a limit, with how hard it is held to. */
 export type WishLine =
   | ({ key: string; kind: WishKind; level?: WishLevel; comment?: string } & Pick<WishBlock, "days" | "from" | "to" | "repeat" | "week">)
-  | { key: "prefer"; kind: "prefer"; level?: WishLevel; comment?: string }
   | { key: keyof WishLimits; kind: keyof WishLimits; value: number; level?: WishLevel; comment?: string };
 
 export type Wishes = {
@@ -322,8 +332,6 @@ export function describeLine(line: WishLine): string {
     case "constraint":
     case "preference":
       return describeBlock(line);
-    case "prefer":
-      return "Outside their preferences";
     case "maxDays":
       return `At most ${line.value} day${line.value === 1 ? "" : "s"} on campus`;
     case "maxHoursDay":
@@ -525,19 +533,15 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       for (const entry of inWeek) {
         const section = sections.get(entry.sectionId);
         const held = heldIn(mondayOfIso(entry.meetsOn));
-        // Every quarter the class takes: a constraint there is broken; outside every preference, so are they.
+        // Every quarter the class takes: a block there is broken, a hard one as a Must, a soft one as a Would like.
         const hit = new Set<WishBlock>();
-        let inside = true;
         const start = Math.floor(minutesOf(entry.startsAt) / 15);
         const end = Math.ceil(minutesOf(entry.endsAt) / 15);
         for (let quarter = start; quarter < end; quarter += 1) {
           const block = held.get(`${entry.weekday}:${quarter * STEP}`);
-          if (block?.kind === "constraint") hit.add(block);
-          if (block?.kind !== "preference") inside = false;
+          if (block) hit.add(block);
         }
-        for (const block of hit) add(block.id, "must", describeBlock(block), label(section, entry), week, [entry]);
-        const prefers = [...held.values()].some((block) => block.kind === "preference");
-        if (prefers && !inside) add("prefer", "would", describeLine({ key: "prefer", kind: "prefer" }), label(section, entry), week, [entry]);
+        for (const block of hit) add(block.id, block.kind === "constraint" ? "must" : "would", describeBlock(block), label(section, entry), week, [entry]);
       }
 
       const days = new Map<number, PlanClass[]>();
@@ -667,7 +671,7 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
       const words =
         breach.about === "period"
           ? `Everybody · ${breach.perClass?.get(entry) ?? breach.wish}`
-          : `${breach.level === "must" ? "Constraint" : "Preference"} · ${breach.teacherName}: ${breach.wish.replace(/^(Constraint|Preference) · /, "")}${
+          : `${LEVEL_NAME[breach.level]} · ${breach.teacherName}: ${breach.wish.replace(KIND_PREFIX, "")}${
               breach.comment ? ` — “${breach.comment}”` : ""
             }`;
       // What binds first, first: a Must or a period before a wish.
@@ -681,9 +685,8 @@ export function checkWishes(plan: Pick<Plan, "classes" | "sections" | "periods">
     .map((row) => {
       const wishes = row.wishes!;
       const blocks = wishes.blocks ?? [];
-      const lines = answerLines(blocks, wishes.limits, wishes.limitKinds ?? {}).filter((line) => line.kind !== "preference");
-      // Preferences are kept, or not, together: a class outside all of them is outside "their preferences".
-      if (blocks.some((block) => block.kind === "preference")) lines.push({ key: "prefer", kind: "prefer", level: "would" });
+      // Each block and limit is kept, or not, on its own: a soft constraint as much as a hard one.
+      const lines = answerLines(blocks, wishes.limits, wishes.limitKinds ?? {});
       const broken = new Set(
         breaches.filter((each) => each.about === "teacher" && each.teacherId === row.teacherId).map((each) => each.key),
       );

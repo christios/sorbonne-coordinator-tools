@@ -44,16 +44,16 @@ describe("the lines an answer makes", () => {
   });
 
   it("says a block in words, a week's own by its dates", () => {
-    expect(describeBlock(block("c", "constraint", [2, 4], 14, 18))).toBe("Constraint · Tue, Thu 14:00–18:00 · whole semester");
-    expect(describeBlock(block("c", "preference", [1], 8, 10, { repeat: "from", week: "2027-02-01" }))).toBe("Preference · Mon 08:00–10:00 · every week starting 1 Feb");
+    expect(describeBlock(block("c", "constraint", [2, 4], 14, 18))).toBe("Hard constraint · Tue, Thu 14:00–18:00 · whole semester");
+    expect(describeBlock(block("c", "preference", [1], 8, 10, { repeat: "from", week: "2027-02-01" }))).toBe("Soft constraint · Mon 08:00–10:00 · every week starting 1 Feb");
     expect(describeBlock(block("d", "constraint", [5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
-      "Constraint · Fri 22 Jan, all day",
+      "Hard constraint · Fri 22 Jan, all day",
     );
     // Three days or more in a row read as a stretch; days apart, one by one.
     expect(describeBlock(block("w", "constraint", [1, 2, 3, 4, 5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
-      "Constraint · Mon 18 Jan–Fri 22 Jan, all day",
+      "Hard constraint · Mon 18 Jan–Fri 22 Jan, all day",
     );
-    expect(describeBlock(block("t", "constraint", [2, 4], 8, 10, { repeat: "once", week: "2027-01-18" }))).toBe("Constraint · Tue 19 Jan, Thu 21 Jan, 08:00–10:00");
+    expect(describeBlock(block("t", "constraint", [2, 4], 8, 10, { repeat: "once", week: "2027-01-18" }))).toBe("Hard constraint · Tue 19 Jan, Thu 21 Jan, 08:00–10:00");
   });
 });
 
@@ -133,7 +133,7 @@ describe("a plan read against the teachers' wishes", () => {
     const plan = { sections: SECTIONS, classes: [tuesday], periods: [] } as unknown as Plan;
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("run", "constraint", [2], 14, 18, { comment: "School run" })] })]);
     expect(check.breaches[0].comment).toBe("School run");
-    expect(check.flags.get(tuesday)?.said).toEqual(["Constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”"]);
+    expect(check.flags.get(tuesday)?.said).toEqual(["Hard constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”"]);
   });
 
   it("flags a class in a teacher's constraint red", () => {
@@ -142,7 +142,7 @@ describe("a plan read against the teachers' wishes", () => {
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("run", "constraint", [2], 14, 18)] })]);
 
     expect(check.breaches.map((breach) => [breach.teacherName, breach.level, breach.wish, breach.how])).toEqual([
-      ["Bilal Maaz", "must", "Constraint · Tue 14:00–18:00 · whole semester", "MATH-114 TD 2, Tue 15:00"],
+      ["Bilal Maaz", "must", "Hard constraint · Tue 14:00–18:00 · whole semester", "MATH-114 TD 2, Tue 15:00"],
     ]);
     expect(check.flags.get(tuesday)?.level).toBe("must");
     expect(check.tallies[0]).toMatchObject({ teacherName: "Bilal Maaz", musts: 1, mustsKept: 0 });
@@ -177,13 +177,19 @@ describe("a plan read against the teachers' wishes", () => {
     expect(check.breaches[0].classes).toEqual([first, second]);
   });
 
-  it("counts a class outside a teacher's preferences against them, amber, as one line", () => {
+  it("flags a class in a teacher's soft constraint amber, and not one outside it", () => {
+    // A soft constraint is time they would rather not teach (16 Nov 2026), no longer time they would like to.
     const morning = at("cm", 1, "08:00", "10:00");
     const afternoon = at("td1", 3, "14:00", "16:00");
     const plan = { sections: SECTIONS, classes: [morning, afternoon] } as unknown as Plan;
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("mornings", "preference", [1, 3], 8, 12)] })]);
 
-    expect(check.breaches.map((breach) => [breach.level, breach.wish, breach.classes])).toEqual([["would", "Outside their preferences", [afternoon]]]);
+    expect(check.breaches.map((breach) => [breach.level, breach.wish, breach.classes])).toEqual([
+      ["would", "Soft constraint · Mon, Wed 08:00–12:00 · whole semester", [morning]],
+    ]);
+    expect(check.flags.get(morning)?.level).toBe("would");
+    expect(check.flags.get(morning)?.said).toEqual(["Soft constraint · Bilal Maaz: Mon, Wed 08:00–12:00 · whole semester"]);
+    expect(check.flags.has(afternoon)).toBe(false);
     expect(check.tallies[0]).toMatchObject({ musts: 0, woulds: 1, wouldsKept: 0 });
   });
 
@@ -197,7 +203,7 @@ describe("a plan read against the teachers' wishes", () => {
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [away, later] })]);
 
     expect(check.flags.has(first)).toBe(false);
-    expect(check.flags.get(second)?.said).toEqual(["Constraint · Bilal Maaz: Tue 2 Feb, 08:00–19:00 — “Conference”"]);
+    expect(check.flags.get(second)?.said).toEqual(["Hard constraint · Bilal Maaz: Tue 2 Feb, 08:00–19:00 — “Conference”"]);
     expect(check.flags.get(third)?.level).toBe("must");
   });
 

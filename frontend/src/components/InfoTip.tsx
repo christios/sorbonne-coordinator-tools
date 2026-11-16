@@ -147,21 +147,21 @@ export function InfoTip({ children, label = "What this is", title }: { children:
 }
 
 /**
- * Broken wishes and rules, a line each, as the plan says them ("Must · Bilal Maaz: Can't
- * teach Tue 14:00–18:00"): the Must, the Would like or the Everybody as a tag in its colour.
+ * Broken wishes and rules, a line each, as the plan says them ("Hard constraint · Bilal Maaz:
+ * Tue 14:00–18:00 · whole semester"): the hard, the soft or the Everybody as a tag in its colour.
  */
 export function TipWishes({ lines }: { lines: string[] }) {
   return (
     <span className="grid gap-1">
       {lines.map((line) => {
         const [tag, ...rest] = line.split(" · ");
-        const known = tag === "Constraint" || tag === "Preference" || tag === "Everybody";
+        const known = tag === "Hard constraint" || tag === "Soft constraint" || tag === "Everybody";
         return (
           <span key={line} className="flex items-start gap-1.5">
             {known ? (
               <span
                 className={`mt-px shrink-0 rounded px-1.5 text-[11px] font-semibold leading-[18px] ${
-                  tag === "Constraint" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
+                  tag === "Hard constraint" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
                 }`}
               >
                 {tag}

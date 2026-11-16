@@ -1,7 +1,7 @@
 import { Pencil } from "lucide-react";
 
 import { BlockList, KindTag, RowTime, WishesLegend, finenessOf, ruleOf, toneOf } from "@/components/WishesForm";
-import { DAY_NAMES, DAY_SHORT, STEP, clockOf, describeLine, weekOf, type WishCollection, type WishLimits, type Wishes } from "@/services/teacherWishes";
+import { DAY_NAMES, DAY_SHORT, KIND_NAME, STEP, clockOf, describeLine, weekOf, type WishCollection, type WishLimits, type Wishes } from "@/services/teacherWishes";
 
 /** "10 Nov 2026, 14:05". */
 const when = (value: string) =>
@@ -87,7 +87,7 @@ export function WishesSummary({
                       return (
                         <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
                           <div
-                            title={block ? `${block.kind === "constraint" ? "Constraint" : "Preference"}${block.comment ? ` — ${block.comment}` : ""}` : undefined}
+                            title={block ? `${KIND_NAME[block.kind]}${block.comment ? ` — ${block.comment}` : ""}` : undefined}
                             aria-label={`${DAY_NAMES[day]} ${clockOf(time)}: ${block ? block.kind : "fine"}`}
                             className="flex flex-col overflow-hidden bg-white"
                             style={{ height: size === 1 ? 20 : size === 0.5 ? 14 : 10 }}

@@ -21,7 +21,7 @@ import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portal
 import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import { fetchPayCycles, setPayCycle } from "@/services/teachers";
 import { judgeSlot } from "@/services/planJudge";
-import { activeIn, describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
+import { KIND_PREFIX, LEVEL_NAME, activeIn, describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
 import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export const INPUT =
@@ -165,8 +165,8 @@ function WishesStrip({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className="text-[#344054]">
           {lines.length
-            ? `${constraints} constraint${constraints === 1 ? "" : "s"} · ${lines.length - constraints} preference${lines.length - constraints === 1 ? "" : "s"}`
-            : "No preferences on the week"}
+            ? `${constraints} hard constraint${constraints === 1 ? "" : "s"} · ${lines.length - constraints} soft`
+            : "No constraints on the week"}
         </span>
         {lines.length ? (
           broken ? (
@@ -199,10 +199,10 @@ function WishesStrip({
                       line.level === "must" ? "bg-[#fdf3f3] text-[#a6292f]" : "bg-[#fdf6e3] text-[#8a6116]"
                     }`}
                   >
-                    {line.level === "must" ? "Constraint" : "Preference"}
+                    {LEVEL_NAME[line.level ?? "would"]}
                   </span>
                   <span className="min-w-0">
-                    <span className="text-[#344054]">{describeLine(line).replace(/^(Constraint|Preference) · /, "")}</span>
+                    <span className="text-[#344054]">{describeLine(line).replace(KIND_PREFIX, "")}</span>
                     {brokenHere(line) ? <span className="font-medium text-[#a6292f]"> — this time breaks it</span> : null}
                     {line.comment ? <span className="block text-xs text-[#667085]">&ldquo;{line.comment}&rdquo;</span> : null}
                   </span>

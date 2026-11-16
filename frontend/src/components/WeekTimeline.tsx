@@ -1040,12 +1040,12 @@ function Class({
           wide={false}
           side="right"
           title={(() => {
-            // "Breaks a constraint and 2 preferences": each line says which it is.
+            // "Breaks a hard constraint and 2 soft constraints": each line says which it is.
             const lines = session.wish.said.split("\n");
             const parts = (
               [
-                ["Constraint", "constraint"],
-                ["Preference", "preference"],
+                ["Hard constraint", "hard constraint"],
+                ["Soft constraint", "soft constraint"],
                 ["Everybody", "semester rule"],
               ] as const
             )
@@ -1054,7 +1054,7 @@ function Class({
                 return count === 1 ? `a ${word}` : count ? `${count} ${word}s` : "";
               })
               .filter(Boolean);
-            return `Breaks ${parts.length ? parts.join(" and ") : lines.length === 1 ? "a preference" : `${lines.length} preferences`}`;
+            return `Breaks ${parts.length ? parts.join(" and ") : lines.length === 1 ? "a constraint" : `${lines.length} constraints`}`;
           })()}
           icon={Flag}
           iconClassName={session.wish.level === "must" ? "text-[#a6292f]" : "text-[#d99b1c]"}

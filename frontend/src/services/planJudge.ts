@@ -9,7 +9,7 @@
  */
 
 import { clashesOf, sectionLabel, type Plan, type PlanClass, type PlanSection } from "@/services/semesterPlans";
-import { checkWishes, type WishLevel, type WishTeacher } from "@/services/teacherWishes";
+import { KIND_PREFIX, LEVEL_NAME, checkWishes, type WishLevel, type WishTeacher } from "@/services/teacherWishes";
 import { parseIsoDate, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
 export type Candidate = {
@@ -109,7 +109,7 @@ export function judgeSlot(plan: Plan, teachers: WishTeacher[] | undefined, candi
       said:
         breach.about === "period"
           ? `Everybody · ${breach.perClass?.get(ghosts.find((ghost) => breach.classes.includes(ghost)) as PlanClass) ?? breach.wish}`
-          : `${breach.level === "must" ? "Constraint" : "Preference"} · ${breach.teacherName}: ${breach.wish.replace(/^(Constraint|Preference) · /, "")}${
+          : `${LEVEL_NAME[breach.level]} · ${breach.teacherName}: ${breach.wish.replace(KIND_PREFIX, "")}${
               breach.comment ? ` — “${breach.comment}”` : ""
             }`,
     });

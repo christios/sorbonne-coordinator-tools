@@ -48,8 +48,8 @@ import { formatDayAndMonth, mondayOf, toIsoDate } from "@/services/weekSchedule"
 export type Voice = "they" | "you";
 
 /*
- * Two kinds of block, two colours: red for a constraint (can't teach then), yellow for a
- * preference (would like to teach then). A block of one week only is striped over its colour,
+ * Two kinds of block, two colours: red for a hard constraint (can't teach then), yellow for a
+ * soft constraint (would rather not teach then). A block of one week only is striped over its colour,
  * to tell it at a glance from the usual week.
  */
 const stripes = (line: string) => `repeating-linear-gradient(135deg, ${line} 0 1.5px, transparent 1.5px 6px)`;
@@ -68,13 +68,15 @@ const PREVIEW: Record<WishKind, CSSProperties> = {
 };
 
 const KINDS: { value: WishKind; label: string; on: string; solid: string }[] = [
-  { value: "constraint", label: "Constraint", on: "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]", solid: "bg-[#a6292f] text-white" },
-  { value: "preference", label: "Preference", on: "border-[#b88a00] bg-[#fdf8e6] text-[#7a5a00]", solid: "bg-[#e9bd3a] text-[#3d2e00]" },
+  { value: "constraint", label: "Hard constraint", on: "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]", solid: "bg-[#a6292f] text-white" },
+  { value: "preference", label: "Soft constraint", on: "border-[#b88a00] bg-[#fdf8e6] text-[#7a5a00]", solid: "bg-[#e9bd3a] text-[#3d2e00]" },
 ];
 
-/** What each kind means, in the form's voice. */
+/** What each kind means, in the form's voice: both are times to keep classes out of, one always, one if it can be. */
 const meaning = (kind: WishKind, voice: Voice) =>
-  kind === "constraint" ? `${voice === "you" ? "you" : "they"} can't teach then` : `${voice === "you" ? "you'd" : "they'd"} like to teach then`;
+  kind === "constraint" ? `${voice === "you" ? "you" : "they"} can't teach then` : `${voice === "you" ? "you'd" : "they'd"} rather not teach then`;
+/** What the plan does with each kind. */
+const KEPT: Record<WishKind, string> = { constraint: "always kept free", preference: "kept free if possible" };
 
 /** How finely the week is painted: an hour, half an hour or a quarter a cell, and how tall each row is. */
 export type Fineness = 1 | 0.5 | 0.25;
@@ -91,7 +93,7 @@ export function finenessOf(blocks: Pick<WishBlock, "from" | "to">[]): Fineness {
   return fits(1) ? 1 : fits(0.5) ? 0.5 : 0.25;
 }
 
-/** The Constraint | Preference switch as it looks in a block's box, inside a sentence: the tour shows where to choose. */
+/** The Hard constraint | Soft constraint switch as it looks in a block's box, inside a sentence: the tour shows where to choose. */
 function ToggleLook({ on = "constraint" }: { on?: WishKind }) {
   return (
     <span className="mx-0.5 inline-flex rounded-md border border-[#d0d5dd] bg-white p-0.5 align-middle text-[11px] font-semibold">
@@ -144,21 +146,21 @@ function DateLook({ children }: { children: ReactNode }) {
 }
 
 // Each a control to find on the page, for a card's reading time; the switch shows two words of its own.
-ToggleLook.tourLook = 2;
+ToggleLook.tourLook = 4;
 PillLook.tourLook = 0;
 ButtonLook.tourLook = 0;
 DateLook.tourLook = 0;
 
-/** "Constraint" or "Preference", as a small tag in its colour. */
+/** "Hard constraint" or "Soft constraint", as a small tag in its colour. */
 export function KindTag({ kind }: { kind: WishKind }) {
   return kind === "constraint" ? (
-    <span className="shrink-0 rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Constraint</span>
+    <span className="shrink-0 whitespace-nowrap rounded bg-[#fdf3f3] px-1.5 text-[11px] font-semibold text-[#a6292f]">Hard constraint</span>
   ) : (
-    <span className="shrink-0 rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Preference</span>
+    <span className="shrink-0 whitespace-nowrap rounded bg-[#fdf6e3] px-1.5 text-[11px] font-semibold text-[#8a6116]">Soft constraint</span>
   );
 }
 
-/** Constraint or Preference, side by side, for a block or a limit. */
+/** Hard or soft, side by side, for a block or a limit. */
 export function KindToggle({ name, kind, onChange }: { name: string; kind: WishKind; onChange: (kind: WishKind) => void }) {
   return (
     <div role="radiogroup" aria-label={name} className="inline-flex shrink-0 rounded-md border border-[#d0d5dd] p-0.5 text-xs font-semibold">
@@ -231,8 +233,8 @@ export function WishesLegend() {
   );
   return (
     <p className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[#667085]">
-      {item(KIND_TONE.constraint, "Constraint")}
-      {item(KIND_TONE.preference, "Preference")}
+      {item(KIND_TONE.constraint, "Hard constraint")}
+      {item(KIND_TONE.preference, "Soft constraint")}
       {/* The colour says which kind; the fill, which weeks. */}
       <span aria-hidden="true" className="h-3 w-px bg-[#d0d5dd]" />
       {item(grey, "Every week")}
@@ -268,7 +270,7 @@ export function inListOrder(blocks: WishBlock[]): WishBlock[] {
 }
 
 /**
- * Everything marked on the calendar, said in words: the constraints, then the preferences,
+ * Everything marked on the calendar, said in words: the hard constraints, then the soft ones,
  * each with when it is, how it repeats and why. Clicked, a block is shown on its week; × takes
  * it off.
  */
@@ -290,7 +292,7 @@ export function BlockList({
   /** × off for now, during the guided tour: nothing said on hover, which would only distract. */
   removeOff?: string;
   onHover?: (id: string | null) => void;
-  /** A constraint without its reason says so: it cannot be submitted that way. */
+  /** A hard constraint without its reason says so: it cannot be submitted that way. */
   flagMissing?: boolean;
 }) {
   if (!blocks.length) return <p className="text-sm text-[#98a2b3]">Nothing marked: every hour is fine.</p>;
@@ -307,7 +309,7 @@ export function BlockList({
               }`}
             >
               <span aria-hidden="true" className="inline-block h-3 w-3 shrink-0 rounded-sm" style={KIND_TONE[kind]} />
-              {kind === "constraint" ? "Constraints" : "Preferences"}
+              {kind === "constraint" ? "Hard constraints" : "Soft constraints"}
               <span className="rounded-full bg-white/80 px-1.5 text-[11px] tabular-nums">{these.length}</span>
               <span className="ml-auto truncate text-[11px] font-normal">{meaning(kind, voice).replace(" then", "")}</span>
             </h4>
@@ -415,7 +417,7 @@ type Spot = { day: number; time: number; cell: HTMLElement };
  * calendar, limits on the week, needs and a note.
  *
  * The calendar shows one teaching week at a time, with its dates. A stroke across it — down
- * the hours, across the days — makes a block, a constraint (can't teach then) or a preference
+ * the hours, across the days — makes a block, a hard constraint (can't teach then) or a soft one
  * (would like to teach then). A new block repeats every week; its box, which opens as it is
  * made or when it is clicked, makes it repeat from that week on, or only that week, says why,
  * or takes it off. A day's name makes the whole day a constraint for that week. Under the
@@ -464,7 +466,7 @@ export function WishesForm({
   const [needs, setNeeds] = useState(initial?.needs ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
   const [reason, setReason] = useState(initial?.overCapReason ?? "");
-  // A new block starts as a constraint; its box makes it a preference.
+  // A new block starts as a hard constraint; its box makes it a soft one.
   const brush: WishKind = "constraint";
   const [fineness, setFineness] = useState<Fineness>(() => finenessOf(initial?.blocks ?? []));
   // The page on screen: the calendar, the limits, the needs.
@@ -802,7 +804,7 @@ export function WishesForm({
               options={[{ value: NONE, label: none }, ...options]}
             />
           </div>
-          {set ? <KindToggle name={`${label}: constraint or preference`} kind={limitKinds[name] ?? "preference"} onChange={(kind) => setLimitKind(name, kind)} /> : null}
+          {set ? <KindToggle name={`${label}: hard or soft`} kind={limitKinds[name] ?? "preference"} onChange={(kind) => setLimitKind(name, kind)} /> : null}
         </div>
         {set ? (
           <input
@@ -843,7 +845,7 @@ export function WishesForm({
     if (finished && overCap && !reason.trim()) {
       // The reason is asked for under the calendar: back to it.
       goTo(0);
-      setProblem(`That's ${cant} hours a week of constraints, over the ${collection.cantCap}: say why under the calendar, or mark fewer.`);
+      setProblem(`That's ${cant} hours a week of hard constraints, over the ${collection.cantCap}: say why under the calendar, or mark fewer.`);
       return;
     }
     if (finished) {
@@ -860,7 +862,7 @@ export function WishesForm({
         } else {
           goTo(1);
         }
-        setProblem(`Each constraint needs a reason, for the coordinator: ${count === 1 ? "one has" : `${count} have`} none yet.`);
+        setProblem(`Each hard constraint needs a reason, for the coordinator: ${count === 1 ? "one has" : `${count} have`} none yet.`);
         return;
       }
     }
@@ -1077,10 +1079,10 @@ export function WishesForm({
     body: <span className="font-semibold text-[#15803d]">Your click opened this box.</span>,
     steps: [
       <>
-        Choose <ToggleLook />. <b>Constraint</b>: can&rsquo;t teach. <b>Preference</b>: would like to teach.
+        Choose <ToggleLook />. <b>Hard</b>: can&rsquo;t teach then. <b>Soft</b>: would rather not.
       </>,
       <>Choose how often it repeats.</>,
-      <>Type a reason. Required for a constraint.</>,
+      <>Type a reason. Required for a hard constraint.</>,
       <>Press {Done}.</>,
     ],
   };
@@ -1134,7 +1136,7 @@ export function WishesForm({
       target: () => [[part("notice"), part("stepper"), part("week-head"), part("toolbar"), gridBox.current], open ? popover.current : null],
       apart: true,
       allow: () => (open ? popover.current : gridBody()),
-      pointAt: () => popover.current?.querySelector('[aria-label="Constraint or preference"]'),
+      pointAt: () => popover.current?.querySelector('[aria-label="Hard or soft constraint"]'),
       // Beside the choice, outside its box: over it would cover the box's words.
       pointFrom: "left",
     },
@@ -1235,7 +1237,7 @@ export function WishesForm({
           Set only the limits that matter. Leave the rest on <b>No limit</b>.
         </>,
         <>
-          Each one is a <b>Preference</b> unless you switch it to <b>Constraint</b>: <ToggleLook on="preference" />
+          Each one is <b>Soft</b> unless you switch it to <b>Hard</b>: <ToggleLook on="preference" />
         </>,
       ],
       target: () => part("limits"),
@@ -1340,7 +1342,7 @@ export function WishesForm({
     setOpen(null);
     if (cell.isConnected) cell.focus();
   };
-  /** Done: a constraint is done once it says why; a preference, at once. (× and Escape close it anyway.) */
+  /** Done: a hard constraint is done once it says why; a soft one, at once. (× and Escape close it anyway.) */
   const finishBox = () => {
     if (openBlock?.kind === "constraint" && !openBlock.comment.trim()) {
       setAskWhy(true);
@@ -1425,7 +1427,7 @@ export function WishesForm({
               <HowTo
                 steps={[
                   { icon: MoveDown, title: "Drag across the hours", hint: "And across days · hours left white are fine" },
-                  { icon: Paintbrush, title: "Constraint or preference", hint: `In its box: red, ${meaning("constraint", voice)}; yellow, ${meaning("preference", voice)}` },
+                  { icon: Paintbrush, title: "Hard or soft constraint", hint: `In its box: red, ${meaning("constraint", voice)}; yellow, ${meaning("preference", voice)}` },
                   { icon: Repeat, title: "How it repeats", hint: "Whole semester, from a set week, or one week only" },
                 ]}
               >
@@ -1480,11 +1482,11 @@ export function WishesForm({
               >
                 <ChevronRight size={16} aria-hidden="true" />
               </button>
-              <Tip side="top" wide={false} content={`Can't teach at all in ${weekName(week)}: a constraint every day, this week only.`}>
+              <Tip side="top" wide={false} content={`Can't teach at all in ${weekName(week)}: a hard constraint every day, this week only.`}>
                 <button
                   type="button"
                   data-tour="whole-week"
-                  aria-label={`${weekName(week)}: a constraint all week, this week only`}
+                  aria-label={`${weekName(week)}: a hard constraint all week, this week only`}
                   aria-pressed={wholeWeekOf() ? true : false}
                   onClick={wholeWeek}
                   className={`ml-1 inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold ${
@@ -1512,15 +1514,15 @@ export function WishesForm({
             <Tip
               side="bottom"
               wide={false}
-              content={`Hours a week marked as constraints that repeat; a one-week block is not counted. Over ${collection.cantCap}, say why for the coordinator.`}
+              content={`Hours a week marked as hard constraints that repeat; soft ones and a one-week block are not counted. Over ${collection.cantCap}, say why for the coordinator.`}
             >
               <span
-                aria-label={`Constraints: ${cant} of ${collection.cantCap} hours a week`}
+                aria-label={`Hard constraints: ${cant} of ${collection.cantCap} hours a week`}
                 className={`ml-auto inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs tabular-nums ${
                   overCap ? "border-[#e8b4b7] bg-[#fdf3f3] text-[#a6292f]" : "border-[#e3e8ef] bg-white text-[#475467]"
                 }`}
               >
-                <span className="font-semibold">Constraints</span>
+                <span className="font-semibold">Hard constraints</span>
                 <span className="relative h-1.5 w-14 overflow-hidden rounded-full bg-[#eef1f5]" aria-hidden="true">
                   <span
                     className={`absolute inset-y-0 left-0 rounded-full motion-safe:transition-[width] ${overCap ? "bg-[#a6292f]" : "bg-[#d9646a]"}`}
@@ -1555,11 +1557,11 @@ export function WishesForm({
                                 {DAY_SHORT[day]} <span className="font-normal">{formatDayAndMonth(date)}</span>
                               </span>
                               {/* The whole day, a button of its own: a date alone does not say it can be pressed. */}
-                              <Tip side="top" wide={false} content={`Can't teach all ${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a constraint for this week only.`}>
+                              <Tip side="top" wide={false} content={`Can't teach all ${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a hard constraint for this week only.`}>
                                 <button
                                   type="button"
                                   data-day-name
-                                  aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a constraint all day, this week only`}
+                                  aria-label={`${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a hard constraint all day, this week only`}
                                   aria-pressed={wholeDayOf(day) ? true : false}
                                   onClick={(event) => wholeDay(day, event.currentTarget)}
                                   className={`inline-flex items-center gap-1 rounded-full border px-2 py-px text-[10px] font-semibold ${
@@ -1594,7 +1596,7 @@ export function WishesForm({
                         const said = holiday
                           ? "holiday"
                           : first
-                            ? `${first.kind}, ${first.repeat === "all" ? "whole semester" : first.repeat === "from" ? `every week starting ${formatDayAndMonth(first.week)}` : "this week only"}`
+                            ? `${first.kind === "constraint" ? "hard constraint" : "soft constraint"}, ${first.repeat === "all" ? "whole semester" : first.repeat === "from" ? `every week starting ${formatDayAndMonth(first.week)}` : "this week only"}`
                             : "fine";
                         return (
                           <td key={day} className={`border-x border-[#c8d0db] p-0 ${row === rows.length - 1 ? "border-b" : ""}`}>
@@ -1702,7 +1704,7 @@ export function WishesForm({
                 className="pointer-events-none absolute z-10"
                 style={{ left: demo.left, top: demo.top, width: demo.width, height: demo.height, ["--tour-drag" as string]: `${demo.height - 6}px` }}
               >
-                {/* In the colour a new block takes: a constraint's, until its box says otherwise. */}
+                {/* In the colour a new block takes: a hard constraint's, until its box says otherwise. */}
                 <span className="tour-paint-stroke absolute inset-x-1 top-0 h-full rounded-sm" style={{ backgroundColor: "rgba(217, 100, 106, 0.6)" }} />
                 <span className="absolute left-1/2 top-0 -ml-3 -mt-3 h-6 w-6">
                   <span className="tour-paint-press block h-6 w-6 rounded-full border-2 border-[#a6292f]" />
@@ -1765,7 +1767,13 @@ export function WishesForm({
                     <X size={14} aria-hidden="true" />
                   </button>
                 </div>
-                <KindToggle name="Constraint or preference" kind={openBlock.kind} onChange={(kind) => change(openBlock.id, { kind })} />
+                <div className="grid gap-1">
+                  <KindToggle name="Hard or soft constraint" kind={openBlock.kind} onChange={(kind) => change(openBlock.id, { kind })} />
+                  {/* What the kind chosen means, said under the switch: a word alone was read the wrong way. */}
+                  <span data-kind-meaning className="text-[11px] text-[#475467]">
+                    {meaning(openBlock.kind, voice).replace(/^./, (first) => first.toUpperCase())}: {KEPT[openBlock.kind]}.
+                  </span>
+                </div>
                 <div role="radiogroup" aria-label="How it repeats" className="grid gap-1">
                   <span className="text-xs font-semibold text-[#344054]">How it repeats</span>
                   {repeatChoices(openBlock).map((choice) => {
@@ -1820,12 +1828,12 @@ export function WishesForm({
                         finishBox();
                       }
                     }}
-                    placeholder={openBlock.kind === "constraint" ? "School run, lab day, another job…" : "Why it suits (optional)"}
+                    placeholder={openBlock.kind === "constraint" ? "School run, lab day, another job…" : "Why (optional)"}
                     className={`${field} aria-[invalid=true]:border-[#d9646a] aria-[invalid=true]:bg-[#fdf3f3]`}
                   />
                   {askWhy && openBlock.kind === "constraint" && !openBlock.comment.trim() ? (
                     <span role="alert" className="text-xs text-[#a6292f]">
-                      A constraint needs a reason.
+                      A hard constraint needs a reason.
                     </span>
                   ) : null}
                 </label>
@@ -1852,7 +1860,7 @@ export function WishesForm({
           {overCap ? (
             <label className="mt-3 block">
               <span className="text-xs font-semibold text-[#a6292f]">
-                {cant} hours a week of constraints, over the {collection.cantCap}: say why, for the coordinator
+                {cant} hours a week of hard constraints, over the {collection.cantCap}: say why, for the coordinator
               </span>
               <textarea value={reason} onChange={(event) => setReason(event.target.value)} rows={2} className={`mt-1 ${field}`} />
             </label>
@@ -1892,13 +1900,13 @@ export function WishesForm({
           </p>
           <ul className="mt-1.5 grid gap-1 text-xs text-[#475467]">
             <li className="flex items-center gap-2">
-              <span className="w-[4.75rem] shrink-0">
+              <span className="w-[7.25rem] shrink-0">
                 <KindTag kind="preference" />
               </span>
               The timetable respects it if it can.
             </li>
             <li className="flex items-center gap-2">
-              <span className="w-[4.75rem] shrink-0">
+              <span className="w-[7.25rem] shrink-0">
                 <KindTag kind="constraint" />
               </span>
               The timetable must respect it. Say why.
