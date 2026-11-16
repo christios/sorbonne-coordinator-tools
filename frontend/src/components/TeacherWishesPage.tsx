@@ -1,14 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, Settings } from "lucide-react";
+import { CalendarHeart, Link2Off, LockOpen, RefreshCw, Send, Settings } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InviteDialog } from "@/components/InviteDialog";
+import { BAR_BUTTON, ICON_BUTTON, ListSearch, SEGMENTS, SegmentCount, ShownCount, segment } from "@/components/ListLook";
+import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
 import { useStaffUser } from "@/components/useStaffUser";
 import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { TableFilterBar } from "@/components/TableFilterBar";
+import { TeacherAvatar } from "@/components/TeacherDatabase";
+import { usePageState } from "@/components/usePageState";
 import { WishesForm } from "@/components/WishesForm";
 import { WishesSummary, answeredBy } from "@/components/WishesSummary";
 import {
@@ -26,7 +31,10 @@ import {
   type WishTeacher,
   type WishesInput,
 } from "@/services/teacherWishes";
+import { optionsFor } from "@/services/studentColumns";
+import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { isoToday } from "@/services/weekSchedule";
+import { WISH_COLUMNS, enteredBy, invitationStage } from "@/services/wishFilters";
 
 const field = "w-full rounded-md border border-[#cbd5e1] px-2.5 py-1.5 text-sm";
 const label = "text-xs font-semibold text-[#344054]";
@@ -34,12 +42,45 @@ const label = "text-xs font-semibold text-[#344054]";
 const STATUS = {
   submitted: { words: "Submitted", tone: "bg-[#e7f4ec] text-[#2e7d55]" },
   draft: { words: "Draft", tone: "bg-[#fdf6e3] text-[#8a6116]" },
-  none: { words: "Not started", tone: "bg-[#f2f4f7] text-[#667085]" },
+  none: { words: "Not started", tone: "bg-[#eaecf0] text-[#475467]" },
 } as const;
 
 /** "10 Jan 2027". */
 const dated = (value: string) =>
   value ? new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
+
+type Shown = "all" | "submitted" | "draft" | "none";
+const statusOf = (row: WishTeacher): Exclude<Shown, "all"> => row.wishes?.status ?? "none";
+
+/**
+ * The list's columns, shared by its heading and every row so they line up — the department's
+ * Record list, as on Part-time Teachers and Hour reductions: who, where their answer stands
+ * and when it last changed, what it holds, how far their invitation got, and what can be done.
+ */
+// Narrower screens keep the name readable: the figures go on two lines in a narrower Answer column.
+const ROW_GRID =
+  "gap-x-4 gap-y-2 px-4 sm:grid-cols-[minmax(9.5rem,2fr)_minmax(6rem,1fr)_9.5rem_minmax(7rem,1fr)_5.75rem] xl:grid-cols-[minmax(11rem,2fr)_minmax(7rem,1fr)_15.5rem_minmax(7.5rem,1fr)_6rem] sm:items-center";
+
+/** What an answer holds, as the Record list shows figures: each over what it counts, in small capitals. */
+function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
+  if (!row.wishes) return <span />;
+  const blocks = row.wishes.blocks;
+  const constraints = blocks.filter((block) => block.kind === "constraint").length;
+  const preferences = blocks.filter((block) => block.kind === "preference").length;
+  const weekly = recurringConstraintHours(blocks);
+  const over = weekly > cap;
+  return (
+    <span className="flex flex-wrap items-start gap-x-3 gap-y-1">
+      {/* Each figure as wide as its word, never cut: on a narrow screen the third goes under the first two. */}
+      <LabelledFigure value={constraints} label="constraints" tone="text-[#a6292f]" faint={!constraints} className="shrink-0" />
+      {/* The constraints' hours a week, against the cap: red once over it. */}
+      <span className="shrink-0" title={`${weekly} h a week marked as constraints for the whole semester${over ? `: more than the ${cap} h allowed without a reason` : ""}`}>
+        <LabelledFigure value={`${weekly} h`} label="a week" tone={over ? "text-[#a6292f]" : "text-[#344054]"} faint={!weekly} className="shrink-0" />
+      </span>
+      <LabelledFigure value={preferences} label="preferences" tone="text-[#8a6116]" faint={!preferences} className="shrink-0" />
+    </span>
+  );
+}
 
 /** A semester's collection: when it closes, what teachers are told, and the rules of the form. */
 function CollectionSettings({
@@ -173,6 +214,10 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
    */
   const [answering, setAnswering] = useState<{ row: WishTeacher; editing: boolean } | null>(null);
   const [error, setError] = useState("");
+  // Which answers the list shows, the search and the filters: kept ten minutes, like every list's.
+  const [shown, setShown] = usePageState<Shown>("teacher-preferences:shown", "all");
+  const [query, setQuery] = usePageState("teacher-preferences:search", "");
+  const [filters, setFilters] = usePageState<FilterModel[]>("teacher-preferences:filters", []);
   // The form differs from what it opened with: closing it then asks first.
   const dirty = useRef(false);
   const [discarding, setDiscarding] = useState<"close" | "back" | null>(null);
@@ -233,8 +278,10 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const menu = null;
   const collection: WishCollection | null = wishes.data?.collection ?? null;
   const teachers = wishes.data?.teachers ?? [];
-  const submitted = teachers.filter((row) => row.wishes?.status === "submitted").length;
-  const drafts = teachers.filter((row) => row.wishes?.status === "draft").length;
+  const counted = (which: Shown) => (which === "all" ? teachers.length : teachers.filter((row) => statusOf(row) === which).length);
+  const byStatus = shown === "all" ? teachers : teachers.filter((row) => statusOf(row) === shown);
+  const inView = byStatus.filter((row) => `${row.name} ${row.email}`.toLowerCase().includes(query.toLowerCase()));
+  const visible = applyFilters(inView, WISH_COLUMNS, filters);
   const semesterName = semester?.name ?? "this semester";
   // Past the deadline, a teacher answering for themselves needs reopening; coordinators never do.
   const today = isoToday();
@@ -253,7 +300,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         Press <TipButton icon={Settings}>Open the collection</TipButton>: a deadline, a message, the week&rsquo;s hours.
       </TipPoint>
       <TipPoint step={2}>
-        Press <TipButton look="link">Invite</TipButton> on a teacher&rsquo;s row: their link goes out in an email from your own
+        Press <TipButton icon={Send}>Invite</TipButton> on a teacher&rsquo;s row: their link goes out in an email from your own
         mailbox, and they sign in with that Google account to give their own preferences and constraints until the deadline.
       </TipPoint>
       <TipPoint step={3}>
@@ -261,15 +308,24 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
       </TipPoint>
       <TipUsage
         when={<>Bilal Maaz emails to say Tuesday afternoons are impossible.</>}
-        todo={<>Press <TipButton>Fill in</TipButton> on Bilal&rsquo;s row, mark Tuesday 14:00–18:00 as a constraint every week, and submit.</>}
+        todo={<>Click Bilal&rsquo;s name, mark Tuesday 14:00–18:00 as a constraint every week, and submit.</>}
         then={<>On the plan, Bilal&rsquo;s classes on Tuesday afternoon are flagged red.</>}
       />
     </InfoTip>
   );
 
+  const openRow = (row: WishTeacher) => {
+    setError("");
+    dirty.current = false;
+    setAnswering({ row, editing: !row.wishes });
+  };
+  const deadlineWords = collection?.deadline
+    ? `${closed ? "Closed" : "Deadline"} ${dated(collection.deadline)}`
+    : "No deadline";
+
   return (
-    <section className="space-y-4">
-      {header ? menu : <div className="flex justify-end">{menu}</div>}
+    <div className="flex min-h-0 flex-1 flex-col">
+      {header ? menu : <div className="flex justify-end pb-3">{menu}</div>}
 
       {!term ? (
         <p className="text-sm text-[#667085]">Choose a semester with a portal term.</p>
@@ -298,161 +354,179 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-3 rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#171717]">
-              {semesterName} {tip}
-            </span>
-            <span className="text-sm text-[#667085]">{collection.deadline ? `Deadline ${dated(collection.deadline)}` : "No deadline set"}</span>
-            <span className="text-sm tabular-nums text-[#667085]">
-              {submitted} of {teachers.length} submitted{drafts ? ` · ${drafts} draft${drafts === 1 ? "" : "s"}` : ""}
-            </span>
-            <span className="text-xs text-[#98a2b3]">
-              {collection.cantCap} h of constraints a week before a reason
-            </span>
-            <button
-              type="button"
-              onClick={() => {
-                setError("");
-                setSettingsOpen(true);
-              }}
-              className="ml-auto inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
-            >
-              <Settings size={13} aria-hidden="true" /> Settings
-            </button>
+          {/* One bar across the top, as on Part-time Teachers: which answers, the search, the collection. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-2 pb-3">
+            <div role="group" aria-label="Which answers" className={SEGMENTS}>
+              {(
+                [
+                  ["all", "All"],
+                  ["submitted", "Submitted"],
+                  ["draft", "Draft"],
+                  ["none", "Not started"],
+                ] as const
+              ).map(([which, words]) => (
+                <button
+                  key={which}
+                  type="button"
+                  aria-pressed={shown === which}
+                  onClick={() => setShown(which)}
+                  className={segment(shown === which)}
+                >
+                  {words} <SegmentCount value={counted(which)} on={shown === which} />
+                </button>
+              ))}
+            </div>
+            <ListSearch label="Search teachers" value={query} onChange={setQuery} />
+            <div className="ml-auto flex items-center gap-2">
+              <span
+                className={`whitespace-nowrap text-sm ${closed ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}
+                title={`${collection.cantCap} h of constraints a week before a reason is asked`}
+              >
+                {deadlineWords}
+              </span>
+              {tip}
+              <button
+                type="button"
+                onClick={() => {
+                  setError("");
+                  setSettingsOpen(true);
+                }}
+                className={BAR_BUTTON}
+              >
+                <Settings size={16} aria-hidden="true" /> Settings
+              </button>
+            </div>
           </div>
-          {collection.message ? <p className="whitespace-pre-line text-sm text-[#667085]">{collection.message}</p> : null}
 
-          <div className="overflow-x-auto rounded-lg border border-[#d9dee7] bg-white">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-[#fbfcfe] text-[11px] uppercase tracking-wide text-[#8a94a4]">
-                <tr>
-                  <th className="px-4 py-2 font-semibold">Teacher</th>
-                  <th className="px-3 py-2 font-semibold">Status</th>
-                  <th className="px-3 py-2 font-semibold">Constraints</th>
-                  <th className="px-3 py-2 font-semibold">Preferences</th>
-                  <th className="px-3 py-2 font-semibold">Last change</th>
-                  <th className="px-3 py-2 font-semibold">Invitation</th>
-                  <th className="px-4 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {teachers.map((row) => {
-                  const status = STATUS[row.wishes?.status ?? "none"];
-                  const blocks = row.wishes?.blocks ?? [];
-                  const constraints = blocks.filter((block) => block.kind === "constraint").length;
-                  const preferences = blocks.filter((block) => block.kind === "preference").length;
-                  const cant = row.wishes ? recurringConstraintHours(blocks) : 0;
-                  return (
-                    <tr key={row.teacherId} className="border-t border-[#f2f4f7]">
-                      <td className="px-4 py-2 font-semibold text-[#344054]">{row.name}</td>
-                      <td className="px-3 py-2">
-                        <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${status.tone}`}>{status.words}</span>
-                        {closed && row.reopenedUntil ? (
-                          <span className="ml-2 whitespace-nowrap text-xs text-[#2e7d55]">
-                            reopened until {dated(row.reopenedUntil)}
-                            <button
-                              type="button"
-                              onClick={() => closeFor.mutate(row)}
-                              aria-label={`Close ${row.name}'s answer again`}
-                              className="ml-1 font-semibold text-[#667085] hover:underline"
-                            >
-                              Close
-                            </button>
+          <section aria-label="Teachers' answers" className={RECORD_CARD}>
+            <RecordToolbar>
+              <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                <TableFilterBar
+                  columns={WISH_COLUMNS}
+                  filters={filters}
+                  optionsFor={(column) => optionsFor(inView, column)}
+                  onChange={setFilters}
+                />
+              </div>
+              <ShownCount shown={visible.length} of={inView.length} />
+            </RecordToolbar>
+            <RecordList
+              label="Teachers"
+              columns={ROW_GRID}
+              isEmpty={!visible.length}
+              empty={teachers.length ? "No teacher matches." : `No teacher is active in ${semesterName} yet. Add them on Active teachers.`}
+              head={
+                <>
+                  <span>Teacher</span>
+                  <span>Status</span>
+                  <span>Answer</span>
+                  <span>Invitation</span>
+                  <span />
+                </>
+              }
+            >
+              {visible.map((row) => {
+                const status = STATUS[statusOf(row)];
+                const stage = invitationStage(row);
+                const invitedOn = row.invitation ? row.invitation.signedInAt || row.invitation.openedAt || row.invitation.createdAt : "";
+                return (
+                  <RecordRow key={row.teacherId} columns={ROW_GRID}>
+                    {/* The name opens the answer, as a name opens a profile on Part-time Teachers. */}
+                    <button
+                      type="button"
+                      onClick={() => openRow(row)}
+                      aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
+                      title={row.wishes ? "Open their answer" : "Fill in for them"}
+                      className="flex min-w-0 items-center gap-3 text-left"
+                    >
+                      <TeacherAvatar fullName={row.name} />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-[#171717] group-hover:text-[#1f4e79]">{row.name}</span>
+                        <span className={`block truncate text-xs ${row.email ? "text-[#475467]" : "italic text-[#667085]"}`}>
+                          {row.email || "No email"}
+                        </span>
+                      </span>
+                    </button>
+                    {/* Where the answer stands, and under it when it last changed and by whom. */}
+                    <span className="flex min-w-0 flex-col items-start gap-1">
+                      <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${status.tone}`}>{status.words}</span>
+                      {row.wishes ? (
+                        <span
+                          className="block max-w-full truncate text-xs text-[#475467]"
+                          title={row.wishes.updatedBy ? `Entered by ${row.wishes.updatedBy}` : undefined}
+                        >
+                          {dated(row.wishes.updatedAt)} ·{" "}
+                          {enteredBy(row) === "A coordinator"
+                            ? `entered by ${row.wishes.updatedBy || "a coordinator"}`
+                            : "by the teacher"}
+                        </span>
+                      ) : null}
+                      {closed && row.reopenedUntil ? (
+                        <span className="text-xs text-[#2e7d55]">
+                          Reopened until {dated(row.reopenedUntil)}
+                          <button
+                            type="button"
+                            onClick={() => closeFor.mutate(row)}
+                            aria-label={`Close ${row.name}'s answer again`}
+                            className="ml-1 font-semibold text-[#667085] hover:underline"
+                          >
+                            Close
+                          </button>
+                        </span>
+                      ) : null}
+                    </span>
+                    <AnswerFigures row={row} cap={collection.cantCap} />
+                    <span className="min-w-0 leading-tight">
+                      {row.invitation ? (
+                        <>
+                          <span className="block text-sm text-[#344054]">{`${stage} ${dated(invitedOn)}`}</span>
+                          <span
+                            className="block truncate text-xs text-[#475467]"
+                            title={`${row.invitation.email}${row.invitation.createdBy ? ` · made by ${row.invitation.createdBy}` : ""}`}
+                          >
+                            {row.invitation.email}
                           </span>
-                        ) : null}
-                      </td>
-                      <td
-                        className={`whitespace-nowrap px-3 py-2 tabular-nums ${cant > collection.cantCap ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}
-                        title={row.wishes ? `${cant} h a week marked as constraints, every week` : undefined}
+                        </>
+                      ) : null}
+                    </span>
+                    <span className="flex flex-nowrap items-center justify-end gap-1">
+                      {closed && !row.reopenedUntil ? (
+                        <button
+                          type="button"
+                          onClick={() => setReopening({ row, until: aWeekOn() })}
+                          aria-label={`Reopen ${row.name}'s answer`}
+                          title="Reopen: let them answer past the deadline"
+                          className={ICON_BUTTON}
+                        >
+                          <LockOpen size={15} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      {row.invitation ? (
+                        <button
+                          type="button"
+                          onClick={() => setWithdrawing(row)}
+                          aria-label={`Withdraw ${row.name}'s invitation`}
+                          title="Withdraw the invitation"
+                          className={ICON_BUTTON}
+                        >
+                          <Link2Off size={15} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setInviting(row)}
+                        aria-label={`${row.invitation ? "Make a new invitation for" : "Invite"} ${row.name}`}
+                        title={row.invitation ? "New link: the old one stops working" : "Invite them to answer themselves"}
+                        className={ICON_BUTTON}
                       >
-                        {row.wishes ? `${constraints} · ${cant} h a week` : ""}
-                      </td>
-                      <td className="px-3 py-2 tabular-nums text-[#667085]">{row.wishes ? preferences : ""}</td>
-                      <td className="px-3 py-2 text-xs text-[#667085]">
-                        {row.wishes ? (
-                          <>
-                            {dated(row.wishes.updatedAt)}
-                            {row.wishes.source === "coordinator" && row.wishes.updatedBy
-                              ? ` · entered by ${row.wishes.updatedBy}`
-                              : row.wishes.source === "invitation"
-                                ? " · by the teacher"
-                                : ""}
-                          </>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-xs text-[#667085]">
-                        {row.invitation ? (
-                          <span title={`${row.invitation.email}${row.invitation.createdBy ? ` · made by ${row.invitation.createdBy}` : ""}`}>
-                            {row.invitation.signedInAt
-                              ? `Signed in ${dated(row.invitation.signedInAt)}`
-                              : row.invitation.openedAt
-                                ? `Opened ${dated(row.invitation.openedAt)}`
-                                : `Invited ${dated(row.invitation.createdAt)}`}
-                          </span>
-                        ) : null}
-                      </td>
-                      <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setError("");
-                            dirty.current = false;
-                            setAnswering({ row, editing: !row.wishes });
-                          }}
-                          aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
-                          className="font-semibold text-[#1f4e79] hover:underline"
-                        >
-                          {row.wishes ? "Open" : "Fill in"}
-                        </button>
-                        <span className="mx-1.5 text-[#d0d5dd]">·</span>
-                        <button
-                          type="button"
-                          onClick={() => setInviting(row)}
-                          aria-label={`${row.invitation ? "Make a new invitation for" : "Invite"} ${row.name}`}
-                          className="font-semibold text-[#1f4e79] hover:underline"
-                        >
-                          {row.invitation ? "New link" : "Invite"}
-                        </button>
-                        {row.invitation ? (
-                          <>
-                            <span className="mx-1.5 text-[#d0d5dd]">·</span>
-                            <button
-                              type="button"
-                              onClick={() => setWithdrawing(row)}
-                              aria-label={`Withdraw ${row.name}'s invitation`}
-                              className="font-semibold text-[#667085] hover:text-[#a6292f] hover:underline"
-                            >
-                              Withdraw
-                            </button>
-                          </>
-                        ) : null}
-                        {closed && !row.reopenedUntil ? (
-                          <>
-                            <span className="mx-1.5 text-[#d0d5dd]">·</span>
-                            <button
-                              type="button"
-                              onClick={() => setReopening({ row, until: aWeekOn() })}
-                              aria-label={`Reopen ${row.name}'s answer`}
-                              className="font-semibold text-[#1f4e79] hover:underline"
-                            >
-                              Reopen
-                            </button>
-                          </>
-                        ) : null}
-                      </td>
-                    </tr>
-                  );
-                })}
-                {!teachers.length ? (
-                  <tr>
-                    <td colSpan={7} className="px-4 py-6 text-center text-sm text-[#667085]">
-                      No teacher is active in {semesterName} yet. Add them on Active teachers.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
-          </div>
+                        {row.invitation ? <RefreshCw size={15} aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
+                      </button>
+                    </span>
+                  </RecordRow>
+                );
+              })}
+            </RecordList>
+          </section>
         </>
       )}
 
@@ -591,6 +665,6 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         onConfirm={() => discarding && leave(discarding)}
         onClose={() => setDiscarding(null)}
       />
-    </section>
+    </div>
   );
 }

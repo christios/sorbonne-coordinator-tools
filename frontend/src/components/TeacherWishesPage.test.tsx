@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TeacherWishesPage } from "@/components/TeacherWishesPage";
@@ -68,6 +68,8 @@ describe("a teacher's answer, opened from the list", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" }));
     expect(screen.getByRole("dialog", { name: "Answer for Jad Tarsissi" })).toBeTruthy();
     expect(screen.getByText(/on .*behalf/)).toBeTruthy();
+    // A coordinator knows the form: no how-to over the calendar.
+    expect(screen.queryByText("Drag across the hours")).toBeNull();
   });
 });
 
@@ -88,7 +90,7 @@ describe("closing the wishes window", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Keep editing" }));
     expect(screen.queryByRole("dialog", { name: "Discard your changes?" })).toBeNull();
-    expect(screen.getByRole("button", { name: /^Monday \d+ \w+ 09:00: constraint, every week/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Monday \d+ \w+ 09:00: constraint, whole semester/ })).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });
     fireEvent.click(screen.getByRole("button", { name: "Discard" }));
@@ -121,5 +123,29 @@ describe("invitations and the deadline, on the list", () => {
     fireEvent.change(screen.getByLabelText("Until"), { target: { value: "2099-01-01" } });
     fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
     await waitFor(() => expect(reopen).toHaveBeenCalledWith("262720", "t-jad", "2099-01-01"));
+  });
+});
+
+describe("the list, on the department's Record list as Part-time Teachers", () => {
+  it("shows every answer or those in one state, finds a teacher by name, and says what an answer holds", async () => {
+    page();
+    await screen.findByRole("button", { name: "Open Valerie Le Guyon's preferences" });
+    expect(screen.getByRole("button", { name: "Submitted 1" })).toBeTruthy();
+    // Each figure over what it counts, as the Record list draws figures.
+    const row = screen.getByRole("button", { name: "Open Valerie Le Guyon's preferences" }).closest('[role="listitem"]') as HTMLElement;
+    expect(within(row).getByText("2 h").nextElementSibling?.textContent).toBe("a week");
+    expect(within(row).getByText("constraints")).toBeTruthy();
+    expect(within(row).getByText("preferences")).toBeTruthy();
+    expect(screen.getByText(/· by the teacher$/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not started 1" }));
+    expect(screen.queryByRole("button", { name: "Open Valerie Le Guyon's preferences" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Fill in Jad Tarsissi's preferences" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "All 2" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search teachers" }), { target: { value: "valerie" } });
+    expect(screen.queryByRole("button", { name: "Fill in Jad Tarsissi's preferences" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Open Valerie Le Guyon's preferences" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search teachers" }), { target: { value: "" } });
   });
 });

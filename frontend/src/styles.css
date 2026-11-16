@@ -218,3 +218,51 @@ main > div.max-w-6xl {
 @media (prefers-reduced-motion: reduce) {
   .tour-card-in, .tour-card-glow, .tour-card-shake { animation: none; }
 }
+
+/*
+ * A press where the tour has nothing to do (12 Nov 2026): a large "don't fill in the form
+ * now" pops in, and back on the card its arrow grows and pulses, ringed, away from the control.
+ */
+@keyframes tour-alert-in {
+  from { opacity: 0; transform: scale(0.9); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes tour-arrow-call {
+  0%, 100% { transform: scale(1.5); }
+  50% { transform: scale(1.9); }
+}
+.tour-alert-in { animation: tour-alert-in 220ms cubic-bezier(0.2, 0.9, 0.3, 1.2); }
+.tour-arrow-call { animation: tour-arrow-call 0.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-alert-in { animation: none; }
+  .tour-arrow-call { animation: none; transform: scale(1.6); }
+}
+
+/*
+ * "Your turn" turned into "Nicely done", in place (12 Nov 2026): a green fill sweeps across the
+ * line, the tick pops in, and the words rise into it. Without motion, the line is simply green.
+ */
+@keyframes tour-slot-fill {
+  from { background-size: 0% 100%; }
+  to { background-size: 100% 100%; }
+}
+@keyframes tour-slot-check {
+  0% { transform: scale(0) rotate(-30deg); }
+  60% { transform: scale(1.35) rotate(0); }
+  100% { transform: scale(1); }
+}
+@keyframes tour-slot-text {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.tour-slot-done {
+  background-color: #ffffff;
+  background-image: linear-gradient(#e7f4ec, #e7f4ec);
+  background-repeat: no-repeat;
+  animation: tour-slot-fill 420ms ease-out both;
+}
+.tour-slot-check { animation: tour-slot-check 420ms 80ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+.tour-slot-text { display: inline-block; animation: tour-slot-text 300ms 140ms ease-out both; }
+@media (prefers-reduced-motion: reduce) {
+  .tour-slot-done, .tour-slot-check, .tour-slot-text { animation: none; }
+}

@@ -44,8 +44,8 @@ describe("the lines an answer makes", () => {
   });
 
   it("says a block in words, a week's own by its dates", () => {
-    expect(describeBlock(block("c", "constraint", [2, 4], 14, 18))).toBe("Constraint · Tue, Thu 14:00–18:00 · every week");
-    expect(describeBlock(block("c", "preference", [1], 8, 10, { repeat: "from", week: "2027-02-01" }))).toBe("Preference · Mon 08:00–10:00 · every week from 1 Feb");
+    expect(describeBlock(block("c", "constraint", [2, 4], 14, 18))).toBe("Constraint · Tue, Thu 14:00–18:00 · whole semester");
+    expect(describeBlock(block("c", "preference", [1], 8, 10, { repeat: "from", week: "2027-02-01" }))).toBe("Preference · Mon 08:00–10:00 · every week starting 1 Feb");
     expect(describeBlock(block("d", "constraint", [5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
       "Constraint · Fri 22 Jan, all day",
     );
@@ -133,7 +133,7 @@ describe("a plan read against the teachers' wishes", () => {
     const plan = { sections: SECTIONS, classes: [tuesday], periods: [] } as unknown as Plan;
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("run", "constraint", [2], 14, 18, { comment: "School run" })] })]);
     expect(check.breaches[0].comment).toBe("School run");
-    expect(check.flags.get(tuesday)?.said).toEqual(["Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”"]);
+    expect(check.flags.get(tuesday)?.said).toEqual(["Constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”"]);
   });
 
   it("flags a class in a teacher's constraint red", () => {
@@ -142,7 +142,7 @@ describe("a plan read against the teachers' wishes", () => {
     const check = checkWishes(plan, [answered("bilal", "Bilal Maaz", { blocks: [block("run", "constraint", [2], 14, 18)] })]);
 
     expect(check.breaches.map((breach) => [breach.teacherName, breach.level, breach.wish, breach.how])).toEqual([
-      ["Bilal Maaz", "must", "Constraint · Tue 14:00–18:00 · every week", "MATH-114 TD 2, Tue 15:00"],
+      ["Bilal Maaz", "must", "Constraint · Tue 14:00–18:00 · whole semester", "MATH-114 TD 2, Tue 15:00"],
     ]);
     expect(check.flags.get(tuesday)?.level).toBe("must");
     expect(check.tallies[0]).toMatchObject({ teacherName: "Bilal Maaz", musts: 1, mustsKept: 0 });
