@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, ChevronDown, ChevronUp, LayoutGrid, Layers, Plus, Trash2, Users, Wand2, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { CohortMenu } from "@/components/CohortMenu";
 import { CarrySet } from "@/components/CarrySet";
@@ -40,7 +39,6 @@ import {
   updateScope,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
-import { useSemesterShown } from "@/services/semesterYears";
 
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
@@ -157,12 +155,9 @@ function SetLine({
 export function GroupSchema({
   cohorts,
   onOpenGroups,
-  header,
 }: {
   cohorts: Cohort[];
   onOpenGroups?: () => void;
-  /** The slot on the page's title line, top right, where the semester goes. */
-  header?: HTMLElement | null;
 }) {
   const client = useQueryClient();
   // Both remembered by this browser: the cohort with every other cohort picker, the
@@ -173,7 +168,6 @@ export function GroupSchema({
   // The two panes fill the room under the totals, and each scrolls inside itself.
 
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const shownOf = useSemesterShown();
   /*
    * The courses active in the semester on screen, by its portal term: a set of Semester 2
    * is given Semester 2's courses. Every semester's were offered, so a course chosen for
@@ -355,23 +349,10 @@ export function GroupSchema({
     );
   }
 
-  const semesterMenu = (
-    <SelectMenu
-      label="Semester"
-      value={termId}
-      onChange={setTermId}
-      placeholder="Which semester…"
-      options={(terms.data ?? []).map((term) => ({ value: term.id, ...shownOf(term) }))}
-    />
-  );
-
   return (
     <section className="flex flex-col lg:min-h-0 lg:flex-1">
-      {/* The semester top right, on the page's title line, as on every page with one. */}
-      {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
       <div className="mb-3 flex flex-wrap items-end gap-3">
-        {/* The semester first: a set belongs to one, and the cohort means nothing until it is settled. */}
-        {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
+        {/* The semester is the header's: a set belongs to one, chosen there for every page. */}
         <LabelledPicker label="Cohort">
           <CohortMenu cohorts={cohorts} semesterId={termId} value={cohortId} onChange={setCohortId} placeholder="Which cohort…" />
         </LabelledPicker>

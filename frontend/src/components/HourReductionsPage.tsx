@@ -5,7 +5,7 @@ import { type CSSProperties, type FormEvent, Fragment, type ReactNode, useRef, u
 
 import { Tip, TipDo, TipPoint } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
@@ -213,9 +213,10 @@ function reductionColumns(rules: ReductionRule[]): GridColumn<Teacher>[] {
  * tick. It is saved when it closes; Escape leaves it as it was. Nobody opens a teacher to
  * change one figure. An administrator changes the rules' figures; everybody else reads.
  */
-export function HourReductionsPage({ header }: { header?: HTMLElement | null }) {
+/** The semester is the header's, as on every page: its academic year is the one shown. */
+export function HourReductionsPage() {
   const client = useQueryClient();
-  const { semesters, semester, setTermId, term } = usePortalSemester();
+  const { term } = usePortalSemester();
   const key = ["hour-reductions", term];
   const held = useQuery({
     queryKey: key,
@@ -263,16 +264,11 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
     },
   });
 
-  const menu = <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />;
-
-  if (!term) return <>{menu}<p className="text-sm text-[#667085]">Choose a semester linked to a portal term.</p></>;
-  if (held.isLoading) return <>{menu}<ScreenLoading label="Reading the hour reductions…" /></>;
+  if (!term) return <p className="text-sm text-[#475467]">Choose a semester linked to a portal term, top right.</p>;
+  if (held.isLoading) return <ScreenLoading label="Reading the hour reductions…" />;
   if (held.isError || !held.data) {
     return (
-      <>
-        {menu}
-        <p role="alert" className="text-sm text-[#a6292f]">{(held.error as Error | null)?.message}</p>
-      </>
+      <p role="alert" className="text-sm text-[#a6292f]">{(held.error as Error | null)?.message}</p>
     );
   }
   const year = held.data;
@@ -304,7 +300,6 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
-      {menu}
       {problem ? (
         <p role="alert" className="rounded-md border border-[#efc9cb] bg-[#fff5f5] px-3 py-2 text-sm text-[#8f1f25]">
           {problem}

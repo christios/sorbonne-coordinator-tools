@@ -9,7 +9,7 @@ import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } fro
 import { useStaffUser } from "@/components/useStaffUser";
 import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { TeacherAvatar } from "@/components/TeacherDatabase";
@@ -198,7 +198,7 @@ function CollectionSettings({
  */
 export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const client = useQueryClient();
-  const { semesters, semester, setTermId, term } = usePortalSemester();
+  const { semester, term } = usePortalSemester();
   // Where the form puts its Guided tour button: the window's header.
   const [tourSlot, setTourSlot] = useState<HTMLElement | null>(null);
   const wishes = useQuery({
@@ -274,7 +274,8 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
     onError: (exc: Error) => setError(exc.message),
   });
 
-  const menu = <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header} />;
+  // The semester is the header's, chosen there for every page.
+  const menu = null;
   const collection: WishCollection | null = wishes.data?.collection ?? null;
   const teachers = wishes.data?.teachers ?? [];
   const counted = (which: Shown) => (which === "all" ? teachers.length : teachers.filter((row) => statusOf(row) === which).length);

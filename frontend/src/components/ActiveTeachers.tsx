@@ -1,6 +1,7 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, EyeOff, Link2, RotateCcw, Settings, Trash2, UserPlus, X } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 
 import { BringOverTeachers } from "@/components/BringOverTeachers";
@@ -10,7 +11,7 @@ import { InfoTip } from "@/components/InfoTip";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { Modal } from "@/components/Modal";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { SelectionBar } from "@/components/SelectionActions";
 import { AvailabilityCell, AvailabilityTabs, FreeWhenPicker, type Showing } from "@/components/TeacherAvailability";
@@ -323,7 +324,20 @@ export function ActiveTeachers({
 }) {
   const client = useQueryClient();
   // The semester the list is for: who is active in it, and the sections of it they teach.
-  const { semesters, semester, setTermId, term } = usePortalSemester();
+  // The header's semester: chosen there for every page.
+  const { semester, term } = usePortalSemester();
+  const semesterSettings = (
+    <button
+      type="button"
+      aria-label={`Active teachers settings for ${semester?.name ?? "this semester"}`}
+      title="Settings: bring teachers over from another semester"
+      disabled={!term}
+      onClick={() => setBringing(true)}
+      className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
+    >
+      <Settings size={16} aria-hidden="true" />
+    </button>
+  );
   const active = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term) });
   const matches = useQuery({ queryKey: ["teacher-matches"], queryFn: fetchTeacherMatches, retry: false });
   // The planning, for the Teaches column: which component types each teacher's sections are.
@@ -593,19 +607,11 @@ export function ActiveTeachers({
           empty={`Nobody active in ${semester?.name ?? "this semester"} yet. Bring teachers over from another semester in Settings, beside the semester, choose them on the Teachers page, or add them from the part-time database.`}
           toolbar={
             <>
-              <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} header={header}>
-                {/* The semester's own settings: who is brought over into it from another. */}
-                <button
-                  type="button"
-                  aria-label={`Active teachers settings for ${semester?.name ?? "this semester"}`}
-                  title="Settings: bring teachers over from another semester"
-                  disabled={!term}
-                  onClick={() => setBringing(true)}
-                  className="inline-flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-md border border-[#b7bec8] bg-white text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
-                >
-                  <Settings size={16} aria-hidden="true" />
-                </button>
-              </PortalSemesterMenu>
+              {/*
+                * The semester's own settings — who is brought over into it from another — on the
+                * title line where the page has one. The semester itself is the header's.
+                */}
+              {header ? createPortal(semesterSettings, header) : semesterSettings}
               <button
                 type="button"
                 onClick={() => setPicking(true)}
