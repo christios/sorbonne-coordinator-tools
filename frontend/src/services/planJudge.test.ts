@@ -61,7 +61,7 @@ describe("what would go wrong if a class sat at a time", () => {
     expect(judged.worst).toBe("must");
     expect(judged.problems.map((problem) => problem.said)).toEqual([
       "Same teacher as CHEM-101 · CM (15:00–16:00)",
-      "Constraint · Bilal Maaz: Tue 14:00–18:00 · every week — “School run”",
+      "Constraint · Bilal Maaz: Tue 14:00–18:00 · whole semester — “School run”",
     ]);
   });
 

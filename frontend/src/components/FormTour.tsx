@@ -1,8 +1,9 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, MousePointerClick, X } from "lucide-react";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, Hand, MousePointerClick, Timer, X } from "lucide-react";
+import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { holdTips } from "@/components/InfoTip";
 
 /**
  * One step of a guided tour: a part of the page lit up, a sentence or two about it, and
@@ -44,9 +45,67 @@ export type TourStep = {
   target?: () => Parts;
   /** Each of the target's parts lit on its own, the dim between them: not one box round them all. */
   apart?: boolean;
-  /** Buttons in place of Next, for the last step: keep or clear what was tried. */
+  /** Buttons in place of Next, for a card that is a question: Later, Start the tour. */
   actions?: { label: string; onClick: () => void; primary?: boolean }[];
+  /**
+   * How long the card holds before the tour goes on, in seconds: time to read it. Next opens,
+   * and a step done goes on, only once it has run out. Only the first time a step is shown.
+   */
+  readFor?: number;
 };
+
+/**
+ * How long cards hold, as a share of their own `readFor`: 1 in use. Tests that are not about
+ * the wait set it to 0, and every card lets the reader on at once.
+ */
+export const tourPace = { scale: 1 };
+
+/**
+ * A component drawing one of the page's controls inside a card — a button, a pill, a switch —
+ * marks itself `tourLook`: the number of words it shows when it takes no children (a switch's
+ * "Constraint Preference"), else 0. Each one is a thing to find on the page.
+ */
+type Look = { tourLook?: number };
+
+/** What a card asks of its reader: the words to read, and the controls to find on the page. */
+export function tally(nodes: ReactNode[]): { words: number; controls: number } {
+  let words = 0;
+  let controls = 0;
+  const walk = (node: ReactNode): void => {
+    if (node === null || node === undefined || typeof node === "boolean") return;
+    if (typeof node === "string" || typeof node === "number") {
+      // A word has a letter or a digit: "·" and "–" alone are not read; "14:00–16:00" is one.
+      words += String(node)
+        .split(/\s+/)
+        .filter((word) => /[\p{L}\p{N}]/u.test(word)).length;
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (!isValidElement(node)) return;
+    const look = typeof node.type === "function" ? (node.type as Look).tourLook : undefined;
+    if (look !== undefined) {
+      controls += 1;
+      words += look;
+    }
+    walk((node.props as { children?: ReactNode }).children);
+  };
+  nodes.forEach(walk);
+  return { words, controls };
+}
+
+/**
+ * A card's reading time, from how much it asks (12 Nov 2026): a second to take it in, a fifth
+ * of a second a word, half a second an instruction, three quarters of one for each control to
+ * find on the page. Never under 3 seconds, nor over 15.
+ */
+export function readingTime(step: Pick<TourStep, "title" | "body" | "steps">): number {
+  const { words, controls } = tally([step.title, step.body, ...(step.steps ?? [])]);
+  const seconds = 1 + words * 0.2 + (step.steps?.length ?? 0) * 0.5 + controls * 0.75;
+  return Math.min(15, Math.max(3, Math.round(seconds)));
+}
 
 type Part = Element | null | undefined;
 /** One part of the page, or several, or groups of several. */
@@ -178,10 +237,30 @@ function dimBoxes(lit: Box[], screen: Box): Box[] {
  * What a press may always reach during a tour: the card, and a menu opened from a control the
  * step allows. Not any dialog: the form may itself sit in one, close button and all.
  */
-const STILL_REACHED = '[data-tour-card], [role="listbox"]';
+const STILL_REACHED = '[data-tour-card], [data-tour-alert], [role="listbox"]';
 
 /** A button the card wants pressed, after a press elsewhere: ringed and pulsing. */
 const CALL = "ring-4 ring-[#ffc43d] motion-safe:animate-pulse";
+/** The line under a card's instructions: "Your turn", then "Nicely done" in its place, one height. */
+const SLOT = "relative mt-3 flex min-h-9 items-center gap-1.5 overflow-hidden rounded-md border px-2.5 py-1.5 text-[13px] font-semibold";
+/** The tour's own colour, green, apart from the page's blue: its card, its arrow, its buttons. */
+const PRIMARY = "rounded-md bg-[#15803d] px-3 py-1.5 text-xs font-semibold text-white hover:bg-[#126c34] disabled:cursor-not-allowed disabled:bg-[#9cc5aa]";
+
+/** The bar under the reading time, emptying as the seconds go. */
+function ReadBar({ seconds }: { seconds: number }) {
+  const [gone, setGone] = useState(false);
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => setGone(true));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+  return (
+    <span
+      aria-hidden="true"
+      className="absolute inset-y-0 left-0 rounded-full bg-[#d4a106]"
+      style={{ width: gone ? "0%" : "100%", transition: `width ${seconds}s linear` }}
+    />
+  );
+}
 
 /** "Press Next." as the end of a sentence: "press Next." */
 const lower = (words: ReactNode): ReactNode => (typeof words === "string" ? words.charAt(0).toLowerCase() + words.slice(1) : words);
@@ -190,8 +269,9 @@ const lower = (words: ReactNode): ReactNode => (typeof words === "string" ? word
  * A guided tour over a page: the part a step is about lit up, everything else dimmed, and a
  * card beside it, saying what to do in numbered steps. Only the controls a step is about
  * work, so it can ask to try the very thing it shows and watch for it being done; a press
- * anywhere else does nothing but shake the card, which says the tour is where to look. The
- * card asks to be read: a coloured band, and each step arrives with a glow round it.
+ * anywhere else does nothing but bring up a large "don't fill in the form now", then shake
+ * the card and grow its arrow. The card asks to be read: a green band, each step arriving
+ * with a glow round it, and a reading time before the tour goes on.
  *
  * Drawn over everything but menus and bubbles, and kept in step with the page as it moves:
  * a pop-over opening, the window scrolling. Scrolling is never stopped.
@@ -248,6 +328,27 @@ export function FormTour({
   // Presses on the dimmed page, counted to shake the card each time; and whether to say why.
   const [nudges, setNudges] = useState(0);
   const [saying, setSaying] = useState(false);
+  // A press where the step has nothing to do: the large "don't fill in the form now", over all.
+  const [alerting, setAlerting] = useState(false);
+  const alertingNow = useRef(alerting);
+  alertingNow.current = alerting;
+  // A single card, not a tour (the suggestion to take one): a press elsewhere only shakes it.
+  const hintNow = useRef(hint);
+  hintNow.current = hint;
+  /** Back from the alert to the card: it shakes, its arrow grows, its button pulses. */
+  const backToCard = () => {
+    setAlerting(false);
+    setNudges((count) => count + 1);
+    setSaying(true);
+  };
+
+  // No bubble opens on the page while the tour is on: the card is the one thing to read.
+  useEffect(() => holdTips(), []);
+  // The alert takes the keyboard: Enter, or Escape, goes back to the card.
+  const alertButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (alerting) alertButton.current?.focus();
+  }, [alerting]);
 
   // Where the lit part is, and the control the arrow points at, every frame while the tour is on:
   // they move as the page does. Read from the step as it is now, not as it was when it began.
@@ -298,9 +399,10 @@ export function FormTour({
       event.preventDefault();
       event.stopPropagation();
       // A pointer's press, or a mouse's where there is no pointer event before it.
-      if (event.type === "pointerdown" || event.type === "mousedown") {
+      if ((event.type === "pointerdown" || event.type === "mousedown") && !alertingNow.current) {
         setNudges((count) => count + 1);
         setSaying(true);
+        if (!hintNow.current) setAlerting(true);
       }
     };
     // Not the let-go: a stroke started in the lit part may end outside it, and must still end.
@@ -314,6 +416,7 @@ export function FormTour({
     if (!nudge) return;
     setNudges((count) => count + 1);
     setSaying(true);
+    setAlerting(true);
   }, [nudge]);
   useEffect(() => {
     if (!saying) return;
@@ -364,6 +467,39 @@ export function FormTour({
     };
   }, [stepId]);
 
+  /*
+   * Each card's reading time, the first time its step is shown: Next opens, and a step done
+   * goes on, once it has run out. People skimmed the cards (12 Nov 2026); now they wait them out.
+   */
+  const readMs = hint ? 0 : Math.round((step?.readFor ?? 0) * 1000 * tourPace.scale);
+  const readSteps = useRef(new Set<string>());
+  const [clock, setClock] = useState<{ id: string; left: number; total: number }>({ id: "", left: 0, total: 0 });
+  const timedHere = Boolean(stepId) && readMs > 0 && !readSteps.current.has(stepId!);
+  const left = clock.id === stepId ? clock.left : timedHere ? Math.ceil(readMs / 1000) : 0;
+  const total = clock.id === stepId ? clock.total : timedHere ? Math.ceil(readMs / 1000) : 0;
+  const ready = left <= 0;
+  useEffect(() => {
+    // A step read before, or with no reading time: no clock, and no strip saying it has run out.
+    if (!stepId || !timedHere) {
+      setClock((now) => (now.id ? { id: "", left: 0, total: 0 } : now));
+      return;
+    }
+    const seconds = Math.ceil(readMs / 1000);
+    let leftNow = seconds;
+    setClock({ id: stepId, left: leftNow, total: seconds });
+    const timer = window.setInterval(() => {
+      leftNow -= 1;
+      setClock({ id: stepId, left: leftNow, total: seconds });
+      if (leftNow <= 0) {
+        readSteps.current.add(stepId);
+        window.clearInterval(timer);
+      }
+    }, 1000);
+    return () => window.clearInterval(timer);
+    // On a new step only: its reading time, read as it starts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepId]);
+
   // Done: "Nicely done", and Next — the reader goes on when they have seen it. A step that
   // goes on by itself does so after its moment, a bar filling meanwhile.
   const done = Boolean(step?.tryIt && step.done);
@@ -376,8 +512,8 @@ export function FormTour({
     if (!done) setArmedAt(at);
   }, [done, at]);
   const armed = armedAt === at;
-  const autoNext = done && !last && armed ? step?.autoNext : undefined;
-  const instant = done && !last && armed && Boolean(step?.instantNext);
+  const autoNext = done && !last && armed && ready ? step?.autoNext : undefined;
+  const instant = done && !last && armed && ready && Boolean(step?.instantNext);
   useEffect(() => {
     if (instant) onStep(at + 1);
   }, [instant, at, onStep]);
@@ -392,6 +528,15 @@ export function FormTour({
   useEffect(() => {
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
+      // The alert, if it is up, closes first: back to the card.
+      if (alertingNow.current) {
+        event.stopPropagation();
+        event.preventDefault();
+        setAlerting(false);
+        setNudges((count) => count + 1);
+        setSaying(true);
+        return;
+      }
       // A pop-over of the page's own, open over it, closes first.
       const popover = (event.target as Element | null)?.closest?.('[role="dialog"]:not([aria-modal="true"])');
       if (!asking && popover && !card.current?.contains(popover)) return;
@@ -430,6 +575,19 @@ export function FormTour({
   }, [place, gliding]);
 
   if (!step) return null;
+  // What to do now, as the alert says it: the card's own next move.
+  const goesOnItself = Boolean(autoNext) || (done && Boolean(step.instantNext || step.autoNext));
+  const nowWords: ReactNode = step.actions?.length
+    ? `choose ${step.actions.map((action) => action.label).join(" or ")} on the card.`
+    : goesOnItself
+      ? ready
+        ? "wait a moment: the tour goes on by itself."
+        : "wait for the timer: the tour then goes on by itself."
+      : step.tryIt && !done
+        ? lower(step.tryIt)
+        : ready
+          ? `press ${last ? "Finish" : "Next"} on the card.`
+          : `read the card. ${last ? "Finish" : "Next"} opens when the timer ends.`;
   return createPortal(
     <>
       {/*
@@ -462,8 +620,8 @@ export function FormTour({
           const ring = padded(hole);
           return (
             <g key={index} data-tour-lit mask={`url(#${ringId}-${index})`} fill="none">
-              <rect {...rectOf(ring, 5)} rx={8} stroke="rgba(91, 143, 196, 0.35)" strokeWidth={6} />
-              <rect {...rectOf(ring, 1)} rx={4} stroke="#5b8fc4" strokeWidth={2} />
+              <rect {...rectOf(ring, 5)} rx={8} stroke="rgba(34, 160, 90, 0.35)" strokeWidth={6} />
+              <rect {...rectOf(ring, 1)} rx={4} stroke="#22a05a" strokeWidth={2} />
             </g>
           );
         })}
@@ -480,10 +638,16 @@ export function FormTour({
                   ? { left: arrow.left + arrow.width / 2 - 14, top: arrow.top - 34 }
                   : { left: arrow.left + arrow.width / 2 - 14, top: arrow.top + arrow.height + 6 };
             const Icon = from === "left" ? ArrowRight : from === "above" ? ArrowDown : ArrowUp;
+            // Nudged, it grows away from the control, so it never covers what it points at.
+            const origin = from === "left" ? "right center" : from === "above" ? "center bottom" : "center top";
             return (
               <span aria-hidden="true" data-tour-arrow={from} className="pointer-events-none fixed z-[104]" style={place}>
-                <span className={`grid h-7 w-7 place-items-center rounded-full bg-[#1f4e79] text-white shadow-lg ring-2 ring-white tour-arrow-${from}`}>
-                  <Icon size={15} strokeWidth={2.5} />
+                <span key={nudges} data-tour-arrow-call={saying ? "" : undefined} className={`block ${saying ? "tour-arrow-call" : ""}`} style={{ transformOrigin: origin }}>
+                  <span
+                    className={`grid h-7 w-7 place-items-center rounded-full bg-[#15803d] text-white shadow-lg tour-arrow-${from} ${saying ? "ring-4 ring-[#ffc43d]" : "ring-2 ring-white"}`}
+                  >
+                    <Icon size={15} strokeWidth={2.5} />
+                  </span>
                 </span>
               </span>
             );
@@ -502,9 +666,9 @@ export function FormTour({
       >
         {/* Each step arrives: the card rises in, a glow spreading round it. */}
         <div key={step.id} className="tour-card-in">
-          <div key={nudges} className={`relative rounded-xl border-2 border-[#1f4e79] bg-white shadow-2xl ${nudges ? "tour-card-shake" : ""}`}>
+          <div key={nudges} className={`relative rounded-xl border-2 border-[#15803d] bg-white shadow-2xl ${nudges ? "tour-card-shake" : ""}`}>
             <span aria-hidden="true" key={`glow-${step.id}`} className="tour-card-glow pointer-events-none absolute -inset-0.5 rounded-xl" />
-            <div className="flex items-center gap-2 rounded-t-[10px] bg-[#1f4e79] px-3.5 py-2 text-white">
+            <div className="flex items-center gap-2 rounded-t-[10px] bg-[#15803d] px-3.5 py-2 text-white">
               <Compass size={15} aria-hidden="true" />
               <span className="text-xs font-semibold">Guided tour</span>
               {hint ? (
@@ -533,6 +697,30 @@ export function FormTour({
                 <X size={14} aria-hidden="true" />
               </button>
             </div>
+            {total ? (
+              // The reading time, said in words over its bar: what it is for, and how long is left. Run
+              // out, it folds away: nothing more to say.
+              <div
+                data-tour-timer-wrap
+                data-state={ready ? "done" : "running"}
+                aria-hidden={ready || undefined}
+                className={`grid motion-safe:transition-[grid-template-rows] motion-safe:duration-300 ${ready ? "grid-rows-[0fr]" : "grid-rows-[1fr]"}`}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  <div
+                    data-tour-timer
+                    className="flex items-center gap-2 border-b border-[#f0d58c] bg-[#fff6dd] px-3.5 py-1.5 text-xs font-semibold text-[#7a5d00]"
+                  >
+                    <Timer size={14} className="shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
+                    <span className="shrink-0">Read this card first</span>
+                    <span className="relative h-1.5 min-w-8 flex-1 overflow-hidden rounded-full bg-[#f3e2a9]">
+                      <ReadBar key={stepId} seconds={total} />
+                    </span>
+                    <span className="shrink-0 tabular-nums">next step in {Math.max(left, 0)} s</span>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             <div className="px-4 pb-4 pt-3">
               <div aria-live="polite">
                 <p className="text-base font-semibold text-[#171717]">{step.title}</p>
@@ -543,7 +731,7 @@ export function FormTour({
                       <li key={index} className="flex items-start gap-2">
                         <span
                           aria-hidden="true"
-                          className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#1f4e79] text-[10px] font-semibold text-white"
+                          className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#15803d] text-[10px] font-semibold text-white"
                         >
                           {index + 1}
                         </span>
@@ -555,44 +743,37 @@ export function FormTour({
                     ))}
                   </ol>
                 ) : null}
-                {/* What to try: the numbered steps say it, when there are any; the box says it otherwise. Done, it says so. */}
+                {/*
+                 * Under the instructions, one line that turns from "Your turn" (or what to try, with no
+                 * numbered steps to say it) to "Nicely done" in place: the card keeps its height.
+                 */}
                 {step.tryIt ? (
                   done && !instant ? (
-                    <p className="relative mt-3 flex items-center gap-1.5 overflow-hidden rounded-md bg-[#e7f4ec] px-2.5 py-2 text-[13px] font-semibold text-[#2e7d55]">
-                      <Check size={15} aria-hidden="true" /> {step.doneWords ?? "Nicely done"}
+                    // Comes in over "Your turn": a green fill sweeping across, the tick popping, the words rising.
+                    <p data-tour-slot="done" className={`${SLOT} tour-slot-done border-[#cfe8d8] text-[#2e7d55]`}>
+                      <span className="tour-slot-check inline-flex shrink-0">
+                        <Check size={15} aria-hidden="true" />
+                      </span>
+                      <span className="tour-slot-text">{step.doneWords ?? "Nicely done"}</span>
                       {autoNext ? <Countdown key={at} ms={autoNext} /> : null}
                     </p>
-                  ) : step.steps?.length ? null : (
-                    <p className="mt-3 flex items-start gap-2 rounded-md border border-[#9cc0e4] bg-[#eef4fa] px-2.5 py-2 text-[13px] font-semibold text-[#1f4e79]">
-                      <MousePointerClick size={15} className="mt-0.5 shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
-                      <span>
-                        <span className="font-normal text-[#5b7a99]">Try it: </span>
-                        {step.tryIt}
-                      </span>
+                  ) : (
+                    <p data-tour-slot="todo" className={`${SLOT} border-[#cfe8d8] bg-white text-[#15803d]`}>
+                      <MousePointerClick size={15} className="shrink-0 motion-safe:animate-pulse" aria-hidden="true" />
+                      {step.steps?.length ? (
+                        "Your turn"
+                      ) : (
+                        <span>
+                          <span className="font-normal text-[#5b7a99]">Try it: </span>
+                          {step.tryIt}
+                        </span>
+                      )}
                     </p>
                   )
                 ) : null}
-                {saying ? (
-                  <p role="status" className="mt-2 rounded-md border border-[#f0d58c] bg-[#fdf6e3] px-2.5 py-2 text-xs leading-5 text-[#7a5d00]">
-                    This is a guided tour: only what the card asks works.{" "}
-                    <b className="font-semibold text-[#5c4500]">
-                      Now:{" "}
-                      {step.actions?.length
-                        ? `choose ${step.actions.map((action) => action.label).join(" or ")} on the card.`
-                        : last
-                          ? "press Finish on the card."
-                          : autoNext
-                            ? "wait a moment: the tour goes on by itself."
-                            : done && !instant
-                              ? "press Next on the card."
-                              : step.tryIt
-                                ? lower(step.tryIt)
-                                : "read the card, then press Next."}
-                    </b>
-                  </p>
-                ) : null}
               </div>
-              <div className="mt-4 flex items-center gap-2">
+              {/* As tall with Next as without it, so Next showing up does not move the card. */}
+              <div className="mt-4 flex min-h-8 items-center gap-2">
                 {at > 0 ? (
                   <button
                     type="button"
@@ -611,7 +792,7 @@ export function FormTour({
                         onClick={action.onClick}
                         className={`${
                           action.primary
-                            ? "rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white"
+                            ? PRIMARY
                             : "rounded-md border border-[#d0d5dd] bg-white px-3 py-1.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc]"
                         } ${saying ? CALL : ""}`}
                       >
@@ -619,26 +800,14 @@ export function FormTour({
                       </button>
                     ))
                   ) : last ? (
-                    <button type="button" onClick={onClose} className={`rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white ${saying ? CALL : ""}`}>
+                    <button type="button" disabled={!ready} onClick={onClose} className={`${PRIMARY} ${saying && ready ? CALL : ""}`}>
                       Finish
+                      {ready ? null : <span aria-hidden="true" className="ml-1.5 tabular-nums opacity-80">{left}</span>}
                     </button>
-                  ) : autoNext ? null : step.tryIt && !done ? (
-                    // Nothing to skip: a step with something to try offers Next once it is tried.
-                    step.steps?.length ? (
-                      // The numbered steps say what; this only says it is to be done before going on.
-                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#1f4e79]">
-                        <MousePointerClick size={13} className="motion-safe:animate-pulse" aria-hidden="true" /> Your turn
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-[#98a2b3]">Try it to go on</span>
-                    )
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => onStep(at + 1)}
-                      className={`rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white ${saying ? CALL : ""}`}
-                    >
+                  ) : autoNext || (step.tryIt && !done) || (done && step.instantNext) ? null : (
+                    <button type="button" disabled={!ready} onClick={() => onStep(at + 1)} className={`${PRIMARY} ${saying && ready ? CALL : ""}`}>
                       Next
+                      {ready ? null : <span aria-hidden="true" className="ml-1.5 tabular-nums opacity-80">{left}</span>}
                     </button>
                   )}
                 </span>
@@ -647,6 +816,38 @@ export function FormTour({
           </div>
         </div>
       </div>
+      {alerting ? (
+        // Large, in the middle, over everything: a press where the tour has nothing to do.
+        <div className="fixed inset-0 z-[120] grid place-items-center bg-[rgba(16,24,40,0.35)] p-4">
+          <div
+            data-tour-alert
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby={`${ringId}-alert`}
+            aria-describedby={`${ringId}-alert-said`}
+            className="tour-alert-in w-[min(30rem,100%)] rounded-2xl border-2 border-[#d97706] bg-white p-6 text-center shadow-2xl"
+          >
+            <span aria-hidden="true" className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#fff3d6] text-[#b45309]">
+              <Hand size={30} />
+            </span>
+            <h2 id={`${ringId}-alert`} className="mt-3 text-xl font-bold text-[#171717]">
+              Don&rsquo;t fill in the form now
+            </h2>
+            <p id={`${ringId}-alert-said`} className="mt-2 text-sm leading-6 text-[#475467]">
+              This is a guided tour. Just follow the steps on the green card.
+            </p>
+            <p className="mt-4 rounded-lg bg-[#eef8f1] px-3 py-2 text-sm font-semibold text-[#1e6b45]">Now: {nowWords}</p>
+            <button
+              ref={alertButton}
+              type="button"
+              onClick={backToCard}
+              className="mt-5 rounded-md bg-[#15803d] px-5 py-2 text-sm font-semibold text-white hover:bg-[#126c34]"
+            >
+              Back to the tour
+            </button>
+          </div>
+        </div>
+      ) : null}
       <ConfirmDialog
         open={asking}
         title="End the guided tour?"
