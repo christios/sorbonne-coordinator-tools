@@ -11,6 +11,7 @@ from sorbonne.api import teacher_wishes as coordinators
 from sorbonne.api import wish_invite as door
 from sorbonne.main import app
 from sorbonne.services.engine import engine_for
+from sorbonne.services.hour_reductions import HourReductions
 from sorbonne.services.staff_auth import SignInRejected
 from sorbonne.services.teacher_wishes import WishStore
 from sorbonne.services.wish_invitations import INVITEE_COOKIE, InvitationStore, read_invitee_session
@@ -52,6 +53,8 @@ def client(stores: tuple[WishStore, InvitationStore], monkeypatch: pytest.Monkey
     app.dependency_overrides[coordinators.get_invitations] = lambda: invitations
     app.dependency_overrides[door.get_wishes] = lambda: wishes
     app.dependency_overrides[door.get_invitations] = lambda: invitations
+    # A full-timer's hour reductions are read beside their answer, from the same scratch database.
+    app.dependency_overrides[door.get_reductions] = lambda: HourReductions(wishes.engine)
 
     # Google, as it would answer for whoever signs in: the address a test says.
     def google(credential: str) -> tuple[str, str]:
@@ -64,7 +67,13 @@ def client(stores: tuple[WishStore, InvitationStore], monkeypatch: pytest.Monkey
         # The invitee's cookie is Secure: it travels over https only, as in production.
         yield TestClient(app, base_url="https://testserver")
     finally:
-        for get in (coordinators.get_wishes, coordinators.get_invitations, door.get_wishes, door.get_invitations):
+        for get in (
+            coordinators.get_wishes,
+            coordinators.get_invitations,
+            door.get_wishes,
+            door.get_invitations,
+            door.get_reductions,
+        ):
             app.dependency_overrides.pop(get, None)
 
 

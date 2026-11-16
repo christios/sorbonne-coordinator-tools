@@ -2,6 +2,7 @@ import { Search, Settings2 } from "lucide-react";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 
 import { InfoTip } from "@/components/InfoTip";
+import { ProgrammeScopeNote } from "@/components/ProgrammeFilterNote";
 import { SelectMenu } from "@/components/SelectMenu";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
@@ -36,6 +37,13 @@ import { optionsFor, type GridColumn } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 
 const DEPARTMENT = "department";
+
+/**
+ * What each full-timer owes of the year's service once their hour reductions are taken off
+ * (Budget → Hour reductions), by their Active teachers row.
+ */
+export type TeachingOwed = Record<string, { owed: number; service: number; reductions: number }>;
+const NO_OWED: TeachingOwed = {};
 const hours = (value: number) => (Math.round(value * 10) / 10).toLocaleString("en-GB");
 
 /*
@@ -192,6 +200,7 @@ export function CohortLoads({
   termLabel,
   teachers,
   programs = NO_COURSE_PROGRAMS,
+  owed = NO_OWED,
   onOpenTeacher,
 }: {
   cards: Card[];
@@ -201,6 +210,8 @@ export function CohortLoads({
   teachers: ActiveTeacher[];
   /** The department's programmes and which courses count as each (Settings → Programmes). */
   programs?: CoursePrograms;
+  /** Teaching owed by each full-timer, shown beside their year's hours on the department. */
+  owed?: TeachingOwed;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const [chosen, setChosen] = usePageState<string>("teaching-loads:cohort", DEPARTMENT);
@@ -338,6 +349,7 @@ export function CohortLoads({
         />
       ) : null}
       <TableFilterBar columns={COLUMNS} filters={filters} optionsFor={(column) => optionsFor(rows, column)} onChange={setFilters} />
+      {programName ? <ProgrammeScopeNote programName={programName} /> : null}
 
       {!everyCohort.length ? (
         <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
@@ -369,6 +381,8 @@ export function CohortLoads({
           termLabel={termLabel}
           narrowed={narrowed}
           programName={programName}
+          // Beside a teacher's whole year only: a programme or a filter shows part of it.
+          owed={narrowed || programName ? undefined : owed}
           canOpen={(cohortId) => tabs.some((entry) => entry.id === cohortId)}
           onChoose={setChosen}
           onOpenTeacher={onOpenTeacher}
@@ -418,10 +432,13 @@ function KindTiles({ kinds }: { kinds: Record<LoadKind, number> }) {
 function TeacherList({
   title,
   teachers,
+  owed,
   onOpenTeacher,
 }: {
   title: string;
   teachers: (CohortLoad["teachers"][number] & { cohorts?: string[] })[];
+  /** Each full-timer's teaching owed, for their year on the department; none elsewhere. */
+  owed?: TeachingOwed;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const [all, setAll] = useState(false);
@@ -438,7 +455,10 @@ function TeacherList({
                 <StatusPill status={teacher.status} />
                 {teacher.cohorts ? <span className="ml-2 text-xs text-[#475467]">{teacher.cohorts.join(" · ")}</span> : null}
               </span>
-              <span className="tabular-nums font-semibold text-[#171717]">{hours(teacher.hours)}</span>
+              <span className="flex shrink-0 items-baseline gap-2">
+                {owed?.[teacher.teacherId] ? <OwedTag planned={teacher.hours} due={owed[teacher.teacherId]} /> : null}
+                <span className="tabular-nums font-semibold text-[#171717]">{hours(teacher.hours)}</span>
+              </span>
             </li>
           ))}
         </ul>
@@ -451,6 +471,25 @@ function TeacherList({
         </button>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * What a full-timer owes of the year's service, after their hour reductions, and how far the
+ * hours planned for them are from it: short in amber, over in blue, as owed in green.
+ */
+function OwedTag({ planned, due }: { planned: number; due: TeachingOwed[string] }) {
+  const gap = Math.round((planned - due.owed) * 10) / 10;
+  const tone = gap < 0 ? "bg-[#fdebc8] text-[#5c3305] ring-[#e3ab52]" : gap > 0 ? "bg-[#dbe8f6] text-[#1f3f63] ring-[#8fb2d8]" : "bg-[#d7f0e5] text-[#064e3b] ring-[#6cc5a0]";
+  const said = gap < 0 ? `${hours(-gap)} short` : gap > 0 ? `${hours(gap)} over` : "as owed";
+  return (
+    <span
+      title={`Owes ${hours(due.owed)} h this year: ${hours(due.service)} h of service less ${hours(due.reductions)} h of hour reductions (Budget → Hour reductions). ${hours(planned)} h are planned.`}
+      className="whitespace-nowrap text-xs tabular-nums text-[#475467]"
+    >
+      owes {hours(due.owed)}
+      <span className={`ml-1.5 inline-block rounded px-1.5 py-px font-semibold ring-1 ring-inset ${tone}`}>{said}</span>
+    </span>
   );
 }
 
@@ -471,6 +510,7 @@ function DepartmentBlock({
   termLabel,
   narrowed,
   programName,
+  owed,
   canOpen,
   onChoose,
   onOpenTeacher,
@@ -481,6 +521,7 @@ function DepartmentBlock({
   narrowed: boolean;
   /** "Maths" when the page is narrowed to a program; blank for every course. */
   programName: string;
+  owed?: TeachingOwed;
   /** Whether a cohort has a tab to open: not when it is put away in Tabs. */
   canOpen: (cohortId: string) => boolean;
   onChoose: (cohortId: string) => void;
@@ -517,6 +558,7 @@ function DepartmentBlock({
           <TeacherList
             title={programName ? `Each teacher of ${programName} in the department` : "Each teacher in the department"}
             teachers={teachers}
+            owed={owed}
             onOpenTeacher={onOpenTeacher}
           />
         </div>

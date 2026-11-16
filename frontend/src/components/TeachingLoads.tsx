@@ -1,12 +1,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
-import { CohortLoads } from "@/components/CohortLoads";
+import { CohortLoads, type TeachingOwed } from "@/components/CohortLoads";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { useRemembered } from "@/components/useRemembered";
 import { buildCards } from "@/services/courseCards";
+import { fetchReductionYear } from "@/services/hourReductions";
 import { fetchActiveCourses, fetchActiveTeachers, fetchTermLinks } from "@/services/portalLists";
 import { SCHEMA_TERM } from "@/services/remembered";
 import { useSemesterShown } from "@/services/semesterYears";
@@ -55,6 +56,26 @@ export function TeachingLoads({
   }, [cards, terms.data]);
   const chosenTerm = termIds.includes(termId) ? termId : (termIds[0] ?? "");
   const academicYear = academicYearOfTerm(links.data?.[chosenTerm] ?? "");
+  /*
+   * Each full-timer's teaching owed this year, after their hour reductions, read from the
+   * semester's year — what Budget → Hour reductions shows. Nobody's while it loads.
+   */
+  const portalTerm = links.data?.[chosenTerm] ?? "";
+  const reductions = useQuery({
+    queryKey: ["hour-reductions", portalTerm],
+    queryFn: () => fetchReductionYear(portalTerm),
+    enabled: Boolean(portalTerm),
+    retry: false,
+  });
+  const owed = useMemo<TeachingOwed>(
+    () =>
+      Object.fromEntries(
+        (reductions.data?.teachers ?? [])
+          .filter((teacher) => teacher.fullTime)
+          .map((teacher) => [teacher.teacherId, { owed: teacher.owed, service: teacher.service, reductions: teacher.total }]),
+      ),
+    [reductions.data],
+  );
   // The semesters of the chosen one's year; the chosen one alone when it has no year.
   const yearTermIds = useMemo(
     () =>
@@ -95,6 +116,7 @@ export function TeachingLoads({
         termLabel={termLabel}
         teachers={teachers.data ?? []}
         programs={programs}
+        owed={owed}
         onOpenTeacher={onOpenTeacher}
       />
     </section>

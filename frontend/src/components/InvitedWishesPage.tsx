@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { CalendarHeart, CheckCircle2, Loader2, LogOut } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { ReductionsStep, ReductionsSummary } from "@/components/ReductionsStep";
 import { GoogleButton } from "@/components/SignInGate";
 import { WishesForm } from "@/components/WishesForm";
 import { WishesSummary } from "@/components/WishesSummary";
@@ -13,6 +14,7 @@ import {
   fetchInviteeForm,
   openAsInviteeHere,
   saveInviteeAnswer,
+  saveInviteeReductions,
   signInInvitee,
   signOutInvitee,
   type InviteeForm,
@@ -48,6 +50,9 @@ function Frame({ children, wide = false, aside }: { children: ReactNode; wide?: 
  * Signed in, it is their wishes for the semester and nothing else: the form until the
  * deadline (or until the coordinator reopened it for them), and after it their answer to read.
  * A teacher with an answer from another semester may start from it.
+ *
+ * A full-timer has a first step before the form: their hour reductions for the year. They land
+ * on it until they have saved it once, and may skip it for now; afterwards it is one click back.
  */
 export function InvitedWishesPage({ code }: { code: string }) {
   const client = useQueryClient();
@@ -59,6 +64,10 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const [startFrom, setStartFrom] = useState<Wishes | null>(null);
   const [saved, setSaved] = useState<"" | "draft" | "submitted">("");
   const [tourSlot, setTourSlot] = useState<HTMLElement | null>(null);
+  // A full-timer's two steps; null until they choose, when the page decides where they land.
+  const [step, setStep] = useState<"reductions" | "preferences" | null>(null);
+  // The form, once opened, stays mounted when they look back at step 1: nothing typed is lost.
+  const [formShown, setFormShown] = useState(false);
 
   // Leaving with changes not saved asks first, as the coordinators' window does.
   const dirty = useRef(false);
@@ -83,6 +92,14 @@ export function InvitedWishesPage({ code }: { code: string }) {
       dirty.current = false;
       client.removeQueries({ queryKey: ["invitee-form", code] });
       client.setQueryData(["invitation", code], (current: unknown) => (current ? { ...(current as object), signedIn: false } : current));
+    },
+  });
+  const declare = useMutation({
+    mutationFn: ({ items, note }: { items: Parameters<typeof saveInviteeReductions>[1]; note: string }) =>
+      saveInviteeReductions(code, items, note),
+    onSuccess: (data) => {
+      client.setQueryData(["invitee-form", code], data);
+      setStep("preferences");
     },
   });
   const save = useMutation({
@@ -173,8 +190,14 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const data = form.data;
   const { collection, window: open } = data;
   const answerBy = open.reopenedUntil && open.deadline && open.reopenedUntil > open.deadline ? open.reopenedUntil : open.deadline;
+  const reductions = data.reductions ?? null;
+  // Where a full-timer is: step 1 until they have been through it, then wherever they chose.
+  const onStep = !reductions ? "preferences" : (step ?? (reductions.declaredAt ? "preferences" : "reductions"));
+  const answering = Boolean(collection) && open.open && (editing || !data.wishes || data.wishes.status === "draft");
+  if (answering && onStep === "preferences" && !formShown) setFormShown(true);
   return (
-    <Frame wide aside={<span ref={setTourSlot} className="flex" />}>
+    // The tour is the form's: on step 1 there is nothing for it to show.
+    <Frame wide aside={<span ref={setTourSlot} className={answering && onStep === "reductions" ? "hidden" : "flex"} />}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eef1f5] pb-4">
         <div>
           <p className="text-base font-semibold text-[#171717]">
@@ -213,23 +236,65 @@ export function InvitedWishesPage({ code }: { code: string }) {
       <div className="mt-5">
         {!collection ? (
           <p className="text-sm text-[#667085]">Preferences are not being collected for this semester any more.</p>
-        ) : open.open && (editing || !data.wishes || data.wishes.status === "draft") ? (
+        ) : answering ? (
           <>
-            {!data.wishes && data.previous && !startFrom ? (
-              <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
-                <span className="flex-1">
-                  You answered for {data.previous.semesterName || "another semester"} before. Start from that answer and change what&rsquo;s
-                  different?
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setStartFrom({ ...data.previous!.wishes, status: "draft" })}
-                  className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  Start from it
-                </button>
+            {reductions ? (
+              <nav aria-label="Steps" className="mb-5 flex flex-wrap gap-2">
+                {(
+                  [
+                    ["reductions", "1", "Hour reductions"],
+                    ["preferences", "2", "Preferences and constraints"],
+                  ] as const
+                ).map(([key, number, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    aria-current={onStep === key ? "step" : undefined}
+                    onClick={() => setStep(key)}
+                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-semibold disabled:opacity-50 ${
+                      onStep === key ? "border-[#1f4e79] bg-[#1f4e79] text-white" : "border-[#b7bec8] bg-white text-[#344054]"
+                    }`}
+                  >
+                    <span
+                      className={`flex h-5 w-5 items-center justify-center rounded-full text-xs ${
+                        onStep === key ? "bg-white text-[#1f4e79]" : "bg-[#e4e7ec] text-[#344054]"
+                      }`}
+                    >
+                      {number}
+                    </span>
+                    {label}
+                  </button>
+                ))}
+              </nav>
+            ) : null}
+            {reductions && onStep === "reductions" ? (
+              <ReductionsStep
+                key={reductions.declaredAt}
+                sheet={reductions}
+                busy={declare.isPending}
+                error={declare.isError ? (declare.error as Error).message : ""}
+                onSave={(items, note) => declare.mutate({ items, note })}
+                // Not declared yet is allowed: the Head of Department's page says who has not.
+                onSkip={reductions.declaredAt ? undefined : () => setStep("preferences")}
+              />
+            ) : null}
+            <div hidden={onStep !== "preferences"}>
+              {formShown && !data.wishes && data.previous && !startFrom ? (
+                <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
+                  <span className="flex-1">
+                    You answered for {data.previous.semesterName || "another semester"} before. Start from that answer and change what&rsquo;s
+                    different?
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setStartFrom({ ...data.previous!.wishes, status: "draft" })}
+                    className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white"
+                  >
+                    Start from it
+                  </button>
               </div>
             ) : null}
+            {formShown ? (
             <WishesForm
               key={`${data.wishes?.updatedAt ?? ""}|${startFrom ? "previous" : "fresh"}`}
               collection={collection}
@@ -246,23 +311,43 @@ export function InvitedWishesPage({ code }: { code: string }) {
               // Back to the answer as submitted; a draft has nowhere else to go.
               onCancel={data.wishes?.status === "submitted" ? () => setEditing(false) : undefined}
             />
+            ) : null}
+            </div>
           </>
         ) : data.wishes ? (
-          <WishesSummary
-            name={data.teacherName}
-            collection={collection}
-            wishes={data.wishes}
-            voice="you"
-            editLabel="Change my answer"
-            onEdit={
-              open.open
-                ? () => {
-                    setSaved("");
-                    setEditing(true);
+          <>
+            {reductions ? (
+              <div className="mb-4">
+                <ReductionsSummary
+                  sheet={reductions}
+                  onChange={
+                    open.open
+                      ? () => {
+                          setSaved("");
+                          setEditing(true);
+                          setStep("reductions");
+                        }
+                      : undefined
                   }
-                : undefined
-            }
-          />
+                />
+              </div>
+            ) : null}
+            <WishesSummary
+              name={data.teacherName}
+              collection={collection}
+              wishes={data.wishes}
+              voice="you"
+              editLabel="Change my answer"
+              onEdit={
+                open.open
+                  ? () => {
+                      setSaved("");
+                      setEditing(true);
+                    }
+                  : undefined
+              }
+            />
+          </>
         ) : (
           <p className="text-sm text-[#667085]">The deadline has passed and no answer was given. Write to the coordinator.</p>
         )}

@@ -8,6 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.auth import router as auth_router
 from sorbonne.api.department_roles import router as department_roles_router
+from sorbonne.api.hour_reductions import router as hour_reductions_router
 from sorbonne.api.pay_rates import router as pay_rates_router
 from sorbonne.api.bibliography_lookup import router as bibliography_lookup_router
 from sorbonne.api.dev_tools import is_local as dev_is_local
@@ -105,6 +106,7 @@ app.include_router(teacher_wishes_router, prefix="/api/v1")
 app.include_router(wish_invite_router, prefix="/api/v1")
 app.include_router(term_weeks_router, prefix="/api/v1")
 app.include_router(department_roles_router, prefix="/api/v1")
+app.include_router(hour_reductions_router, prefix="/api/v1")
 app.include_router(pay_rates_router, prefix="/api/v1")
 app.include_router(requests_app_router, prefix="/api/v1")
 # Claude's custom connector, at the addresses OAuth and MCP expect rather than under /api.

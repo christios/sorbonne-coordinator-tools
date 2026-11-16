@@ -1,11 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users, Scale } from "lucide-react";
+import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users, Scale, Hourglass } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { ActiveCourses } from "@/components/ActiveCourses";
 import { ActiveTeachers } from "@/components/ActiveTeachers";
 import { TeacherWishesPage } from "@/components/TeacherWishesPage";
+import { HourReductionsPage } from "@/components/HourReductionsPage";
 import { AnnouncementEditor } from "@/components/AnnouncementEditor";
 import { CohortsPage } from "@/components/CohortsPage";
 import { TeacherDatabase } from "@/components/TeacherDatabase";
@@ -87,11 +88,18 @@ const PAGES = [
   // What every teacher is carrying: the workbook's Teacher Hours sheet, on a page. It
   // belongs to the request rather than to the teacher list, which is why it sits here.
   { id: "teacher-hours", name: "Teacher hours", icon: Clock3, group: "Timetables", parent: "groups" },
+  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
+  /*
+   * Budget: what the department's teaching costs and who owes it. The two pages were under
+   * Teachers and Groups & CRNs; they answer the same question for the same people — the
+   * Head of Department and the budget — so they sit together (16 November 2026).
+   */
+  // What each full-timer is let off teaching this year, and what they still owe of 192 h.
+  { id: "hour-reductions", name: "Hour reductions", icon: Hourglass, group: "Budget" },
   // The department's teaching-load workbook, cohort by cohort over the year: every course
   // and section, and how the hours split between full-timers, part-timers, visiting
-  // professors and PhDs — what the Head of Department and the budget ask about.
-  { id: "teaching-loads", name: "Teaching loads", icon: Scale, group: "Timetables", parent: "groups" },
-  { id: "announcements", name: "Announcements", icon: Megaphone, group: "Timetables" },
+  // professors and PhDs.
+  { id: "teaching-loads", name: "Teaching loads", icon: Scale, group: "Budget" },
 ] as const;
 
 type PageId = (typeof PAGES)[number]["id"];
@@ -133,7 +141,7 @@ function pageOf(hash: string): PageId {
 // A blurb is optional: the Students page explains itself through the view picker.
 
 /** The pages whose panes fill the screen rather than letting the page scroll. */
-const FILLS = new Set<PageId>(["groups", "group-schema", "part-time-teachers", "teacher-preferences"]);
+const FILLS = new Set<PageId>(["groups", "group-schema", "part-time-teachers", "teacher-preferences", "hour-reductions"]);
 
 const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   students: {
@@ -181,6 +189,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   "active-teachers": {
     title: "Active teachers",
     blurb: "The department's own list: chosen from the portal, or brought from the Part-time Teacher Database.",
+  },
+  "hour-reductions": {
+    title: "Hour reductions",
+    blurb: "What each full-time teacher is let off teaching this year — research through SAFIR, and the department's own — and what is left of their 192 hours.",
   },
   "teacher-preferences": {
     title: "Timetable preferences",
@@ -500,6 +512,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "teacher-preferences" ? <TeacherWishesPage header={pageHeader} /> : null}
+          {page === "hour-reductions" ? <HourReductionsPage /> : null}
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
           {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "group-schema" && !cohorts.isLoading ? (

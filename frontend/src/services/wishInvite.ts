@@ -6,6 +6,7 @@
  * The SCEN Requests app will do the same for the teachers on its list (stage 3).
  */
 
+import type { ReductionInput, ReductionSheet } from "@/services/hourReductions";
 import { apiFetch, API_BASE_URL } from "@/services/http";
 import type { AnswerWindow, WishCalendar, WishCollection, Wishes, WishesInput } from "@/services/teacherWishes";
 
@@ -33,6 +34,8 @@ export type InviteeForm = {
   window: AnswerWindow;
   /** Their latest answer for another semester, to start this one from: without its time away. */
   previous: { termCode: string; semesterName: string; wishes: Wishes } | null;
+  /** A full-timer's hour reductions for the year, their first step; nobody else is asked. */
+  reductions?: ReductionSheet | null;
 };
 
 /** A refusal, with the server's own words; `gone` when the link itself is no good. */
@@ -88,6 +91,22 @@ export async function saveInviteeAnswer(code: string, input: WishesInput): Promi
   return answer(
     await apiFetch(at(code, "/answer"), { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input) }),
     "That could not be saved. Try again in a moment.",
+  );
+}
+
+/** A full-timer's research reductions for the year, and a word for the Head of Department. */
+export async function saveInviteeReductions(
+  code: string,
+  items: Record<string, ReductionInput>,
+  note: string,
+): Promise<InviteeForm> {
+  return answer(
+    await apiFetch(at(code, "/reductions"), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items, note }),
+    }),
+    "Your hour reductions could not be saved. Try again in a moment.",
   );
 }
 
