@@ -11,6 +11,7 @@ from sorbonne.services.teacher_store import TeacherStore, TimeSheetNotFound
 from sorbonne.services.time_sheet_tasks import (
     TimeSheetTasks,
     academic_year_of,
+    file_hr_tasks,
     opens_on_across,
     period_end,
     period_label,
@@ -531,3 +532,35 @@ def test_a_correction_of_a_period_whose_record_is_our_own_does_not_ask_to_send_i
     assert task["description"].startswith("A corrected version was approved on 2026-09-17; compare it")
     # And it is still ours, so switching back to the app's sheet would open it.
     assert "our own sheet is this period's record" in task["description"]
+
+
+def test_a_sheet_arriving_in_the_same_moment_as_another_is_kept(store: TeacherStore, tasks: WorkflowStore):
+    """Every push files every sheet's HR task, so a push landing at the same moment can file one
+    between this push reading the tasks and writing them. On 16 Nov 2026 that answered Jad
+    Tarsissi's August sheet with a 500, every time it was retried into the same burst."""
+    neighbour = a_teacher(store)
+    link(store, neighbour, before_the_app=True)  # its task is filed done, with an activity line
+    engine = engine_for(TEST_DATABASE_URL)
+
+    class Burst:
+        """This push's connection; the neighbour's push commits just after the tasks are read."""
+
+        def __init__(self, connection) -> None:
+            self.connection = connection
+
+        def execute(self, statement, *args, **kwargs):
+            if "SELECT DISTINCT teacher_id, period_start FROM pushed_time_sheets" in str(statement):
+                approve(store, teacher=neighbour)
+            return self.connection.execute(statement, *args, **kwargs)
+
+    with engine.begin() as connection:
+        file_hr_tasks(Burst(connection), "2026-11-16T10:37:30+00:00")
+
+    [task] = to_hr(tasks, neighbour["id"])
+    assert task["status"] == "COMPLETED"
+    with engine.connect() as connection:
+        logged = connection.execute(
+            text("SELECT count(*) FROM task_activity WHERE task_id = :id AND kind = 'COMPLETED'"),
+            {"id": task["id"]},
+        ).scalar_one()
+    assert logged == 1

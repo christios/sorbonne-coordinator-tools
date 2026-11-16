@@ -187,8 +187,7 @@ class TimeSheetTasks:
                     if task_id in waived:
                         continue
                     if task_id not in held:
-                        _insert(connection, teacher_id, start, answered=answered, now=now)
-                        made += 1
+                        made += _insert(connection, teacher_id, start, answered=answered, now=now)
                     elif answered and held[task_id] != "COMPLETED":
                         _close(connection, task_id, now)
                         closed += 1
@@ -265,14 +264,19 @@ def file_hr_tasks(connection: Any, now: str) -> int:
             title = f"Submitted to HR: {period_start}"
         workbook = own.get((str(teacher_id), str(period_start)))
         already = workbook is not None
-        connection.execute(
+        # Sheets arrive in bursts, several at the same moment: each push files every sheet's task,
+        # so another push can commit this one between our reading the tasks and writing it. Theirs
+        # stands; ours is skipped. Until 16 Nov 2026 that collision answered the push with a 500
+        # and threw the sheet away (Jad Tarsissi's August sheet, retried into the same burst).
+        filed = connection.execute(
             text("""INSERT INTO tasks (
                         id, resource_type, resource_id, template_item_id, title, description, due_date,
                         status, completed_at, revision, created_at, updated_at
                     ) VALUES (
                         :id, :kind, :teacher_id, NULL, :title, :description, NULL,
                         :status, :completed_at, 1, :now, :now
-                    )"""),
+                    )
+                    ON CONFLICT (id) DO NOTHING"""),
             {
                 "id": task_id,
                 "kind": TASK_RESOURCE_TYPE,
@@ -284,9 +288,11 @@ def file_hr_tasks(connection: Any, now: str) -> int:
                 "now": now,
             },
         )
+        held.add(task_id)
+        if not filed.rowcount:
+            continue
         if already:
             _activity(connection, task_id, "COMPLETED", now)
-        held.add(task_id)
         made += 1
     return made
 
@@ -376,15 +382,17 @@ def _activity(connection: Any, task_id: str, kind: str, now: str) -> None:
     )
 
 
-def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, now: str) -> None:
-    connection.execute(
+def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, now: str) -> int:
+    """The period's task, unless another catch-up running at the same moment has just made it."""
+    return connection.execute(
         text("""INSERT INTO tasks (
                     id, resource_type, resource_id, template_item_id, title, description, due_date,
                     status, completed_at, revision, created_at, updated_at
                 ) VALUES (
                     :id, :kind, :teacher_id, NULL, :title, :description, :due_date,
                     :status, :completed_at, 1, :now, :now
-                )"""),
+                )
+                ON CONFLICT (id) DO NOTHING"""),
         {
             "id": task_id_for(teacher_id, start),
             "kind": TASK_RESOURCE_TYPE,
@@ -396,7 +404,7 @@ def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, no
             "completed_at": now if answered else None,
             "now": now,
         },
-    )
+    ).rowcount
 
 
 def _close(connection: Any, task_id: str, now: str) -> None:
