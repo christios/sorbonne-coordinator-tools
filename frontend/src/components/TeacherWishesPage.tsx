@@ -4,19 +4,8 @@ import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InviteDialog } from "@/components/InviteDialog";
-import {
-  BAR_BUTTON,
-  ICON_BUTTON,
-  LIST_CARD,
-  LIST_HEADING,
-  LIST_ROW,
-  LIST_TOOLBAR,
-  ListSearch,
-  SEGMENTS,
-  SegmentCount,
-  ShownCount,
-  segment,
-} from "@/components/ListLook";
+import { BAR_BUTTON, ICON_BUTTON, ListSearch, SEGMENTS, SegmentCount, ShownCount, segment } from "@/components/ListLook";
+import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
 import { useStaffUser } from "@/components/useStaffUser";
 import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -64,14 +53,14 @@ type Shown = "all" | "submitted" | "draft" | "none";
 const statusOf = (row: WishTeacher): Exclude<Shown, "all"> => row.wishes?.status ?? "none";
 
 /**
- * The list's columns, shared by its heading and every row so they line up, as on Part-time
- * Teachers: who, where their answer stands and when it last changed, what it holds, how far
- * their invitation got, and what can be done.
+ * The list's columns, shared by its heading and every row so they line up — the department's
+ * Record list, as on Part-time Teachers and Hour reductions: who, where their answer stands
+ * and when it last changed, what it holds, how far their invitation got, and what can be done.
  */
 const ROW_GRID =
-  "gap-x-5 gap-y-2 px-4 sm:grid-cols-[minmax(11rem,2fr)_minmax(7rem,1fr)_10rem_minmax(0,1fr)_6rem] sm:items-center";
+  "gap-x-5 gap-y-2 px-4 sm:grid-cols-[minmax(11rem,2fr)_minmax(7rem,1fr)_13.5rem_minmax(0,1fr)_6rem] sm:items-center";
 
-/** What an answer holds, as Part-time Teachers shows hours: a figure over a quiet word. */
+/** What an answer holds, as the Record list shows figures: each over what it counts, in small capitals. */
 function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
   if (!row.wishes) return <span />;
   const blocks = row.wishes.blocks;
@@ -79,26 +68,14 @@ function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
   const preferences = blocks.filter((block) => block.kind === "preference").length;
   const weekly = recurringConstraintHours(blocks);
   const over = weekly > cap;
-  const word = "text-[10px] font-semibold uppercase tracking-wide text-[#667085]";
   return (
-    <span className="flex items-center gap-3">
-      <span
-        className="flex min-w-[4.5rem] flex-col leading-tight"
-        title={`${weekly} h a week marked as constraints, every week${over ? `: more than the ${cap} h allowed without a reason` : ""}`}
-      >
-        <span className="whitespace-nowrap text-sm tabular-nums">
-          <span className={`font-semibold ${constraints ? "text-[#a6292f]" : "text-[#98a2b3]"}`}>{constraints}</span>
-          {constraints ? " " : null}
-          {constraints ? (
-            <span className={`text-xs ${over ? "font-semibold text-[#a6292f]" : "text-[#475467]"}`}>{weekly} h a week</span>
-          ) : null}
-        </span>
-        <span className={word}>constraints</span>
+    <span className="flex items-start gap-3">
+      <LabelledFigure value={constraints} label="constraints" tone="text-[#a6292f]" faint={!constraints} className="min-w-[4.75rem]" />
+      {/* The constraints' hours a week, against the cap: red once over it. */}
+      <span title={`${weekly} h a week marked as constraints for the whole semester${over ? `: more than the ${cap} h allowed without a reason` : ""}`}>
+        <LabelledFigure value={`${weekly} h`} label="a week" tone={over ? "text-[#a6292f]" : "text-[#344054]"} faint={!weekly} className="min-w-[3rem]" />
       </span>
-      <span className="flex min-w-[4.5rem] flex-col leading-tight">
-        <span className={`text-sm font-semibold tabular-nums ${preferences ? "text-[#8a6116]" : "text-[#98a2b3]"}`}>{preferences}</span>
-        <span className={word}>preferences</span>
-      </span>
+      <LabelledFigure value={preferences} label="preferences" tone="text-[#8a6116]" faint={!preferences} className="min-w-[4.75rem]" />
     </span>
   );
 }
@@ -418,8 +395,8 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
             </div>
           </div>
 
-          <section aria-label="Teachers' answers" className={LIST_CARD}>
-            <div className={LIST_TOOLBAR}>
+          <section aria-label="Teachers' answers" className={RECORD_CARD}>
+            <RecordToolbar>
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                 <TableFilterBar
                   columns={WISH_COLUMNS}
@@ -429,124 +406,123 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                 />
               </div>
               <ShownCount shown={visible.length} of={inView.length} />
-            </div>
-            {visible.length ? (
-              <div role="list" aria-label="Teachers" className="min-h-0 flex-1 lg:overflow-y-auto">
-                <div aria-hidden="true" className={`${ROW_GRID} ${LIST_HEADING}`}>
+            </RecordToolbar>
+            <RecordList
+              label="Teachers"
+              columns={ROW_GRID}
+              isEmpty={!visible.length}
+              empty={teachers.length ? "No teacher matches." : `No teacher is active in ${semesterName} yet. Add them on Active teachers.`}
+              head={
+                <>
                   <span>Teacher</span>
                   <span>Status</span>
                   <span>Answer</span>
                   <span>Invitation</span>
                   <span />
-                </div>
-                {visible.map((row) => {
-                  const status = STATUS[statusOf(row)];
-                  const stage = invitationStage(row);
-                  const invitedOn = row.invitation
-                    ? row.invitation.signedInAt || row.invitation.openedAt || row.invitation.createdAt
-                    : "";
-                  return (
-                    <div key={row.teacherId} role="listitem" className={`${ROW_GRID} ${LIST_ROW}`}>
-                      {/* The name opens the answer, as a name opens a profile on Part-time Teachers. */}
-                      <button
-                        type="button"
-                        onClick={() => openRow(row)}
-                        aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
-                        title={row.wishes ? "Open their answer" : "Fill in for them"}
-                        className="flex min-w-0 items-center gap-3 text-left"
-                      >
-                        <TeacherAvatar fullName={row.name} />
-                        <span className="min-w-0">
-                          <span className="block truncate font-semibold text-[#171717] group-hover:text-[#1f4e79]">{row.name}</span>
-                          <span className={`block truncate text-xs ${row.email ? "text-[#475467]" : "italic text-[#667085]"}`}>
-                            {row.email || "No email"}
-                          </span>
+                </>
+              }
+            >
+              {visible.map((row) => {
+                const status = STATUS[statusOf(row)];
+                const stage = invitationStage(row);
+                const invitedOn = row.invitation ? row.invitation.signedInAt || row.invitation.openedAt || row.invitation.createdAt : "";
+                return (
+                  <RecordRow key={row.teacherId} columns={ROW_GRID}>
+                    {/* The name opens the answer, as a name opens a profile on Part-time Teachers. */}
+                    <button
+                      type="button"
+                      onClick={() => openRow(row)}
+                      aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
+                      title={row.wishes ? "Open their answer" : "Fill in for them"}
+                      className="flex min-w-0 items-center gap-3 text-left"
+                    >
+                      <TeacherAvatar fullName={row.name} />
+                      <span className="min-w-0">
+                        <span className="block truncate font-semibold text-[#171717] group-hover:text-[#1f4e79]">{row.name}</span>
+                        <span className={`block truncate text-xs ${row.email ? "text-[#475467]" : "italic text-[#667085]"}`}>
+                          {row.email || "No email"}
                         </span>
-                      </button>
-                      {/* Where the answer stands, and under it when it last changed and by whom. */}
-                      <span className="flex min-w-0 flex-col items-start gap-1">
-                        <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${status.tone}`}>{status.words}</span>
-                        {row.wishes ? (
+                      </span>
+                    </button>
+                    {/* Where the answer stands, and under it when it last changed and by whom. */}
+                    <span className="flex min-w-0 flex-col items-start gap-1">
+                      <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${status.tone}`}>{status.words}</span>
+                      {row.wishes ? (
+                        <span
+                          className="block max-w-full truncate text-xs text-[#475467]"
+                          title={row.wishes.updatedBy ? `Entered by ${row.wishes.updatedBy}` : undefined}
+                        >
+                          {dated(row.wishes.updatedAt)} ·{" "}
+                          {enteredBy(row) === "A coordinator"
+                            ? `entered by ${row.wishes.updatedBy || "a coordinator"}`
+                            : "by the teacher"}
+                        </span>
+                      ) : null}
+                      {closed && row.reopenedUntil ? (
+                        <span className="text-xs text-[#2e7d55]">
+                          Reopened until {dated(row.reopenedUntil)}
+                          <button
+                            type="button"
+                            onClick={() => closeFor.mutate(row)}
+                            aria-label={`Close ${row.name}'s answer again`}
+                            className="ml-1 font-semibold text-[#667085] hover:underline"
+                          >
+                            Close
+                          </button>
+                        </span>
+                      ) : null}
+                    </span>
+                    <AnswerFigures row={row} cap={collection.cantCap} />
+                    <span className="min-w-0 leading-tight">
+                      {row.invitation ? (
+                        <>
+                          <span className="block text-sm text-[#344054]">{`${stage} ${dated(invitedOn)}`}</span>
                           <span
-                            className="block max-w-full truncate text-xs text-[#475467]"
-                            title={row.wishes.updatedBy ? `Entered by ${row.wishes.updatedBy}` : undefined}
+                            className="block truncate text-xs text-[#475467]"
+                            title={`${row.invitation.email}${row.invitation.createdBy ? ` · made by ${row.invitation.createdBy}` : ""}`}
                           >
-                            {dated(row.wishes.updatedAt)} ·{" "}
-                            {enteredBy(row) === "A coordinator"
-                              ? `entered by ${row.wishes.updatedBy || "a coordinator"}`
-                              : "by the teacher"}
+                            {row.invitation.email}
                           </span>
-                        ) : null}
-                        {closed && row.reopenedUntil ? (
-                          <span className="text-xs text-[#2e7d55]">
-                            Reopened until {dated(row.reopenedUntil)}
-                            <button
-                              type="button"
-                              onClick={() => closeFor.mutate(row)}
-                              aria-label={`Close ${row.name}'s answer again`}
-                              className="ml-1 font-semibold text-[#667085] hover:underline"
-                            >
-                              Close
-                            </button>
-                          </span>
-                        ) : null}
-                      </span>
-                      <AnswerFigures row={row} cap={collection.cantCap} />
-                      <span className="min-w-0 leading-tight">
-                        {row.invitation ? (
-                          <>
-                            <span className="block text-sm text-[#344054]">{`${stage} ${dated(invitedOn)}`}</span>
-                            <span
-                              className="block truncate text-xs text-[#475467]"
-                              title={`${row.invitation.email}${row.invitation.createdBy ? ` · made by ${row.invitation.createdBy}` : ""}`}
-                            >
-                              {row.invitation.email}
-                            </span>
-                          </>
-                        ) : null}
-                      </span>
-                      <span className="flex flex-nowrap items-center justify-end gap-1">
-                        {closed && !row.reopenedUntil ? (
-                          <button
-                            type="button"
-                            onClick={() => setReopening({ row, until: aWeekOn() })}
-                            aria-label={`Reopen ${row.name}'s answer`}
-                            title="Reopen: let them answer past the deadline"
-                            className={ICON_BUTTON}
-                          >
-                            <LockOpen size={15} aria-hidden="true" />
-                          </button>
-                        ) : null}
-                        {row.invitation ? (
-                          <button
-                            type="button"
-                            onClick={() => setWithdrawing(row)}
-                            aria-label={`Withdraw ${row.name}'s invitation`}
-                            title="Withdraw the invitation"
-                            className={ICON_BUTTON}
-                          >
-                            <Link2Off size={15} aria-hidden="true" />
-                          </button>
-                        ) : null}
+                        </>
+                      ) : null}
+                    </span>
+                    <span className="flex flex-nowrap items-center justify-end gap-1">
+                      {closed && !row.reopenedUntil ? (
                         <button
                           type="button"
-                          onClick={() => setInviting(row)}
-                          aria-label={`${row.invitation ? "Make a new invitation for" : "Invite"} ${row.name}`}
-                          title={row.invitation ? "New link: the old one stops working" : "Invite them to answer themselves"}
+                          onClick={() => setReopening({ row, until: aWeekOn() })}
+                          aria-label={`Reopen ${row.name}'s answer`}
+                          title="Reopen: let them answer past the deadline"
                           className={ICON_BUTTON}
                         >
-                          {row.invitation ? <RefreshCw size={15} aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
+                          <LockOpen size={15} aria-hidden="true" />
                         </button>
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="grid min-h-60 flex-1 place-items-center p-12 text-center text-sm text-[#667085]">
-                {teachers.length ? "No teacher matches." : `No teacher is active in ${semesterName} yet. Add them on Active teachers.`}
-              </p>
-            )}
+                      ) : null}
+                      {row.invitation ? (
+                        <button
+                          type="button"
+                          onClick={() => setWithdrawing(row)}
+                          aria-label={`Withdraw ${row.name}'s invitation`}
+                          title="Withdraw the invitation"
+                          className={ICON_BUTTON}
+                        >
+                          <Link2Off size={15} aria-hidden="true" />
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setInviting(row)}
+                        aria-label={`${row.invitation ? "Make a new invitation for" : "Invite"} ${row.name}`}
+                        title={row.invitation ? "New link: the old one stops working" : "Invite them to answer themselves"}
+                        className={ICON_BUTTON}
+                      >
+                        {row.invitation ? <RefreshCw size={15} aria-hidden="true" /> : <Send size={15} aria-hidden="true" />}
+                      </button>
+                    </span>
+                  </RecordRow>
+                );
+              })}
+            </RecordList>
           </section>
         </>
       )}

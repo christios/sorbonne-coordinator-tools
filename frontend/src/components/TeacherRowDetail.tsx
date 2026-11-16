@@ -16,8 +16,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Download, FilePlus } from "lucide-react";
 import { useEffect, useId, useState } from "react";
 
-import { ICON_BUTTON } from "@/components/ListLook";
 import { Modal } from "@/components/Modal";
+import { LabelledFigure } from "@/components/RecordList";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
   type RequisitionInput,
@@ -41,6 +41,9 @@ const NOTHING: TeacherSummary = {
   hasDocuments: false,
 };
 
+/** A row's small square buttons: the jobs everybody knows by their icon, named on hover. */
+const ICON_BUTTON =
+  "inline-flex size-7 items-center justify-center rounded-md border border-[#d0d5dd] bg-white text-[#475467] hover:border-[#b7bec8] hover:bg-[#f2f7fb] hover:text-[#1f4e79] disabled:border-[#eef1f5] disabled:text-[#d0d5dd] disabled:hover:bg-white";
 
 /** "40", "10.5": hours as a person reads them, without a trailing ".0". */
 function hoursText(hours: number): string {
@@ -63,19 +66,13 @@ export function TeacherHoursFigures({ summary, loading }: { summary?: TeacherSum
     return <span className="rounded bg-[#fdf9ee] px-1.5 py-0.5 text-xs font-semibold text-[#8a6116]">No requisition</span>;
   }
   const figure = (value: number, label: string, tone: string) => (
-    <span className="flex min-w-[3.25rem] flex-col leading-tight">
-      <span className={`text-sm font-semibold tabular-nums ${value ? tone : "text-[#98a2b3]"}`}>{hoursText(value)} h</span>
-      <span className="text-[10px] font-semibold uppercase tracking-wide text-[#667085]">{label}</span>
-    </span>
+    <LabelledFigure value={`${hoursText(value)} h`} label={label} tone={tone} faint={!value} className="min-w-[3.25rem]" />
   );
   return (
     <span className="flex items-center gap-3" title={`${held.requisitions} requisition${held.requisitions === 1 ? "" : "s"}`}>
       {figure(held.contractedHours, "teaching", "text-[#1f4e79]")}
       {figure(held.adminHours ?? 0, "admin", "text-[#7a5a1d]")}
-      <span className="flex min-w-[2rem] flex-col leading-tight">
-        <span className="text-sm font-semibold tabular-nums text-[#344054]">{held.requisitions}</span>
-        <span className="text-[10px] font-semibold uppercase tracking-wide text-[#667085]">filed</span>
-      </span>
+      <LabelledFigure value={held.requisitions} label="filed" className="min-w-[2rem]" />
     </span>
   );
 }

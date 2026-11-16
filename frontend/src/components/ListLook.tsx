@@ -1,8 +1,9 @@
 import { Search } from "lucide-react";
 
 /*
- * The look the department's people lists share: Part-time Teachers first, Timetable
- * preferences after it. One place, so the two read as the same kind of page.
+ * The bar over a people list, in Part-time Teachers' look: which rows (segments with their
+ * counts), the search, the bar's buttons, and how many rows show. The list itself is the
+ * department's Record list.
  */
 
 /** A row of two or three choices, one of them on: a list's view, or which of its rows. */
@@ -51,17 +52,6 @@ export function ListSearch({ label, value, onChange }: { label: string; value: s
     </label>
   );
 }
-
-/** The card the list sits in: the width and the rest of the height, scrolling inside from `lg`. */
-export const LIST_CARD = "flex min-h-0 flex-1 flex-col rounded-lg border border-[#d9dee7] bg-white lg:overflow-hidden";
-/** The card's own top row: the filters, and how many rows are shown. */
-export const LIST_TOOLBAR = "group/toolbar flex shrink-0 items-center gap-3 border-b border-[#e5e7eb] px-4 py-2";
-/** The quiet heading over the columns, which stays put while the rows scroll. */
-export const LIST_HEADING =
-  "sticky top-0 z-10 hidden border-b border-[#d0d5dd] bg-[#f2f4f7] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#475467] sm:grid";
-/** One person's row: a clear tint and a blue edge under the pointer, so the row being read stands out. */
-export const LIST_ROW =
-  "group grid border-b border-[#e4e7ec] py-2.5 transition-colors hover:bg-[#eaf1f8] hover:shadow-[inset_3px_0_0_#1f4e79]";
 
 /** "12 of 47", or "47" when nothing is filtered out. */
 export function ShownCount({ shown, of }: { shown: number; of: number }) {

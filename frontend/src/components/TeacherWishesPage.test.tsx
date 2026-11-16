@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TeacherWishesPage } from "@/components/TeacherWishesPage";
@@ -126,12 +126,16 @@ describe("invitations and the deadline, on the list", () => {
   });
 });
 
-describe("the list, laid out as Part-time Teachers", () => {
+describe("the list, on the department's Record list as Part-time Teachers", () => {
   it("shows every answer or those in one state, finds a teacher by name, and says what an answer holds", async () => {
     page();
     await screen.findByRole("button", { name: "Open Valerie Le Guyon's preferences" });
     expect(screen.getByRole("button", { name: "Submitted 1" })).toBeTruthy();
-    expect(screen.getByText("2 h a week")).toBeTruthy();
+    // Each figure over what it counts, as the Record list draws figures.
+    const row = screen.getByRole("button", { name: "Open Valerie Le Guyon's preferences" }).closest('[role="listitem"]') as HTMLElement;
+    expect(within(row).getByText("2 h").nextElementSibling?.textContent).toBe("a week");
+    expect(within(row).getByText("constraints")).toBeTruthy();
+    expect(within(row).getByText("preferences")).toBeTruthy();
     expect(screen.getByText(/· by the teacher$/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Not started 1" }));
