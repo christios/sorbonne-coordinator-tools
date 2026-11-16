@@ -228,6 +228,25 @@ export function editedLines(sheet: SubmittedTimeSheet): number {
   return sheet.days.filter((day) => day.changed).length;
 }
 
+/**
+ * The admin hours of a claim: a test invigilated, a department job — lines that are claimed
+ * and paid, but that the timetable never holds.
+ *
+ * Held against the timetable whole, a claim with any of these read as over it by exactly
+ * that much: a sheet of 16 h of classes, matching the timetable to the hour, and two tests
+ * invigilated was "Claim over 4 h". A line from before October 2026 says no kind and counts as
+ * teaching, as the Part Time Sheets take it; a sheet with no lines is all teaching.
+ */
+export function claimedAdmin(sheet: Pick<SubmittedTimeSheet, "days">): number {
+  const admin = (sheet.days ?? []).filter((day) => day.kind === "admin").reduce((sum, day) => sum + (day.hours || 0), 0);
+  return Math.round(admin * 100) / 100;
+}
+
+/** The part of a claim the timetable can be held against: the whole of it, less its admin. */
+export function claimedTeaching(sheet: Pick<SubmittedTimeSheet, "claimedHours" | "days">): number {
+  return Math.round((sheet.claimedHours - claimedAdmin(sheet)) * 100) / 100;
+}
+
 /** "2 lines differ from the timetable they were pre-filled from." */
 export function editedSaid(count: number): string {
   return `${count} line${count === 1 ? " differs" : "s differ"} from the timetable ${count === 1 ? "it was" : "they were"} pre-filled from — edited by the teacher, or the class was cancelled, covered or removed since.`;

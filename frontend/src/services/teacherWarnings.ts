@@ -61,6 +61,12 @@ export type TeacherFigures = {
   teacher: string;
   /** Hours the department plans for them this semester. */
   planned: number;
+  /**
+   * The plan as the semester went: less the classes cancelled and the ones somebody else
+   * took, plus the ones they took for somebody else — what the portal is held against, since
+   * the portal drops a cancelled class and names whoever covered one. Left out, the plan.
+   */
+  asItWent?: number;
   /** Hours the registrar has booked on the sections it staffs with them. */
   registrar: number;
   /** Hours their requisitions contract them for. Zero where they have none. */
@@ -74,8 +80,11 @@ export type TeacherFigures = {
   year?: { label: string; planned: number; taughtSoFar: number };
   /** Hours actually taught to date: what met, less cancelled, plus stood in for. */
   taughtSoFar: number;
-  /** A submitted timesheet, beside what actually met in the period it claims. */
-  claims: { periodStart: string; periodLabel: string; claimed: number; taught: number }[];
+  /**
+   * A submitted timesheet, beside what actually met in the period it claims. `claimed` is
+   * its teaching; `admin` the rest of it, which the timetable never holds.
+   */
+  claims: { periodStart: string; periodLabel: string; claimed: number; admin?: number; taught: number }[];
 };
 
 /** Two hours, matching the check's own default — see backend/sorbonne/services/checks.py. */
@@ -103,16 +112,23 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
   const name = figures.teacher || "This teacher";
 
   // Ours against the registrar's. Both exist for anybody with sections, so this is the
-  // one comparison that runs for a full-time teacher too.
-  if (figures.planned > 0 && figures.registrar > 0 && gap(figures.planned, figures.registrar) >= apart) {
-    const apartBy = gap(figures.planned, figures.registrar);
+  // one comparison that runs for a full-time teacher too. Ours as the semester went: the
+  // portal has already taken the cancelled classes off and given the covered ones to
+  // whoever stood in.
+  const ours = figures.asItWent ?? figures.planned;
+  if (ours > 0 && figures.registrar > 0 && gap(ours, figures.registrar) >= apart) {
+    const apartBy = gap(ours, figures.registrar);
+    const went =
+      ours === figures.planned
+        ? `we plan ${hours(ours)}`
+        : `our plan comes to ${hours(ours)} once its cancelled and covered classes are counted (${hours(figures.planned)} as planned),`;
     found.push({
-      key: `teacher-hours:plan-vs-registrar:${who}:${figures.planned}:${figures.registrar}`,
+      key: `teacher-hours:plan-vs-registrar:${who}:${ours}:${figures.registrar}`,
       teacherKey: who,
       kind: "plan_vs_registrar",
       severity: bySize(apartBy, apart),
-      label: `Portal ${figures.registrar < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
-      sentence: `${name}: we plan ${hours(figures.planned)} and the portal has booked ${hours(figures.registrar)}.`,
+      label: `Portal ${figures.registrar < ours ? "short" : "over"} ${hours(apartBy)}`,
+      sentence: `${name}: ${went} and the portal has booked ${hours(figures.registrar)}.`,
       apart: apartBy,
     });
   }
@@ -138,7 +154,8 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
   }
 
   // What they claimed against what met. One per period claimed, because a coordinator
-  // answers a claim, not a teacher.
+  // answers a claim, not a teacher. Teaching against teaching: the admin a sheet claims
+  // besides is never on the timetable.
   for (const claim of figures.claims) {
     const apartBy = gap(claim.claimed, claim.taught);
     if (apartBy < apart) continue;
@@ -148,7 +165,9 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
       kind: "claim_vs_taught",
       severity: bySize(apartBy, apart),
       label: `Claim ${claim.claimed > claim.taught ? "over" : "under"} ${hours(apartBy)}`,
-      sentence: `${name} claimed ${hours(claim.claimed)} for ${claim.periodLabel || claim.periodStart} and the timetable has ${hours(claim.taught)}.`,
+      sentence: `${name} claimed ${hours(claim.claimed)} of teaching for ${claim.periodLabel || claim.periodStart}${
+        claim.admin ? ` (and ${hours(claim.admin)} of admin, which the timetable never holds)` : ""
+      } and the timetable has ${hours(claim.taught)}.`,
       apart: apartBy,
     });
   }
@@ -193,8 +212,8 @@ export function warningRank(warnings: TeacherWarning[]): number {
 
 /** What makes each kind of teacher warning go away, for whoever hovers it. */
 export const TEACHER_REMEDIES: Record<string, string> = {
-  plan_vs_registrar: "Goes away when the portal's staffing and hours for their sections match ours — change the teacher or hours on Groups & CRNs, or ask the registrar to.",
+  plan_vs_registrar: "Goes away when the portal's staffing and hours for their sections match ours — change the teacher or hours on Groups & CRNs, or ask the registrar to. A class marked cancelled or covered on its calendar counts as it went.",
   plan_vs_contract: "Goes away when their requisitions' teaching hours match the plan — amend the requisition, or the sections planned for them.",
-  claim_vs_taught: "Goes away when the time sheet's claim for that period matches what the timetable says they taught.",
+  claim_vs_taught: "Goes away when the teaching the time sheet claims for that period matches what the timetable says they taught. Its admin lines are left out: the timetable never holds them.",
   contract_nearly_spent: "Goes away with a requisition for more teaching hours, or when the plan asks less of them.",
 };

@@ -128,6 +128,52 @@ describe("a teacher's hours, CRN by CRN", () => {
     expect(september).toEqual(whole);
   });
 
+  it("holds the portal against the plan as the semester went, as the portal books it", () => {
+    // Samar took his 7 Sep class and he covered two of hers: 40 h planned comes to 42 h,
+    // which is what the portal books under him. Held against the 40 h, that was "Portal over 2 h".
+    const held = busy();
+    held.notes = [
+      note({ crn: "23223", meetsOn: "2026-09-07", kind: "covered", coverTeacherId: "act-2", coverTeacherName: "Samar Ghantous" }),
+      note({ crn: "23224", meetsOn: "2026-09-08", kind: "covered", coverTeacherId: "act-1", coverTeacherName: "Hani Sayes" }),
+      note({ crn: "23224", meetsOn: "2026-09-15", kind: "covered", coverTeacherId: "act-1", coverTeacherName: "Hani Sayes" }),
+    ];
+    held.booked = {
+      "23223": {
+        courseCode: "PHYS-101", teacherName: "Hani Sayes", hours: 40,
+        byTeacher: [{ teacherName: "Hani Sayes", hours: 38 }, { teacherName: "Samar Ghantous", hours: 2 }],
+      },
+      "23224": {
+        courseCode: "PHYS-101", teacherName: "Samar Ghantous", hours: 40,
+        byTeacher: [{ teacherName: "Samar Ghantous", hours: 36 }, { teacherName: "Hani Sayes", hours: 4 }],
+      },
+    };
+
+    const [hani] = hoursRowsFor(held, WHOLE, true);
+
+    expect(hani.registrarHours).toBe(42);
+    expect(hani.warnings.map((warning) => warning.kind)).not.toContain("plan_vs_registrar");
+  });
+
+  it("holds a time sheet's teaching against the timetable, and leaves its admin out", () => {
+    // September as the timetable has it: his 7 Sep class and the one he covered on 15 Sep.
+    const line = (date: string, kind: "teaching" | "admin") => ({ day: "", date, from: "08:30", to: "10:30", hours: 2, details: "", kind });
+    const claiming = (third: "teaching" | "admin") => {
+      const held = busy();
+      held.submitted = [
+        {
+          teacherId: "pt-1", periodStart: "2026-09-01", periodEnd: "2026-09-30", periodLabel: "Sep 2026", claimedHours: 6,
+          days: [line("2026-09-07", "teaching"), line("2026-09-15", "teaching"), line("2026-09-16", third)],
+        } as never,
+      ];
+      return hoursRowsFor(held, WHOLE, true)[0].warnings.filter((warning) => warning.kind === "claim_vs_taught");
+    };
+
+    // A test invigilated is paid, and never on the timetable.
+    expect(claiming("admin")).toEqual([]);
+    // A third class the timetable does not have is still 2 h over it.
+    expect(claiming("teaching").map((warning) => warning.label)).toEqual(["Claim over 2 h"]);
+  });
+
   it("over the whole semester, lists somebody whose only teaching was cover, with nothing planned", () => {
     // Sachin Valera's groups went to Ahmed Menaa; the classes he had taught are his cover.
     const held = busy();
