@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { academicYearOfTerm, claimsOfSemester, crnDistribution, hoursRowsFor, type HoursSource } from "@/services/teacherHoursRows";
+import {
+  academicYearOfTerm,
+  claimsOfSemester,
+  crnDistribution,
+  hoursRowsFor,
+  semesterAsItWent,
+  type HoursSource,
+} from "@/services/teacherHoursRows";
+import { asTaught } from "@/services/teacherLoad";
 import type { ActiveTeacher } from "@/services/portalLists";
 import type { RequestRow, RequestSheet } from "@/services/timetableExport";
 
@@ -172,6 +180,21 @@ describe("a teacher's hours, CRN by CRN", () => {
     expect(claiming("admin")).toEqual([]);
     // A third class the timetable does not have is still 2 h over it.
     expect(claiming("teaching").map((warning) => warning.label)).toEqual(["Claim over 2 h"]);
+  });
+
+  it("gives the teacher record the row's own Total, the plan as the semester went", () => {
+    const held = busy();
+    const [row] = hoursRowsFor(held, WHOLE, true);
+
+    const went = semesterAsItWent(held.sheets, held.teachers, held.notes, { id: "act-1", name: "Hani Sayes" });
+
+    // 40 h planned, the 14 Sep class cancelled, Samar's 15 Sep class covered.
+    expect(went).toEqual({ planned: 40, cancelled: 2, coveredByOthers: 0, coveredForOthers: 2, total: 40 });
+    expect(went?.total).toBe(asTaught(row));
+    // Found by name too, for somebody opened from the portal's list with no id of ours.
+    expect(semesterAsItWent(held.sheets, held.teachers, held.notes, { id: "", name: "hani sayes" })?.total).toBe(40);
+    // Nothing planned and nothing covered that semester: nothing to say.
+    expect(semesterAsItWent(held.sheets, held.teachers, held.notes, { id: "act-9", name: "Nobody Here" })).toBeNull();
   });
 
   it("over the whole semester, lists somebody whose only teaching was cover, with nothing planned", () => {

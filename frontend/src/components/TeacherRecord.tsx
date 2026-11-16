@@ -6,6 +6,7 @@ import { CrnRecord } from "@/components/CrnRecord";
 import { SourceMark } from "@/components/DataTable";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { SectionTimetable, type TimetableEntry } from "@/components/SectionTimetable";
 import { SessionChangeList } from "@/components/SessionChangeList";
 import { adjustmentsFor, fetchSessionChanges } from "@/services/sessionChanges";
@@ -27,7 +28,9 @@ import { requisitionHours, totalAdminHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
 import { type BookedHours, bookedHoursOf, portalShareOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
-import { fetchCourseCards } from "@/services/studentDatabase";
+import { semesterAsItWent } from "@/services/teacherHoursRows";
+import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
+import { requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
 
 /**
@@ -37,6 +40,8 @@ import { fetchTimetableTerms } from "@/services/timetables";
  * list has no id of ours and calls its address `psuadEmail`, so both spellings are taken.
  */
 export type TeacherRef = Pick<ActiveTeacher, "id" | "fullName"> & Partial<ActiveTeacher> & { psuadEmail?: string };
+
+const round = (value: number) => Math.round(value * 100) / 100;
 
 /** One fact, with room for the answer to be missing. */
 function Fact({ label, value, source }: { label: string; value: string; source?: ColumnSource }) {
@@ -257,6 +262,44 @@ export function TeacherRecord({
   ]
     .filter(Boolean)
     .join(" · ");
+  /*
+   * What they actually taught in the semester chosen in the header: the figure their row on
+   * Teacher hours shows in its Total column, worked out the same way. One semester's, where
+   * the tiles beside it are the year's, so the line under it says which and how it is made.
+   */
+  const { semester, term: semesterTerm } = usePortalSemester();
+  const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts, enabled: open });
+  const semesterNotes = useQuery({
+    queryKey: ["session-changes", semesterTerm],
+    queryFn: () => fetchSessionChanges(semesterTerm),
+    enabled: open && Boolean(semesterTerm),
+    retry: false,
+  });
+  const went = useMemo(() => {
+    if (!semester) return null;
+    const nameOf = (teacherId: string) => (active.data ?? []).find((row) => row.id === teacherId)?.fullName ?? "";
+    const cohortOf = (cohortId: string) => (cohorts.data ?? []).find((cohort) => cohort.id === cohortId) ?? { name: "" };
+    const sheets = requestSheets(cards, semester.id, semester.name, () => "", nameOf, cohortOf);
+    return semesterAsItWent(sheets, active.data ?? [], semesterNotes.data ?? [], { id: me.id, name: me.name });
+  }, [semester, cards, active.data, cohorts.data, semesterNotes.data, me.id, me.name]);
+  const readingSemester =
+    catalogues.isLoading || active.isLoading || cohorts.isLoading || (Boolean(semesterTerm) && semesterNotes.isLoading);
+  const wentSaid = !semester
+    ? "no semester chosen"
+    : readingSemester
+      ? `reading ${semester.name}…`
+      : !went
+        ? `nothing in ${semester.name}`
+        : went.cancelled || went.coveredByOthers || went.coveredForOthers
+          ? [
+              `${semester.name}: ${round(went.planned)} h planned`,
+              went.cancelled ? `−${round(went.cancelled)} h cancelled` : "",
+              went.coveredByOthers ? `−${round(went.coveredByOthers)} h covered by others` : "",
+              went.coveredForOthers ? `+${round(went.coveredForOthers)} h covered for others` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ")
+          : `${semester.name}, as planned`;
   const inRegister = (crn: string) => (registered.data ?? []).find((row) => row.crn === crn) ?? null;
   const hours = live.reduce((sum, section) => sum + (Number(section.hours) || 0), 0);
   const students = live.reduce((sum, section) => sum + section.students, 0);
@@ -274,6 +317,8 @@ export function TeacherRecord({
         * Three counts of the same teaching, side by side: what our planning asks for, what
         * the registrar has booked, and what the contract pays for. A comparison, not a
         * verdict — hours move during a semester — but one that used to take three pages.
+        * Beside the plan, what it came to in the header's semester once classes were
+        * cancelled or covered: the Total on their Teacher hours row.
         *
         * The pill on each label says where its number comes from, so the two hours tiles
         * carry no line underneath saying it again; the others keep theirs, which are figures.
@@ -283,7 +328,7 @@ export function TeacherRecord({
         * scroll past before the week. The requisition tile, whose line underneath is the
         * longest, goes last there and takes the row.
         */}
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Sections</p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{live.length}</p>
@@ -294,6 +339,13 @@ export function TeacherRecord({
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours <SourceMark source="planning" /></p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
+        </div>
+        <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3 max-sm:col-span-2">
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Actual teaching hours <SourceMark source="planning" /></p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Actual teaching hours">
+            {went && !readingSemester ? round(went.total) : "—"}
+          </p>
+          <p className="mt-0.5 text-xs text-[#98a2b3]">{wentSaid}</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Portal hours <SourceMark source="registrar" /></p>

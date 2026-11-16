@@ -15,6 +15,7 @@ import { hoursTaught } from "@/services/hoursInPeriod";
 import { periodEnd, periodLabel } from "@/services/payPeriods";
 import { adjustmentsFor, type SessionChange } from "@/services/sessionChanges";
 import {
+  asTaught,
   bookedInWindow,
   crnsByTeacher,
   loadRows,
@@ -434,6 +435,62 @@ export function claimsOfSemester<T extends { periodStart: string; periodEnd?: st
 export function academicYearOfTerm(termCode: string): string {
   const digits = termCode.replace(/\D/g, "");
   return digits.length >= 4 ? `20${digits.slice(0, 2)}-20${digits.slice(2, 4)}` : "";
+}
+
+/** One teacher's semester, as Teacher hours' Total column has it over the whole semester. */
+export type SemesterAsItWent = {
+  planned: number;
+  cancelled: number;
+  coveredByOthers: number;
+  coveredForOthers: number;
+  /** The plan, less the cancelled and what others took, plus what they took for others. */
+  total: number;
+};
+
+/**
+ * The figure a teacher's row on Teacher hours shows in its Total column, for their record.
+ *
+ * Worked out by the same arranging the page does, not a second sum of the same things: two
+ * sums of one figure drift the first time either is touched, and a record that says 46 where
+ * the row says 47 is a record nobody believes again. Null for somebody with nothing planned
+ * and nothing covered that semester.
+ */
+export function semesterAsItWent(
+  sheets: RequestSheet[],
+  teachers: ActiveTeacher[],
+  notes: SessionChange[],
+  teacher: { id: string; name: string },
+): SemesterAsItWent | null {
+  const rows = hoursRowsFor(
+    {
+      sheets,
+      teachers,
+      notes,
+      sections: [],
+      booked: {},
+      owners: new Map(),
+      submitted: [],
+      contracts: {},
+      decided: new Map(),
+      threshold: Number.POSITIVE_INFINITY,
+      today: "",
+    },
+    { from: "0000-01-01", to: "9999-12-31" },
+    true,
+  );
+  const row = rows.find(
+    (candidate) =>
+      (Boolean(teacher.id) && (candidate.active?.id === teacher.id || candidate.teacherId === teacher.id)) ||
+      (Boolean(teacher.name.trim()) && sameTeacher(candidate.teacher, teacher.name)),
+  );
+  if (!row) return null;
+  return {
+    planned: row.total,
+    cancelled: row.cancelledHours,
+    coveredByOthers: row.coverTaken,
+    coveredForOthers: row.coverGiven,
+    total: asTaught(row),
+  };
 }
 
 export { DEFAULT_APART };
