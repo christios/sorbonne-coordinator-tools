@@ -8,6 +8,9 @@ a session that is not for it, is refused with 401, as anything anonymous is else
 What a teacher may do here is what the SCEN Requests app will do for teachers already on its
 list (stage 3): read the open collection and their answer, start from last semester's, and
 save until the deadline. The same store, the same rules; only the door differs.
+
+A full-timer starts with their hour reductions for the year: they declare the research ones
+here, while the window is open, and read those the Head of Department set.
 """
 
 from __future__ import annotations
@@ -17,9 +20,11 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
+from sorbonne.api.hour_reductions import ItemInput
 from sorbonne.api.teacher_wishes import AnswerInput
 from sorbonne.config import config
 from sorbonne.services.engine import engine_for
+from sorbonne.services.hour_reductions import HourReductions, InvalidReductions, NotFullTime, year_of
 from sorbonne.services.staff_auth import AuthNotConfigured, SignInRejected, verify_google_identity
 from sorbonne.services.teacher_wishes import ClosedForAnswers, InvalidWishes, WishStore
 from sorbonne.services.wish_invitations import (
@@ -49,8 +54,19 @@ def get_wishes() -> WishStore:
     return WishStore(engine_for(config.database_url))
 
 
+def get_reductions() -> HourReductions:
+    return HourReductions(engine_for(config.database_url))
+
+
 class SignInInput(BaseModel):
     credential: str = Field(min_length=1, max_length=4096)
+
+
+class DeclarationInput(BaseModel):
+    """A full-timer's research reductions for the year, and a word for the Head of Department."""
+
+    items: dict[str, ItemInput] = Field(default_factory=dict, max_length=30)
+    note: str | None = Field(default=None, max_length=1000)
 
 
 def _invitation(code: str, invitations: InvitationStore) -> dict[str, Any]:
@@ -78,13 +94,23 @@ def signed_in_invitation(request: Request, found: dict[str, Any] = Depends(found
     return found
 
 
-def _form(invitation: dict[str, Any], wishes: WishStore) -> dict[str, Any]:
+def _reductions(invitation: dict[str, Any], reductions: HourReductions) -> dict[str, Any] | None:
+    """A full-timer's year of hour reductions; nothing for anybody else, who never sees the step."""
+    term, teacher = invitation["term_code"], invitation["teacher_id"]
+    with reductions.engine.connect() as connection:
+        if not reductions.is_full_time(connection, teacher):
+            return None
+    return reductions.for_teacher(year_of(term), teacher)
+
+
+def _form(invitation: dict[str, Any], wishes: WishStore, reductions: HourReductions) -> dict[str, Any]:
     """What the teacher's page shows: the call, their answer, whether they may still change it,
-    and last semester's answer to start from."""
+    last semester's answer to start from, and — a full-timer's — their hour reductions."""
     term, teacher = invitation["term_code"], invitation["teacher_id"]
     semester = wishes.semester(term)
     mine = next((row for row in semester["teachers"] if row["teacherId"] == teacher), None)
     return {
+        "reductions": _reductions(invitation, reductions),
         "semesterName": invitation["semester_name"],
         "teacherName": invitation["teacher_name"],
         "email": invitation["email"],
@@ -116,12 +142,13 @@ def invitation(
 
 
 @router.post("/{code}/session")
-def sign_in(
+def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the records the form reads
     body: SignInInput,
     response: Response,
     found: dict[str, Any] = Depends(found_invitation),
     invitations: InvitationStore = Depends(get_invitations),
     wishes: WishStore = Depends(get_wishes),
+    reductions: HourReductions = Depends(get_reductions),
 ) -> dict[str, Any]:
     try:
         email, _name = verify_google_identity(body.credential)
@@ -144,7 +171,7 @@ def sign_in(
         samesite="lax",
         path=INVITEE_PATH,
     )
-    return _form(found, wishes)
+    return _form(found, wishes, reductions)
 
 
 @router.delete("/{code}/session", status_code=status.HTTP_204_NO_CONTENT)
@@ -154,9 +181,42 @@ def sign_out(response: Response, _found: dict[str, Any] = Depends(found_invitati
 
 @router.get("/{code}/form")
 def form(
-    found: dict[str, Any] = Depends(signed_in_invitation), wishes: WishStore = Depends(get_wishes)
+    found: dict[str, Any] = Depends(signed_in_invitation),
+    wishes: WishStore = Depends(get_wishes),
+    reductions: HourReductions = Depends(get_reductions),
 ) -> dict[str, Any]:
-    return _form(found, wishes)
+    return _form(found, wishes, reductions)
+
+
+@router.put("/{code}/reductions")
+def declare(
+    body: DeclarationInput,
+    found: dict[str, Any] = Depends(signed_in_invitation),
+    wishes: WishStore = Depends(get_wishes),
+    reductions: HourReductions = Depends(get_reductions),
+) -> dict[str, Any]:
+    """A full-timer's research reductions, declared while the preferences are open."""
+    if not wishes.window(found["term_code"], found["teacher_id"])["open"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="The deadline has passed, so your hour reductions can no longer be changed here. Write to the "
+            "Head of Department.",
+        )
+    try:
+        reductions.declare(
+            year_of(found["term_code"]),
+            found["teacher_id"],
+            {kind: item.given() for kind, item in body.items.items()},
+            actor=found["email"],
+            note=body.note,
+        )
+    except NotFullTime as exc:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="Hour reductions are declared by full-time teachers."
+        ) from exc
+    except InvalidReductions as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return _form(found, wishes, reductions)
 
 
 @router.put("/{code}/answer")
@@ -164,6 +224,7 @@ def answer(
     body: AnswerInput,
     found: dict[str, Any] = Depends(signed_in_invitation),
     wishes: WishStore = Depends(get_wishes),
+    reductions: HourReductions = Depends(get_reductions),
 ) -> dict[str, Any]:
     given = body.given()
     try:
@@ -175,4 +236,4 @@ def answer(
         ) from exc
     except InvalidWishes as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    return _form(found, wishes)
+    return _form(found, wishes, reductions)
