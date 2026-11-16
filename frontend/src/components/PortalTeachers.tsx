@@ -6,7 +6,7 @@ import { createPortal } from "react-dom";
 import { ListGrid, Pills, StatePill } from "@/components/ListGrid";
 import { PortalFilterBar, PortalSyncLine } from "@/components/PortalFilterBar";
 import type { TeacherRef } from "@/components/TeacherRecord";
-import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { type PortalTeacher, addActiveTeachers, fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchPortalTeachers, splitCodes, fetchTermLinks } from "@/services/portalLists";
 import { buildCards, parentsOf } from "@/services/courseCards";
@@ -88,7 +88,8 @@ export function PortalTeachers({
   const teachers = useQuery({ queryKey: ["portal", "teachers", filterId], queryFn: () => fetchPortalTeachers(filterId) });
   const active = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   // Active is said of a semester: the one in view, which a teacher added here joins.
-  const { semesters, semester, setTermId, term } = usePortalSemester();
+  // The header's semester: chosen there for every page.
+  const { semester, term } = usePortalSemester();
   const [selected, setSelected] = useTicks(term);
   const activeHere = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term) });
   const activeIds = new Set((activeHere.data ?? []).map((row) => row.portalTeacherId).filter(Boolean));
@@ -176,7 +177,6 @@ export function PortalTeachers({
             <div className="flex flex-col items-end gap-1">
               <div className="flex flex-wrap items-center justify-end gap-3">
                 <PortalFilterBar kind="teachers" filterId={filterId} onChoose={choose} inline />
-                <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />
               </div>
               {/* The staff list has no semester: the line says so, rather than naming the one beside it. */}
               <PortalSyncLine kind="teachers" filterId={filterId} semester={null} />
@@ -242,7 +242,6 @@ export function PortalTeachers({
           empty={filterId ? "Nothing pulled yet — sync the filter." : "Choose a portal filter, or make one."}
           toolbar={
             <>
-              {header ? null : <PortalSemesterMenu semesters={semesters} semester={semester} onChange={setTermId} />}
               <button
                 type="button"
                 disabled={chosen.length === 0 || add.isPending}

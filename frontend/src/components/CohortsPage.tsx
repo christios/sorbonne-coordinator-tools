@@ -1,7 +1,6 @@
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRightCircle, CalendarClock, ClipboardList, EyeOff, Globe, GraduationCap, LayoutGrid, RotateCcw, Users, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { useStaffUser } from "@/components/useStaffUser";
 import { CohortMenu } from "@/components/CohortMenu";
@@ -11,7 +10,6 @@ import { InfoTip } from "@/components/InfoTip";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { NewCohort } from "@/components/NewCohort";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { RegistrationChangesButton } from "@/components/RegistrationChangesButton";
 import { StudentRoster } from "@/components/StudentRoster";
 import { WARNING_ICONS, WARNING_TONES, type WarningIcon } from "@/components/StudentTable";
@@ -48,7 +46,6 @@ import { describeMismatch, fetchRegistrationCheck, type Mismatch, type Registrat
 import { allChanges } from "@/services/pullHistory";
 import { COHORT } from "@/services/remembered";
 import { useSemesterInView } from "@/services/semesterInView";
-import { useSemesterShown } from "@/services/semesterYears";
 import { latestPullAt, rowsHeld } from "@/services/rosterStore";
 import { displayNameOf, fetchSchema, studentIdOf, type RosterRow } from "@/services/scenRosters";
 import {
@@ -258,11 +255,8 @@ export function CohortsPage({
   cohorts,
   focus,
   onFocusTaken,
-  header,
 }: {
   cohorts: Cohort[];
-  /** The slot on the page's title line, beside Global rules, where the semester goes. */
-  header?: HTMLElement | null;
   /**
    * A cohort and some of its students to land on — how Groups & CRNs hands over the
    * people a set has not placed. This is where placing happens, so this is where
@@ -485,7 +479,7 @@ export function CohortsPage({
    * theirs: S1's cohorts and S2's in one menu read as one list of years. The cohort menu
    * then holds that semester's cohorts, and "every cohort" means every one of them.
    */
-  const { setTermId, semesters, semester, semesterCohorts, semesterCohortsOf, links } = useSemesterInView(cohorts);
+  const { setTermId, semester, semesterCohorts, links } = useSemesterInView(cohorts);
   /*
    * The courses outside our groups, by student, for the Electives column.
    *
@@ -510,7 +504,6 @@ export function CohortsPage({
     return out;
   }, [reportsBy, semester]);
   const electivesFor = useCallback((studentId: string) => electivesBy.get(studentId) ?? [], [electivesBy]);
-  const shownOf = useSemesterShown();
 
   // Land on a cohort rather than on nothing — the remembered one when it is the semester's,
   // and its first otherwise, so a deleted cohort does not leave the page empty for ever.
@@ -779,33 +772,12 @@ export function CohortsPage({
     );
   }
 
-  // On the page's title line, beside Global rules; in the page itself where there is no slot.
-  const semesterPicker = (
-    <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
-      <SelectMenu
-        label="Semester"
-        value={semester?.id ?? ""}
-        onChange={setTermId}
-        placeholder="No semester yet"
-        options={semesters.map((term) => {
-          const held = semesterCohortsOf(term.id).length;
-          return {
-            value: term.id,
-            ...shownOf(term),
-            badge: String(held),
-            badgeTone: held ? ("accent" as const) : ("muted" as const),
-          };
-        })}
-      />
-    </div>
-  );
   const emptySemester = Boolean(semester) && semesterCohorts.length === 0;
 
   return (
     <section>
-      {header ? createPortal(semesterPicker, header) : null}
       <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
-        {header ? null : semesterPicker}
+        {/* The semester is the header's, chosen there for every page. */}
         <LabelledPicker
           label="Cohort"
           hint={everywhere ? "showing every cohort" : undefined}

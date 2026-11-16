@@ -1,11 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
-import { createPortal } from "react-dom";
 
 import { CohortLoads } from "@/components/CohortLoads";
-import { LabelledPicker } from "@/components/LabelledPicker";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import type { TeacherRef } from "@/components/TeacherRecord";
 import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { useRemembered } from "@/components/useRemembered";
@@ -31,11 +28,8 @@ import { fetchTimetableTerms } from "@/services/timetables";
  */
 export function TeachingLoads({
   onOpenTeacher,
-  header,
 }: {
   onOpenTeacher?: (teacher: TeacherRef) => void;
-  /** The slot on the page's title line, top right, where the semester goes. */
-  header?: HTMLElement | null;
 }) {
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
@@ -45,8 +39,8 @@ export function TeachingLoads({
   // The department's programmes and which courses count as each (Settings → Programmes).
   const programs = useCoursePrograms();
   const shownOf = useSemesterShown();
-  // The semester every page is on, chosen in the header or in any page's own menu.
-  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  // The semester every page is on, chosen in the header.
+  const [termId] = useRemembered(SCHEMA_TERM);
 
   const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
   const cards = useMemo(
@@ -87,19 +81,10 @@ export function TeachingLoads({
   if (catalogues.isLoading || teachers.isLoading) return <ScreenLoading label="Adding up the year…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
 
-  const semesterMenu = (
-    <SelectMenu
-      label="Semester"
-      value={chosenTerm}
-      onChange={setTermId}
-      options={termIds.map((id) => ({ value: id, ...shownOf({ id, name: termName(id) }) }))}
-    />
-  );
   return (
     <section>
-      {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
       <div className="mb-4 flex flex-wrap items-center gap-4">
-        {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
+        {/* The semester is the header's, chosen there for every page. */}
         <p className="text-sm text-[#475467]">
           {academicYear ? `The academic year ${academicYear}, as planned` : `${termName(chosenTerm)}, as planned`}
         </p>

@@ -33,6 +33,8 @@ export function usePortalSemester() {
     setTermId,
     /** The semester's portal term, "" until it is known. */
     term: semester ? (links.data?.[semester.id] ?? "") : "",
+    /** What is remembered, which may be nothing yet, or a semester no longer offered. */
+    chosenId: termId,
     settled: !terms.isLoading && !links.isLoading,
   };
 }
@@ -48,19 +50,28 @@ export function PortalSemesterMenu({
   semester,
   onChange,
   header,
+  compact = false,
   children,
 }: {
   semesters: TimetableTerm[];
   semester: TimetableTerm | null;
   onChange: (termId: string) => void;
   header?: HTMLElement | null;
+  /** Narrower on a phone, where the header has little room beside Portal sync. */
+  compact?: boolean;
   /** Beside the menu, to its right: the semester's own settings, where a page has some. */
   children?: ReactNode;
 }) {
   const shownOf = useSemesterShown();
   const menu = (
     <div className="flex items-center gap-2">
-      <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
+      <div
+        className={
+          compact
+            ? "w-fit min-w-0 max-w-[9rem] sm:min-w-[12rem] sm:max-w-[min(24rem,100%)]"
+            : "w-fit min-w-[12rem] max-w-[min(24rem,100%)]"
+        }
+      >
         <SelectMenu
           label="Semester"
           value={semester?.id ?? ""}

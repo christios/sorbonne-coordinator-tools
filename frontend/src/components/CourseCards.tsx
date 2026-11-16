@@ -10,7 +10,6 @@ import { CourseDetail } from "@/components/CourseDetail";
 import { LabelledPicker } from "@/components/LabelledPicker";
 import { WarningBanner, WarningRows, type WarningKind } from "@/components/WarningBanner";
 import type { FillReport } from "@/components/FillBlock";
-import { SelectMenu } from "@/components/SelectMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { useCoursePrograms } from "@/components/useCoursePrograms";
@@ -27,7 +26,7 @@ import { withProgrammeColumn } from "@/services/coursePrograms";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
 import { cohortsIn } from "@/services/semesterCohorts";
-import { useSemesterShown, useSemesterYears } from "@/services/semesterYears";
+import { useSemesterYears } from "@/services/semesterYears";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { fetchTimetableTerms } from "@/services/timetables";
 
@@ -88,7 +87,6 @@ export function CourseCards({
   // Which portal term each semester is, so a cohort with no sets yet is still found under its own.
   const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, retry: false });
   const yearOf = useSemesterYears();
-  const shownOf = useSemesterShown();
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   // The department's courses: a card's title, UE and parent CRN are read from here.
   const activeCourses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
@@ -153,7 +151,7 @@ export function CourseCards({
    * menu read as one list of years. The same choice as the Group schema's, since the
    * semester being set up is one answer for both pages.
    */
-  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  const [termId] = useRemembered(SCHEMA_TERM);
   // Which course the detail is showing; empty until one is picked, and the first is shown.
   const [cardKey, setCardKey] = useState("");
   const visible = useMemo(() => {
@@ -336,23 +334,7 @@ export function CourseCards({
   // The semester and the files on the page's title line; the cohort with the list it narrows.
   const controls = (
     <div className="flex flex-wrap items-center gap-2">
-      <div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">
-        <SelectMenu
-          label="Semester"
-          value={semester?.id ?? ""}
-          onChange={setTermId}
-          placeholder="No semester yet"
-          options={semesters.map((term) => {
-            const held = cards.filter((card) => card.termId === term.id).length;
-            return {
-              value: term.id,
-              ...shownOf(term),
-              badge: String(held),
-              badgeTone: held ? ("accent" as const) : ("muted" as const),
-            };
-          })}
-        />
-      </div>
+      {/* The semester is the header's, chosen there for every page. */}
       <button
         type="button"
         onClick={() => setTools(true)}

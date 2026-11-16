@@ -1,17 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Download, EyeOff, ListTree, RotateCcw, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { createPortal } from "react-dom";
 
 import { BringBackDialog, type DismissedGroup } from "@/components/BringBackDialog";
 import { HourWindowPicker } from "@/components/HourWindowPicker";
 import { InfoTip } from "@/components/InfoTip";
-import { LabelledPicker } from "@/components/LabelledPicker";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { ProgrammeFilterNote } from "@/components/ProgrammeFilterNote";
 import { SourceMark, WindowMark } from "@/components/DataTable";
 import { ScreenLoading } from "@/components/ScreenLoading";
-import { SelectMenu } from "@/components/SelectMenu";
 import { CommentThread } from "@/components/CommentThread";
 import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
@@ -58,7 +55,6 @@ import { fetchTimetableTerms } from "@/services/timetables";
 import { TEACHER_THREAD } from "@/services/threads";
 import { DEFAULT_APART, TEACHER_REMEDIES, type Severity } from "@/services/teacherWarnings";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
-import { useSemesterShown } from "@/services/semesterYears";
 
 /**
  * What every teacher is carrying this semester.
@@ -80,21 +76,17 @@ import { useSemesterShown } from "@/services/semesterYears";
  */
 export function TeacherHours({
   onOpenTeacher,
-  header,
 }: {
   onOpenTeacher?: (teacher: TeacherRef) => void;
-  /** The slot on the page's title line, top right, where the semester goes. */
-  header?: HTMLElement | null;
 }) {
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });
-  const shownOf = useSemesterShown();
   const courses = useQuery({ queryKey: ["active-courses"], queryFn: () => fetchActiveCourses() });
   const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers() });
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts });
   const registered = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns() });
-  // The semester every page is on, chosen in the header or in any page's own menu.
-  const [termId, setTermId] = useRemembered(SCHEMA_TERM);
+  // The semester every page is on, chosen in the header.
+  const [termId] = useRemembered(SCHEMA_TERM);
 
   const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? (id ? "unknown semester" : "");
   // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
@@ -389,24 +381,14 @@ export function TeacherHours({
     );
   }
 
-  // On the page's title line, top right, as on every page with a semester; here where there is no slot.
-  const semesterMenu = (
-    <SelectMenu
-      label="Semester"
-      value={chosenTerm}
-      onChange={setTermId}
-      options={termIds.map((id) => ({ value: id, ...shownOf({ id, name: termName(id) }) }))}
-    />
-  );
 
   return (
     <section>
-      {header ? createPortal(<div className="w-fit min-w-[12rem] max-w-[min(24rem,100%)]">{semesterMenu}</div>, header) : null}
       {/*
         * The stretch of the semester counted, beside the file it is exported as.
         */}
       <div className="mb-4 flex flex-wrap items-end gap-4">
-        {header ? null : <LabelledPicker label="Semester">{semesterMenu}</LabelledPicker>}
+        {/* The semester is the header's, chosen there for every page. */}
         <div className="min-w-0">
           <p className="mb-1 flex items-center text-xs font-semibold uppercase tracking-wide text-[#667085]">
             Counting
