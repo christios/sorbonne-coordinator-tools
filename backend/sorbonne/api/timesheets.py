@@ -21,6 +21,7 @@ from sorbonne.config import config
 from sorbonne.services import coordinator_directory
 from sorbonne.services.engine import engine_for
 from sorbonne.services.pay_rates import with_pay
+from sorbonne.services.time_sheet_closures import CLOSURE_SCHEMA, BadClosure, TimeSheetClosures
 from sorbonne.services.time_sheet_tasks import TimeSheetTasks
 from sorbonne.services.time_sheet_intake import SCHEMA, TeacherNotKnown, TimeSheetIntake, UnknownSchema
 from sorbonne.services.time_sheet_workbooks import SheetNotFound, TimeSheetWorkbooks, Workbook
@@ -32,6 +33,10 @@ router = APIRouter(prefix="/timesheets", tags=["timesheets"])
 
 def get_intake() -> TimeSheetIntake:
     return TimeSheetIntake(config.database_url)
+
+
+def get_closures() -> TimeSheetClosures:
+    return TimeSheetClosures(config.database_url)
 
 
 def get_prefill() -> TimesheetPrefill:
@@ -145,5 +150,29 @@ def receive_timesheet(
             detail=(
                 f"Nobody in the part-time teacher database has the address {exc.email or '(none given)'}"
                 f"{f' ({exc.name})' if exc.name else ''}. Add them, then set this period back to Pending."
+            ),
+        ) from exc
+
+
+@router.post("/closures")
+def receive_closure(
+    body: dict[str, Any] = Body(...), closures: TimeSheetClosures = Depends(get_closures)
+) -> dict[str, Any]:
+    """A period the app closed with nothing to pay, or reopened. Its push key, checked by the gate."""
+    try:
+        return closures.receive(body)
+    except UnknownSchema as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"This is not a closure this department understands: expected {CLOSURE_SCHEMA}, got {exc}.",
+        ) from exc
+    except BadClosure as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except TeacherNotKnown as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Nobody in the part-time teacher database has the address {exc.email or '(none given)'}"
+                f"{f' ({exc.name})' if exc.name else ''}. Add them, then send this closure again."
             ),
         ) from exc

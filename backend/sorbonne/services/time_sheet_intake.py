@@ -30,7 +30,7 @@ from sqlalchemy import Engine, text
 
 from sorbonne.services.engine import engine_for
 from sorbonne.services.part_time_sheet import sheet_type, split
-from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX, file_hr_tasks, reopen_hr_task
+from sorbonne.services.time_sheet_tasks import HR_TASK_PREFIX, file_hr_tasks, follow_the_closure, reopen_hr_task
 
 #: The only body shape this understands. The app sends its name so a later one can differ.
 SCHEMA = "timesheet.period.v1"
@@ -134,6 +134,8 @@ class TimeSheetIntake:
             # Its "Submitted to HR" task now, not when somebody next reads the tasks: until
             # then the download would list it as not sent, even one HR had the old way.
             file_hr_tasks(connection, stamp)
+            # A sheet beats a closure: a period the app had closed no longer says nothing to pay.
+            follow_the_closure(connection, teacher_id, _day(body.get("periodStart")), stamp)
         return {
             "stored": True,
             "reason": "replaced" if held is not None else "new",

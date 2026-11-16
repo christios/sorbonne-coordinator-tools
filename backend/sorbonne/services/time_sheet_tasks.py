@@ -80,6 +80,40 @@ SWITCHED_DESCRIPTION = (
     "own sheet, sending this one too pays the month twice. " + HR_DESCRIPTION
 )
 
+#: What a period's "Time sheet" task says until something answers it.
+PERIOD_DESCRIPTION = "Closes itself when a time sheet is filed against this period."
+
+#: How a period's task begins once the Timesheets app has closed the period with nothing to pay:
+#: the mark is how a reopening knows the task was closed for that, and not by anybody's hand.
+NOTHING_TO_PAY = "Nothing to pay"
+
+
+def nothing_to_pay_said(reason: str, by: str, at: str) -> str:
+    """'Nothing to pay: No classes in this period. Closed in the Timesheets app by … on 2026-11-16.'"""
+    because = (reason or "").strip().rstrip(".") or "no reason given"
+    return (
+        f"{NOTHING_TO_PAY}: {because}. Closed in the Timesheets app by {by.strip() or 'a coordinator'}"
+        f" on {at[:10]}. Reopening it there opens this again."
+    )
+
+
+#: The latest word on each teacher's period, across every item the app holds for it.
+_LATEST_CLOSURES = """SELECT DISTINCT ON (teacher_id, period_start)
+                             teacher_id, period_start, state, reason, by_name, by_email, at
+                      FROM time_sheet_closures
+                      ORDER BY teacher_id, period_start, at DESC"""
+
+
+def closed_periods(connection: Any) -> dict[tuple[str, str], str]:
+    """Each (teacher, period start) the app last said has nothing to pay, with what its task says."""
+    return {
+        (str(row.teacher_id), str(row.period_start)): nothing_to_pay_said(
+            str(row.reason), str(row.by_name or row.by_email), str(row.at)
+        )
+        for row in connection.execute(text(_LATEST_CLOSURES))
+        if row.state == "closed"
+    }
+
 
 def academic_year_of(today: date) -> str:
     """"2026-2027" — the year August starts, not the one January is in."""
@@ -166,6 +200,8 @@ class TimeSheetTasks:
                             SELECT teacher_id, period_start FROM pushed_time_sheets""")
                 )
             }
+            # And the periods the app closed with nothing to pay: nothing will be filed for them.
+            nothing_owed = closed_periods(connection)
             cycles = {
                 str(row[0]): int(row[1])
                 for row in connection.execute(text("SELECT term_id, opens_on FROM term_pay_cycles"))
@@ -182,14 +218,17 @@ class TimeSheetTasks:
             starts = period_starts(year, opens_on_across(cycles), opened_by=day)
             for teacher_id in contracted:
                 for start in starts:
-                    answered = (teacher_id, start.isoformat()) in filed
+                    key = (teacher_id, start.isoformat())
+                    # A sheet beats a closure: say "nothing to pay" only where nothing was filed.
+                    said = nothing_owed.get(key) if key not in filed else None
+                    answered = key in filed or said is not None
                     task_id = task_id_for(teacher_id, start)
                     if task_id in waived:
                         continue
                     if task_id not in held:
-                        made += _insert(connection, teacher_id, start, answered=answered, now=now)
+                        made += _insert(connection, teacher_id, start, answered=answered, now=now, said=said)
                     elif answered and held[task_id] != "COMPLETED":
-                        _close(connection, task_id, now)
+                        _close(connection, task_id, now, said=said)
                         closed += 1
         return {"created": made, "closed": closed, "periods": len(starts), "toHr": to_hr}
 
@@ -374,6 +413,59 @@ def follow_the_record(connection: Any, teacher_id: str, period_start: str, workb
         _activity(connection, task_id, "REOPENED", now)
 
 
+def follow_the_closure(connection: Any, teacher_id: str, period_start: str, now: str) -> None:
+    """Keep the period's "Time sheet" task level with what the Timesheets app last said of it.
+
+    Closed with nothing to pay: the task closes, saying so. Reopened: it opens again, but only if
+    a closure is what closed it — a task somebody ticked stays ticked — and only if no sheet has
+    claimed the period since, because a sheet answers it whatever the app says about a draft.
+    A task not made yet is the catch-up's to make, already answered.
+    """
+    try:
+        task_id = task_id_for(teacher_id, date.fromisoformat(period_start))
+    except ValueError:
+        return
+    said = closed_periods(connection).get((teacher_id, period_start))
+    claimed = connection.execute(
+        text("""SELECT EXISTS (SELECT 1 FROM teacher_time_sheets WHERE teacher_id = :t AND period_start = :p)
+                    OR EXISTS (SELECT 1 FROM pushed_time_sheets WHERE teacher_id = :t AND period_start = :p)"""),
+        {"t": teacher_id, "p": period_start},
+    ).scalar()
+    ours = f"{NOTHING_TO_PAY}:%"
+    if claimed:
+        # A sheet answered it, whatever the app said of a draft: it no longer says nothing to pay.
+        connection.execute(
+            text("""UPDATE tasks SET description = :plain, revision = revision + 1, updated_at = :now
+                     WHERE id = :id AND description LIKE :ours"""),
+            {"id": task_id, "now": now, "plain": PERIOD_DESCRIPTION, "ours": ours},
+        )
+    elif said:
+        done = connection.execute(
+            text("""UPDATE tasks SET status = 'COMPLETED', completed_at = :now, description = :said,
+                         revision = revision + 1, updated_at = :now
+                     WHERE id = :id AND status <> 'COMPLETED'"""),
+            {"id": task_id, "now": now, "said": said},
+        )
+        if done.rowcount:
+            _activity(connection, task_id, "COMPLETED", now)
+            return
+        # Closed again, for another reason or by somebody else: the task says the latest.
+        connection.execute(
+            text("""UPDATE tasks SET description = :said, revision = revision + 1, updated_at = :now
+                     WHERE id = :id AND description LIKE :ours AND description <> :said"""),
+            {"id": task_id, "now": now, "said": said, "ours": ours},
+        )
+    else:
+        opened = connection.execute(
+            text("""UPDATE tasks SET status = 'NOT_STARTED', completed_at = NULL, description = :plain,
+                         revision = revision + 1, updated_at = :now
+                     WHERE id = :id AND status = 'COMPLETED' AND description LIKE :ours"""),
+            {"id": task_id, "now": now, "plain": PERIOD_DESCRIPTION, "ours": ours},
+        )
+        if opened.rowcount:
+            _activity(connection, task_id, "REOPENED", now)
+
+
 def _activity(connection: Any, task_id: str, kind: str, now: str) -> None:
     connection.execute(
         text("""INSERT INTO task_activity (id, task_id, kind, occurred_at)
@@ -382,7 +474,9 @@ def _activity(connection: Any, task_id: str, kind: str, now: str) -> None:
     )
 
 
-def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, now: str) -> int:
+def _insert(  # noqa: PLR0913 - the period, whether and how it is answered, and when
+    connection: Any, teacher_id: str, start: date, *, answered: bool, now: str, said: str | None = None
+) -> int:
     """The period's task, unless another catch-up running at the same moment has just made it."""
     return connection.execute(
         text("""INSERT INTO tasks (
@@ -398,7 +492,7 @@ def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, no
             "kind": TASK_RESOURCE_TYPE,
             "teacher_id": teacher_id,
             "title": f"Time sheet: {period_label(start)}",
-            "description": "Closes itself when a time sheet is filed against this period.",
+            "description": said or PERIOD_DESCRIPTION,
             "due_date": period_end(start).isoformat(),
             "status": "COMPLETED" if answered else "NOT_STARTED",
             "completed_at": now if answered else None,
@@ -407,13 +501,14 @@ def _insert(connection: Any, teacher_id: str, start: date, *, answered: bool, no
     ).rowcount
 
 
-def _close(connection: Any, task_id: str, now: str) -> None:
-    """Closed by the sheet arriving, not by anybody pressing anything."""
+def _close(connection: Any, task_id: str, now: str, *, said: str | None = None) -> None:
+    """Closed by the sheet arriving — or the app closing the period — not by anybody pressing anything."""
     connection.execute(
         text("""UPDATE tasks SET status = 'COMPLETED', completed_at = :now,
+                     description = coalesce(:said, description),
                      revision = revision + 1, updated_at = :now
                  WHERE id = :id"""),
-        {"id": task_id, "now": now},
+        {"id": task_id, "now": now, "said": said},
     )
     connection.execute(
         text("""INSERT INTO task_activity (id, task_id, kind, occurred_at)

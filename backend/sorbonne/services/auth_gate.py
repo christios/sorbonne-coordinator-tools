@@ -75,6 +75,21 @@ def pushing_a_timesheet(request: Request) -> bool:
     return bool(key) and compare_digest(key, given)
 
 
+#: Where the same app says a period was closed with nothing to pay, or reopened. The push's key:
+#: it is the same flow's word on the same periods. Its own path, so that a server not expecting
+#: it answers 404 rather than filing a closed period as an approved sheet.
+TIMESHEET_CLOSURE_PATH = "/api/v1/timesheets/closures"
+
+
+def closing_a_period(request: Request) -> bool:
+    """A machine with the department's push key, posting a period's closure. The push's rules."""
+    if request.url.path.rstrip("/") != TIMESHEET_CLOSURE_PATH or request.method != "POST":
+        return False
+    key = (config.timesheet_push_key or "").strip()
+    given = (request.headers.get(TIMESHEET_PUSH_HEADER) or "").strip()
+    return bool(key) and compare_digest(key, given)
+
+
 #: Where the same app reads a part-timer's scheduled sessions to pre-fill a draft, and the
 #: header it proves itself with there. A second key, so the one that reads cannot post.
 TIMESHEET_PREFILL_PATH = "/api/v1/timesheets/prefill"
@@ -135,6 +150,12 @@ class StaffAuthGate(BaseHTTPMiddleware):
             if not pushing_a_timesheet(request):
                 # The flow reads this as a failure and marks the period Failed in
                 # SharePoint, which is where whoever approved it will see it.
+                return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
+            return await call_next(request)
+
+        if request.url.path.rstrip("/") == TIMESHEET_CLOSURE_PATH:
+            if not closing_a_period(request):
+                # Failed in the app, where whoever closed the period sees it.
                 return JSONResponse(status_code=401, content={"detail": "That key is not this department's."})
             return await call_next(request)
 
