@@ -1,5 +1,5 @@
 import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, Loader2, Plus, SlidersHorizontal, Trash2 } from "lucide-react";
+import { Check, Loader2, Plus, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { type CSSProperties, type FormEvent, Fragment, type ReactNode, useRef, useState } from "react";
 
@@ -8,7 +8,11 @@ import { Modal } from "@/components/Modal";
 import { PortalSemesterMenu, usePortalSemester } from "@/components/PortalSemesterMenu";
 import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { TableFilterBar } from "@/components/TableFilterBar";
 import { TeacherAvatar } from "@/components/TeacherDatabase";
+import { usePageState } from "@/components/usePageState";
+import { type GridColumn, optionsFor } from "@/services/studentColumns";
+import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import {
   type ReductionInput,
   type ReductionItem,
@@ -148,6 +152,52 @@ function dayWords(iso: string): string {
 }
 
 /**
+ * What the list can be filtered on, with the tables' own filter bar: whether a teacher has
+ * declared, what is left to validate, and every kind — by its hours, its option, or its
+ * committees — so "who heads a programme" or "who has PhD hours still to validate" is a
+ * chip or two.
+ */
+function reductionColumns(rules: ReductionRule[]): GridColumn<Teacher>[] {
+  const column = (
+    id: string,
+    displayName: string,
+    type: GridColumn<Teacher>["type"],
+    accessor: (teacher: Teacher) => unknown,
+  ): GridColumn<Teacher> => ({ id, displayName, type, accessor, defaultWidth: 120 });
+  const itemOf = (teacher: Teacher, kind: string) => teacher.items.find((item) => item.kind === kind);
+  const named = (rule: ReductionRule, key: string) => rule.options?.find((option) => option.key === key)?.label ?? key;
+  return [
+    column("name", "Name", "text", (teacher) => teacher.name),
+    column("declared", "Declared", "option", (teacher) => (teacher.declaredAt ? "Declared" : "Not declared yet")),
+    column("validation", "Validation", "option", (teacher) =>
+      teacher.items.some((item) => item.state === "declared")
+        ? "To validate"
+        : teacher.items.some((item) => item.state === "validated")
+          ? "All validated"
+          : "Nothing to validate",
+    ),
+    ...rules.map((rule) => {
+      if (rule.unit === "choice") {
+        return column(rule.kind, rule.label, "option", (teacher) => {
+          const detail = itemOf(teacher, rule.kind)?.detail ?? "";
+          return detail ? named(rule, detail) : "None";
+        });
+      }
+      if (rule.unit === "committees") {
+        return column(rule.kind, rule.label, "multiOption", (teacher) => {
+          const keys = (itemOf(teacher, rule.kind)?.detail ?? "").split(",").filter(Boolean);
+          return keys.length ? keys.map((key) => named(rule, key)) : ["None"];
+        });
+      }
+      if (rule.unit === "yes") return column(rule.kind, rule.label, "option", (teacher) => (itemOf(teacher, rule.kind)?.amount ? "Yes" : "No"));
+      return column(rule.kind, `${rule.label} (h)`, "number", (teacher) => itemOf(teacher, rule.kind)?.hours ?? 0);
+    }),
+    column("total", "Total (h)", "number", (teacher) => teacher.total),
+    column("owed", "Teaching owed (h)", "number", (teacher) => teacher.owed),
+  ];
+}
+
+/**
  * Hour reductions: every full-timer's year, on the department's record list.
  *
  * The list the Part-time Teachers page uses, one full-timer a row, with a column per kind
@@ -174,6 +224,8 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
     retry: false,
   });
   const [rules, setRules] = useState(false);
+  const [query, setQuery] = usePageState("hour-reductions:search", "");
+  const [filters, setFilters] = usePageState<FilterModel[]>("hour-reductions:filters", []);
   const [problem, setProblem] = useState("");
   const [savedOnce, setSavedOnce] = useState(false);
   // Saves still on their way, per teacher: only the last one's answer is shown, so an
@@ -240,6 +292,10 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
   const grid = { gridTemplateColumns: `minmax(12rem,1fr) ${widths.join(" ")}`, minWidth: `${least}rem` };
   const change = (teacher: Teacher, items: Record<string, ReductionInput>) =>
     save.mutate({ teacherId: teacher.teacherId, name: teacher.name, items });
+  const filterColumns = reductionColumns(year.rules);
+  const sought = query.trim().toLowerCase();
+  const searched = sought ? year.teachers.filter((teacher) => teacher.name.toLowerCase().includes(sought)) : year.teachers;
+  const visible = applyFilters(searched, filterColumns, filters);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
@@ -249,14 +305,26 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
           {problem}
         </p>
       ) : null}
-      <section className={RECORD_CARD}>
-        <RecordToolbar>
-          <p className="min-w-0 flex-1 text-sm text-[#344054]">
-            <b className="text-[#171717]">{yearWords(year.year)}</b> · yearly service {year.service} h
-            {waiting ? <span className="text-[#8a6116]"> · {plural(waiting, "research figure")} to validate</span> : null}
-          </p>
+      {/* As on Part-time Teachers: the search on the bar above the list, the filters along its top. */}
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="relative block min-w-40 flex-1 sm:max-w-64">
+          <Search size={17} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#475467]" aria-hidden="true" />
+          <input
+            aria-label="Search teachers"
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search teachers"
+            className="h-10 w-full rounded-md border border-[#98a2b3] bg-white pl-10 pr-3 text-sm text-[#171717] placeholder:text-[#667085]"
+          />
+        </label>
+        <p className="min-w-0 text-sm text-[#344054]">
+          <b className="text-[#171717]">{yearWords(year.year)}</b> · yearly service {year.service} h
+          {waiting ? <span className="text-[#8a6116]"> · {plural(waiting, "research figure")} to validate</span> : null}
+        </p>
+        <div className="ml-auto flex items-center gap-3">
           {year.canChange ? (
-            <span role="status" className="inline-flex shrink-0 items-center gap-1.5 text-xs text-[#667085]">
+            <span role="status" className="inline-flex shrink-0 items-center gap-1.5 text-xs text-[#475467]">
               {saving ? (
                 <>
                   <Loader2 size={13} className="animate-spin" aria-hidden="true" /> Saving…
@@ -272,20 +340,34 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
             <button
               type="button"
               onClick={() => setRules(true)}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-2.5 py-1 text-sm font-semibold text-[#344054]"
+              className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-md border border-[#98a2b3] bg-white px-3 text-sm font-semibold text-[#344054]"
             >
-              <SlidersHorizontal size={14} aria-hidden="true" /> Rules
+              <SlidersHorizontal size={15} aria-hidden="true" /> Rules
             </button>
           ) : null}
-          <span className="shrink-0 text-xs tabular-nums text-[#475467]">{year.teachers.length}</span>
+        </div>
+      </div>
+      <section className={RECORD_CARD}>
+        <RecordToolbar>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <TableFilterBar
+              columns={filterColumns}
+              filters={filters}
+              optionsFor={(column) => optionsFor(year.teachers, column)}
+              onChange={setFilters}
+            />
+          </div>
+          <span className="shrink-0 text-xs tabular-nums text-[#475467]">
+            {visible.length === year.teachers.length ? `${year.teachers.length}` : `${visible.length} of ${year.teachers.length}`}
+          </span>
         </RecordToolbar>
         <RecordList
           label="Full-time teachers"
           columns={columns}
           grid={grid}
           scrollX
-          isEmpty={!year.teachers.length}
-          empty="No full-time teacher teaches this year yet."
+          isEmpty={!visible.length}
+          empty={year.teachers.length ? "No full-time teacher matches the search and filters." : "No full-time teacher teaches this year yet."}
           head={
             <>
               {/* Which kinds are the teacher's to declare and which the Head of Department's. */}
@@ -341,7 +423,7 @@ export function HourReductionsPage({ header }: { header?: HTMLElement | null }) 
             </>
           }
         >
-          {year.teachers.map((teacher) => (
+          {visible.map((teacher) => (
             <RecordRow key={teacher.teacherId} columns={columns} grid={grid}>
               <TeacherCell teacher={teacher} canChange={year.canChange} onChange={(items) => change(teacher, items)} />
               {teacher.items.map((item) =>

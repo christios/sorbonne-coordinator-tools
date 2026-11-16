@@ -49,7 +49,11 @@ const page = () =>
     </QueryClientProvider>,
   );
 
-beforeEach(() => vi.restoreAllMocks());
+beforeEach(() => {
+  vi.restoreAllMocks();
+  // The search and the filters are kept for the page; every test starts without them.
+  window.localStorage.clear();
+});
 
 describe("Hour reductions, every full-timer's year", () => {
   it("lists every full-timer with each figure in hours and what it is made of", async () => {
@@ -156,6 +160,62 @@ describe("changing a figure where it stands", () => {
     fireEvent.submit(screen.getByRole("spinbutton", { name: "Students" }).closest("form") as HTMLFormElement);
 
     expect((await screen.findByRole("alert")).textContent).toBe("Grace Younes: PhD students: give a whole number of students.");
+  });
+});
+
+describe("finding a teacher", () => {
+  it("narrows the list to the names searched for", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(false));
+    page();
+
+    fireEvent.change(await screen.findByRole("searchbox", { name: "Search teachers" }), { target: { value: "grace" } });
+
+    expect(screen.queryByText("Lama Tarsissi")).toBeNull();
+    expect(screen.getByText("Grace Younes")).toBeTruthy();
+    expect(screen.getByText("1 of 2")).toBeTruthy();
+  });
+
+  it("filters to whoever has a research figure still to validate", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(false));
+    page();
+    await screen.findByText("Grace Younes");
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Filter|Add filter)$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Validation" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Validation value" }));
+    fireEvent.click(await screen.findByRole("option", { name: "To validate" }));
+
+    await waitFor(() => expect(screen.queryByText("Grace Younes")).toBeNull());
+    expect(screen.getByText("Lama Tarsissi")).toBeTruthy();
+  });
+});
+
+describe("the options of a headship, in Rules", () => {
+  it("lets an administrator rename an option and add one", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    const save = vi.spyOn(reductions, "saveReductionRules").mockResolvedValue({ service: 192, rules: RULES });
+    page();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Rules/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Head of department: name of option 1" }), {
+      target: { value: "Department of up to 150 students" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add an option/ }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Head of department: name of option 3" }), {
+      target: { value: "Acting head" },
+    });
+    fireEvent.change(screen.getByRole("spinbutton", { name: "Head of department: hours for option 3" }), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0].rules.hod).toEqual({
+      options: [
+        { key: "hod", label: "Department of up to 150 students", hours: 32 },
+        { key: "hod-200", label: "Department of over 200 students", hours: 42 },
+        // New: the server gives it a key.
+        { label: "Acting head", hours: 20 },
+      ],
+    });
   });
 });
 
