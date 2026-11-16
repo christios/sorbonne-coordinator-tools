@@ -418,7 +418,7 @@ type Spot = { day: number; time: number; cell: HTMLElement };
  *
  * The calendar shows one teaching week at a time, with its dates. A stroke across it — down
  * the hours, across the days — makes a block, a hard constraint (can't teach then) or a soft one
- * (would like to teach then). A new block repeats every week; its box, which opens as it is
+ * (would rather not teach then). A new block repeats every week; its box, which opens as it is
  * made or when it is clicked, makes it repeat from that week on, or only that week, says why,
  * or takes it off. A day's name makes the whole day a constraint for that week. Under the
  * calendar, every block is listed in words.

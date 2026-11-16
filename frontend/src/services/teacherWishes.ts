@@ -145,7 +145,7 @@ export function datesOf(block: Pick<WishBlock, "days" | "week">): string {
 }
 
 /**
- * A block in words: "Constraint · Tue, Thu 14:00–16:00 · every week", "Constraint · Fri 22 Jan,
+ * A block in words: "Hard constraint · Tue, Thu 14:00–16:00 · whole semester", "Hard constraint · Fri 22 Jan,
  * all day". A block of one week names its dates; given the grid, a whole day is "all day".
  */
 export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week">, grid?: { firstHour: number; lastHour: number }): string {
@@ -326,7 +326,7 @@ export function answerLines(blocks: WishBlock[], limits: WishLimits, limitKinds:
   return lines;
 }
 
-/** A line in the words of the panel and the flags: "Constraint · Tue 14:00–18:00 · every week". */
+/** A line in the words of the panel and the flags: "Hard constraint · Tue 14:00–18:00 · whole semester". */
 export function describeLine(line: WishLine): string {
   switch (line.kind) {
     case "constraint":

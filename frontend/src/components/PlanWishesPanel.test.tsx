@@ -76,10 +76,10 @@ describe("the wishes the plan breaks", () => {
     expect(list().getByText(/Valerie Le Guyon/)).toBeTruthy();
   });
 
-  it("keeps Constraint to hand beside the search", () => {
+  it("keeps Hard constraint to hand beside the search", () => {
     render(<PlanWishesPanel check={CHECK} collection={null} week={2} view="week" onFocus={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: /^Constraint/, pressed: false }));
-    expect(screen.getByRole("button", { name: /^Constraint/, pressed: true })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Hard constraint/, pressed: false }));
+    expect(screen.getByRole("button", { name: /^Hard constraint/, pressed: true })).toBeTruthy();
     expect(within(screen.getByRole("list", { name: "Broken constraints" })).getAllByRole("listitem")).toHaveLength(1);
   });
 });

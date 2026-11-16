@@ -82,7 +82,7 @@ type Item = {
  * The teachers' wishes the plan breaks, beside the week: this week's, every week's, or how
  * well each teacher is served — the least served first, so broken wishes are spread rather
  * than always landing on the same people. Searched, sorted and filtered as the classes to
- * place are, in the same layout: the filters behind one button, "Constraint" to hand. Which of
+ * place are, in the same layout: the filters behind one button, "Hard constraint" to hand. Which of
  * the three views is the panel's header's to say. A line is pressed to show that teacher's week.
  */
 export function PlanWishesPanel({
@@ -274,7 +274,7 @@ export function PlanWishesPanel({
           />
         </div>
         <FilterPills
-          shortcut={{ label: "Constraint", count: counts.must }}
+          shortcut={{ label: "Hard constraint", count: counts.must }}
           on={chosen.includes("must")}
           onShortcut={() => toggle("must")}
           pills={[
