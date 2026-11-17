@@ -252,24 +252,36 @@ def _from_old(row: Any) -> tuple[list[dict[str, Any]], dict[str, str]]:
 # ---------------------------------------------------------------------- reading what was sent
 
 
+def _whole(value: object) -> int | None:
+    """A whole number given as 12 or 12.0; None for 7.5, words or nothing."""
+    try:
+        number = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return int(number) if number.is_integer() else None
+
+
 def _collection_input(given: dict[str, Any]) -> dict[str, Any]:
     deadline = str(given.get("deadline") or "").strip()
     if deadline:
         try:
             date.fromisoformat(deadline)
         except ValueError as exc:
-            raise InvalidWishes("The deadline is a date: 2027-01-10.") from exc
+            raise InvalidWishes("The deadline is a date with a four-digit year: 2027-01-10.") from exc
+        if len(deadline) != len("2027-01-10"):
+            raise InvalidWishes("The deadline is a date with a four-digit year: 2027-01-10.")
     days = sorted({int(day) for day in given.get("days") or [1, 2, 3, 4, 5]})
     if not days or any(day < 1 or day > SUNDAY for day in days):
         raise InvalidWishes("The grid's days are 1 (Monday) to 7 (Sunday).")
-    first, last = int(given.get("firstHour", 8)), int(given.get("lastHour", 19))
-    if not 0 <= first < last <= MIDNIGHT:
+    first, last = _whole(given.get("firstHour", 8)), _whole(given.get("lastHour", 19))
+    if first is None or last is None or not 0 <= first < last <= MIDNIGHT:
         raise InvalidWishes("The grid's hours run from a first hour to a later last hour, within the day.")
-    quota, cap = int(given.get("mustQuota", 3)), int(given.get("cantCap", 12))
-    if not 0 <= quota <= MOST_MUSTS:
+    quota = _whole(given.get("mustQuota", 3))
+    if quota is None or not 0 <= quota <= MOST_MUSTS:
         raise InvalidWishes("Between 0 and 10 preferences can be a Must.")
-    if not 0 <= cap <= MOST_CANT_HOURS:
-        raise InvalidWishes("The can't-teach cap is between 0 and 60 hours a week.")
+    cap = _whole(given.get("cantCap", 12))
+    if cap is None or not 0 <= cap <= MOST_CANT_HOURS:
+        raise InvalidWishes("The hours of hard constraints a week are whole hours, from 0 to 60.")
     return {
         "deadline": deadline,
         "message": _words(given.get("message"), 2000),

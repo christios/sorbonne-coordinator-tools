@@ -35,23 +35,33 @@ export function ReductionsStep({
     <div className="space-y-5">
       <div>
         <h2 className="text-base font-semibold text-[#171717]">Your hour reductions for {yearWords(sheet.year)}</h2>
-        <p className="mt-1 text-sm text-[#475467]">
-          Your yearly service is {sheet.service} h of teaching. Declare your research reductions; the department&rsquo;s are set
-          by the Head of Department.
-        </p>
+        <p className="mt-1 text-sm text-[#475467]">Your yearly service is {sheet.service} h of teaching. This step has two parts:</p>
+        {/* Whose each part is, said before either is shown (17 Nov 2026: the second was taken for the teacher's). */}
+        <ol className="mt-2 grid gap-1 text-sm text-[#344054]">
+          <li>
+            <b>1. Your research reductions</b>: you fill these in.
+          </li>
+          <li>
+            <b>2. Department reductions</b>: the Head of Department fills these in. Nothing to do there; just check them.
+          </li>
+        </ol>
       </div>
 
       <ReductionFields
-        title="Research, through SAFIR"
-        about="Yours to declare. The Head of Department checks them with SAFIR."
+        number={1}
+        owner="you"
+        title="Your research reductions (SAFIR)"
+        about="Fill in what you have this year. The Head of Department then checks it with SAFIR."
         items={research}
         draft={draft}
         onChange={set}
         editable={() => true}
       />
       <ReductionFields
-        title="Set by the Head of Department"
-        about="Something missing or wrong? Say so in the box below."
+        number={2}
+        owner="hod"
+        title="Department reductions"
+        about="You can't change these: the Head of Department sets them for each full-timer. If one is missing or wrong, say so in the note below."
         items={department}
         draft={draft}
         onChange={set}
@@ -59,12 +69,13 @@ export function ReductionsStep({
       />
 
       <label className="block text-sm font-semibold text-[#344054]">
-        For the Head of Department <span className="font-normal text-[#667085]">(optional)</span>
+        Note for the Head of Department <span className="font-normal text-[#667085]">(optional)</span>
         <textarea
           value={note}
           onChange={(event) => setNote(event.target.value)}
           rows={2}
           maxLength={1000}
+          placeholder="For example: I coordinate a programme this year, and it isn't listed."
           className="mt-1.5 block w-full rounded-md border border-[#b7bec8] px-3 py-2 text-sm font-normal"
         />
       </label>
@@ -115,6 +126,7 @@ export function ReductionsSummary({ sheet, onChange }: { sheet: ReductionSheet; 
             <li key={item.kind}>
               {item.label}: {heldWords(item)} · <b>{item.hours} h</b>
               {item.state === "declared" ? <span className="text-[#7a5410]"> (to be validated)</span> : null}
+              {item.group === "department" ? <span className="text-[#667085]"> (set by the Head of Department)</span> : null}
             </li>
           ))}
         </ul>

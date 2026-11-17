@@ -36,6 +36,17 @@ const done = () => {
   if (why.getAttribute("aria-required") === "true" && !why.value) fireEvent.change(why, { target: { value: "A reason" } });
   fireEvent.click(within(box()).getByRole("button", { name: "Done" }));
 };
+/** A hard constraint every week, with its reason. */
+const block = (id: string, days: number[], from: number, to: number, comment = ""): WishBlock => ({
+  id,
+  kind: "constraint",
+  days,
+  from,
+  to,
+  repeat: "all",
+  week: "",
+  comment,
+});
 const answer = (blocks: WishBlock[], rest: Partial<Wishes> = {}): Wishes => ({
   status: "draft",
   blocks,
@@ -88,7 +99,7 @@ describe("a teacher's week, marked block by block", () => {
     }
     expect(said("Tuesday", "17:00")).toContain("fine");
     expect(said("Monday", "14:00")).toContain("fine");
-    const opened = screen.getByRole("dialog", { name: "Hard constraint · Tue, Wed, Thu 14:00–17:00 · whole semester" });
+    const opened = screen.getByRole("dialog", { name: "Hard constraint · Tue–Thu 14:00–17:00 · whole semester" });
     expect(within(opened).getByRole("radio", { name: /^Whole semester Every week, first to last/ }).getAttribute("aria-checked")).toBe("true");
     expect(screen.queryByRole("radio", { name: "Clear" })).toBeNull();
   });
@@ -116,12 +127,12 @@ describe("a teacher's week, marked block by block", () => {
   it("makes a whole day a constraint for that week only from the day's name, to say why", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: a hard constraint all day, this week only" }));
-    const day = screen.getByRole("dialog", { name: "Hard constraint · Thu 14 Jan, all day" });
+    const day = screen.getByRole("dialog", { name: "Hard constraint · Thu 14 Jan, whole day" });
     expect(within(day).getByRole("radio", { name: /^This week only/ }).getAttribute("aria-checked")).toBe("true");
     fireEvent.change(within(day).getByRole("textbox"), { target: { value: "Conference" } });
     done();
     const list = screen.getByLabelText("Summary of constraints and preferences");
-    expect(list.textContent).toContain("Thu 14 Jan, all day");
+    expect(list.textContent).toContain("Thu 14 Jan, whole day");
     expect(list.textContent).toContain("One week only");
     expect(list.textContent).toContain("“Conference”");
   });
@@ -151,7 +162,7 @@ describe("a teacher's week, marked block by block", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "The week after" }));
     fireEvent.click(screen.getByRole("button", { name: "Week 2 · 18 Jan–22 Jan: a hard constraint all week, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, all day");
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, whole week");
     fireEvent.change(within(box()).getByRole("textbox"), { target: { value: "Leave" } });
     done();
     for (const day of ["Monday", "Wednesday", "Friday"]) expect(said(day, "10:00")).toContain("constraint, this week only");
@@ -346,6 +357,27 @@ describe("a teacher's week, marked block by block", () => {
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
 
+  it("sums up a day marked in strokes as a whole day, and the same hours on several days as one line", () => {
+    const blocks = [
+      block("mon", [1], 10, 12, "School run"),
+      block("thu", [4], 10, 12, "School run"),
+      block("am", [2], 8, 12, "Lab"),
+      block("pm", [2], 12, 19, "Lab"),
+    ];
+    const onSave = vi.fn();
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer(blocks)} onSave={onSave} />);
+    const list = screen.getByLabelText("Summary of constraints and preferences");
+    const lines = within(list).getAllByRole("listitem");
+    expect(lines.map((line) => line.textContent)).toEqual(["Mon, Thu 10:00–12:00Whole semester“School run”", "Tue whole dayWhole semester“Lab”"]);
+    // The blocks themselves are as they were made.
+    expect(said("Tuesday", "10:00")).toContain("hard constraint, whole semester");
+    // × on a line takes off every block it holds.
+    fireEvent.click(within(list).getByRole("button", { name: "Remove Hard constraint · Mon, Thu 10:00–12:00 · whole semester" }));
+    expect(said("Monday", "10:00")).toContain("fine");
+    expect(said("Thursday", "10:00")).toContain("fine");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+  });
+
   it("offers Whole semester alone in Week 1, where every week starting it would be the same", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     stroke(["Monday", "09:00"]);
@@ -377,7 +409,7 @@ describe("a teacher's week, marked block by block", () => {
     expect(said("Tuesday", "17:00")).toContain("fine");
     // A day away over it is that week's own: allowed, and on top that week.
     fireEvent.click(screen.getByRole("button", { name: "Tuesday 12 Jan: a hard constraint all day, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Tue 12 Jan, all day");
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Tue 12 Jan, whole day");
     // Made to repeat, it would cover the usual Tuesday afternoon: that choice is off, and says why.
     const whole = within(box()).getByRole("radio", { name: /^Whole semester/ }) as HTMLButtonElement;
     expect(whole.disabled).toBe(true);
@@ -396,10 +428,10 @@ describe("a teacher's week, marked block by block", () => {
     done();
     const list = screen.getByLabelText("Summary of constraints and preferences");
     expect(within(list).getAllByRole("listitem")).toHaveLength(1);
-    expect(list.textContent).toContain("Mon 11 Jan–Fri 15 Jan, all day");
+    expect(list.textContent).toContain("Mon 11 Jan–Fri 15 Jan, whole week");
     // A day of it marked again would lie inside it: refused.
     fireEvent.click(screen.getByRole("button", { name: "Monday 11 Jan: a hard constraint all day, this week only" }));
-    expect(screen.getByRole("alert").textContent).toBe("That overlaps Mon 11 Jan–Fri 15 Jan, all day (One week only). Change or remove that block first.");
+    expect(screen.getByRole("alert").textContent).toBe("That overlaps Mon 11 Jan–Fri 15 Jan, whole week (One week only). Change or remove that block first.");
   });
 });
 
@@ -440,17 +472,23 @@ describe("the guided tour, for a teacher answering through their link", () => {
   /** How to take the tour again, read. */
   const gotIt = () => fireEvent.click(within(step("Take the tour again")).getByRole("button", { name: "Got it" }));
 
-  it("is suggested the first time, and declined, says how to take it later while the form waits for it", () => {
+  it("is suggested the first time, never required, and declined, says how to take it later", () => {
     render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     const welcome = step("New here? Take the two-minute tour");
     expect(within(welcome).getAllByRole("listitem")).toHaveLength(3);
-    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(welcome.textContent).toContain("Optional: you can fill in and submit the form without it.");
+    // Save and Submit never wait for the tour (17 Nov 2026).
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(within(welcome).getByRole("button", { name: "Later" }));
-    expect(step("Take the tour again").textContent).toContain("Save draft and Submit open after the tour");
+    expect(step("Take the tour again").textContent).toContain("Press Guided tour at the bottom right, any time.");
+    expect(step("Take the tour again").textContent).not.toContain("Save draft");
     gotIt();
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
-    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
+    // The button floats at the bottom right of the window, outside the form.
+    const button = screen.getByRole("button", { name: "Guided tour" });
+    expect(button.className).toContain("fixed");
+    expect(button.parentElement).toBe(document.body);
+    fireEvent.click(button);
     // First, that it is a tour, and that only what its card says works.
     const intro = step("How the tour works");
     expect(intro.textContent).toContain("Only that step works. The rest of the form is locked.");
@@ -463,7 +501,7 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(document.querySelector("[data-tour-card] .tour-card-shake")).not.toBeNull();
   });
 
-  it("cannot be skipped, holds the form, and asks before it is ended", () => {
+  it("cannot be skipped once started, and asks before it is ended", () => {
     const onCancel = vi.fn();
     render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} onCancel={onCancel} />);
     begin();
@@ -472,12 +510,11 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(within(first).getByText("Your turn")).toBeTruthy();
     // What to do is said once, in the numbered steps: no "Try it" box saying it again.
     expect(within(first).queryByText(/^Try it/)).toBeNull();
-    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
 
-    // The X, or Escape, asks first; and says the form waits for the tour.
+    // The X, or Escape, asks first; and says where the tour is taken again.
     fireEvent.click(within(first).getByRole("button", { name: "End the tour" }));
     const sure = screen.getByRole("dialog", { name: "End the guided tour?" });
-    expect(sure.textContent).toContain("Save and Submit stay off until the tour is taken to its end");
+    expect(sure.textContent).toContain("You can take it again from Guided tour, bottom right.");
     fireEvent.click(within(sure).getByRole("button", { name: "Keep going" }));
     fireEvent.keyDown(document.body, { key: "Escape" });
     expect(screen.getByRole("dialog", { name: "End the guided tour?" })).toBeTruthy();
@@ -485,12 +522,12 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(screen.queryByRole("dialog", { name: "End the guided tour?" })).toBeNull();
     expect(onCancel).not.toHaveBeenCalled();
 
-    // Ended: how to take it again pops up, the form still waits, and the button starts it again.
+    // Ended: how to take it again pops up, the form is free, and the button starts it again.
     fireEvent.click(within(step("Mark a time")).getByRole("button", { name: "End the tour" }));
     fireEvent.click(within(screen.getByRole("dialog", { name: "End the guided tour?" })).getByRole("button", { name: "End the tour" }));
     gotIt();
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
-    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
     expect(step("How the tour works")).toBeTruthy();
   });
@@ -567,7 +604,7 @@ describe("the guided tour, for a teacher answering through their link", () => {
     // Drawn as the pill it is on the calendar.
     expect(within(step("Block a whole day")).getByText("Whole day").closest("span")?.className).toContain("rounded-full");
     fireEvent.click(screen.getByRole("button", { name: "Monday 18 Jan: a hard constraint all day, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan, all day");
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan, whole day");
     expect(step("Block a whole day")).toBeTruthy();
     done();
     expect(said("Monday", "10:00")).toContain("constraint, this week only");
@@ -577,11 +614,11 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(said("Tuesday", "10:00")).toContain("fine");
     expect(step("Block a whole week").textContent).toContain("Press Whole week next to the week.");
     fireEvent.click(screen.getByRole("button", { name: "Week 2 · 18 Jan–22 Jan: a hard constraint all week, this week only" }));
-    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, all day");
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, whole week");
     done();
     expect(said("Thursday", "10:00")).toContain("constraint, this week only");
     // The whole week took in the day marked before it: one block for the week now.
-    expect(screen.getByLabelText("Summary of constraints and preferences").textContent).not.toContain("Mon 18 Jan, all day");
+    expect(screen.getByLabelText("Summary of constraints and preferences").textContent).not.toContain("Mon 18 Jan, whole day");
     // The summary, tried: an entry takes the calendar to its week and opens its box; Done goes on.
     expect(step("Check the summary").textContent).toContain("Click a date, like Tue 14:00–16:00, to open it.");
     fireEvent.click(screen.getByRole("button", { name: "Show Hard constraint · Tue 12 Jan, 14:00–16:00" }));
@@ -597,7 +634,6 @@ describe("the guided tour, for a teacher answering through their link", () => {
     fireEvent.click(within(step("Set limits")).getByRole("button", { name: "Next" }));
 
     // The last page, toured too: Next to it, then what its two fields are for.
-    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
     expect(step("Go to the last page")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /^Next: Needs and a note/ }));
     expect(screen.getByRole("region", { name: "Needs and a note" })).toBeTruthy();
@@ -605,12 +641,10 @@ describe("the guided tour, for a teacher answering through their link", () => {
     fireEvent.change(screen.getByRole("textbox", { name: "Note" }), { target: { value: "Tried in the tour" } });
     fireEvent.click(within(step("Add needs and a note")).getByRole("button", { name: "Next" }));
 
-    // Near the end the form is free; the last step says how to take the tour again, and Finish clears
-    // what was tried: no "keep it".
-    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
+    // The last step says how to take the tour again, and Finish clears what was tried: no "keep it".
     expect(step("Save or submit").textContent).toContain("Submit sends it to the coordinator.");
     fireEvent.click(within(step("Save or submit")).getByRole("button", { name: "Next" }));
-    expect(step("Take the tour again").textContent).toContain("Press Guided tour at the top right.");
+    expect(step("Take the tour again").textContent).toContain("Press Guided tour at the bottom right, any time.");
     expect(within(step("Take the tour again")).queryByRole("button", { name: /Keep it|Clear what I tried/ })).toBeNull();
     fireEvent.click(within(step("Take the tour again")).getByRole("button", { name: "Finish" }));
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
@@ -711,8 +745,8 @@ describe("the guided tour, for a teacher answering through their link", () => {
     const sure = screen.getByRole("dialog", { name: "End the guided tour?" });
     expect(sure.textContent).toContain("What you tried during the tour is cleared.");
     fireEvent.click(within(sure).getByRole("button", { name: "End the tour" }));
-    // Taken before: how to take it again says nothing of Save waiting.
-    expect(step("Take the tour again").textContent).toContain("at the top right");
+    // How to take it again says nothing of Save waiting.
+    expect(step("Take the tour again").textContent).toContain("at the bottom right");
     expect(step("Take the tour again").textContent).not.toContain("Save draft");
     gotIt();
     expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();

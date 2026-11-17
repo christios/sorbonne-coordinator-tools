@@ -9,7 +9,9 @@ import {
   isoPlus,
   recurringConstraintHours,
   shadingFor,
+  summaryEntries,
   teachingWeeks,
+  whenOf,
   weekOf,
   type WishBlock,
   type WishTeacher,
@@ -48,13 +50,56 @@ describe("the lines an answer makes", () => {
     expect(describeBlock(block("c", "constraint", [2, 4], 14, 18))).toBe("Hard constraint · Tue, Thu 14:00–18:00 · whole semester");
     expect(describeBlock(block("c", "preference", [1], 8, 10, { repeat: "from", week: "2027-02-01" }))).toBe("Soft constraint · Mon 08:00–10:00 · every week starting 1 Feb");
     expect(describeBlock(block("d", "constraint", [5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
-      "Hard constraint · Fri 22 Jan, all day",
+      "Hard constraint · Fri 22 Jan, whole day",
     );
     // Three days or more in a row read as a stretch; days apart, one by one.
     expect(describeBlock(block("w", "constraint", [1, 2, 3, 4, 5], 8, 19, { repeat: "once", week: "2027-01-18" }), { firstHour: 8, lastHour: 19 })).toBe(
-      "Hard constraint · Mon 18 Jan–Fri 22 Jan, all day",
+      "Hard constraint · Mon 18 Jan–Fri 22 Jan, whole day",
     );
+    // Given the grid's days, every day of a week, all day, is the whole week — however it was marked.
+    const week = { firstHour: 8, lastHour: 19, days: [1, 2, 3, 4, 5] };
+    expect(describeBlock(block("w", "constraint", [1, 2, 3, 4, 5], 8, 19, { repeat: "once", week: "2027-01-18" }), week)).toBe(
+      "Hard constraint · Mon 18 Jan–Fri 22 Jan, whole week",
+    );
+    expect(describeBlock(block("e", "constraint", [1, 2, 3, 4, 5], 8, 19), week)).toBe("Hard constraint · Mon–Fri whole day · whole semester");
     expect(describeBlock(block("t", "constraint", [2, 4], 8, 10, { repeat: "once", week: "2027-01-18" }))).toBe("Hard constraint · Tue 19 Jan, Thu 21 Jan, 08:00–10:00");
+  });
+});
+
+describe("a summary, as its lines read", () => {
+  const grid = { firstHour: 8, lastHour: 19, days: [1, 2, 3, 4, 5] };
+  const lines = (blocks: WishBlock[]) => summaryEntries(blocks).map((entry) => `${whenOf(entry, grid)} ×${entry.blocks.length}`);
+
+  it("reads a day marked in strokes as the whole day, and the same hours day by day as one line", () => {
+    // Morning and afternoon, by hand: Tuesday's whole day.
+    expect(lines([block("a", "constraint", [2], 8, 12), block("b", "constraint", [2], 12, 19)])).toEqual(["Tue whole day ×2"]);
+    // The same hours, a day at a time: one line, the days in order.
+    expect(lines([block("w", "constraint", [3], 10, 12), block("m", "constraint", [1], 10, 12)])).toEqual(["Mon, Wed 10:00–12:00 ×2"]);
+    // Both at once: two days marked in two strokes each are one line.
+    expect(
+      lines([block("1", "constraint", [1], 8, 13), block("2", "constraint", [1], 13, 19), block("3", "constraint", [4], 8, 13), block("4", "constraint", [4], 13, 19)]),
+    ).toEqual(["Mon, Thu whole day ×4"]);
+    // Every day of one week, all day, by hand: the whole week.
+    const week = { repeat: "once" as const, week: "2027-01-18" };
+    expect(lines([1, 2, 3, 4, 5].map((day) => block(`d${day}`, "constraint", [day], 8, 19, week)))).toEqual(["Mon 18 Jan–Fri 22 Jan, whole week ×5"]);
+  });
+
+  it("keeps apart what is not alike, or not one stretch, and keeps each reason once", () => {
+    // Another kind, another way of repeating, a gap between: lines of their own.
+    expect(lines([block("a", "constraint", [2], 8, 10), block("b", "preference", [2], 10, 12)])).toEqual(["Tue 08:00–10:00 ×1", "Tue 10:00–12:00 ×1"]);
+    expect(lines([block("a", "constraint", [2], 8, 10), block("b", "constraint", [2], 10, 12, { repeat: "once", week: "2027-01-18" })])).toHaveLength(2);
+    expect(lines([block("a", "constraint", [2], 8, 10), block("b", "constraint", [2], 11, 12)])).toHaveLength(2);
+    // Other weeks of their own: apart.
+    expect(
+      lines([block("a", "constraint", [2], 8, 19, { repeat: "once", week: "2027-01-18" }), block("b", "constraint", [2], 8, 19, { repeat: "once", week: "2027-01-25" })]),
+    ).toHaveLength(2);
+    const [line] = summaryEntries([
+      block("a", "constraint", [1], 10, 12, { comment: "School run" }),
+      block("b", "constraint", [3], 10, 12, { comment: "School run" }),
+      block("c", "constraint", [5], 10, 12, { comment: "Lab day " }),
+    ]);
+    expect(line.comments).toEqual(["School run", "Lab day"]);
+    expect(line.blocks.map((each) => each.id)).toEqual(["a", "b", "c"]);
   });
 });
 

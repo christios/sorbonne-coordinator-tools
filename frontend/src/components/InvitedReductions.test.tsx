@@ -73,9 +73,15 @@ describe("a full-timer's first step: their hour reductions", () => {
     expect(screen.queryByRole("heading", { name: "Your week" })).toBeNull();
     expect((screen.getByRole("button", { name: /Preferences and constraints/ }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
-    // The department's own are there to read, not to change.
-    expect(screen.queryByRole("checkbox", { name: "Budget committee" })).toBeNull();
-    expect(screen.getByText("Budget")).toBeTruthy();
+    // The department's own are there to read, not to change: said so at the top and on the part.
+    expect(screen.getByText(/the Head of Department fills these in\. Nothing to do there; just check them\./)).toBeTruthy();
+    const yours = screen.getByRole("region", { name: "Your research reductions (SAFIR)" });
+    expect(within(yours).getByText("You fill this in")).toBeTruthy();
+    const theirs = screen.getByRole("region", { name: "Department reductions" });
+    expect(within(theirs).getByText("Filled in by the Head of Department")).toBeTruthy();
+    expect(within(theirs).queryByRole("checkbox")).toBeNull();
+    expect(within(theirs).queryByRole("spinbutton")).toBeNull();
+    expect(within(theirs).getByText("Budget")).toBeTruthy();
 
     fireEvent.change(screen.getByRole("spinbutton", { name: "PhD students" }), { target: { value: "3" } });
     expect(screen.getByText(/Declared, to be validated/)).toBeTruthy();

@@ -84,7 +84,12 @@ describe("an invited teacher's link", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Next: Needs/ }));
     fireEvent.click(screen.getByRole("button", { name: "Submit" }));
     await waitFor(() => expect(save).toHaveBeenCalledWith("the-code", expect.objectContaining({ submit: true, note: "Mornings, please" })));
-    expect(await screen.findByText(/Thank you: your preferences and constraints are submitted/)).toBeTruthy();
+    // The end, said large: thanks, all done, nothing more to do; then what was sent.
+    const thanks = await screen.findByRole("heading", { name: /^Thank you, / });
+    const end = thanks.closest("[data-submitted]") as HTMLElement;
+    expect(end.textContent).toContain("Your answer is submitted. You’re all done.");
+    expect(end.textContent).toContain("There is nothing more to do: you can close this page.");
+    expect(screen.getByRole("heading", { name: "What you sent" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Change my answer" })).toBeTruthy();
   });
 

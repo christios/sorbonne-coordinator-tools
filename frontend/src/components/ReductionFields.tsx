@@ -1,3 +1,5 @@
+import { Lock, PenLine } from "lucide-react";
+
 import { type ReductionDraft } from "@/components/useReductionDraft";
 import { type ReductionItem, type ReductionState, heldWords, hoursOf, stateWords } from "@/services/hourReductions";
 
@@ -98,9 +100,17 @@ function Control({
   );
 }
 
+/** Who fills a part in: the teacher, or the Head of Department — said on the part, in words and looks. */
+const OWNER = {
+  you: { Icon: PenLine, words: "You fill this in", tag: "border-[#9cc0e4] bg-[#eef4fa] text-[#1f4e79]", list: "border-[#d0d5dd] bg-white" },
+  hod: { Icon: Lock, words: "Filled in by the Head of Department", tag: "border-[#d0d5dd] bg-[#f2f4f7] text-[#475467]", list: "border-dashed border-[#c8d0db] bg-[#f8fafc]" },
+};
+
 /**
  * A group of kinds, one row each: what it is and its rule, what is held, its hours, and where
- * it stands. `editable` says which rows take a figure; the rest are read.
+ * it stands. `editable` says which rows take a figure; the rest are read. `owner`, on the
+ * teacher's step, says whose part it is (17 Nov 2026: teachers took the Head of Department's
+ * part for one of their own to fill in).
  */
 export function ReductionFields({
   title,
@@ -110,6 +120,8 @@ export function ReductionFields({
   onChange,
   editable,
   withValidation = false,
+  owner,
+  number,
 }: {
   title: string;
   about: string;
@@ -119,12 +131,31 @@ export function ReductionFields({
   editable: (item: ReductionItem) => boolean;
   /** The Head of Department's tick: checked with SAFIR. */
   withValidation?: boolean;
+  /** Whose part this is, tagged so at its head: the teacher's, or the Head of Department's. */
+  owner?: keyof typeof OWNER;
+  /** Its number among the step's parts. */
+  number?: number;
 }) {
+  const whose = owner ? OWNER[owner] : null;
   return (
-    <section>
-      <h3 className="text-sm font-semibold text-[#171717]">{title}</h3>
-      <p className="mt-0.5 text-xs text-[#475467]">{about}</p>
-      <ul className="mt-2 divide-y divide-[#e4e7ec] rounded-lg border border-[#d0d5dd]">
+    <section aria-label={title} data-owner={owner}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-[#171717]">
+          {number ? (
+            <span aria-hidden="true" className="grid h-5 w-5 place-items-center rounded-full bg-[#1f4e79] text-[11px] text-white">
+              {number}
+            </span>
+          ) : null}
+          {title}
+        </h3>
+        {whose ? (
+          <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${whose.tag}`}>
+            <whose.Icon size={12} aria-hidden="true" /> {whose.words}
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs text-[#475467]">{about}</p>
+      <ul className={`mt-2 divide-y divide-[#e4e7ec] rounded-lg border ${whose ? whose.list : "border-[#d0d5dd]"}`}>
         {items.map((item) => {
           const value = draft[item.kind] ?? { amount: 0, detail: "", validated: false };
           const given = hoursOf(item, value.amount, value.detail);
@@ -151,6 +182,16 @@ export function ReductionFields({
               <div className="flex flex-wrap items-center gap-2">
                 {editable(item) ? (
                   <Control item={item} value={value} onChange={(next) => onChange(item.kind, next)} />
+                ) : owner === "hod" ? (
+                  // Read only, and drawn so: no box to type in, "Not set" where nothing is.
+                  heldWords({ ...item, ...value }) ? (
+                    <span className="inline-flex items-center gap-1 text-sm text-[#344054]">
+                      <Lock size={12} className="text-[#98a2b3]" aria-hidden="true" />
+                      {heldWords({ ...item, ...value })}
+                    </span>
+                  ) : (
+                    <span className="text-sm italic text-[#98a2b3]">Not set</span>
+                  )
                 ) : (
                   <span className="text-sm text-[#344054]">{heldWords({ ...item, ...value }) || "—"}</span>
                 )}

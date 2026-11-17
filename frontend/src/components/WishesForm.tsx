@@ -29,12 +29,14 @@ import {
   activeIn,
   clashIn,
   clockOf,
-  datesOf,
   describeBlock,
   isoPlus,
   recurringConstraintHours,
+  summaryEntries,
   teachingWeeks,
   weekOf,
+  whenOf,
+  type GridShape,
   type WishBlock,
   type WishCalendar,
   type WishCollection,
@@ -126,7 +128,8 @@ function PillLook({ children }: { children: ReactNode }) {
 const BUTTON_LOOKS = {
   primary: "bg-[#1f4e79] text-white",
   plain: "border border-[#b7bec8] bg-white text-[#344054]",
-  tour: "border border-[#cfe0f1] bg-white text-[#1f4e79]",
+  // Round, as the floating button is.
+  tour: "!rounded-full border border-[#9cc0e4] bg-white text-[#1f4e79]",
 };
 /** A button of the form's: Done, Next: Limits, Save draft, Submit, Guided tour. */
 function ButtonLook({ children, tone = "primary", before, after }: { children?: ReactNode; tone?: keyof typeof BUTTON_LOOKS; before?: LucideIcon; after?: LucideIcon }) {
@@ -188,7 +191,8 @@ export function KindToggle({ name, kind, onChange }: { name: string; kind: WishK
 function HowTo({ steps, children }: { steps: { icon: LucideIcon; title: ReactNode; hint: ReactNode }[]; children?: ReactNode }) {
   return (
     <div className="mt-3 flex flex-wrap items-stretch gap-2">
-      <ol className="grid min-w-0 flex-1 gap-2 sm:grid-cols-3">
+      {/* The steps take the row on a phone, the box beside them going under. */}
+      <ol className="grid min-w-0 flex-1 basis-full gap-2 sm:basis-0 sm:grid-cols-3">
         {steps.map(({ icon: Icon, title, hint }, index) => (
           <li key={index} className="flex items-start gap-2.5 rounded-lg border border-[#e3e8ef] bg-white px-3 py-2">
             <span className="relative mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#eef4fa] text-[#1f4e79]">
@@ -254,16 +258,14 @@ function repeatTag(block: Pick<WishBlock, "repeat" | "week">): string {
   return "One week only";
 }
 
-/** "Tue, Thu 14:00–16:00", "Fri 22 Jan, all day": when a block is, without its kind or how it repeats. */
-export function whenWords(block: WishBlock, grid: { firstHour: number; lastHour: number }): string {
-  const hours = block.from <= grid.firstHour && block.to >= grid.lastHour ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
-  if (block.repeat === "once") return `${datesOf(block)}, ${hours}`;
-  return `${block.days.map((day) => DAY_SHORT[day]).join(", ")} ${hours}`;
+/** "Tue, Thu 14:00–16:00", "Fri 22 Jan, whole day": when a block is, without its kind or how it repeats. */
+export function whenWords(block: Pick<WishBlock, "days" | "from" | "to" | "repeat" | "week">, grid: GridShape): string {
+  return whenOf(block, grid);
 }
 
 const REPEAT_RANK: Record<WishRepeat, number> = { all: 0, from: 1, once: 2 };
 /** Blocks as a list reads them: every week first, then from a week on, then single weeks; by day and hour. */
-export function inListOrder(blocks: WishBlock[]): WishBlock[] {
+export function inListOrder<T extends Pick<WishBlock, "repeat" | "week" | "days" | "from">>(blocks: T[]): T[] {
   return [...blocks].sort(
     (left, right) =>
       REPEAT_RANK[left.repeat] - REPEAT_RANK[right.repeat] ||
@@ -275,8 +277,9 @@ export function inListOrder(blocks: WishBlock[]): WishBlock[] {
 
 /**
  * Everything marked on the calendar, said in words: the hard constraints, then the soft ones,
- * each with when it is, how it repeats and why. Clicked, a block is shown on its week; × takes
- * it off.
+ * each with when it is, how it repeats and why. Blocks that read as one are one line: a day
+ * marked in strokes is "whole day", the same hours on several days one line (17 Nov 2026).
+ * Clicked, a line is shown on its week; × takes off what it holds.
  */
 export function BlockList({
   blocks,
@@ -291,13 +294,14 @@ export function BlockList({
   fading = false,
 }: {
   blocks: WishBlock[];
-  grid: { firstHour: number; lastHour: number };
+  grid: GridShape;
   voice?: Voice;
   onPick?: (block: WishBlock) => void;
   onRemove?: (block: WishBlock) => void;
   /** × off for now, during the guided tour: nothing said on hover, which would only distract. */
   removeOff?: string;
-  onHover?: (id: string | null) => void;
+  /** The blocks of the line under the pointer, or none. */
+  onHover?: (ids: string[]) => void;
   /** A hard constraint without its reason says so: it cannot be submitted that way. */
   flagMissing?: boolean;
   /** The blocks made during the guided tour: tagged as practice, and `fading` as it ends. */
@@ -308,7 +312,7 @@ export function BlockList({
   return (
     <div className="grid gap-4 sm:grid-cols-2">
       {(["constraint", "preference"] as const).map((kind) => {
-        const these = inListOrder(blocks.filter((block) => block.kind === kind));
+        const these = inListOrder(summaryEntries(blocks.filter((block) => block.kind === kind)));
         return (
           <div key={kind} className="min-w-0">
             {/* A header in the kind's colour, a band across the column: the list under it is its own. */}
@@ -320,63 +324,74 @@ export function BlockList({
               <span aria-hidden="true" className="inline-block h-3 w-3 shrink-0 rounded-sm" style={KIND_TONE[kind]} />
               {kind === "constraint" ? "Hard constraints" : "Soft constraints"}
               <span className="rounded-full bg-white/80 px-1.5 text-[11px] tabular-nums">{these.length}</span>
-              <span className="ml-auto truncate text-[11px] font-normal">{meaning(kind, voice).replace(" then", "")}</span>
+              {/* What the kind means, where there is room for it: on a phone the header keeps to its name. */}
+              <span className="ml-auto hidden truncate text-[11px] font-normal sm:inline">{meaning(kind, voice).replace(" then", "")}</span>
             </h4>
             {these.length ? (
               <ul className="mt-2 grid gap-1">
-                {these.map((block) => (
+                {these.map((entry) => {
+                  const ids = entry.blocks.map((block) => block.id);
+                  const practised = Boolean(practice && ids.some((id) => practice.has(id)));
+                  const bare = entry.kind === "constraint" && entry.blocks.some((block) => !block.comment.trim());
+                  return (
                   <li
-                    key={block.id}
-                    data-practice={practice?.has(block.id) ? "" : undefined}
+                    key={ids.join(" ")}
+                    data-practice={practised ? "" : undefined}
+                    data-blocks={ids.length}
                     className={`flex items-start gap-2 rounded-md border bg-white px-2.5 py-1.5 text-xs ${
-                      practice?.has(block.id) ? `border-dashed border-[#15803d] ${fading ? "practice-fade" : ""}` : "border-[#e3e8ef]"
+                      practised ? `border-dashed border-[#15803d] ${fading ? "practice-fade" : ""}` : "border-[#e3e8ef]"
                     }`}
-                    onMouseEnter={() => onHover?.(block.id)}
-                    onMouseLeave={() => onHover?.(null)}
+                    onMouseEnter={() => onHover?.(ids)}
+                    onMouseLeave={() => onHover?.([])}
                   >
-                    <span className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-sm" style={toneOf(block)} />
+                    <span className="mt-0.5 inline-block h-3 w-3 shrink-0 rounded-sm" style={toneOf(entry)} />
                     <span className="min-w-0 flex-1">
                       {onPick ? (
-                        // Opens the block on the calendar: drawn as a link, a pencil after it.
+                        // Opens the line's first block on the calendar: drawn as a link, a pencil after it.
                         <button
                           type="button"
-                          onClick={() => onPick(block)}
-                          aria-label={`Show ${describeBlock(block, grid)}`}
+                          // The block still missing its reason, if one is: that is what the line asks for.
+                          onClick={() => onPick((flagMissing && entry.kind === "constraint" && entry.blocks.find((block) => !block.comment.trim())) || entry.blocks[0])}
+                          aria-label={`Show ${describeBlock(entry, grid)}`}
                           className="inline-flex cursor-pointer items-center gap-1 text-left font-semibold text-[#1f4e79] underline decoration-[#9cc0e4] underline-offset-2 hover:decoration-[#1f4e79]"
                         >
-                          {whenWords(block, grid)}
+                          {whenWords(entry, grid)}
                           <Pencil size={11} className="shrink-0" aria-hidden="true" />
                         </button>
                       ) : (
-                        <span className="font-semibold text-[#344054]">{whenWords(block, grid)}</span>
+                        <span className="font-semibold text-[#344054]">{whenWords(entry, grid)}</span>
                       )}
                       <span className="ml-1.5 whitespace-nowrap rounded bg-[#f2f4f7] px-1.5 text-[10px] font-semibold text-[#667085]">
-                        {repeatTag(block)}
+                        {repeatTag(entry)}
                       </span>
-                      {practice?.has(block.id) ? (
+                      {practised ? (
                         <span className="ml-1.5 whitespace-nowrap rounded bg-[#15803d] px-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
                           Practice
                         </span>
                       ) : null}
-                      {block.comment ? (
-                        <span className="mt-0.5 block text-[#667085]">&ldquo;{block.comment}&rdquo;</span>
-                      ) : flagMissing && block.kind === "constraint" ? (
+                      {entry.comments.map((comment) => (
+                        <span key={comment} className="mt-0.5 block text-[#667085]">
+                          &ldquo;{comment}&rdquo;
+                        </span>
+                      ))}
+                      {flagMissing && bare ? (
                         <span className="mt-0.5 block font-semibold text-[#a6292f]">Reason needed: click to say why</span>
                       ) : null}
                     </span>
                     {onRemove ? (
                       <button
                         type="button"
-                        aria-label={`Remove ${describeBlock(block, grid)}`}
+                        aria-label={`Remove ${describeBlock(entry, grid)}`}
                         disabled={Boolean(removeOff)}
-                        onClick={() => onRemove(block)}
+                        onClick={() => entry.blocks.forEach((block) => onRemove(block))}
                         className="rounded p-0.5 text-[#98a2b3] hover:bg-[#fdf3f3] hover:text-[#a6292f] disabled:text-[#d0d5dd] disabled:hover:bg-transparent"
                       >
                         <X size={12} aria-hidden="true" />
                       </button>
                     ) : null}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             ) : (
               <p className="mt-2 px-1 text-xs text-[#98a2b3]">None.</p>
@@ -389,7 +404,7 @@ export function BlockList({
 }
 
 /** Each page of the form on a canvas of its own: the week, the limits, the needs. */
-const section = "rounded-xl border border-[#d5dde8] bg-[#edf1f6] p-4 sm:p-5";
+const section = "rounded-xl border border-[#d5dde8] bg-[#edf1f6] p-3 sm:p-5";
 const hint = "mt-1 text-xs text-[#667085]";
 const field = "w-full rounded-md border border-[#cbd5e1] bg-white px-2.5 py-1.5 text-sm";
 const COMMENT_LENGTH = 300;
@@ -465,7 +480,7 @@ export function WishesForm({
   onSave,
   onCancel,
   onDirtyChange,
-  tourButtonIn,
+  inView = true,
 }: {
   collection: WishCollection;
   /** The semester's teaching weeks, shown one at a time; without them, weeks of the calendar. */
@@ -483,8 +498,8 @@ export function WishesForm({
   onCancel?: () => void;
   /** Told whenever the form comes to differ from what it opened with, or stops differing. */
   onDirtyChange?: (dirty: boolean) => void;
-  /** Where the Guided tour button goes: top right of whatever holds the form, outside it. Above the form if not given. */
-  tourButtonIn?: HTMLElement | null;
+  /** False while the form is kept but not shown (a teacher back on step 1): its floating button and cards go too. */
+  inView?: boolean;
 }) {
   const [blocks, setBlocks] = useState<WishBlock[]>(() => fromWeekOne(initial?.blocks ?? [], teachingWeeks(calendar)[0]?.monday));
   const [limits, setLimits] = useState<WishLimits>(initial?.limits ?? {});
@@ -516,7 +531,8 @@ export function WishesForm({
   const [open, setOpen] = useState<{ id: string; left: number; top: number; cell: HTMLElement } | null>(null);
   // The cell the pointer rests on, for its bubble and its block lit up; a block hovered in the list.
   const [resting, setResting] = useState<{ day: number; time: number; box: { left: number; top: number; width: number; height: number } } | null>(null);
-  const [hovered, setHovered] = useState<string | null>(null);
+  // The blocks of a summary line under the pointer: lit on the calendar.
+  const [hovered, setHovered] = useState<string[]>([]);
   // A stroke under way, as the rectangle it covers: [a day's place among the grid's days, a row].
   const [drag, setDrag] = useState<{ from: [number, number]; to: [number, number] } | null>(null);
   // A block to open once it is on the page: made a moment ago, or picked from the list.
@@ -532,10 +548,12 @@ export function WishesForm({
 
   // ---------------------------------------------------------------- the guided tour's state
   const [tourAt, setTourAt] = useState<number | null>(null);
-  // Taken once, to its end, before the form is used in a browser; then again whenever wanted.
-  // Asked of a teacher answering themselves; a coordinator knows the form, and takes the tour
-  // only if they press Guided tour (16 Nov 2026): no card asking, Save and Submit never wait.
-  const [tourRequired, setTourRequired] = useState(() => voice === "you" && !tourTaken());
+  /*
+   * Suggested, once, to a teacher answering themselves who has not taken it in this browser; a
+   * coordinator knows the form and takes it only from Guided tour. Never required (17 Nov 2026):
+   * Save and Submit work with or without it.
+   */
+  const [suggestTour] = useState(() => voice === "you" && !tourTaken());
   // Where each step started from — the week shown, whether its box was seen open — to tell when its "Try it" is done.
   const [tourBase, setTourBase] = useState({ week: "", sawOpen: false });
   // The one block made during the tour: after it, the tour makes no more.
@@ -563,7 +581,7 @@ export function WishesForm({
   const quartersOf = (time: number) => Array.from({ length: Math.round(fineness / STEP) }, (_, index) => time + index * STEP);
   const rowOf = (hour: number) => collection.firstHour + Math.floor((hour - collection.firstHour) / fineness) * fineness;
   const rowHeight = FINENESS.find((option) => option.value === fineness)?.row ?? 24;
-  const grid = { firstHour: collection.firstHour, lastHour: collection.lastHour };
+  const grid = { firstHour: collection.firstHour, lastHour: collection.lastHour, days: collection.days };
   const held = useMemo(() => weekOf(blocks, week), [blocks, week]);
   /** The block a cell of the grid shows: the one on top at its first marked quarter. */
   const blockAt = (day: number, time: number): WishBlock | null => {
@@ -650,7 +668,7 @@ export function WishesForm({
     setClash({
       id: other.id,
       words: `That overlaps ${whenWords(other, grid)} (${repeatTag(other)}). Change or remove that block first.`,
-      left: near && frame ? Math.max(0, Math.min(near.left - frame.left, frame.width - 280)) : 0,
+      left: near && frame ? Math.max(0, Math.min(near.left - frame.left, frame.width - Math.min(280, frame.width))) : 0,
       top: near && frame ? near.bottom - frame.top + 4 : 0,
     });
   };
@@ -695,7 +713,8 @@ export function WishesForm({
     const box = gridBox.current;
     if (!box) return;
     const frame = box.getBoundingClientRect();
-    const width = 300;
+    // As wide as it is, or as the grid on a phone.
+    const width = Math.min(300, frame.width || 300);
     const block = blocks.find((each) => each.id === id);
     const allDay = Boolean(block && block.from <= collection.firstHour && block.to >= collection.lastHour);
     if (block && allDay && collection.days.every((day) => block.days.includes(day))) {
@@ -948,7 +967,8 @@ export function WishesForm({
 
   const openBlock = open ? blocks.find((block) => block.id === open.id) : undefined;
   // The block lit up: the one open, clicked in the tour, hovered in the list, or under the pointer.
-  const litId = open?.id ?? tourClicked?.id ?? clash?.id ?? hovered ?? (resting && !drag ? blockAt(resting.day, resting.time)?.id : undefined);
+  const litOne = open?.id ?? tourClicked?.id ?? clash?.id ?? (hovered.length ? undefined : resting && !drag ? blockAt(resting.day, resting.time)?.id : undefined);
+  const lit = new Set(litOne ? [litOne] : hovered);
   const restingBlock = resting && !drag ? blockAt(resting.day, resting.time) : null;
   const inDrag = (column: number, row: number) =>
     drag !== null &&
@@ -1001,7 +1021,7 @@ export function WishesForm({
    * in a browser (it has not been taken here, and the form waits for it), or how to take it again
    * after leaving it before its end.
    */
-  const [tourHint, setTourHint] = useState<"welcome" | "again" | null>(() => (tourRequired ? "welcome" : null));
+  const [tourHint, setTourHint] = useState<"welcome" | "again" | null>(() => (suggestTour ? "welcome" : null));
   const endTour = () => {
     const from = tourFrom.current;
     tourFrom.current = null;
@@ -1084,11 +1104,8 @@ export function WishesForm({
       setToOpen(tourClicked);
       setTourClicked(null);
     }
-    // Come to the end, the tour has been taken: the form is free to use.
-    if (id === "save") {
-      rememberTourTaken();
-      setTourRequired(false);
-    }
+    // Come to the end, the tour has been taken: not suggested again in this browser.
+    if (id === "save") rememberTourTaken();
   };
   useEffect(() => {
     if (tourAt === null) {
@@ -1198,16 +1215,21 @@ export function WishesForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [practising, page, blocks, week, fineness, practiceIds, collection]);
 
+  /*
+   * Guided tour floats at the bottom right of the window (17 Nov 2026), in sight wherever the form
+   * is scrolled to: over the page, under the tour's own dimming and cards.
+   */
   const tourButtonAt = useRef<HTMLButtonElement>(null);
   const tourButton = (
     <button
       ref={tourButtonAt}
       type="button"
+      data-tour-button
       onClick={startTour}
       disabled={tourAt !== null || clearing}
-      className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#cfe0f1] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa] disabled:opacity-50"
+      className="fixed bottom-4 right-4 z-[92] inline-flex items-center gap-2 rounded-full border border-[#9cc0e4] bg-white px-4 py-2.5 text-sm font-semibold text-[#1f4e79] shadow-[0_6px_20px_rgba(16,24,40,0.18)] hover:bg-[#eef4fa] disabled:opacity-60 sm:bottom-6 sm:right-6"
     >
-      <Compass size={14} aria-hidden="true" /> Guided tour
+      <Compass size={16} aria-hidden="true" /> Guided tour
     </button>
   );
   const gridBody = () => gridBox.current?.querySelector("tbody");
@@ -1438,7 +1460,7 @@ export function WishesForm({
       title: "Take the tour again",
       steps: [
         <>
-          Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the top right.
+          Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the bottom right, any time.
         </>,
         <>
           Press <b>Finish</b>. Your practice is erased.
@@ -1460,9 +1482,7 @@ export function WishesForm({
           steps: [
             <>You try each part of the form as you go.</>,
             <>What you try is cleared at the end.</>,
-            <>
-              <ButtonLook tone="plain">Save draft</ButtonLook> and <ButtonLook>Submit</ButtonLook> open after the tour.
-            </>,
+            <>Optional: you can fill in and submit the form without it.</>,
           ],
           actions: [
             { label: "Later", onClick: () => setTourHint("again") },
@@ -1482,15 +1502,8 @@ export function WishesForm({
             title: "Take the tour again",
             steps: [
               <>
-                Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the top right.
+                Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the bottom right, any time.
               </>,
-              ...(tourRequired
-                ? [
-                    <>
-                      <ButtonLook tone="plain">Save draft</ButtonLook> and <ButtonLook>Submit</ButtonLook> open after the tour.
-                    </>,
-                  ]
-                : []),
             ],
             target: () => tourButtonAt.current,
             pointAt: () => tourButtonAt.current,
@@ -1544,7 +1557,8 @@ export function WishesForm({
 
   return (
     // Clearing the tour's practice: a moment to watch it go, nothing to press meanwhile.
-    <div ref={root} className={`space-y-4 ${clearing ? "pointer-events-none" : ""}`} aria-busy={clearing || undefined}>
+    // Room at its foot for the floating Guided tour, which would otherwise sit over Submit.
+    <div ref={root} className={`space-y-4 pb-16 ${clearing ? "pointer-events-none" : ""}`} aria-busy={clearing || undefined}>
       {clearing
         ? createPortal(
             <PracticeBar data-practice-clearing="" label="Practice over">
@@ -1559,12 +1573,7 @@ export function WishesForm({
           at={tourAt}
           onStep={setTourAt}
           nudge={tourNudge}
-          endWords={[
-            tried ? "What you tried during the tour is cleared." : "",
-            tourRequired
-              ? "Save and Submit stay off until the tour is taken to its end: start it again from Guided tour, top right."
-              : "You can take it again from Guided tour, top right.",
-          ]
+          endWords={[tried ? "What you tried during the tour is cleared." : "", "You can take it again from Guided tour, bottom right."]
             .filter(Boolean)
             .join(" ")}
           // Finished, or ended early, the form is as it was before the tour: what was tried on the
@@ -1576,11 +1585,11 @@ export function WishesForm({
           }}
         />
       ) : null}
-      {tourAt === null && hintStep ? (
+      {tourAt === null && hintStep && inView ? (
         // Its ×, on the suggestion, is a "Later": how to take the tour then follows.
         <FormTour hint steps={[hintStep]} at={0} onStep={() => {}} onClose={() => setTourHint(tourHint === "welcome" ? "again" : null)} />
       ) : null}
-      {tourButtonIn ? createPortal(tourButton, tourButtonIn) : <div className="flex justify-end">{tourButton}</div>}
+      {inView ? createPortal(tourButton, document.body) : null}
       {notice ? (
         <div
           data-tour="notice"
@@ -1595,7 +1604,7 @@ export function WishesForm({
       <ol data-tour="stepper" aria-label="Parts of the form" className="flex flex-wrap items-center gap-1.5">
         {PAGES.map((title, index) => (
           <li key={title} className="flex items-center gap-1.5">
-            {index ? <span aria-hidden="true" className="h-px w-5 bg-[#c8d0db]" /> : null}
+            {index ? <span aria-hidden="true" className="hidden h-px w-5 bg-[#c8d0db] sm:block" /> : null}
             <button
               type="button"
               aria-current={page === index ? "step" : undefined}
@@ -1640,7 +1649,7 @@ export function WishesForm({
             ) : null}
           </div>
           <div data-tour="toolbar" className={`${voice === "you" ? "mt-5" : "mt-3"} flex flex-wrap items-center gap-x-3 gap-y-2`}>
-            <div data-tour="weeks" className="flex items-center gap-1">
+            <div data-tour="weeks" className="flex w-full flex-wrap items-center gap-1 sm:w-auto sm:flex-nowrap">
               <button
                 type="button"
                 data-tour="week-before"
@@ -1652,7 +1661,8 @@ export function WishesForm({
                 <ChevronLeft size={16} aria-hidden="true" />
               </button>
               {weeks.length ? (
-                <div className="w-72">
+                // Wide enough for a week's name: on a phone, Whole week goes to the line under.
+                <div className="min-w-[12.5rem] flex-1 sm:w-72 sm:min-w-0 sm:flex-none">
                   <SelectMenu
                     label="Week"
                     size="small"
@@ -1739,7 +1749,7 @@ export function WishesForm({
               <table className="w-full table-fixed border-collapse select-none text-[11px]" aria-label={weekName(week)}>
                 <thead>
                   <tr>
-                    <th className="w-12" />
+                    <th className="w-9 sm:w-12" />
                     {collection.days.map((day) => {
                       const date = dateOf(day);
                       const holiday = holidays.get(date);
@@ -1752,8 +1762,9 @@ export function WishesForm({
                             </span>
                           ) : (
                             <span className="flex flex-col items-center gap-1">
-                              <span>
-                                {DAY_SHORT[day]} <span className="font-normal">{formatDayAndMonth(date)}</span>
+                              {/* On a phone, the date under the day: five columns are narrow there. */}
+                              <span className="leading-tight">
+                                {DAY_SHORT[day]} <span className="block font-normal sm:inline">{formatDayAndMonth(date)}</span>
                               </span>
                               {/* The whole day, a button of its own: a date alone does not say it can be pressed. */}
                               <Tip side="top" wide={false} content={`Can't teach all ${DAY_NAMES[day]} ${formatDayAndMonth(date)}: a hard constraint for this week only.`}>
@@ -1769,7 +1780,9 @@ export function WishesForm({
                                       : "border-[#e8b4b7] bg-white text-[#a6292f] hover:bg-[#fdf3f3]"
                                   }`}
                                 >
-                                  <CalendarX2 size={11} aria-hidden="true" /> Whole day
+                                  <CalendarX2 size={11} aria-hidden="true" />
+                                  {/* The pill's words where there is room; on a phone, its icon. */}
+                                  <span className="hidden sm:inline">Whole day</span>
                                 </button>
                               </Tip>
                             </span>
@@ -1807,6 +1820,11 @@ export function WishesForm({
                               aria-haspopup={first ? "dialog" : undefined}
                               onPointerDown={(event) => {
                                 event.preventDefault();
+                                // A finger is held by the cell it pressed: let go of it, so the cells
+                                // it passes over hear it, as they do a mouse (17 Nov 2026: phones).
+                                if (event.pointerType !== "mouse" && event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+                                  event.currentTarget.releasePointerCapture(event.pointerId);
+                                }
                                 const last = { day, time, cell: event.currentTarget };
                                 // The tour's one block made, a press off it does nothing.
                                 if (!first && !canMake) return nudgeTour();
@@ -1850,7 +1868,8 @@ export function WishesForm({
                                 }
                                 make({ kind: brush, days: [day], from: time, to: time + fineness, repeat: "all", week: "" }, cell);
                               }}
-                              className="flex w-full flex-col overflow-hidden bg-white disabled:cursor-default"
+                              // touch-none: a finger on the grid paints, and does not scroll the page.
+                              className="flex w-full touch-none flex-col overflow-hidden bg-white disabled:cursor-default"
                               style={
                                 holiday
                                   ? { height: rowHeight, backgroundColor: "#f2f4f7", backgroundImage: stripes("rgba(152, 162, 179, 0.25)") }
@@ -1859,13 +1878,13 @@ export function WishesForm({
                             >
                               {quarters.map((quarter) => {
                                 const tone = holiday ? undefined : previewing ? (dragRefused ? REFUSED : PREVIEW[brush]) : quarter.block ? toneOf(quarter.block) : undefined;
-                                const lit = Boolean(quarter.block) && quarter.block?.id === litId && !previewing;
+                                const shaded = Boolean(quarter.block && lit.has(quarter.block.id)) && !previewing;
                                 const fading = clearing && Boolean(quarter.block && practiceIds.has(quarter.block.id));
                                 return (
                                   <span
                                     key={quarter.hour}
                                     data-quarter={quarter.hour}
-                                    className={`block min-h-0 w-full flex-1 ${tone || holiday || quarter.hour !== time ? "" : ruleOf(quarter.hour)} ${lit ? "brightness-[0.82]" : ""} ${fading ? "practice-fade" : ""}`}
+                                    className={`block min-h-0 w-full flex-1 ${tone || holiday || quarter.hour !== time ? "" : ruleOf(quarter.hour)} ${shaded ? "brightness-[0.82]" : ""} ${fading ? "practice-fade" : ""}`}
                                     style={tone}
                                   />
                                 );
@@ -1898,7 +1917,7 @@ export function WishesForm({
               <p
                 role="alert"
                 data-clash
-                className="pointer-events-none absolute z-20 w-[280px] rounded-md border border-[#e8b4b7] bg-[#fdf3f3] px-2.5 py-1.5 text-xs font-medium text-[#8f2329] shadow-md"
+                className="pointer-events-none absolute z-20 w-[min(280px,100%)] rounded-md border border-[#e8b4b7] bg-[#fdf3f3] px-2.5 py-1.5 text-xs font-medium text-[#8f2329] shadow-md"
                 style={{ left: clash.left, top: clash.top }}
               >
                 {clash.words}
@@ -1976,7 +1995,7 @@ export function WishesForm({
                   event.stopPropagation();
                   closeBox();
                 }}
-                className={`absolute z-20 grid w-[300px] gap-3 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg ${popFromTour ? "tour-pop-in" : ""}`}
+                className={`absolute z-20 grid w-[min(300px,100%)] gap-3 rounded-lg border border-[#d9dee7] bg-white p-3 shadow-lg ${popFromTour ? "tour-pop-in" : ""}`}
                 style={{ left: open.left, top: open.top }}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -2207,7 +2226,7 @@ export function WishesForm({
           <button
             type="button"
             data-tour="save"
-            disabled={busy || tourRequired}
+            disabled={busy}
             onClick={() => submit(false)}
             className="rounded-md border border-[#b7bec8] bg-white px-3 py-2 text-sm font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-50"
           >
@@ -2226,7 +2245,7 @@ export function WishesForm({
             <button
               type="button"
               data-tour="save"
-              disabled={busy || tourRequired}
+              disabled={busy}
               onClick={() => submit(true)}
               className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
             >

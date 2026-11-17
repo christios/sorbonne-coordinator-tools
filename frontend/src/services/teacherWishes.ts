@@ -164,16 +164,104 @@ export function datesOf(block: Pick<WishBlock, "days" | "week">): string {
   return days.map(dated).join(", ");
 }
 
+/** The grid a block is read against: its first and last hour, and its days when known. */
+export type GridShape = { firstHour: number; lastHour: number; days?: number[] };
+type Placed = Pick<WishBlock, "days" | "from" | "to" | "repeat" | "week">;
+
+/**
+ * Whether a block covers the grid's whole day, and — one week's, on every day of it — the whole
+ * week: so it reads as such however it was marked, by its button or by hand (17 Nov 2026).
+ */
+export function wholeOf(block: Placed, grid?: GridShape): "week" | "day" | "" {
+  if (!grid || block.from > grid.firstHour || block.to < grid.lastHour) return "";
+  const everyDay = Boolean(grid.days && grid.days.length > 1 && grid.days.every((day) => block.days.includes(day)));
+  return block.repeat === "once" && everyDay ? "week" : "day";
+}
+
+/** "Mon, Wed", or three days or more in a row, "Mon–Fri". */
+function dayNames(days: number[]): string {
+  const sorted = [...days].sort((left, right) => left - right);
+  const inARow = sorted.every((day, index) => !index || day === sorted[index - 1] + 1);
+  if (sorted.length >= 3 && inARow) return `${DAY_SHORT[sorted[0]]}–${DAY_SHORT[sorted[sorted.length - 1]]}`;
+  return sorted.map((day) => DAY_SHORT[day]).join(", ");
+}
+
+/**
+ * When a block is, without its kind: "Tue, Thu 14:00–16:00", "Mon–Fri whole day", "Fri 22 Jan,
+ * whole day", "Mon 18 Jan–Fri 22 Jan, whole week". Given the grid, a whole day says so.
+ */
+export function whenOf(block: Placed, grid?: GridShape): string {
+  const whole = wholeOf(block, grid);
+  const hours = whole === "week" ? "whole week" : whole ? "whole day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
+  if (block.repeat === "once") return `${datesOf(block)}, ${hours}`;
+  return `${dayNames(block.days)} ${hours}`;
+}
+
 /**
  * A block in words: "Hard constraint · Tue, Thu 14:00–16:00 · whole semester", "Hard constraint · Fri 22 Jan,
- * all day". A block of one week names its dates; given the grid, a whole day is "all day".
+ * whole day". A block of one week names its dates.
  */
-export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week">, grid?: { firstHour: number; lastHour: number }): string {
+export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week">, grid?: GridShape): string {
   const kind = KIND_NAME[block.kind];
-  const whole = grid ? block.from <= grid.firstHour && block.to >= grid.lastHour : false;
-  const hours = whole ? "all day" : `${clockOf(block.from)}–${clockOf(block.to)}`;
-  if (block.repeat === "once") return `${kind} · ${datesOf(block)}, ${hours}`;
-  return `${kind} · ${block.days.map((day) => DAY_SHORT[day]).join(", ")} ${hours} · ${repeatWords(block)}`;
+  if (block.repeat === "once") return `${kind} · ${whenOf(block, grid)}`;
+  return `${kind} · ${whenOf(block, grid)} · ${repeatWords(block)}`;
+}
+
+/** One line of a summary: the blocks that read as one, however many strokes they took. */
+export type SummaryEntry = Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week"> & {
+  blocks: WishBlock[];
+  /** Their reasons, each once. */
+  comments: string[];
+};
+
+/**
+ * An answer's blocks as a summary lists them (17 Nov 2026): blocks alike — the same kind, repeating
+ * the same way from the same week — are one line when they make one stretch of time. A day
+ * marked in two strokes, morning and afternoon, is one day ("Tue whole day" once it covers the
+ * grid); the same hours marked day by day are one line ("Mon, Wed 10:00–12:00"). Nothing is
+ * changed in the answer: each block stays as it was made, and a line knows the blocks it holds.
+ */
+export function summaryEntries(blocks: WishBlock[]): SummaryEntry[] {
+  type Entry = Omit<SummaryEntry, "comments">;
+  const sorted = (days: number[]) => [...new Set(days)].sort((left, right) => left - right);
+  let entries: Entry[] = blocks.map((block) => ({
+    kind: block.kind,
+    days: sorted(block.days),
+    from: block.from,
+    to: block.to,
+    repeat: block.repeat,
+    week: block.repeat === "all" ? "" : block.week,
+    blocks: [block],
+  }));
+  const alike = (left: Entry, right: Entry) => left.kind === right.kind && left.repeat === right.repeat && left.week === right.week;
+  const sameDays = (left: Entry, right: Entry) => left.days.length === right.days.length && left.days.every((day, index) => day === right.days[index]);
+  /** The two as one, if they make one stretch: the same days end to end, or the same hours on other days. */
+  const joined = (left: Entry, right: Entry): Entry | null => {
+    if (!alike(left, right)) return null;
+    const blocks = [...left.blocks, ...right.blocks];
+    if (sameDays(left, right) && left.from <= right.to && right.from <= left.to) {
+      return { ...left, from: Math.min(left.from, right.from), to: Math.max(left.to, right.to), blocks };
+    }
+    if (left.from === right.from && left.to === right.to) return { ...left, days: sorted([...left.days, ...right.days]), blocks };
+    return null;
+  };
+  // Joined pair by pair until no two join: a morning and an afternoon make a day, which then
+  // joins the same day on another day.
+  for (let more = true; more; ) {
+    more = false;
+    for (let left = 0; left < entries.length && !more; left += 1) {
+      for (let right = left + 1; right < entries.length && !more; right += 1) {
+        const both = joined(entries[left], entries[right]);
+        if (!both) continue;
+        entries = [...entries.slice(0, left), both, ...entries.slice(left + 1, right), ...entries.slice(right + 1)];
+        more = true;
+      }
+    }
+  }
+  return entries.map((entry) => {
+    const inOrder = [...entry.blocks].sort((left, right) => Math.min(...left.days) - Math.min(...right.days) || left.from - right.from);
+    return { ...entry, blocks: inOrder, comments: [...new Set(inOrder.map((block) => block.comment.trim()).filter(Boolean))] };
+  });
 }
 
 export type WishLimits = { maxDays?: number | null; maxHoursDay?: number | null; maxInRow?: number | null; freeDay?: number | null };
@@ -257,12 +345,45 @@ export const COLLECTION_DEFAULTS: CollectionInput = {
   cantCap: 12,
 };
 
+/** The words for a value the server could not read, by the name it has in a request. */
+const FIELD_WORDS: Record<string, string> = {
+  deadline: "deadline",
+  message: "message to teachers",
+  days: "days on the grid",
+  firstHour: "first hour",
+  lastHour: "last hour",
+  mustQuota: "number of musts",
+  cantCap: "hours of constraints a week",
+  until: "date",
+  email: "email address",
+  needs: "room or equipment needs",
+  note: "note",
+  overCapReason: "reason for the hours over the cap",
+  comment: "reason",
+};
+
+/**
+ * What a refusal says, in words (17 Nov 2026). The server's own sentence when it gave one; when
+ * it could not read a value at all, which one — not "try again", which no wait will fix: a
+ * deadline typed with a five-digit year was refused that way four times running.
+ */
+export function refusalWords(detail: unknown, fallback: string): string {
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    const where = (detail[0] as { loc?: unknown[] } | null)?.loc ?? [];
+    const named = [...where].reverse().find((part) => typeof part === "string" && part !== "body") as string | undefined;
+    const field = named ? (FIELD_WORDS[named] ?? named) : "";
+    return field ? `The ${field} could not be read. Check it and save again.` : "Something in the form could not be read. Check it and save again.";
+  }
+  return fallback;
+}
+
 async function answer<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = "That could not be saved. Try again in a moment.";
     try {
       const body = (await response.json()) as { detail?: unknown };
-      if (typeof body.detail === "string" && body.detail.trim()) detail = body.detail;
+      detail = refusalWords(body.detail, detail);
     } catch {
       // the default sentence stands
     }

@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, CheckCircle2, Loader2, LogOut } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarHeart, Check, CheckCircle2, Loader2, LogOut } from "lucide-react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 import { ReductionsStep, ReductionsSummary } from "@/components/ReductionsStep";
 import { GoogleButton } from "@/components/SignInGate";
@@ -25,19 +25,17 @@ const day = (value: string) =>
   value ? new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
 
 /** The page's frame: the university's name over a card, and nothing of the coordinators' app. */
-function Frame({ children, wide = false, aside }: { children: ReactNode; wide?: boolean; aside?: ReactNode }) {
+function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
   return (
-    <main className="min-h-screen bg-[#f7f8fa] px-4 py-8 sm:py-12">
+    <main className="min-h-screen bg-[#f7f8fa] px-3 py-6 sm:px-4 sm:py-12">
       <div className={`mx-auto ${wide ? "max-w-5xl" : "max-w-lg"}`}>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#a6292f]">Sorbonne University Abu Dhabi</p>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
-          <h1 className="flex items-center gap-2 text-xl font-semibold text-[#171717]">
+          <h1 className="flex items-center gap-2 text-lg font-semibold text-[#171717] sm:text-xl">
             <CalendarHeart size={20} className="text-[#1f4e79]" aria-hidden="true" /> Timetable preferences and constraints request
           </h1>
-          {/* Top right, outside the card: the form's Guided tour. */}
-          {aside}
         </div>
-        <div className="mt-5 rounded-xl border border-[#d9dee7] bg-white p-5 shadow-sm sm:p-7">{children}</div>
+        <div className="mt-5 rounded-xl border border-[#d9dee7] bg-white p-3.5 shadow-sm sm:p-7">{children}</div>
       </div>
     </main>
   );
@@ -63,11 +61,13 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const [editing, setEditing] = useState(false);
   const [startFrom, setStartFrom] = useState<Wishes | null>(null);
   const [saved, setSaved] = useState<"" | "draft" | "submitted">("");
-  const [tourSlot, setTourSlot] = useState<HTMLElement | null>(null);
   // A full-timer's two steps; null until they choose, when the page decides where they land.
   const [step, setStep] = useState<"reductions" | "preferences" | null>(null);
   // The form, once opened, stays mounted when they look back at step 1: nothing typed is lost.
   const [formShown, setFormShown] = useState(false);
+
+  // The thank-you, brought into view once as it appears: Submit is at the foot of a long page.
+  const showThanks = useCallback((node: HTMLElement | null) => node?.scrollIntoView?.({ behavior: "smooth", block: "center" }), []);
 
   // Leaving with changes not saved asks first, as the coordinators' window does.
   const dirty = useRef(false);
@@ -196,8 +196,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const answering = Boolean(collection) && open.open && (editing || !data.wishes || data.wishes.status === "draft");
   if (answering && onStep === "preferences" && !formShown) setFormShown(true);
   return (
-    // The tour is the form's: on step 1 there is nothing for it to show.
-    <Frame wide aside={<span ref={setTourSlot} className={answering && onStep === "reductions" ? "hidden" : "flex"} />}>
+    <Frame wide>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eef1f5] pb-4">
         <div>
           <p className="text-base font-semibold text-[#171717]">
@@ -223,8 +222,27 @@ export function InvitedWishesPage({ code }: { code: string }) {
       {collection?.message ? <p className="mt-4 whitespace-pre-line text-sm text-[#475467]">{collection.message}</p> : null}
 
       {saved === "submitted" && !editing ? (
-        <p role="status" className="mt-4 flex items-start gap-2 rounded-md bg-[#e7f4ec] px-3 py-2 text-sm text-[#2e7d55]">
-          <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> Thank you: your preferences and constraints are submitted.
+        /*
+         * The end, and plainly so (17 Nov 2026): a line in green was read past, and teachers did not
+         * know they were done. A large thank-you, that nothing is left to do, and that the page can close.
+         */
+        <section ref={showThanks} role="status" data-submitted className="mt-5 rounded-xl border border-[#a7d7b8] bg-[#eef8f1] px-5 py-7 text-center sm:px-10 sm:py-9">
+          <span className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[#2e7d55] text-white shadow-sm">
+            <Check size={36} strokeWidth={3} aria-hidden="true" />
+          </span>
+          <h2 className="mt-4 text-2xl font-semibold text-[#14532d] sm:text-3xl">Thank you, {data.teacherName}!</h2>
+          <p className="mt-2 text-base font-semibold text-[#1f5c3d] sm:text-lg">Your answer is submitted. You&rsquo;re all done.</p>
+          <p className="mt-1 text-sm text-[#2e7d55]">The coordinator has it. There is nothing more to do: you can close this page.</p>
+          {open.open && answerBy ? (
+            <p className="mx-auto mt-4 max-w-md text-sm text-[#475467]">
+              Something changed? Press <b>Change my answer</b> below, until {day(answerBy)}.
+            </p>
+          ) : null}
+        </section>
+      ) : data.wishes?.status === "submitted" && !editing && !answering ? (
+        // Back another day, the answer given: said first, so the page is not read as a form still to fill.
+        <p role="status" className="mt-4 flex items-start gap-2 rounded-md bg-[#e7f4ec] px-3 py-2 text-sm font-semibold text-[#1f5c3d]">
+          <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> Your answer is submitted: nothing more to do.
         </p>
       ) : null}
       {saved === "draft" ? (
@@ -299,7 +317,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
               key={`${data.wishes?.updatedAt ?? ""}|${startFrom ? "previous" : "fresh"}`}
               collection={collection}
               calendar={data.calendar}
-              tourButtonIn={tourSlot}
+              inView={onStep === "preferences"}
               initial={data.wishes ?? startFrom}
               voice="you"
               busy={save.isPending}
@@ -316,6 +334,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
           </>
         ) : data.wishes ? (
           <>
+            {saved === "submitted" ? <h3 className="mb-3 text-base font-semibold text-[#171717]">What you sent</h3> : null}
             {reductions ? (
               <div className="mb-4">
                 <ReductionsSummary

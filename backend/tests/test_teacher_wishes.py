@@ -144,6 +144,25 @@ def test_blocks_may_not_overlap_but_a_one_week_block_may_stand_over_a_repeating_
     assert len(kept.json()["blocks"]) == 4
 
 
+def test_a_deadline_typed_wrong_is_refused_in_words(client: TestClient):
+    """A date box lets a year run on to five digits: refused saying what is wrong, not as unreadable."""
+    for typed in ("20261-11-20", "20261120", "2026-02-30"):
+        refused = client.put(f"{AT}/collection/{TERM}", json={"deadline": typed})
+        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, typed
+        assert refused.json()["detail"] == "The deadline is a date with a four-digit year: 2027-01-10."
+    assert opened(client, deadline="2026-11-24")["deadline"] == "2026-11-24"
+
+
+def test_the_weekly_hours_of_constraints_are_whole_hours_refused_in_words(client: TestClient):
+    """7.5 or 75 hours a week were refused as unreadable; now said: whole hours, 0 to 60."""
+    for typed in (7.5, 75, -1):
+        refused = client.put(f"{AT}/collection/{TERM}", json={"deadline": "2027-01-10", "cantCap": typed})
+        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, typed
+        assert refused.json()["detail"] == "The hours of hard constraints a week are whole hours, from 0 to 60."
+    assert opened(client, cantCap=20)["cantCap"] == 20
+    assert opened(client, cantCap=8.0)["cantCap"] == 8
+
+
 def test_answering_needs_the_semesters_collection_open(client: TestClient):
     refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [block("constraint", [2], 14, 16)]})
     assert refused.status_code == status.HTTP_409_CONFLICT

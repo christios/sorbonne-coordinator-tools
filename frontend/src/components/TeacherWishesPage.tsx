@@ -86,6 +86,13 @@ function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
   );
 }
 
+/** "2026-11-20", a day that exists, with a four-digit year. */
+function isRealDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const at = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(at.getTime()) && at.toISOString().slice(0, 10) === value;
+}
+
 /** A semester's collection: when it closes, what teachers are told, and the rules of the form. */
 function CollectionSettings({
   open,
@@ -105,8 +112,54 @@ function CollectionSettings({
   onClose: () => void;
 }) {
   const [draft, setDraft] = useState<CollectionInput>(initial);
-  const set = (changes: Partial<CollectionInput>) => setDraft((current) => ({ ...current, ...changes }));
+  // The weekly hours as typed: an emptied box is not 0, and 7.5 is said back, not rounded.
+  const [capTyped, setCapTyped] = useState(String(initial.cantCap));
+  const [problem, setProblem] = useState("");
+  const set = (changes: Partial<CollectionInput>) => {
+    setProblem("");
+    setDraft((current) => ({ ...current, ...changes }));
+  };
   const hours = Array.from({ length: 25 }, (_, hour) => hour);
+  // Every hour of the grid's week: a cap this high never asks for a reason.
+  const gridHours = draft.days.length * Math.max(0, draft.lastHour - draft.firstHour);
+  /*
+   * Saved as the settings it holds, and only those, each checked here first (17 Nov 2026): the
+   * weekly hours of constraints were refused by the server again and again with only "try
+   * again" to show for it. The hours are whole hours, 0 to 60, as the semester keeps them.
+   */
+  const save = () => {
+    const deadline = draft.deadline.trim();
+    if (deadline && !isRealDate(deadline)) {
+      setProblem("The deadline isn't a full date: pick a day from the calendar, with a four-digit year.");
+      return;
+    }
+    const typed = capTyped.trim();
+    const cap = Number(typed);
+    if (!typed || !Number.isFinite(cap)) {
+      setProblem("Say how many hours of hard constraints a week are allowed before a reason is asked: 0 to 60.");
+      return;
+    }
+    if (!Number.isInteger(cap)) {
+      setProblem(`Whole hours only: ${typed} can't be kept. Use ${Math.floor(cap)} or ${Math.ceil(cap)}.`);
+      return;
+    }
+    if (cap < 0 || cap > 60) {
+      setProblem(
+        `${typed} is out of range: 0 to 60 hours a week.${gridHours <= 60 ? ` To never ask for a reason, use ${gridHours}: the grid's whole week.` : ""}`,
+      );
+      return;
+    }
+    onSave({
+      deadline,
+      message: draft.message,
+      days: draft.days,
+      firstHour: draft.firstHour,
+      lastHour: draft.lastHour,
+      mustQuota: draft.mustQuota,
+      cantCap: cap,
+    });
+  };
+  const said = problem || error;
   return (
     <Modal
       open={open}
@@ -115,9 +168,9 @@ function CollectionSettings({
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
-          {error ? (
+          {said ? (
             <span role="alert" className="mr-auto text-sm text-[#a6292f]">
-              {error}
+              {said}
             </span>
           ) : null}
           <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
@@ -126,7 +179,7 @@ function CollectionSettings({
           <button
             type="button"
             disabled={busy}
-            onClick={() => onSave(draft)}
+            onClick={save}
             className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
           >
             {busy ? "Saving…" : "Save"}
@@ -137,13 +190,22 @@ function CollectionSettings({
       <div className="grid gap-3">
         <label className="block">
           <span className={label}>Deadline</span>
-          <input type="date" value={draft.deadline} onChange={(event) => set({ deadline: event.target.value })} className={`mt-1 ${field}`} />
+          {/* Bounded, so the year takes four digits and no more. */}
+          <input
+            type="date"
+            min="2020-01-01"
+            max="2099-12-31"
+            value={draft.deadline}
+            onChange={(event) => set({ deadline: event.target.value })}
+            className={`mt-1 ${field}`}
+          />
         </label>
         <label className="block">
           <span className={label}>Message to teachers</span>
           <textarea
             rows={3}
             value={draft.message}
+            maxLength={2000}
             onChange={(event) => set({ message: event.target.value })}
             placeholder="Please tell us by 10 January when you can't teach next semester, and when you'd rather not."
             className={`mt-1 ${field}`}
@@ -185,7 +247,22 @@ function CollectionSettings({
           </label>
           <label className="col-span-2 block">
             <span className={label}>Hours of constraints a week, before a reason is asked</span>
-            <input type="number" min={0} max={60} value={draft.cantCap} onChange={(event) => set({ cantCap: Number(event.target.value) })} className={`mt-1 ${field}`} />
+            <input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              max={60}
+              step={1}
+              value={capTyped}
+              onChange={(event) => {
+                setProblem("");
+                setCapTyped(event.target.value);
+              }}
+              className={`mt-1 ${field}`}
+            />
+            <span className="mt-1 block text-xs text-[#667085]">
+              Whole hours, from 0 to 60.{gridHours <= 60 ? ` The grid's whole week is ${gridHours} h: at ${gridHours}, a reason is never asked.` : ""}
+            </span>
           </label>
         </div>
       </div>
@@ -203,8 +280,6 @@ function CollectionSettings({
 export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const client = useQueryClient();
   const { semester, term } = usePortalSemester();
-  // Where the form puts its Guided tour button: the window's header.
-  const [tourSlot, setTourSlot] = useState<HTMLElement | null>(null);
   const wishes = useQuery({
     queryKey: ["wishes", term],
     queryFn: () => fetchWishSemester(term),
@@ -553,12 +628,9 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
           title={answering.row.wishes ? `${answering.row.name}'s preferences` : `Answer for ${answering.row.name}`}
           description={`Timetable preferences and constraints request · ${semesterName}${answering.row.wishes ? ` · ${STATUS[answering.row.wishes.status].words.toLowerCase()}` : ""}`}
           onClose={() => askToLeave("close")}
-          // The form's Guided tour, top right of the window, beside its X.
-          actions={answering.editing ? <span ref={setTourSlot} className="flex" /> : null}
         >
           {answering.editing ? (
             <WishesForm
-              tourButtonIn={tourSlot}
               collection={collection}
               calendar={wishes.data?.calendar}
               initial={answering.row.wishes}

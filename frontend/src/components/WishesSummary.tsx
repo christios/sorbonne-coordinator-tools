@@ -43,7 +43,7 @@ export function WishesSummary({
   editLabel?: string;
   voice?: "they" | "you";
 }) {
-  const grid = { firstHour: collection.firstHour, lastHour: collection.lastHour };
+  const grid = { firstHour: collection.firstHour, lastHour: collection.lastHour, days: collection.days };
   // The usual week: the blocks that repeat every week, as any week of the semester shows them.
   const usual = wishes.blocks.filter((block) => block.repeat === "all");
   const held = weekOf(usual, "");

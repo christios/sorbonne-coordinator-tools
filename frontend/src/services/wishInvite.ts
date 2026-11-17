@@ -8,7 +8,7 @@
 
 import type { ReductionInput, ReductionSheet } from "@/services/hourReductions";
 import { apiFetch, API_BASE_URL } from "@/services/http";
-import type { AnswerWindow, WishCalendar, WishCollection, Wishes, WishesInput } from "@/services/teacherWishes";
+import { refusalWords, type AnswerWindow, type WishCalendar, type WishCollection, type Wishes, type WishesInput } from "@/services/teacherWishes";
 
 const DOOR = `${API_BASE_URL}/api/v1/invite/wishes`;
 
@@ -53,7 +53,7 @@ async function answer<T>(response: Response, fallback: string): Promise<T> {
     let detail = fallback;
     try {
       const body = (await response.json()) as { detail?: unknown };
-      if (typeof body.detail === "string" && body.detail.trim()) detail = body.detail;
+      detail = refusalWords(body.detail, detail);
     } catch {
       // the fallback stands
     }

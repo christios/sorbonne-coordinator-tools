@@ -35,13 +35,16 @@ def _actor(request: Request) -> str:
 
 
 class CollectionInput(BaseModel):
-    deadline: str = Field(default="", max_length=10)
+    # Room for a date typed wrong (a five-digit year), so the store refuses it in words.
+    deadline: str = Field(default="", max_length=40)
     message: str = Field(default="", max_length=2000)
     days: list[int] = Field(default_factory=lambda: [1, 2, 3, 4, 5], max_length=7)
-    firstHour: int = Field(default=8, ge=0, le=23)
-    lastHour: int = Field(default=19, ge=1, le=24)
-    mustQuota: int = Field(default=3, ge=0, le=10)
-    cantCap: int = Field(default=12, ge=0, le=60)
+    # Read loosely and checked by the store, which says in words what is wrong: 7.5 or 75
+    # hours a week were refused here with nothing a coordinator could read (17 Nov 2026).
+    firstHour: float = 8
+    lastHour: float = 19
+    mustQuota: float = 3
+    cantCap: float = 12
 
 
 class Block(BaseModel):
