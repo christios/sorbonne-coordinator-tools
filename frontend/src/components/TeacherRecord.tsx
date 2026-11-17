@@ -32,6 +32,7 @@ import { semesterAsItWent } from "@/services/teacherHoursRows";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { useGroupCohorts } from "@/services/groupCohorts";
 
 /**
  * Enough of a teacher to open their record.
@@ -136,9 +137,10 @@ export function TeacherRecord({
     () => buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf),
     [catalogues.data, terms.data, courses.data, parentOf], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const groupCohorts = useGroupCohorts(open);
   const sections = useMemo(
-    () => sectionsTaughtBy(cards, held?.id ?? teacher.id ?? "", teacher.fullName),
-    [cards, held, teacher.id, teacher.fullName],
+    () => sectionsTaughtBy(cards, held?.id ?? teacher.id ?? "", teacher.fullName, groupCohorts),
+    [cards, held, teacher.id, teacher.fullName, groupCohorts],
   );
 
   /*
@@ -505,11 +507,11 @@ export function TeacherRecord({
                     {section.scopeCode} {section.groupLabel}
                     <span className={`sm:hidden ${section.retired ? "" : "text-[#667085]"}`}>
                       {" "}
-                      · {section.cohortName} · {section.termName || "no semester"}
+                      · {section.cohorts.join(", ")} · {section.termName || "no semester"}
                     </span>
                   </td>
                   <td className={`px-3 py-2 max-sm:hidden ${section.retired ? "" : "text-[#667085]"}`}>
-                    {section.cohortName} · {section.termName || "no semester"}
+                    {section.cohorts.join(", ")} · {section.termName || "no semester"}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums max-sm:p-0 max-sm:text-xs">
                     <PhoneLabel>CRN</PhoneLabel>

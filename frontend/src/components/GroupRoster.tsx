@@ -11,6 +11,7 @@ import { namesHeld, rowsHeld } from "@/services/rosterStore";
 import { studentRows } from "@/services/rosterView";
 import type { RosterRow } from "@/services/scenRosters";
 import {
+  ALL_COHORTS,
   clearExemption,
   fetchAssignments,
   fetchCohorts,
@@ -163,7 +164,11 @@ export function GroupRoster({
       <Modal
         open={open && !record}
         title={`${scopeCode} ${groupLabel}`}
-        description={`${members.length} student${members.length === 1 ? "" : "s"} in ${cohortName}`}
+        description={
+          cohortId === ALL_COHORTS
+            ? `${members.length} student${members.length === 1 ? "" : "s"}, from every cohort`
+            : `${members.length} student${members.length === 1 ? "" : "s"} in ${cohortName}`
+        }
         onClose={onClose}
         footer={
           <button

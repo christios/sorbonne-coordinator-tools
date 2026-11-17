@@ -18,6 +18,7 @@ import type {
   PublicationPreview,
   TimetableCoverage,
 } from "@/services/publication";
+import { ALL_COHORTS } from "@/services/studentDatabase";
 
 /** How serious a thing standing in the way is. */
 export type Severity = "blocking" | "warning" | "clear";
@@ -197,6 +198,51 @@ export function unplacedIn(publication: Publication, cohortId: string): Unplaced
 /** The groups of one cohort that meet at the same hour, worst first — as the report has them. */
 export function clashesIn(publication: Publication, cohortId: string): GroupClash[] {
   return publication.cohorts.find((candidate) => candidate.cohortId === cohortId)?.clashes ?? [];
+}
+
+/**
+ * Every cohort's clashes that one of these groups is in: All cohorts' course — the
+ * languages — has no student of its own, so its clashes are its students' cohorts'. A pair
+ * reported by two cohorts is one clash, with both cohorts' students in it.
+ */
+export function clashesAcross(publication: Publication, groupIds: string[]): GroupClash[] {
+  const wanted = new Set(groupIds);
+  const merged = new Map<string, GroupClash>();
+  for (const entry of publication.cohorts) {
+    for (const clash of entry.clashes ?? []) {
+      if (!clash.groups.some((group) => wanted.has(group.id))) continue;
+      const key = clash.groups.map((group) => group.id).sort().join("|");
+      const held = merged.get(key);
+      merged.set(key, held ? { ...held, students: [...new Set([...held.students, ...clash.students])] } : clash);
+    }
+  }
+  return [...merged.values()];
+}
+
+/** Students a set still needs, and whose they are. */
+export type MissingFrom = { cohortId: string; cohortName: string; ids: string[] };
+
+/**
+ * Who has no group yet, by set code. For a cohort's course, that cohort's list, as it always
+ * was. For All cohorts' — the languages — every cohort's students missing from its sets,
+ * each cohort apart, since a student is placed from their own cohort's page.
+ */
+export function missingFrom(publication: Publication, cohortId: string, codes: string[]): Record<string, MissingFrom[]> {
+  if (cohortId !== ALL_COHORTS) {
+    const entry = publication.cohorts.find((candidate) => candidate.cohortId === cohortId);
+    return Object.fromEntries(
+      Object.entries(entry?.unassigned ?? {}).map(([code, ids]) => [code, [{ cohortId, cohortName: entry?.cohort ?? "", ids }]]),
+    );
+  }
+  const wanted = new Set(codes);
+  const found: Record<string, MissingFrom[]> = {};
+  for (const entry of publication.cohorts) {
+    for (const [code, ids] of Object.entries(entry.unassigned ?? {})) {
+      if (!wanted.has(code) || !ids.length) continue;
+      (found[code] ??= []).push({ cohortId: entry.cohortId, cohortName: entry.cohort, ids });
+    }
+  }
+  return found;
 }
 
 /** "CM A × TD 1", or "TD 1 (its own CRNs)" when a group clashes with itself. */

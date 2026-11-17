@@ -15,6 +15,7 @@ import { hoursColumn, teacherLoads } from "@/services/teacherLoad";
 
 export { hoursColumn } from "@/services/teacherLoad";
 import { SPREADSHEET_TYPE, columnLetter } from "@/services/workbookExport";
+import { ALL_COHORTS } from "@/services/studentDatabase";
 
 export const REQUEST_COLUMNS = [
   "Course Name",
@@ -137,7 +138,8 @@ export function requestSheets(
         if (crn) told.add(crn);
         held.rows.push({
           courseName: sectionName(card, row),
-          degree: cohortDegree(card.cohortId),
+          // All cohorts' classes — the languages — are every degree's.
+          degree: card.cohortId === ALL_COHORTS ? "All cohorts" : cohortDegree(card.cohortId),
           ue: card.ue,
           crn: section.crn,
           // The register's answer for this very CRN: a course may hang from more than one.
@@ -163,8 +165,12 @@ export function requestSheets(
     }
     byCohort.set(card.cohortId, held);
   }
-  return [...byCohort.entries()].map(([cohortId, held]) => {
-    const cohort = cohortNamed(cohortId);
+  // All cohorts' sheet after the years', and called ALL: it is no year's.
+  const ordered = [...byCohort.entries()].sort(
+    ([left], [right]) => Number(left === ALL_COHORTS) - Number(right === ALL_COHORTS),
+  );
+  return ordered.map(([cohortId, held]) => {
+    const cohort = cohortId === ALL_COHORTS ? { name: held.name, workbookTab: "ALL" } : cohortNamed(cohortId);
     return {
       title: sheetTitle({ ...cohort, name: cohort.name || held.name }, termName),
       heading: held.name,

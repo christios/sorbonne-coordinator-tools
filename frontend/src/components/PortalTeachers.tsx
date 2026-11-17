@@ -15,6 +15,7 @@ import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
 import type { GridColumn } from "@/services/studentColumns";
 import { useTicks } from "@/components/useTicks";
+import { useGroupCohorts } from "@/services/groupCohorts";
 
 const FILTER_KEY = "scen-portal-filter:teachers";
 
@@ -110,6 +111,7 @@ export function PortalTeachers({
    *
    * Live sections only, across every semester the planning holds.
    */
+  const groupCohorts = useGroupCohorts();
   const cohortsOf = useMemo(() => {
     const termName = (id: string) => (terms.data ?? []).find((term) => term.id === id)?.name ?? "";
     // A section's parent in its own semester: the registrar reuses CRN numbers term to term.
@@ -118,15 +120,15 @@ export function PortalTeachers({
     const held = new Map<string, string[]>();
     for (const teacher of teachers.data ?? []) {
       const names = new Set(
-        sectionsTaughtBy(cards, ourIdOf.get(teacher.teacherId) ?? "", teacher.fullName)
+        sectionsTaughtBy(cards, ourIdOf.get(teacher.teacherId) ?? "", teacher.fullName, groupCohorts)
           .filter((section) => !section.retired)
-          .map((section) => section.cohortName)
+          .flatMap((section) => section.cohorts)
           .filter(Boolean),
       );
       held.set(teacher.teacherId, [...names].sort((left, right) => left.localeCompare(right)));
     }
     return held;
-  }, [catalogues.data, terms.data, courses.data, registered.data, linked.data, active.data, teachers.data]);
+  }, [catalogues.data, terms.data, courses.data, registered.data, linked.data, active.data, teachers.data, groupCohorts]);
   const cohortsFor = (row: PortalTeacher) => cohortsOf.get(row.teacherId) ?? [];
 
   const add = useMutation({

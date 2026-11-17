@@ -18,6 +18,7 @@ import { cardSeats, rowsPerPart, subRowLabel, type Card } from "@/services/cours
 import { filled } from "@/services/courseRequest";
 import { NO_COURSE_PROGRAMS, programmeOf, type CoursePrograms } from "@/services/coursePrograms";
 import type { ActiveTeacher } from "@/services/portalLists";
+import { ALL_COHORTS } from "@/services/studentDatabase";
 
 export type StaffStatus = "FT" | "PHD" | "VP" | "PT";
 
@@ -224,7 +225,14 @@ export function cohortLoads(
     cohort.split.year = year;
     cohort.teachers = [...byTeacher.values()].sort((left, right) => right.hours - left.hours || left.teacher.localeCompare(right.teacher));
   }
-  return [...cohorts.values()];
+  /*
+   * All cohorts — the languages — on a line of its own after the years, counted once in
+   * the department and in no year's figures. Its hours used to be Foundation Year's,
+   * because the set sat on FYS's row.
+   */
+  return [...cohorts.values()].sort(
+    (left, right) => Number(left.cohortId === ALL_COHORTS) - Number(right.cohortId === ALL_COHORTS),
+  );
 }
 
 /** The department: every cohort's split added up, by semester and for the year. */

@@ -1,7 +1,19 @@
 import { describe, expect, it } from "vitest";
 
 import type { CohortReadiness, Publication, PublicationPreview } from "@/services/publication";
-import { blockersOf, describeChange, describeClashCoverage, isDestructive, sortCohorts, toneOf, unplacedIn, verdictFor } from "@/services/publicationView";
+import {
+  blockersOf,
+  clashesAcross,
+  describeChange,
+  describeClashCoverage,
+  isDestructive,
+  missingFrom,
+  sortCohorts,
+  toneOf,
+  unplacedIn,
+  verdictFor,
+} from "@/services/publicationView";
+import { ALL_COHORTS } from "@/services/studentDatabase";
 
 function cohort(overrides: Partial<CohortReadiness> = {}): CohortReadiness {
   return {
@@ -237,5 +249,47 @@ describe("what a clash count does not cover", () => {
 
   it("says nothing at all when there is no coverage to speak of", () => {
     expect(describeClashCoverage(undefined)).toBe("");
+  });
+});
+
+describe("All cohorts' course — the languages — read across every cohort", () => {
+  const clash = (ids: string[], students: string[]) => ({
+    groups: ids.map((id) => ({ id, scopeId: "s", scopeCode: id.split("-")[0], label: id })),
+    windows: [],
+    students,
+  });
+
+  it("gathers every cohort's clashes a language group is in, once per pair", () => {
+    const read = publication({
+      cohorts: [
+        cohort({ cohortId: "fys", cohort: "FYS", clashes: [clash(["LANG-A1", "CM-1"], ["F1"]), clash(["TD-1", "CM-1"], ["F2"])] }),
+        cohort({ cohortId: "l1", cohort: "L1", clashes: [clash(["CM-1", "LANG-A1"], ["L1"])] }),
+      ],
+    });
+
+    const found = clashesAcross(read, ["LANG-A1"]);
+
+    expect(found).toHaveLength(1);
+    expect(found[0].students.sort()).toEqual(["F1", "L1"]);
+  });
+
+  it("names who is missing from its sets cohort by cohort; a cohort's course keeps its own list", () => {
+    const read = publication({
+      cohorts: [
+        cohort({ cohortId: "fys", cohort: "FYS", unassigned: { LANG: ["F1"], TD: ["F2"] } }),
+        cohort({ cohortId: "l1", cohort: "L1", unassigned: { LANG: ["L1", "L2"] } }),
+      ],
+    });
+
+    expect(missingFrom(read, ALL_COHORTS, ["LANG"])).toEqual({
+      LANG: [
+        { cohortId: "fys", cohortName: "FYS", ids: ["F1"] },
+        { cohortId: "l1", cohortName: "L1", ids: ["L1", "L2"] },
+      ],
+    });
+    expect(missingFrom(read, "fys", ["TD"])).toEqual({
+      LANG: [{ cohortId: "fys", cohortName: "FYS", ids: ["F1"] }],
+      TD: [{ cohortId: "fys", cohortName: "FYS", ids: ["F2"] }],
+    });
   });
 });

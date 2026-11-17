@@ -19,6 +19,7 @@ import type { TeacherWarning } from "@/services/teacherWarnings";
 import type { ActiveTeacher, FacilityHours } from "@/services/portalLists";
 import type { GridColumn } from "@/services/studentColumns";
 import type { RequestSheet } from "@/services/timetableExport";
+import { type GroupCohorts, NO_GROUP_COHORTS, cohortsOfGroup } from "@/services/groupCohorts";
 
 /** The name the workbook prints for a row nobody has been chosen for. */
 export const UNNAMED = "TBD";
@@ -185,6 +186,8 @@ export function loadTotals(loads: TeacherLoad[]): { teachers: number; hours: num
 export type TaughtSection = {
   key: string;
   cohortName: string;
+  /** Whose class it is: its cohort, or — the languages — the cohorts of the students in it. */
+  cohorts: string[];
   termName: string;
   /** The Hub semester the section is taught in; what links it to a portal term. */
   termId: string;
@@ -212,7 +215,12 @@ export type TaughtSection = {
  * has been given to somebody else is not theirs, whatever it is called — the name only
  * answers where nobody has been chosen.
  */
-export function sectionsTaughtBy(cards: Card[], teacherId: string, teacherName = ""): TaughtSection[] {
+export function sectionsTaughtBy(
+  cards: Card[],
+  teacherId: string,
+  teacherName = "",
+  groups: GroupCohorts = NO_GROUP_COHORTS,
+): TaughtSection[] {
   const wanted = teacherName.trim().toLowerCase();
   const taught: TaughtSection[] = [];
   for (const card of cards) {
@@ -229,6 +237,7 @@ export function sectionsTaughtBy(cards: Card[], teacherId: string, teacherName =
         taught.push({
           key: `${card.key}|${row.group.id}`,
           cohortName: card.cohortName,
+          cohorts: cohortsOfGroup(card, row.group.id, groups),
           termName: card.termName,
           termId: card.termId,
           courseCode: card.code,

@@ -459,6 +459,18 @@ def test_all_cohorts_holds_sets_and_never_students(database: StudentDatabase) ->
     assert database.list_cohorts(with_all=True)[-1]["everyone"] is True
 
 
+def test_all_cohorts_reads_every_cohorts_students_for_its_files(database: StudentDatabase) -> None:
+    """Its sets take anybody a cohort holds that semester, so its workbook and lists do too."""
+    student, term = f"S{uuid4().hex[:8].upper()}", f"autumn-{uuid4().hex[:6]}"
+    _hold(database, student)
+    l1 = database.create_cohort(name="L1")
+    database.set_cohort([student], l1["id"], term_id=term)
+
+    assert [row["studentId"] for row in database.list_members(ALL_COHORTS, term)] == [student]
+    assert database.student_ids_of(ALL_COHORTS, term) == {student}
+    assert database.list_members(ALL_COHORTS, "another-semester") == []
+
+
 def test_what_a_semester_holds_is_counted_before_it_is_removed(database: StudentDatabase, two_semesters_of_fys) -> None:
     fys, _l1, _fys_student, _l1_student, autumn, spring = two_semesters_of_fys
 

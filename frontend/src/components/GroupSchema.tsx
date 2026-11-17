@@ -37,6 +37,7 @@ import {
   shortProgram,
   updateGroup,
   updateScope,
+  ALL_COHORTS,
 } from "@/services/studentDatabase";
 import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 
@@ -248,9 +249,19 @@ export function GroupSchema({
     return [...used].sort((left, right) => left.localeCompare(right));
   }, [pulled, programmes, everySchema.data, scopes]);
   const readings = useMemo(() => readSets(scopes, cohortId, programmes), [scopes, cohortId, programmes]);
+  /*
+   * This cohort's own sets, and All cohorts' — the languages — which every cohort's page
+   * shows but only All cohorts' edits. On All cohorts' own page every set is its own.
+   *
+   * Counted and warned about on their own page only: L1's totals counted every cohort's
+   * French students as placed, and LANG's gaps were said on four pages at once.
+   */
+  const own = useMemo(() => readings.filter((reading) => !reading.ownedElsewhere), [readings]);
+  const theirs = useMemo(() => readings.filter((reading) => reading.ownedElsewhere), [readings]);
   const cohort = cohorts.find((row) => row.id === cohortId) ?? null;
-  const totals = totalsOf(readings);
-  const chosen = readings.find((reading) => reading.scope.id === chosenId) ?? readings[0] ?? null;
+  const everyone = cohortId === ALL_COHORTS;
+  const totals = totalsOf(own);
+  const chosen = readings.find((reading) => reading.scope.id === chosenId) ?? own[0] ?? readings[0] ?? null;
 
   /*
    * What this browser has pulled, said out loud wherever a warning is measured against it.
@@ -291,7 +302,7 @@ export function GroupSchema({
     ];
     const found = kinds
       .map((kind) => {
-        const hit = readings.filter((reading) => reading.trouble.includes(kind.why as SetReading["trouble"][number]));
+        const hit = own.filter((reading) => reading.trouble.includes(kind.why as SetReading["trouble"][number]));
         if (!hit.length) return null;
         return {
           id: kind.id,
@@ -339,7 +350,7 @@ export function GroupSchema({
       });
     }
     return found;
-  }, [readings, programmes, pulledFrom, cohort, setChosenId]);
+  }, [own, programmes, pulledFrom, cohort, setChosenId]);
 
   if (!terms.isLoading && !(terms.data ?? []).length) {
     return (
@@ -430,7 +441,7 @@ export function GroupSchema({
                   />
                 </InfoTip>
               </p>
-              {readings.filter((reading) => !reading.shared).map((reading) => (
+              {own.map((reading) => (
                 <SetLine
                   key={reading.scope.id}
                   reading={reading}
@@ -439,23 +450,23 @@ export function GroupSchema({
                   onMove={(by) => reorder.mutate({ scopeId: reading.scope.id, by })}
                 />
               ))}
-              {readings.some((reading) => reading.shared) ? (
+              {theirs.length ? (
                 <>
                   <p className="flex items-center gap-1 px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
-                    Across cohorts
-                    <InfoTip label="What sets across cohorts are" title="Across cohorts">
-                      <TipDo>To put a set here, tick <b>Open to every cohort</b> on it.</TipDo>
-                      <TipPoint>Students of any cohort can be placed in it.</TipPoint>
+                    All cohorts
+                    <InfoTip label="What the All cohorts sets are" title="All cohorts">
+                      <TipDo>Shown here to read. To change one, pick <b>All cohorts</b> in the Cohort menu.</TipDo>
+                      <TipPoint>Students of any cohort are placed in them.</TipPoint>
                       <TipPoint>Each is still counted under their own cohort.</TipPoint>
-                      <TipPoint>Its place in the order isn&apos;t changed from here.</TipPoint>
+                      <TipPoint>They belong to no cohort, so removing a cohort never removes them.</TipPoint>
                       <TipUsage
-                        when={<>L2 students take the language classes set up under FYS.</>}
+                        when={<>L2 students take the language classes.</>}
                         todo={<>Nothing to copy: place them in <TipPill>LANG</TipPill> groups as usual.</>}
-                        then={<>They share the classes with FYS students, and still count under L2.</>}
+                        then={<>They share the classes with every other cohort&apos;s students, and still count under L2.</>}
                       />
                     </InfoTip>
                   </p>
-                  {readings.filter((reading) => reading.shared).map((reading) => (
+                  {theirs.map((reading) => (
                     <SetLine key={reading.scope.id} reading={reading} chosen={reading.scope.id === chosen?.scope.id} onChoose={() => setChosenId(reading.scope.id)} />
                   ))}
                 </>
@@ -463,7 +474,17 @@ export function GroupSchema({
               <NewSet cohortId={cohortId} termId={termId} scopes={scopes} onMade={(id) => { setChosenId(id); refresh(); }} />
             </nav>
 
-            {chosen ? (
+            {chosen?.ownedElsewhere ? (
+              <div className="min-w-0 lg:min-h-0">
+                <SharedSetView
+                  reading={chosen}
+                  onEdit={() => {
+                    setCohortId(ALL_COHORTS);
+                    setChosenId(chosen.scope.id);
+                  }}
+                />
+              </div>
+            ) : chosen ? (
               <div className="min-w-0 lg:min-h-0">
               <SetEditor
                 key={chosen.scope.id}
@@ -487,12 +508,62 @@ export function GroupSchema({
               </div>
             ) : (
               <p className="rounded-lg border border-dashed border-[#c8d0da] bg-white px-5 py-10 text-center text-sm text-[#667085]">
-                No sets in this semester yet. Add one on the left — the lectures, the tutorials, the practicals.
+                {everyone
+                  ? "No set every cohort shares in this semester yet. Add one on the left — the languages, say: LANG."
+                  : "No sets in this semester yet. Add one on the left — the lectures, the tutorials, the practicals."}
               </p>
             )}
           </div>
         </div>
       )}
+    </section>
+  );
+}
+
+/**
+ * One of All cohorts' sets, as a cohort's page shows it: to read, with the way to where it
+ * is changed. The languages used to be edited from any cohort's page and belonged to the
+ * one they were made on; they are All cohorts' now, and changed only there.
+ */
+function SharedSetView({ reading, onEdit }: { reading: SetReading; onEdit: () => void }) {
+  const scope = reading.scope;
+  return (
+    <section className="flex min-w-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:h-full lg:min-h-0">
+      <header className="shrink-0 border-b border-[#eef1f5] px-5 pb-3 pt-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <h3 className="text-lg font-semibold text-[#1f4e79]">{scope.code}</h3>
+          {scope.name && scope.name !== scope.code ? <span className="text-sm text-[#667085]">{scope.name}</span> : null}
+          <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>All cohorts</span>
+          <span className="ml-auto text-xs tabular-nums text-[#98a2b3]">
+            {reading.groups} group{reading.groups === 1 ? "" : "s"} · {reading.placed} placed, every cohort
+          </span>
+        </div>
+        <p className="mt-2 text-sm text-[#667085]">
+          Every cohort&apos;s students are placed in this set, so it belongs to none of them. Its courses and groups are
+          changed on All cohorts.
+        </p>
+        <button
+          type="button"
+          onClick={onEdit}
+          className="mt-3 inline-flex items-center gap-1.5 rounded-md border border-[#c8d0da] px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f4f7]"
+        >
+          Edit on All cohorts <ArrowRight size={14} aria-hidden="true" />
+        </button>
+      </header>
+      <div className="px-5 py-4 text-sm text-[#344054] lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+        <p className="font-semibold">Courses</p>
+        <p className="mt-1 text-[#667085]">
+          {scope.courses.length ? scope.courses.map((course) => course.code).join(" · ") : "None yet."}
+        </p>
+        <p className="mt-4 font-semibold">Groups</p>
+        <ul className="mt-1 flex flex-wrap gap-1.5">
+          {scope.groups.map((group) => (
+            <li key={group.id} className="rounded-md bg-[#f2f4f7] px-2 py-0.5 text-xs tabular-nums text-[#344054]">
+              {group.label} · {group.assigned}
+            </li>
+          ))}
+        </ul>
+      </div>
     </section>
   );
 }
@@ -600,21 +671,21 @@ function SetEditor({
   const [name, setName] = useState(scope.name);
   const [kind, setKind] = useState<ScopeKind>(scope.kind);
   const [parentScopeId, setParentScopeId] = useState(scope.parentScopeId);
-  const [openToAll, setOpenToAll] = useState(scope.openToAll);
   const [newCourse, setNewCourse] = useState("");
   const [newGroups, setNewGroups] = useState("");
   const [removing, setRemoving] = useState(false);
   const [removingGroup, setRemovingGroup] = useState<CatalogueGroup | null>(null);
 
   const save = useMutation({
-    mutationFn: (next: Partial<{ code: string; name: string; kind: ScopeKind; parentScopeId: string; openToAll: boolean }>) =>
+    mutationFn: (next: Partial<{ code: string; name: string; kind: ScopeKind; parentScopeId: string }>) =>
       updateScope(scope.id, {
         code: next.code ?? code,
         name: next.name ?? name,
         note: scope.note,
         kind: next.kind ?? kind,
         parentScopeId: next.kind === "shared" ? "" : (next.parentScopeId ?? parentScopeId),
-        openToAll: next.openToAll ?? openToAll,
+        // Where the set is says it, not a tick: All cohorts' sets are open, a cohort's are not.
+        openToAll: scope.openToAll,
       }),
     onSuccess: onChanged,
   });
@@ -639,7 +710,13 @@ function SetEditor({
   const dropGroup = useMutation({ mutationFn: deleteGroup, onSuccess: onChanged });
   const remove = useMutation({ mutationFn: () => deleteScope(scope.id), onSuccess: onRemoved });
 
-  const parents = scopes.filter((candidate) => candidate.id !== scope.id && candidate.kind !== "nested");
+  // A set is linked only to one of the same row's: a cohort's to its own, All cohorts' to theirs.
+  const parents = scopes.filter(
+    (candidate) =>
+      candidate.id !== scope.id &&
+      candidate.kind !== "nested" &&
+      (candidate.cohortId ?? "") === (scope.cohortId ?? ""),
+  );
   const parentGroups = scopes.find((candidate) => candidate.id === parentScopeId)?.groups ?? [];
   const parentCode = scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "linked";
   // Every group of the same semester, any set, that one of these could run in parallel with.
@@ -664,7 +741,7 @@ function SetEditor({
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <h3 className="text-lg font-semibold text-[#1f4e79]">{scope.code}</h3>
           {scope.name && scope.name !== scope.code ? <span className="text-sm text-[#667085]">{scope.name}</span> : null}
-          {reading.shared ? <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Across cohorts</span> : null}
+          {reading.shared ? <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Open to every cohort</span> : null}
           {scope.kind === "nested" ? (
             <span className={`${chip} bg-[#f2f4f7] text-[#667085]`}>Linked to {scopes.find((candidate) => candidate.id === scope.parentScopeId)?.code ?? "nothing"}</span>
           ) : null}
@@ -756,29 +833,6 @@ function SetEditor({
               />
             </div>
           </div>
-          <label className="flex h-[38px] items-center gap-2 text-sm text-[#344054]">
-            <input
-              type="checkbox"
-              aria-label="Open to every cohort"
-              checked={openToAll}
-              onChange={(event) => {
-                setOpenToAll(event.target.checked);
-                save.mutate({ openToAll: event.target.checked });
-              }}
-            />
-            <span className="font-semibold">Open to every cohort</span>
-            <InfoTip label="What open to every cohort means" title="Open to every cohort">
-              <TipDo>Tick it for a class the whole department shares.</TipDo>
-              <TipPoint>Students of any cohort can be placed in it.</TipPoint>
-              <TipPoint>Each is still counted under their own cohort.</TipPoint>
-              <TipPoint>It moves under <b>Across cohorts</b> in the sets list.</TipPoint>
-              <TipUsage
-                when={<>Languages are taught by level, to every year together.</>}
-                todo={<>Make one <TipPill>LANG</TipPill> set, in one cohort, and tick Open to every cohort.</>}
-                then={<>Any student, FYS to L3, can be placed in <TipPill>A0-F1</TipPill> to <TipPill>B2-G1</TipPill></>}
-              />
-            </InfoTip>
-          </label>
         </div>
       </header>
 

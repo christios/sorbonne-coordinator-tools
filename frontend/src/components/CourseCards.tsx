@@ -20,8 +20,8 @@ import { afterPlacement } from "@/services/afterPlacement";
 import { buildCards, cardColumns, rowsPerPart, teaches, type Card, parentsOf } from "@/services/courseCards";
 import { fetchActiveCourses, fetchActiveCrns, fetchActiveTeachers, fetchRegisterCheck, fetchTermCrns, fetchTermLinks } from "@/services/portalLists";
 import { fetchPublication } from "@/services/publication";
-import { clashName, clashesIn, describeClashCoverage } from "@/services/publicationView";
-import { type Cohort, fetchCourseCards } from "@/services/studentDatabase";
+import { clashName, clashesAcross, clashesIn, describeClashCoverage, missingFrom } from "@/services/publicationView";
+import { ALL_COHORTS, type Cohort, fetchCourseCards } from "@/services/studentDatabase";
 import { withProgrammeColumn } from "@/services/coursePrograms";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
@@ -199,12 +199,14 @@ export function CourseCards({
   if (catalogues.isLoading) return <ScreenLoading label="Loading the courses…" />;
   if (catalogues.error) return <p role="alert" className="text-sm text-[#a6292f]">{(catalogues.error as Error).message}</p>;
 
-  // The clash panel belongs to one cohort in one semester; it shows when the list is one.
-  // A course whose every set is open to every cohort is the department's, not a year's.
-  const acrossCohorts = visible.filter((card) => inSemester(card) && card.sets.length > 0 && card.sets.every((set) => set.scope.openToAll));
-  const byCohort = visible.filter(
-    (card) => inSemester(card) && !acrossCohorts.includes(card) && Boolean(chosen) && card.cohortId === chosen?.id,
-  );
+  /*
+   * The chosen cohort's courses — or All cohorts', the languages, which belong to no year.
+   * A cohort's list names All cohorts' courses at its foot, to open there: they were edited
+   * from any cohort and called FYS's, and are now set up in the one place.
+   */
+  const everyone = chosen?.id === ALL_COHORTS;
+  const acrossCohorts = everyone ? [] : visible.filter((card) => inSemester(card) && card.cohortId === ALL_COHORTS);
+  const byCohort = visible.filter((card) => inSemester(card) && Boolean(chosen) && card.cohortId === chosen?.id);
   /*
    * One course at a time.
    *
@@ -213,12 +215,24 @@ export function CourseCards({
    * what is wrong with each; everything a course has to say is said on the right, where
    * there is room to say it.
    */
-  const listed = [...byCohort, ...acrossCohorts];
+  const listed = byCohort;
   const chosenCard = listed.find((card) => card.key === cardKey) ?? listed[0] ?? null;
   const shownPublication = chosenCard ? publicationOf(chosenCard.termId) : null;
-  const clashes = shownPublication && chosenCard ? clashesIn(shownPublication, chosenCard.cohortId) : null;
+  // All cohorts holds no student, so its course's clashes and gaps are every cohort's in it.
+  const clashes =
+    shownPublication && chosenCard
+      ? chosenCard.cohortId === ALL_COHORTS
+        ? clashesAcross(shownPublication, chosenCard.sets.flatMap((set) => set.rows.map((row) => row.group.id)))
+        : clashesIn(shownPublication, chosenCard.cohortId)
+      : null;
   const unassignedOf = (card: typeof chosenCard) =>
-    (card ? shownPublication?.cohorts.find((entry) => entry.cohortId === card.cohortId)?.unassigned : null) ?? {};
+    card && shownPublication
+      ? missingFrom(
+          shownPublication,
+          card.cohortId,
+          card.sets.map((set) => set.scope.code),
+        )
+      : {};
   // Only the overlaps somebody is actually caught by; the rest are a constraint on the
   // fill, not a thing that has gone wrong.
   const trapped = (clashes ?? []).filter((clash) => clash.students.length);
@@ -245,7 +259,9 @@ export function CourseCards({
         .map((row) => ({ card, set, row })),
     ),
   );
-  const leftOver = Object.entries(unassignedOf(chosenCard)).filter(([, ids]) => ids.length);
+  const leftOver = Object.entries(unassignedOf(chosenCard)).flatMap(([code, from]) =>
+    from.filter((each) => each.ids.length).map((each) => ({ code, ...each })),
+  );
   const warnings: WarningKind[] = [
     troubled.length
       ? {
@@ -304,19 +320,20 @@ export function CourseCards({
       ? {
           id: "unplaced",
           severity: "caution" as const,
-          label: `${leftOver.reduce((sum, [, ids]) => sum + ids.length, 0)} placements to make`,
+          label: `${leftOver.reduce((sum, each) => sum + each.ids.length, 0)} placements to make`,
           detail: (
             <WarningRows>
-              {leftOver.map(([code, ids]) => (
-                <li key={code} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2">
+              {leftOver.map(({ code, ids, cohortId: whose, cohortName }) => (
+                <li key={`${code}|${whose}`} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2">
                   <span className="font-medium text-[#1f4e79]">{code}</span>
+                  {everyone ? <span className="font-medium text-[#344054]">{cohortName}</span> : null}
                   <span className="text-[#667085]">
                     {ids.length} student{ids.length === 1 ? "" : "s"} with no group
                   </span>
                   {onPlaceStudents && chosenCard ? (
                     <button
                       type="button"
-                      onClick={() => onPlaceStudents(chosenCard.cohortId, ids)}
+                      onClick={() => onPlaceStudents(whose, ids)}
                       className="ml-auto text-xs font-semibold text-[#1f4e79] underline"
                     >
                       Place them
@@ -493,20 +510,28 @@ export function CourseCards({
             {acrossCohorts.length ? (
               <>
                 <p className="flex items-center gap-1 px-2.5 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-wide text-[#8a94a4]">
-                  Across cohorts
-                  <InfoTip label="What courses across cohorts are" title="Across cohorts">
-                    <TipDo>Find here the courses of sets open to every cohort, like the languages.</TipDo>
+                  All cohorts
+                  <InfoTip label="What the All cohorts courses are" title="All cohorts">
+                    <TipDo>Pick one to open it on <b>All cohorts</b>, where its CRNs are filled in.</TipDo>
                     <TipPoint>Their sections are shared: one CRN serves the students of every cohort.</TipPoint>
-                    <TipPoint>They are the same whichever cohort is chosen above.</TipPoint>
+                    <TipPoint>They belong to no cohort, so they are set up in one place.</TipPoint>
                     <TipUsage
                       when={<>The French <TipPill>A0-F1</TipPill> class needs its CRN.</>}
-                      todo={<>Open <TipPill>SCEN-101</TipPill> here, from any cohort, and press A0-F1.</>}
+                      todo={<>Pick <TipPill>SCEN-101</TipPill> here, or <b>All cohorts</b> in the Cohort menu, and press A0-F1.</>}
                       then={<>Every cohort&apos;s students in A0-F1 share that one CRN.</>}
                     />
                   </InfoTip>
                 </p>
                 {acrossCohorts.map((card) => (
-                  <CourseLine key={card.key} card={card} chosen={card.key === chosenCard?.key} onChoose={() => setCardKey(card.key)} />
+                  <CourseLine
+                    key={card.key}
+                    card={card}
+                    chosen={false}
+                    onChoose={() => {
+                      setCohortId(ALL_COHORTS);
+                      setCardKey(card.key);
+                    }}
+                  />
                 ))}
               </>
             ) : null}

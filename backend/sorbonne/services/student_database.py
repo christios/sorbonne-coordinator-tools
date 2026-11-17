@@ -970,13 +970,17 @@ class StudentDatabase:
         return len(present)
 
     def list_members(self, cohort_id: str, term_id: str | None = None) -> list[dict[str, Any]]:
-        """One cohort's students — the same records, narrowed to that cohort, in one semester or any."""
+        """One cohort's students — the same records, narrowed to that cohort, in one semester or any.
+
+        All cohorts holds nobody of its own; its sets take anybody a cohort holds, so its files
+        and its workbook are read against every cohort's students.
+        """
         self.get_cohort(cohort_id)
         return [
             student
             for student in self.list_students()
             if any(
-                cohort["id"] == cohort_id and (term_id is None or cohort["termId"] == term_id)
+                (cohort_id in (ALL_COHORTS, cohort["id"])) and (term_id is None or cohort["termId"] == term_id)
                 for cohort in student["cohorts"]
             )
         ]

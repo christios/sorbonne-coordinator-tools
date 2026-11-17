@@ -166,6 +166,48 @@ describe("a semester's whole week", () => {
     expect(await screen.findByText("1 of 3")).toBeTruthy();
   });
 
+  it("counts a language class for the cohorts whose students sit in it, and reads only its own semester", async () => {
+    // L1's lecture, and All cohorts' LANG: A1 holds an L1 student, A0 a Foundation Year one.
+    const course = (id: string, code: string) => ({ id, code, name: code, component: "CM", request: database.EMPTY_REQUEST });
+    const group = (id: string, crns: Record<string, string>) => ({
+      id, label: id, capacity: 30, note: "", parentGroupId: "", assigned: 0,
+      crns: Object.fromEntries(Object.entries(crns).map(([courseId, crn]) => [courseId, { ...database.EMPTY_SECTION, crn }])),
+      majors: [],
+    });
+    const scope = (id: string, code: string, termId: string, courses: ReturnType<typeof course>[], groups: ReturnType<typeof group>[]) => ({
+      id, code, name: code, note: "", termId, kind: "shared" as const, parentScopeId: "", openToAll: code === "LANG", courses, groups,
+    });
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+      { cohort: { id: database.ALL_COHORTS, name: "All cohorts", term: "" }, scopes: [
+        scope("lang", "LANG", "term-1", [course("fr", "MATH-257"), course("fr0", "PHYS-210")], [group("A1", { fr: "24092" }), group("A0", { fr0: "22610" })]),
+      ] },
+      { cohort: { id: "fy", name: "FYS", term: "2026-27" }, scopes: [
+        // Semester 2's, under a number Semester 1 gave L1's lecture: not this week's business.
+        scope("fy-cm", "CM", "term-2", [course("alg2", "MATH-114")], [group("1", { alg2: "23436" })]),
+      ] },
+      { cohort: { id: "l1", name: "L1", term: "2026-27" }, scopes: [scope("l1-cm", "CM", "term-1", [course("alg", "MATH-351")], [group("1", { alg: "23436" })])] },
+    ]);
+    // Each placement filed under its student's own cohort; All cohorts holds nobody.
+    const placed: Record<string, Record<string, Record<string, string>>> = {
+      l1: { A001: { "l1-cm": "1", lang: "A1" } },
+      fy: { A003: { lang: "A0" } },
+    };
+    vi.spyOn(database, "fetchAssignments").mockImplementation(async (cohortId) => placed[cohortId] ?? {});
+    vi.spyOn(database, "fetchAssignmentMajors").mockResolvedValue({});
+    vi.spyOn(roster, "fieldHeld").mockResolvedValue({});
+    show();
+    await screen.findByText("3 of 3");
+
+    fireEvent.click(screen.getByRole("button", { name: /^(Filter|Add filter)$/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cohort" }));
+    fireEvent.click(await screen.findByRole("combobox", { name: "Cohort value" }));
+    expect((await screen.findAllByRole("option")).map((option) => option.textContent)).toEqual(["FYS", "L1"]);
+    fireEvent.click(screen.getByRole("option", { name: "L1" }));
+
+    // L1's lecture and the French class its student sits in — not A0, nor Semester 2's FYS.
+    expect(await screen.findByText("2 of 3")).toBeTruthy();
+  });
+
   it("searches the sections as a table does", async () => {
     show();
     await screen.findByText("3 of 3");

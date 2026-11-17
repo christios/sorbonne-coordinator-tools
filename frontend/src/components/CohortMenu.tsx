@@ -4,6 +4,8 @@ import { useSemesterShortNames } from "@/services/semesterYears";
 type CohortLike = {
   id: string;
   name: string;
+  /** All cohorts, which holds the shared sets and no student: said so, never "0". */
+  everyone?: boolean;
   term?: string;
   /** Its students, every semester together. */
   memberCount?: number;
@@ -60,6 +62,9 @@ export function CohortMenu<T extends CohortLike>({
       align={align}
       searchable={searchable}
       options={cohorts.map((cohort) => {
+        if (cohort.everyone) {
+          return { value: cohort.id, label: cohort.name, short, badge: "shared sets", badgeTone: "muted" as const, ...more?.(cohort) };
+        }
         const count = studentsIn(cohort, semesterId);
         return {
           value: cohort.id,
