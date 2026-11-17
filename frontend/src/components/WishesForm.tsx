@@ -19,13 +19,15 @@ import {
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { FormTour, readingTime, rememberTourTaken, tourTaken, type TourStep } from "@/components/FormTour";
+import { FormTour, PracticeBar, readingTime, rememberTourTaken, tourPace, tourTaken, type TourStep } from "@/components/FormTour";
 import { Tip, TipDo } from "@/components/InfoTip";
 import { SelectMenu } from "@/components/SelectMenu";
 import {
   DAY_NAMES,
   DAY_SHORT,
   STEP,
+  activeIn,
+  clashIn,
   clockOf,
   datesOf,
   describeBlock,
@@ -66,6 +68,8 @@ const PREVIEW: Record<WishKind, CSSProperties> = {
   constraint: { backgroundColor: "rgba(217, 100, 106, 0.5)" },
   preference: { backgroundColor: "rgba(233, 189, 58, 0.5)" },
 };
+/** A stroke that would cover another block's hours, before it is let go: grey, crossed, as it will not be made. */
+const REFUSED: CSSProperties = { backgroundColor: "rgba(152, 162, 179, 0.45)", backgroundImage: stripes("rgba(71, 84, 103, 0.35)") };
 
 const KINDS: { value: WishKind; label: string; on: string; solid: string }[] = [
   { value: "constraint", label: "Hard constraint", on: "border-[#a6292f] bg-[#fdf3f3] text-[#a6292f]", solid: "bg-[#a6292f] text-white" },
@@ -283,6 +287,8 @@ export function BlockList({
   removeOff,
   onHover,
   flagMissing = false,
+  practice,
+  fading = false,
 }: {
   blocks: WishBlock[];
   grid: { firstHour: number; lastHour: number };
@@ -294,6 +300,9 @@ export function BlockList({
   onHover?: (id: string | null) => void;
   /** A hard constraint without its reason says so: it cannot be submitted that way. */
   flagMissing?: boolean;
+  /** The blocks made during the guided tour: tagged as practice, and `fading` as it ends. */
+  practice?: ReadonlySet<string>;
+  fading?: boolean;
 }) {
   if (!blocks.length) return <p className="text-sm text-[#98a2b3]">Nothing marked: every hour is fine.</p>;
   return (
@@ -318,7 +327,10 @@ export function BlockList({
                 {these.map((block) => (
                   <li
                     key={block.id}
-                    className="flex items-start gap-2 rounded-md border border-[#e3e8ef] bg-white px-2.5 py-1.5 text-xs"
+                    data-practice={practice?.has(block.id) ? "" : undefined}
+                    className={`flex items-start gap-2 rounded-md border bg-white px-2.5 py-1.5 text-xs ${
+                      practice?.has(block.id) ? `border-dashed border-[#15803d] ${fading ? "practice-fade" : ""}` : "border-[#e3e8ef]"
+                    }`}
                     onMouseEnter={() => onHover?.(block.id)}
                     onMouseLeave={() => onHover?.(null)}
                   >
@@ -341,6 +353,11 @@ export function BlockList({
                       <span className="ml-1.5 whitespace-nowrap rounded bg-[#f2f4f7] px-1.5 text-[10px] font-semibold text-[#667085]">
                         {repeatTag(block)}
                       </span>
+                      {practice?.has(block.id) ? (
+                        <span className="ml-1.5 whitespace-nowrap rounded bg-[#15803d] px-1.5 text-[10px] font-bold uppercase tracking-wide text-white">
+                          Practice
+                        </span>
+                      ) : null}
                       {block.comment ? (
                         <span className="mt-0.5 block text-[#667085]">&ldquo;{block.comment}&rdquo;</span>
                       ) : flagMissing && block.kind === "constraint" ? (
@@ -407,7 +424,17 @@ let made = 0;
 const newId = () => `b${Date.now().toString(36)}${(made += 1).toString(36)}`;
 
 /** The guided tour's steps, in order (their words are in the form, which they act on). */
-const TOUR = ["intro", "paint", "open", "repeat", "weeks", "day", "week", "summary", "next", "limits", "save", "again"] as const;
+const TOUR = ["intro", "paint", "open", "repeat", "weeks", "day", "week", "summary", "next", "limits", "to-needs", "needs", "save", "again"] as const;
+/** The page each step of the tour is on, past the calendar: the limits, then needs and a note (17 Nov 2026). */
+const TOUR_PAGE: Partial<Record<(typeof TOUR)[number], number>> = { limits: 1, "to-needs": 1, needs: 2, save: 2, again: 2 };
+/** How long what was tried in the tour takes to fade away at its end, before it is cleared. */
+const CLEARING_MS = 1200;
+
+/** A block of every week from Week 1 on is one of the whole semester: said so, one choice and not two (17 Nov 2026). */
+function fromWeekOne(blocks: WishBlock[], weekOne: string | undefined): WishBlock[] {
+  if (!weekOne) return blocks;
+  return blocks.map((block) => (block.repeat === "from" && block.week <= weekOne ? { ...block, repeat: "all", week: "" } : block));
+}
 
 /** A cell of the grid: a day, where its stretch of the day starts, and the cell on the page. */
 type Spot = { day: number; time: number; cell: HTMLElement };
@@ -459,7 +486,7 @@ export function WishesForm({
   /** Where the Guided tour button goes: top right of whatever holds the form, outside it. Above the form if not given. */
   tourButtonIn?: HTMLElement | null;
 }) {
-  const [blocks, setBlocks] = useState<WishBlock[]>(initial?.blocks ?? []);
+  const [blocks, setBlocks] = useState<WishBlock[]>(() => fromWeekOne(initial?.blocks ?? [], teachingWeeks(calendar)[0]?.monday));
   const [limits, setLimits] = useState<WishLimits>(initial?.limits ?? {});
   const [limitKinds, setLimitKinds] = useState<Wishes["limitKinds"]>(initial?.limitKinds ?? {});
   const [comments, setComments] = useState<Record<string, string>>(initial?.comments ?? {});
@@ -525,6 +552,12 @@ export function WishesForm({
   const tourStepId = tourAt === null ? "" : TOUR[tourAt];
   // Where the tour shows a stroke being painted, or where to click, over the grid.
   const [demo, setDemo] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
+  // A block refused for covering another's hours: the one in the way, what to say, and where (17 Nov 2026).
+  const [clash, setClash] = useState<{ id: string; words: string; left: number; top: number } | null>(null);
+  // The tour ended with something tried: it fades away a moment, then the form is as it was.
+  const [clearing, setClearing] = useState(false);
+  const clearingTimer = useRef<number | undefined>(undefined);
+  useEffect(() => () => window.clearTimeout(clearingTimer.current), []);
 
   const rows = Array.from({ length: Math.round((collection.lastHour - collection.firstHour) / fineness) }, (_, index) => collection.firstHour + index * fineness);
   const quartersOf = (time: number) => Array.from({ length: Math.round(fineness / STEP) }, (_, index) => time + index * STEP);
@@ -562,15 +595,22 @@ export function WishesForm({
   for (const block of blocks) if (block.repeat !== "all") ownWeeks.set(block.week, (ownWeeks.get(block.week) ?? 0) + 1);
   const showWeek = (monday: string) => {
     setOpen(null);
+    setClash(null);
     setWeek(monday);
   };
+  // A refusal said, for a moment: the next press, or a few seconds, and it goes.
+  useEffect(() => {
+    if (!clash) return;
+    const timer = window.setTimeout(() => setClash(null), 6000);
+    return () => window.clearTimeout(timer);
+  }, [clash]);
   const before_ = weeks.length ? [...weeks].reverse().find((each) => each.monday < week)?.monday : isoPlus(week, -7);
   const after_ = weeks.length ? weeks.find((each) => each.monday > week)?.monday : isoPlus(week, 7);
 
   // ---------------------------------------------------------------- changed or not
   const [opened] = useState(() =>
     snapshot({
-      blocks: initial?.blocks ?? [],
+      blocks: fromWeekOne(initial?.blocks ?? [], teachingWeeks(calendar)[0]?.monday),
       limits: initial?.limits ?? {},
       limitKinds: initial?.limitKinds ?? {},
       comments: initial?.comments ?? {},
@@ -603,6 +643,17 @@ export function WishesForm({
     setBlocks((current) => current.filter((block) => block.id !== id));
     setOpen((now) => (now?.id === id ? null : now));
   };
+  /** Said beside where it was asked for: the block in the way, which lights up. */
+  const refuse = (other: WishBlock, at?: HTMLElement) => {
+    const frame = gridBox.current?.getBoundingClientRect();
+    const near = at?.getBoundingClientRect();
+    setClash({
+      id: other.id,
+      words: `That overlaps ${whenWords(other, grid)} (${repeatTag(other)}). Change or remove that block first.`,
+      left: near && frame ? Math.max(0, Math.min(near.left - frame.left, frame.width - 280)) : 0,
+      top: near && frame ? near.bottom - frame.top + 4 : 0,
+    });
+  };
   const make = (block: Omit<WishBlock, "id" | "comment">, at?: HTMLElement) => {
     // The tour's steps about a day and a week away may mark one each, past the tour's one block.
     const aDay = tourStepId === "day" && !tourDay;
@@ -612,7 +663,23 @@ export function WishesForm({
       return;
     }
     const id = newId();
-    setBlocks((current) => [...current, { ...block, id, comment: "" }]);
+    /*
+     * Blocks do not overlap (17 Nov 2026). A whole day or week away takes the place of the
+     * one-week blocks it covers whole — that week is all one block now — and keeps their reasons;
+     * anything else in the way refuses it.
+     */
+    const whole = block.repeat === "once" && block.from <= collection.firstHour && block.to >= collection.lastHour;
+    const inside = (other: WishBlock) => other.repeat === "once" && other.week === block.week && other.days.every((day) => block.days.includes(day));
+    const inTheWay = blocks.filter((other) => clashIn({ ...block, id }, [other]));
+    const blocking = inTheWay.find((other) => !(whole && inside(other)));
+    if (blocking) {
+      refuse(blocking, at);
+      return;
+    }
+    setClash(null);
+    const taken = new Set(inTheWay.map((other) => other.id));
+    const reasons = [...new Set(inTheWay.map((other) => other.comment.trim()).filter(Boolean))].join("; ");
+    setBlocks((current) => [...current.filter((other) => !taken.has(other.id)), { ...block, id, comment: reasons.slice(0, COMMENT_LENGTH) }]);
     if (aDay) setTourDay(id);
     else if (aWeek) setTourWeek(id);
     else if (tourAt !== null) setTourMade(id);
@@ -881,7 +948,7 @@ export function WishesForm({
 
   const openBlock = open ? blocks.find((block) => block.id === open.id) : undefined;
   // The block lit up: the one open, clicked in the tour, hovered in the list, or under the pointer.
-  const litId = open?.id ?? tourClicked?.id ?? hovered ?? (resting && !drag ? blockAt(resting.day, resting.time)?.id : undefined);
+  const litId = open?.id ?? tourClicked?.id ?? clash?.id ?? hovered ?? (resting && !drag ? blockAt(resting.day, resting.time)?.id : undefined);
   const restingBlock = resting && !drag ? blockAt(resting.day, resting.time) : null;
   const inDrag = (column: number, row: number) =>
     drag !== null &&
@@ -889,6 +956,22 @@ export function WishesForm({
     column <= Math.max(drag.from[0], drag.to[0]) &&
     row >= Math.min(drag.from[1], drag.to[1]) &&
     row <= Math.max(drag.from[1], drag.to[1]);
+  // The stroke under way, were it let go now: would it cover another block's hours?
+  const dragRefused =
+    drag !== null &&
+    Boolean(
+      clashIn(
+        {
+          id: "",
+          days: collection.days.slice(Math.min(drag.from[0], drag.to[0]), Math.max(drag.from[0], drag.to[0]) + 1),
+          from: collection.firstHour + Math.min(drag.from[1], drag.to[1]) * fineness,
+          to: collection.firstHour + (Math.max(drag.from[1], drag.to[1]) + 1) * fineness,
+          repeat: "all",
+          week: "",
+        },
+        blocks,
+      ),
+    );
 
   // ---------------------------------------------------------------- the guided tour
   const part = (name: string) => root.current?.querySelector(`[data-tour="${name}"]`) ?? null;
@@ -928,18 +1011,42 @@ export function WishesForm({
     setPage(0);
     if (from) setWeek(from.week);
   };
+  /** The form as it was before the tour. */
+  const restore = (from: typeof tourFrom.current) => {
+    if (!from) return;
+    setBlocks(from.blocks);
+    setLimits(from.limits);
+    setLimitKinds(from.limitKinds);
+    setComments(from.comments);
+    setNeeds(from.needs);
+    setNote(from.note);
+    setReason(from.reason);
+  };
   const clearTried = () => {
-    const from = tourFrom.current;
-    if (from) {
-      setBlocks(from.blocks);
-      setLimits(from.limits);
-      setLimitKinds(from.limitKinds);
-      setComments(from.comments);
-      setNeeds(from.needs);
-      setNote(from.note);
-      setReason(from.reason);
-    }
+    restore(tourFrom.current);
     endTour();
+  };
+  /*
+   * The tour over: what was tried is cleared (12 Nov 2026: always). Seen going (17 Nov 2026): back
+   * on the calendar, the practice fades under a band saying so, then the form is as it was.
+   * Then, ended early on the teacher's own page, how to take the tour again.
+   */
+  const finishTour = (early: boolean) => {
+    const again = early && voice === "you";
+    const ms = Math.round(CLEARING_MS * tourPace.scale);
+    if (!tried || !ms) {
+      clearTried();
+      if (again) setTourHint("again");
+      return;
+    }
+    const from = tourFrom.current;
+    endTour();
+    setClearing(true);
+    clearingTimer.current = window.setTimeout(() => {
+      restore(from);
+      setClearing(false);
+      if (again) setTourHint("again");
+    }, ms);
   };
 
   // A tour step starts from the form as it is, on the page it is about.
@@ -969,7 +1076,7 @@ export function WishesForm({
     const keepsOpen = id === "repeat";
     if (!keepsOpen) setOpen(null);
     setTourBase({ week: weekNow, sawOpen: keepsOpen && Boolean(open) });
-    setPage(id === "limits" || id === "save" || id === "again" ? 1 : 0);
+    setPage(TOUR_PAGE[id as (typeof TOUR)[number]] ?? 0);
     if (id === "open") setTourClicked(null);
     // The block clicked on the step before opens now, growing out of it.
     if (id === "repeat" && tourClicked) {
@@ -1056,13 +1163,48 @@ export function WishesForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showDemo, tapOn?.id, fineness, collection, week, page]);
 
+  /*
+   * The blocks made during the tour look like practice (17 Nov 2026): outlined, dashed, tagged
+   * "Practice", on the calendar and in the summary, until they fade away at its end.
+   */
+  const practising = tourAt !== null || clearing;
+  const practiceIds = useMemo(() => new Set([tourMade, tourDay, tourWeek].filter(Boolean)), [tourMade, tourDay, tourWeek]);
+  const [practiceBoxes, setPracticeBoxes] = useState<{ id: string; left: number; top: number; width: number; height: number }[]>([]);
+  useLayoutEffect(() => {
+    const shown = practising && page === 0 ? blocks.filter((block) => practiceIds.has(block.id) && activeIn(block, week)) : [];
+    if (!shown.length) {
+      setPracticeBoxes((now) => (now.length ? [] : now));
+      return;
+    }
+    const measure = () => {
+      const box = gridBox.current;
+      if (!box) return;
+      const frame = box.getBoundingClientRect();
+      const found = shown.flatMap((block) => {
+        const days = collection.days.filter((day) => block.days.includes(day));
+        const from = Math.max(block.from, collection.firstHour);
+        const to = Math.min(block.to, collection.lastHour);
+        const first = box.querySelector(`[data-cell="${days[0]}:${rowOf(from)}"]`)?.getBoundingClientRect();
+        const last = box.querySelector(`[data-cell="${days[days.length - 1]}:${rowOf(to - STEP)}"]`)?.getBoundingClientRect();
+        if (!first || !last) return [];
+        return [{ id: block.id, left: first.left - frame.left, top: first.top - frame.top, width: last.right - first.left, height: last.bottom - first.top }];
+      });
+      setPracticeBoxes(found);
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Measured again when what shows changes: a block made or changed, another week, the cells finer.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [practising, page, blocks, week, fineness, practiceIds, collection]);
+
   const tourButtonAt = useRef<HTMLButtonElement>(null);
   const tourButton = (
     <button
       ref={tourButtonAt}
       type="button"
       onClick={startTour}
-      disabled={tourAt !== null}
+      disabled={tourAt !== null || clearing}
       className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#cfe0f1] bg-white px-2.5 py-1.5 text-xs font-semibold text-[#1f4e79] hover:bg-[#eef4fa] disabled:opacity-50"
     >
       <Compass size={14} aria-hidden="true" /> Guided tour
@@ -1095,6 +1237,9 @@ export function WishesForm({
         <>Each card is one step. Do what it says.</>,
         <>Only that step works. The rest of the form is locked.</>,
         <>Read each card until its timer ends, then go on.</>,
+        <>
+          What you add is <b>practice</b>. It is erased when the tour ends.
+        </>,
       ],
     },
     {
@@ -1244,6 +1389,37 @@ export function WishesForm({
       allow: () => part("limits"),
     },
     {
+      id: "to-needs",
+      title: "Go to the last page",
+      steps: [
+        <>
+          Press <ButtonLook after={ArrowRight}>Next: Needs and a note</ButtonLook> at the bottom.
+        </>,
+      ],
+      tryIt: "Press Next: Needs and a note at the bottom.",
+      done: page >= 2,
+      instantNext: true,
+      target: () => part("nav"),
+      allow: () => part("next"),
+      pointAt: () => part("next"),
+    },
+    {
+      // The last page (17 Nov 2026): what the two fields are for, and that both may stay empty.
+      id: "needs",
+      title: "Add needs and a note",
+      steps: [
+        <>
+          <b>Room or equipment needs</b>: a lab, a PC room, a ground-floor room…
+        </>,
+        <>
+          <b>Note</b>: anything else the coordinator should know.
+        </>,
+        <>Both are optional. Leave them empty if nothing applies.</>,
+      ],
+      target: () => part("needs"),
+      allow: () => part("needs"),
+    },
+    {
       id: "save",
       title: "Save or submit",
       steps: [
@@ -1251,7 +1427,7 @@ export function WishesForm({
           <ButtonLook tone="plain">Save draft</ButtonLook> keeps it for later.
         </>,
         <>
-          <ButtonLook>Submit</ButtonLook> is on the last page.
+          <ButtonLook>Submit</ButtonLook> sends it to the coordinator.
         </>,
         voice === "you" ? <>You can change your answer until the deadline.</> : <>It is saved as entered by you.</>,
       ],
@@ -1265,7 +1441,7 @@ export function WishesForm({
           Press <ButtonLook tone="tour" before={Compass}>Guided tour</ButtonLook> at the top right.
         </>,
         <>
-          Press <b>Finish</b>. What you tried in the tour is cleared.
+          Press <b>Finish</b>. Your practice is erased.
         </>,
       ],
       target: () => tourButtonAt.current,
@@ -1323,18 +1499,32 @@ export function WishesForm({
         : null;
 
   const PAGES = [`${Yours} week`, "Limits", "Needs and a note"];
-  const repeatChoices = (block: WishBlock): { value: WishRepeat; label: string; hint: string }[] => {
+  const weekOne = weeks[0]?.monday;
+  /** How a block would repeat, chosen in its box: from the week shown, or the week it has; from Week 1 on is the whole semester. */
+  const repeatAs = (block: WishBlock, repeat: WishRepeat): Pick<WishBlock, "repeat" | "week"> => {
+    const weekFor = repeat === "all" ? "" : repeat === block.repeat ? block.week : week;
+    return repeat === "from" && weekOne && weekFor <= weekOne ? { repeat: "all", week: "" } : { repeat, week: weekFor };
+  };
+  const repeatChoices = (block: WishBlock): { value: WishRepeat; label: string; hint: string; blockedBy?: WishBlock }[] => {
     const fromWeek = block.repeat === "from" ? block.week : week;
     const onceWeek = block.repeat === "once" ? block.week : week;
-    return [
+    const choices: { value: WishRepeat; label: string; hint: string }[] = [
       { value: "all", label: "Whole semester", hint: "Every week, first to last" },
       { value: "from", label: `Every week starting ${weekShort(fromWeek)}`, hint: "From that week to the end" },
       { value: "once", label: "This week only", hint: weekName(onceWeek) },
     ];
+    return (
+      choices
+        // In Week 1, every week starting it is the whole semester: one choice, not two (17 Nov 2026).
+        .filter((choice) => !(choice.value === "from" && weekOne && fromWeek <= weekOne))
+        // A choice that would cover another block's hours is not one to make: it says which.
+        .map((choice) => ({ ...choice, blockedBy: clashIn({ ...block, ...repeatAs(block, choice.value) }, blocks) }))
+    );
   };
   const setRepeat = (block: WishBlock, repeat: WishRepeat) => {
-    const weekFor = repeat === "all" ? "" : repeat === block.repeat ? block.week : week;
-    change(block.id, { repeat, week: weekFor });
+    const next = repeatAs(block, repeat);
+    if (clashIn({ ...block, ...next }, blocks)) return;
+    change(block.id, next);
   };
   const closeBox = () => {
     if (!open) return;
@@ -1353,7 +1543,16 @@ export function WishesForm({
   };
 
   return (
-    <div ref={root} className="space-y-4">
+    // Clearing the tour's practice: a moment to watch it go, nothing to press meanwhile.
+    <div ref={root} className={`space-y-4 ${clearing ? "pointer-events-none" : ""}`} aria-busy={clearing || undefined}>
+      {clearing
+        ? createPortal(
+            <PracticeBar data-practice-clearing="" label="Practice over">
+              Clearing what you added during the tour…
+            </PracticeBar>,
+            document.body,
+          )
+        : null}
       {tourAt !== null ? (
         <FormTour
           steps={tourSteps}
@@ -1370,10 +1569,10 @@ export function WishesForm({
             .join(" ")}
           // Finished, or ended early, the form is as it was before the tour: what was tried on the
           // way is cleared (12 Nov 2026: always, no "keep it"). Ended early, how to take it again pops up.
-          onClose={() => {
-            const early = tourAt !== tourSteps.length - 1;
-            clearTried();
-            if (early && voice === "you") setTourHint("again");
+          onClose={() => finishTour(tourAt !== tourSteps.length - 1)}
+          practice={{
+            bar: "Everything you add during the tour is erased when it ends.",
+            line: "Practice only · cleared when the tour ends",
           }}
         />
       ) : null}
@@ -1614,6 +1813,7 @@ export function WishesForm({
                                 // On the tour's painting step a press on a block is nothing at all.
                                 if (first && tourStepId === "paint") return nudgeTour();
                                 setResting(null);
+                                setClash(null);
                                 stroke.current = { from: here, to: here, on: first, moved: false, kind: brush, last };
                                 if (!first) setDrag({ from: here, to: here });
                               }}
@@ -1658,13 +1858,14 @@ export function WishesForm({
                               }
                             >
                               {quarters.map((quarter) => {
-                                const tone = holiday ? undefined : previewing ? PREVIEW[brush] : quarter.block ? toneOf(quarter.block) : undefined;
+                                const tone = holiday ? undefined : previewing ? (dragRefused ? REFUSED : PREVIEW[brush]) : quarter.block ? toneOf(quarter.block) : undefined;
                                 const lit = Boolean(quarter.block) && quarter.block?.id === litId && !previewing;
+                                const fading = clearing && Boolean(quarter.block && practiceIds.has(quarter.block.id));
                                 return (
                                   <span
                                     key={quarter.hour}
                                     data-quarter={quarter.hour}
-                                    className={`block min-h-0 w-full flex-1 ${tone || holiday || quarter.hour !== time ? "" : ruleOf(quarter.hour)} ${lit ? "brightness-[0.82]" : ""}`}
+                                    className={`block min-h-0 w-full flex-1 ${tone || holiday || quarter.hour !== time ? "" : ruleOf(quarter.hour)} ${lit ? "brightness-[0.82]" : ""} ${fading ? "practice-fade" : ""}`}
                                     style={tone}
                                   />
                                 );
@@ -1678,6 +1879,31 @@ export function WishesForm({
                 </tbody>
               </table>
             </div>
+            {practiceBoxes.map((at) => (
+              // A block made during the tour: practice, outlined and tagged so, fading with it at the end.
+              <div
+                key={at.id}
+                aria-hidden="true"
+                data-practice-block
+                className={`pointer-events-none absolute z-10 rounded-sm border-2 border-dashed border-[#15803d] ${clearing ? "practice-fade" : ""}`}
+                style={{ left: at.left, top: at.top, width: at.width, height: at.height }}
+              >
+                <span className="absolute left-0.5 top-0.5 rounded bg-[#15803d] px-1 text-[9px] font-bold uppercase leading-[14px] tracking-wide text-white">
+                  Practice
+                </span>
+              </div>
+            ))}
+            {clash ? (
+              // Not made: the block in the way, named, under where it was asked for.
+              <p
+                role="alert"
+                data-clash
+                className="pointer-events-none absolute z-20 w-[280px] rounded-md border border-[#e8b4b7] bg-[#fdf3f3] px-2.5 py-1.5 text-xs font-medium text-[#8f2329] shadow-md"
+                style={{ left: clash.left, top: clash.top }}
+              >
+                {clash.words}
+              </p>
+            ) : null}
             {tapOn && demo ? (
               // Where to click: a hand tapping on the block made.
               <div
@@ -1778,16 +2004,18 @@ export function WishesForm({
                   <span className="text-xs font-semibold text-[#344054]">How it repeats</span>
                   {repeatChoices(openBlock).map((choice) => {
                     const on = openBlock.repeat === choice.value;
+                    const off = !on && Boolean(choice.blockedBy);
                     return (
                       <button
                         key={choice.value}
                         type="button"
                         role="radio"
                         aria-checked={on}
+                        disabled={off}
                         data-first={on ? "" : undefined}
                         onClick={() => setRepeat(openBlock, choice.value)}
-                        className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left ${
-                          on ? "border-[#1f4e79] bg-[#eef4fa]" : "border-[#e3e8ef] bg-white hover:bg-[#f8fafc]"
+                        className={`flex items-start gap-2 rounded-md border px-2.5 py-1.5 text-left disabled:cursor-not-allowed disabled:opacity-60 ${
+                          on ? "border-[#1f4e79] bg-[#eef4fa]" : "border-[#e3e8ef] bg-white hover:bg-[#f8fafc] disabled:hover:bg-white"
                         }`}
                       >
                         <span
@@ -1798,7 +2026,13 @@ export function WishesForm({
                         </span>
                         <span className="min-w-0">
                           <span className={`block text-xs font-semibold ${on ? "text-[#1f4e79]" : "text-[#344054]"}`}>{choice.label}</span>
-                          <span className="block text-[11px] text-[#667085]">{choice.hint}</span>
+                          {off && choice.blockedBy ? (
+                            <span className="block text-[11px] text-[#a6292f]">
+                              Overlaps {whenWords(choice.blockedBy, grid)} ({repeatTag(choice.blockedBy)})
+                            </span>
+                          ) : (
+                            <span className="block text-[11px] text-[#667085]">{choice.hint}</span>
+                          )}
                         </span>
                       </button>
                     );
@@ -1885,6 +2119,8 @@ export function WishesForm({
               flagMissing
               removeOff={tourAt !== null ? "Not during the guided tour" : ""}
               onHover={setHovered}
+              practice={practising ? practiceIds : undefined}
+              fading={clearing}
             />
           </div>
         </section>

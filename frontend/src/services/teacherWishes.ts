@@ -6,8 +6,8 @@
  * **soft constraint** (they would rather not teach then: the plan keeps to it if it can). Kept as
  * "constraint" and "preference" underneath. Each block repeats every
  * week, every week from a given week on, or that one week only — a day away is a constraint for
- * one week. Where blocks overlap in a week the one-week block is on top, then the latest-starting
- * one, then the latest made. Then a few limits on the week, each hard or soft,
+ * one week. Blocks do not overlap (`clashes`), but for a one-week block over a repeating one: there
+ * the one-week block is on top for its week. Then a few limits on the week, each hard or soft,
  * room needs and a note. The server keeps the same rules (`answer_lines`).
  *
  * The Semester plan reads the answers to shade a teacher's week and flag every placed class
@@ -113,6 +113,26 @@ export function weekOf(blocks: WishBlock[], monday: string): Map<string, WishBlo
     }
   }
   return held;
+}
+
+/**
+ * Whether two blocks cover the same hours of a day in some week (17 Nov 2026: blocks may not
+ * overlap). Two that repeat always meet, in their later weeks; two one-week blocks, in the same
+ * week. A one-week block over a repeating one is allowed: a day or a week away, or one week
+ * changed, stands in for that week — the block on top (`weekOf`) is the one that counts.
+ */
+export function clashes(left: Pick<WishBlock, "id" | "days" | "from" | "to" | "repeat" | "week">, right: typeof left): boolean {
+  if (left.id === right.id) return false;
+  if (!left.days.some((day) => right.days.includes(day))) return false;
+  if (left.from >= right.to || right.from >= left.to) return false;
+  const [once, other] = [left.repeat === "once", right.repeat === "once"];
+  if (once !== other) return false;
+  return once ? left.week === right.week : true;
+}
+
+/** The block a block would overlap, if any: the first in the list. */
+export function clashIn<T extends Parameters<typeof clashes>[0]>(block: Parameters<typeof clashes>[0], blocks: T[]): T | undefined {
+  return blocks.find((other) => clashes(block, other));
 }
 
 /** Hours a week of constraints that repeat, against the semester's cap; a week's own blocks are not counted. */

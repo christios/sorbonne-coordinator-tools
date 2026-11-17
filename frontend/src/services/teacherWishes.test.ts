@@ -4,6 +4,7 @@ import type { Plan, PlanClass, PlanSection } from "@/services/semesterPlans";
 import {
   answerLines,
   checkWishes,
+  clashes,
   describeBlock,
   isoPlus,
   recurringConstraintHours,
@@ -77,6 +78,22 @@ describe("a week, as its blocks make it", () => {
       ["14:00", "16:00", "constraint"],
       ["16:00", "18:00", "preference"],
     ]);
+  });
+
+  it("lets no two blocks cover the same hours, but a week's own block over a repeating one", () => {
+    const weekly = block("w", "preference", [2, 4], 14, 16);
+    // Two that repeat meet, whenever the second starts; touching is not meeting.
+    expect(clashes(weekly, block("b", "constraint", [4], 15, 17))).toBe(true);
+    expect(clashes(weekly, block("b", "constraint", [2], 9, 15, { repeat: "from", week: "2027-03-01" }))).toBe(true);
+    expect(clashes(weekly, block("b", "constraint", [2, 4], 16, 18))).toBe(false);
+    expect(clashes(weekly, block("b", "constraint", [3], 14, 16))).toBe(false);
+    // A week's own block stands over the usual week; two of the same week meet, of different weeks not.
+    const day = block("d", "constraint", [2], 8, 19, { repeat: "once", week: "2027-02-01" });
+    expect(clashes(weekly, day)).toBe(false);
+    expect(clashes(day, block("m", "constraint", [2], 9, 10, { repeat: "once", week: "2027-02-01" }))).toBe(true);
+    expect(clashes(day, block("m", "constraint", [2], 9, 10, { repeat: "once", week: "2027-02-08" }))).toBe(false);
+    // A block is not in its own way.
+    expect(clashes(weekly, weekly)).toBe(false);
   });
 
   it("counts the hours of repeating constraints once each, and not a week's own", () => {

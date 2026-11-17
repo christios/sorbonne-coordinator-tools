@@ -10,8 +10,9 @@ days that are a **constraint**, shown as a hard constraint (they can't teach the
 keep to it), or a **preference**, shown as a soft constraint since 16 Nov 2026 (they would rather
 not teach then: the plan keeps to it if it can). Each block repeats every
 week, every week from a given week on, or that one week only — a day away is a constraint for
-one week. Where blocks overlap in a week, the one-week block is on top, then the latest-starting
-one. Then a few limits on the week, each a constraint or a preference, room needs and a note.
+one week. Blocks do not overlap (`clashes`), but for a one-week block over a repeating one, which
+is on top for its week. Then a few limits on the week, each a constraint or a preference, room
+needs and a note.
 
 The Semester plan reads the answers to shade a teacher's week and flag the classes that go
 against them. Nothing here blocks a placement.
@@ -144,6 +145,41 @@ def recurring_constraint_hours(blocks: list[dict[str, Any]]) -> float:
         for index in range(round((block["to"] - block["from"]) / STEP))
     }
     return len(quarters) * STEP
+
+
+def clashes(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Whether two blocks cover the same hours of a day in some week (17 Nov 2026: they may not).
+
+    Two that repeat always meet, in their later weeks; two of one week, in the same week. A
+    one-week block over a repeating one is allowed: a day or a week away, or one week changed,
+    stands in for that week. The form keeps the same rule (`clashes` in teacherWishes.ts).
+    """
+    if not set(left["days"]) & set(right["days"]):
+        return False
+    if left["from"] >= right["to"] or right["from"] >= left["to"]:
+        return False
+    once, other = left["repeat"] == "once", right["repeat"] == "once"
+    if once != other:
+        return False
+    return left["week"] == right["week"] if once else True
+
+
+_DAY_SHORT = ("", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+
+
+def _when(block: dict[str, Any]) -> str:
+    """A block as a refusal names it: "Tue, Thu 14:00–16:00, whole semester"."""
+
+    def clock(hour: float) -> str:
+        return f"{int(hour):02d}:{round((hour % 1) * 60):02d}"
+
+    days = ", ".join(_DAY_SHORT[day] for day in block["days"])
+    repeats = {
+        "all": "whole semester",
+        "from": f"every week starting {block['week']}",
+        "once": f"week of {block['week']} only",
+    }
+    return f"{days} {clock(block['from'])}–{clock(block['to'])}, {repeats[block['repeat']]}"
 
 
 def _monday(value: date) -> date:
@@ -290,6 +326,12 @@ def _answer_input(given: dict[str, Any], collection: dict[str, Any]) -> dict[str
     blocks = [_block(entry, index, collection) for index, entry in enumerate((given.get("blocks") or [])[:MOST_BLOCKS])]
     if len({block["id"] for block in blocks}) != len(blocks):
         raise InvalidWishes("Each block is named once.")
+    for index, block in enumerate(blocks):
+        other = next((other for other in blocks[index + 1 :] if clashes(block, other)), None)
+        if other is not None:
+            raise InvalidWishes(
+                f"Two blocks cover the same hours: {_when(block)} and {_when(other)}. Change or remove one of them."
+            )
 
     limits: dict[str, int] = {}
     for name, (low, high) in _LIMIT_RANGES.items():

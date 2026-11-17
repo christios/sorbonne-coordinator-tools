@@ -114,6 +114,36 @@ def test_a_block_out_of_shape_is_refused(client: TestClient):
         assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, wrong
 
 
+def test_blocks_may_not_overlap_but_a_one_week_block_may_stand_over_a_repeating_one(client: TestClient):
+    opened(client, days=[1, 2, 3, 4, 5], firstHour=8, lastHour=19)
+    weekly = block("preference", [2, 4], 14, 16, id="weekly")
+    for wrong, named in (
+        # Two that repeat meet, whatever week the second starts.
+        (block("constraint", [4], 15, 17, id="b"), "Thu 15:00–17:00, whole semester"),
+        (
+            block("constraint", [2], 9, 14.25, id="b", repeat="from", week="2027-03-01"),
+            "every week starting 2027-03-01",
+        ),
+    ):
+        refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [weekly, wrong]})
+        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, wrong
+        detail = refused.json()["detail"]
+        assert "Two blocks cover the same hours: Tue, Thu 14:00–16:00, whole semester" in detail
+        assert named in detail
+    # Two of the same week meet; of different weeks, they don't.
+    day = block("constraint", [2], 0, 24, id="day", repeat="once", week="2027-02-01", comment="Away")
+    morning = block("constraint", [2], 9, 10, id="morning", repeat="once", week="2027-02-01", comment="Exam")
+    refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [day, morning]})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "week of 2027-02-01 only" in refused.json()["detail"]
+    later = {**morning, "week": "2027-02-08"}
+    # Touching is not overlapping; and a week's own block may lie over the usual week.
+    after = block("constraint", [2, 4], 16, 18, id="after", comment="Lab")
+    kept = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [weekly, after, day, later]})
+    assert kept.status_code == 200, kept.text
+    assert len(kept.json()["blocks"]) == 4
+
+
 def test_answering_needs_the_semesters_collection_open(client: TestClient):
     refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [block("constraint", [2], 14, 16)]})
     assert refused.status_code == status.HTTP_409_CONFLICT

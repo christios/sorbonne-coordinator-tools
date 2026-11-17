@@ -345,6 +345,62 @@ describe("a teacher's week, marked block by block", () => {
     fireEvent.click(within(box()).getByRole("button", { name: /Remove/ }));
     expect(onDirtyChange).toHaveBeenLastCalledWith(false);
   });
+
+  it("offers Whole semester alone in Week 1, where every week starting it would be the same", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Monday", "09:00"]);
+    expect(within(box()).getByRole("radio", { name: /^Whole semester/ })).toBeTruthy();
+    expect(within(box()).getByRole("radio", { name: /^This week only/ })).toBeTruthy();
+    expect(within(box()).queryByRole("radio", { name: /^Every week starting/ })).toBeNull();
+    done();
+    // From Week 2 on, starting there is a choice of its own.
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
+    fireEvent.click(cell("Monday", "09:00"));
+    expect(within(box()).getByRole("radio", { name: /^Every week starting Week 2/ })).toBeTruthy();
+  });
+
+  it("reads a block kept as every week from Week 1 as one of the whole semester, unchanged", () => {
+    const onDirtyChange = vi.fn();
+    const block: WishBlock = { id: "b", kind: "constraint", days: [1], from: 9, to: 10, repeat: "from", week: "2027-01-11", comment: "Run" };
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([block])} onSave={() => {}} onDirtyChange={onDirtyChange} />);
+    expect(said("Monday", "09:00")).toContain("constraint, whole semester");
+    expect(onDirtyChange).toHaveBeenLastCalledWith(false);
+  });
+
+  it("refuses a block over another's hours and names it, but lets a week's own block stand over the usual week", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
+    done();
+    stroke(["Tuesday", "15:00"], ["Tuesday", "17:00"]);
+    expect(screen.getByRole("alert").textContent).toBe("That overlaps Tue 14:00–16:00 (Whole semester). Change or remove that block first.");
+    expect(screen.queryByRole("dialog", { name: /^Hard constraint · / })).toBeNull();
+    expect(said("Tuesday", "17:00")).toContain("fine");
+    // A day away over it is that week's own: allowed, and on top that week.
+    fireEvent.click(screen.getByRole("button", { name: "Tuesday 12 Jan: a hard constraint all day, this week only" }));
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Tue 12 Jan, all day");
+    // Made to repeat, it would cover the usual Tuesday afternoon: that choice is off, and says why.
+    const whole = within(box()).getByRole("radio", { name: /^Whole semester/ }) as HTMLButtonElement;
+    expect(whole.disabled).toBe(true);
+    expect(whole.textContent).toContain("Overlaps Tue 14:00–16:00 (Whole semester)");
+    done();
+    expect(said("Tuesday", "15:00")).toContain("constraint, this week only");
+  });
+
+  it("takes a week's whole days into a whole week marked over them, reasons and all", () => {
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: a hard constraint all day, this week only" }));
+    fireEvent.change(within(box()).getByRole("textbox"), { target: { value: "Conference" } });
+    done();
+    fireEvent.click(screen.getByRole("button", { name: "Week 1 · 11 Jan–15 Jan: a hard constraint all week, this week only" }));
+    expect((within(box()).getByRole("textbox") as HTMLInputElement).value).toBe("Conference");
+    done();
+    const list = screen.getByLabelText("Summary of constraints and preferences");
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(list.textContent).toContain("Mon 11 Jan–Fri 15 Jan, all day");
+    // A day of it marked again would lie inside it: refused.
+    fireEvent.click(screen.getByRole("button", { name: "Monday 11 Jan: a hard constraint all day, this week only" }));
+    expect(screen.getByRole("alert").textContent).toBe("That overlaps Mon 11 Jan–Fri 15 Jan, all day (One week only). Change or remove that block first.");
+  });
 });
 
 describe("the guided tour, for a teacher answering through their link", () => {
@@ -460,6 +516,11 @@ describe("the guided tour, for a teacher answering through their link", () => {
     stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
     // Made: the block does not open by itself, while the tour is to teach opening it.
     expect(screen.queryByRole("dialog", { name: /^Hard constraint · / })).toBeNull();
+    // Practice, and said so: a band across the window, a line on every card, the block tagged.
+    expect(document.querySelector("[data-tour-practice]")?.textContent).toContain("Everything you add during the tour is erased when it ends.");
+    expect(step("Mark a time").querySelector("[data-tour-practice-line]")?.textContent).toBe("Practice only · cleared when the tour ends");
+    expect(document.querySelector("[data-practice-block]")?.textContent).toBe("Practice");
+    expect(document.querySelector("li[data-practice]")?.textContent).toContain("Practice");
     // Said where "Your turn" was, in its place.
     expect(within(step("Mark a time")).queryByText("Your turn")).toBeNull();
     expect(step("Mark a time").querySelector('[data-tour-slot="done"]')?.textContent).toBe("Nicely done. One block is enough.");
@@ -519,6 +580,8 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon 18 Jan–Fri 22 Jan, all day");
     done();
     expect(said("Thursday", "10:00")).toContain("constraint, this week only");
+    // The whole week took in the day marked before it: one block for the week now.
+    expect(screen.getByLabelText("Summary of constraints and preferences").textContent).not.toContain("Mon 18 Jan, all day");
     // The summary, tried: an entry takes the calendar to its week and opens its box; Done goes on.
     expect(step("Check the summary").textContent).toContain("Click a date, like Tue 14:00–16:00, to open it.");
     fireEvent.click(screen.getByRole("button", { name: "Show Hard constraint · Tue 12 Jan, 14:00–16:00" }));
@@ -533,9 +596,19 @@ describe("the guided tour, for a teacher answering through their link", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Next: Limits/ }));
     fireEvent.click(within(step("Set limits")).getByRole("button", { name: "Next" }));
 
+    // The last page, toured too: Next to it, then what its two fields are for.
+    expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(step("Go to the last page")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /^Next: Needs and a note/ }));
+    expect(screen.getByRole("region", { name: "Needs and a note" })).toBeTruthy();
+    expect(step("Add needs and a note").textContent).toContain("Both are optional. Leave them empty if nothing applies.");
+    fireEvent.change(screen.getByRole("textbox", { name: "Note" }), { target: { value: "Tried in the tour" } });
+    fireEvent.click(within(step("Add needs and a note")).getByRole("button", { name: "Next" }));
+
     // Near the end the form is free; the last step says how to take the tour again, and Finish clears
     // what was tried: no "keep it".
     expect((screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(step("Save or submit").textContent).toContain("Submit sends it to the coordinator.");
     fireEvent.click(within(step("Save or submit")).getByRole("button", { name: "Next" }));
     expect(step("Take the tour again").textContent).toContain("Press Guided tour at the top right.");
     expect(within(step("Take the tour again")).queryByRole("button", { name: /Keep it|Clear what I tried/ })).toBeNull();
@@ -544,6 +617,34 @@ describe("the guided tour, for a teacher answering through their link", () => {
     expect(screen.getByRole("table", { name: "Week 1 · 11 Jan–15 Jan" })).toBeTruthy();
     expect(said("Tuesday", "14:00")).toContain("fine");
     expect(screen.getByLabelText("Summary of constraints and preferences").textContent).toContain("Nothing marked");
+    expect(document.querySelector("[data-tour-practice], [data-practice-block]")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Needs and a note" }));
+    expect((screen.getByRole("textbox", { name: "Note" }) as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("lets what was tried fade away under a band saying so, then clears it", () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    vi.setSystemTime(new Date(2026, 10, 10));
+    window.localStorage.setItem("coordinator-tools:preferences-tour", "taken");
+    tourPace.scale = 1;
+    render(<WishesForm voice="you" collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Guided tour" }));
+    wait(15_000);
+    fireEvent.click(within(step("How the tour works")).getByRole("button", { name: "Next" }));
+    stroke(["Tuesday", "14:00"], ["Tuesday", "15:00"]);
+    fireEvent.click(within(step("Mark a time")).getByRole("button", { name: "End the tour" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "End the guided tour?" })).getByRole("button", { name: "End the tour" }));
+    // Not at once: the practice fades first, under a band saying what is going on.
+    expect(screen.queryByRole("dialog", { name: /^Guided tour/ })).toBeNull();
+    expect(document.querySelector("[data-practice-clearing]")?.textContent).toContain("Clearing what you added during the tour…");
+    expect(said("Tuesday", "14:00")).toContain("constraint, whole semester");
+    expect(cell("Tuesday", "14:00").querySelector("[data-quarter]")?.className).toContain("practice-fade");
+    wait(1200);
+    expect(document.querySelector("[data-practice-clearing]")).toBeNull();
+    expect(said("Tuesday", "14:00")).toContain("fine");
+    // Ended early: then how to take it again.
+    expect(step("Take the tour again")).toBeTruthy();
   });
 
   it("goes back a step when asked, without the press on Back counting as the step done", () => {

@@ -266,3 +266,22 @@ main > div.max-w-6xl {
 @media (prefers-reduced-motion: reduce) {
   .tour-slot-done, .tour-slot-check, .tour-slot-text { animation: none; }
 }
+
+/*
+ * The tour is a practice run (17 Nov 2026): its band slides down from the top of the window, and
+ * at its end what was tried fades away before the form comes back as it was.
+ */
+@keyframes practice-bar-in {
+  from { transform: translateY(-100%); }
+  to { transform: none; }
+}
+@keyframes practice-fade {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+.practice-bar-in { animation: practice-bar-in 280ms ease-out both; }
+.practice-fade { animation: practice-fade 1100ms ease-in forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .practice-bar-in { animation: none; }
+  .practice-fade { animation: none; opacity: 0.35; }
+}

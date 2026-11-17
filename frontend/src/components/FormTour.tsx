@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, Hand, MousePointerClick, Timer, X } from "lucide-react";
+import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Compass, Eraser, Hand, MousePointerClick, Timer, X } from "lucide-react";
 import { isValidElement, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -132,6 +132,28 @@ function Countdown({ ms }: { ms: number }) {
 /** Room kept round the lit part, and between it and the card. */
 const PAD = 6;
 const GAP = 12;
+/** How tall the practice band across the top of the window is: the card keeps below it. */
+const PRACTICE_BAR = 34;
+
+/**
+ * The band across the top of the window while the tour is on (17 Nov 2026): what is tried in it is
+ * practice, and goes when it ends. Over the dim, so every step shows it; the form uses the same
+ * band to say it is clearing that practice away.
+ */
+export function PracticeBar({ children, label = "Practice run", ...rest }: { children: ReactNode; label?: string } & Record<`data-${string}`, string>) {
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-0 z-[103] flex justify-center px-3" {...rest}>
+      <p
+        role="status"
+        className="practice-bar-in flex min-h-[34px] max-w-full items-center gap-2 rounded-b-lg bg-[#15803d] px-4 py-1.5 text-xs text-white shadow-lg"
+      >
+        <Eraser size={14} className="shrink-0" aria-hidden="true" />
+        <span className="shrink-0 font-bold uppercase tracking-wide">{label}</span>
+        <span className="min-w-0">{children}</span>
+      </p>
+    </div>
+  );
+}
 
 
 /** The boxes that scroll or clip round an element, nearest first: kept, as the page does not rebuild them. */
@@ -284,6 +306,7 @@ export function FormTour({
   endWords,
   hint = false,
   nudge = 0,
+  practice,
 }: {
   steps: TourStep[];
   at: number;
@@ -302,8 +325,16 @@ export function FormTour({
    * before its step, a second block — so the card shakes and says what to do now.
    */
   nudge?: number;
+  /**
+   * That what is done during the tour is practice, cleared at its end: said in a band across the
+   * top of the window (`bar`) and on every card under its header (`line`). Not on a single card.
+   */
+  practice?: { bar: ReactNode; line: ReactNode };
 }) {
   const step = steps[at];
+  const practising = practice && !hint ? practice : null;
+  // The card keeps clear of the band across the top.
+  const top = GAP + (practising ? PRACTICE_BAR : 0);
   const [box, setBox] = useState<Box | null>(null);
   // The parts lit, each its own box (one, unless the step lights them apart).
   const [holes, setHoles] = useState<Box[]>([]);
@@ -558,16 +589,16 @@ export function FormTour({
     const roomX = window.innerWidth;
     const roomY = window.innerHeight;
     const clampX = (left: number) => Math.max(GAP, Math.min(left, roomX - width - GAP));
-    const clampY = (top: number) => Math.max(GAP, Math.min(top, roomY - height - GAP));
+    const clampY = (at: number) => Math.max(top, Math.min(at, roomY - height - GAP));
     let next: { left: number; top: number };
-    if (!box) next = { left: (roomX - width) / 2, top: (roomY - height) / 2 };
-    else if (box.top + box.height + PAD + GAP + height <= roomY - GAP) next = { left: clampX(box.left), top: box.top + box.height + PAD + GAP };
-    else if (box.top - PAD - GAP - height >= GAP) next = { left: clampX(box.left), top: box.top - PAD - GAP - height };
+    if (!box) next = { left: (roomX - width) / 2, top: clampY((roomY - height) / 2) };
+    else if (box.top + box.height + PAD + GAP + height <= roomY - GAP) next = { left: clampX(box.left), top: clampY(box.top + box.height + PAD + GAP) };
+    else if (box.top - PAD - GAP - height >= top) next = { left: clampX(box.left), top: box.top - PAD - GAP - height };
     else if (box.left + box.width + PAD + GAP + width <= roomX - GAP) next = { left: box.left + box.width + PAD + GAP, top: clampY(box.top) };
     else if (box.left - PAD - GAP - width >= GAP) next = { left: box.left - PAD - GAP - width, top: clampY(box.top) };
     else next = { left: roomX - width - GAP, top: roomY - height - GAP };
     setPlace((current) => (current && current.left === next.left && current.top === next.top ? current : next));
-  }, [box, at, done]);
+  }, [box, at, done, top]);
   useEffect(() => {
     if (!place || gliding) return;
     const timer = window.setTimeout(() => setGliding(true), 50);
@@ -590,6 +621,7 @@ export function FormTour({
           : `read the card. ${last ? "Finish" : "Next"} opens when the timer ends.`;
   return createPortal(
     <>
+      {practising ? <PracticeBar data-tour-practice="">{practising.bar}</PracticeBar> : null}
       {/*
        * The dim, dark and blurred, round the lit parts; and a ring round each lit part.
        * Presses on the dim are caught above, not by it.
@@ -670,20 +702,21 @@ export function FormTour({
             <span aria-hidden="true" key={`glow-${step.id}`} className="tour-card-glow pointer-events-none absolute -inset-0.5 rounded-xl" />
             <div className="flex items-center gap-2 rounded-t-[10px] bg-[#15803d] px-3.5 py-2 text-white">
               <Compass size={15} aria-hidden="true" />
-              <span className="text-xs font-semibold">Guided tour</span>
+              <span className="whitespace-nowrap text-xs font-semibold">Guided tour</span>
               {hint ? (
                 <span className="mr-auto" />
               ) : (
                 <>
-                  <span className="ml-1 flex items-center gap-1" aria-hidden="true">
+                  {/* Fourteen steps and more: small dots, close together, so the band keeps to one line. */}
+                  <span className="ml-1 flex items-center gap-[3px]" aria-hidden="true">
                     {steps.map((each, index) => (
                       <span
                         key={each.id}
-                        className={`h-1.5 rounded-full motion-safe:transition-all ${index === at ? "w-4 bg-white" : index < at ? "w-1.5 bg-white/70" : "w-1.5 bg-white/30"}`}
+                        className={`h-1.5 rounded-full motion-safe:transition-all ${index === at ? "w-3.5 bg-white" : index < at ? "w-1 bg-white/70" : "w-1 bg-white/30"}`}
                       />
                     ))}
                   </span>
-                  <span className="mr-auto text-[11px] font-semibold tabular-nums text-white/80">
+                  <span className="mr-auto whitespace-nowrap text-[11px] font-semibold tabular-nums text-white/80">
                     {at + 1} of {steps.length}
                   </span>
                 </>
@@ -697,6 +730,16 @@ export function FormTour({
                 <X size={14} aria-hidden="true" />
               </button>
             </div>
+            {practising ? (
+              // On every card, the same words: nothing tried here is kept.
+              <p
+                data-tour-practice-line
+                className="flex items-center gap-1.5 border-b border-[#cfe8d8] bg-[#eef8f1] px-3.5 py-1 text-[11px] font-semibold text-[#1e6b45]"
+              >
+                <Eraser size={12} className="shrink-0" aria-hidden="true" />
+                {practising.line}
+              </p>
+            ) : null}
             {total ? (
               // The reading time, said in words over its bar: what it is for, and how long is left. Run
               // out, it folds away: nothing more to say.
