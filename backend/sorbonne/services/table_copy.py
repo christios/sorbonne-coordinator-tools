@@ -37,6 +37,8 @@ from sqlalchemy import JSON, MetaData, String, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.engine import Connection, Engine
 
+from sorbonne.services.student_database import ALL_COHORTS
+
 #: The tables that do not travel, each with the reason. Everything else does. A table
 #: belongs here only when copying it would be wrong, never because it is inconvenient.
 EXCLUDED: dict[str, str] = {
@@ -308,4 +310,15 @@ def restore_rows(
                 values = {key: row[place[column]] for key, column in zip(keys, columns, strict=True)}
                 count += connection.execute(statement, values).rowcount
             restored[name] = count
+        # A backup from before 0099 has the languages on FYS's row. Put back, they go where
+        # every set open to every cohort is now — All cohorts — unless it already has one
+        # under that code that semester, in which case it stays where the backup had it.
+        connection.execute(
+            text("""UPDATE cohort_scopes s SET cohort_id = :all
+                    WHERE s.open_to_all AND s.cohort_id <> :all
+                      AND EXISTS (SELECT 1 FROM student_cohorts WHERE id = :all)
+                      AND NOT EXISTS (SELECT 1 FROM cohort_scopes t WHERE t.cohort_id = :all
+                                      AND t.term_id = s.term_id AND t.code = s.code)"""),
+            {"all": ALL_COHORTS},
+        )
     return {"restored": restored, "removed": removed}

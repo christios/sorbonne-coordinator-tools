@@ -30,6 +30,7 @@ from sorbonne.services.workbook_diff import (
 from sorbonne.services.group_reference_import import ReferenceImportError, parse_group_reference
 from sorbonne.services import coordinator_directory
 from sorbonne.services.student_database import (
+    ALL_COHORTS,
     CohortNotFound,
     CohortSpansSemesters,
     CommentNotFound,
@@ -291,8 +292,9 @@ def _duplicate(exc: DuplicateLabel, what: str) -> HTTPException:
 
 
 @router.get("/cohorts")
-def list_cohorts(database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
-    return {"cohorts": database.list_cohorts()}
+def list_cohorts(with_all: bool = False, database: StudentDatabase = Depends(get_database)) -> dict[str, Any]:
+    """The cohorts of students, and All cohorts after them with `?with_all=true`."""
+    return {"cohorts": database.list_cohorts(with_all=with_all)}
 
 
 @router.post("/cohorts", status_code=status.HTTP_201_CREATED)
@@ -614,6 +616,25 @@ async def preview_workbook(
             scope.column_index = read.columns.get(scope.code.upper(), 0)
     except AssignmentImportError as exc:
         placements, placement_note = {}, str(exc)
+
+    # A cohort's workbook still carrying the languages (FYS's did, while LANG was its) leaves
+    # them alone: they are All cohorts' now, and made or placed there. Read as this cohort's,
+    # LANG would be offered as a new set of its own and its students placed in that.
+    if cohort_id != ALL_COHORTS:
+        theirs = database.all_cohorts_codes(term_id)
+        dropped = sorted({scope.code for scope in reference.scopes if scope.code.upper() in theirs})
+        if dropped:
+            reference.scopes = [scope for scope in reference.scopes if scope.code.upper() not in theirs]
+            placements = {
+                student: {code: label for code, label in held.items() if code.upper() not in theirs}
+                for student, held in placements.items()
+            }
+            one = len(dropped) == 1
+            left_alone = (
+                f"{', '.join(dropped)} left alone: {'it is' if one else 'they are'} set up on All cohorts, "
+                f"so import {'it' if one else 'them'} there."
+            )
+            placement_note = f"{placement_note} {left_alone}".strip()
 
     try:
         held = database.catalogue_for_diff(cohort_id, term_id)

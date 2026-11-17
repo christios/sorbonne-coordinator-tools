@@ -76,7 +76,9 @@ def empty_tables() -> None:
             "teacher_requisitions",
             "part_time_teachers",
         ):
-            connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608
+            # All cohorts stays: migration 0099 makes it once, and the sets it holds need it.
+            spare = " WHERE id <> 'all-cohorts'" if table == "student_cohorts" else ""
+            connection.execute(text(f"DELETE FROM {table}{spare}"))  # noqa: S608
 
 
 @pytest.fixture
@@ -504,7 +506,6 @@ def test_an_active_teacher_can_be_removed(client: TestClient):
     assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_404_NOT_FOUND
 
 
-
 def test_an_active_teacher_carries_the_department_s_status_for_the_budget(client: TestClient):
     seed_teachers(client)
     client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A002"]})
@@ -777,19 +778,16 @@ def test_a_course_says_whether_it_is_taught_to_both_degrees_at_once(client: Test
     client.post(f"{BASE}/active-courses", json={"byHand": [{"courseCode": "MATH-222", "title": "Analysis 1"}]})
     [held] = client.get(f"{BASE}/active-courses").json()["courses"]
 
-    changed = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "yes"}
-    ).json()
+    changed = client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "yes"}).json()
     assert changed["mutualized"] == "yes"
     assert client.get(f"{BASE}/active-courses").json()["courses"][0]["mutualized"] == "yes"
 
     # Taught to one degree alone is the other answer; anything else is neither.
-    assert client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "no"}
-    ).json()["mutualized"] == "no"
-    refused = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "sometimes"}
+    assert (
+        client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "no"}).json()["mutualized"]
+        == "no"
     )
+    refused = client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "", "mutualized": "sometimes"})
     assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
@@ -801,18 +799,19 @@ def test_an_active_course_can_be_added_by_hand_and_given_its_ue(client: TestClie
     [held] = client.get(f"{BASE}/active-courses").json()["courses"]
     assert (held["courseCode"], held["title"], held["crnCount"]) == ("LANG-A1", "French A1", 0)
 
-    changed = client.patch(
-        f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA001"}
-    ).json()
+    changed = client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA001"}).json()
     assert changed["ue"] == "UL1LA001"
     # Nobody has said whether it is mutualized, and that is a state of its own.
     assert changed["mutualized"] == ""
 
     # A coefficient as the department writes it, kept when a page edits the UE alone.
     assert held["coefficient"] == ""
-    assert client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA001", "coefficient": "1,5"}).json()[
-        "coefficient"
-    ] == "1.5"
+    assert (
+        client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA001", "coefficient": "1,5"}).json()[
+            "coefficient"
+        ]
+        == "1.5"
+    )
     assert client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA002"}).json()["coefficient"] == "1.5"
     refused = client.patch(f"{BASE}/active-courses/{held['id']}", json={"ue": "UL1LA002", "coefficient": "high"})
     assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -1101,9 +1100,7 @@ def test_the_check_says_where_the_registrar_differs_from_our_groups(client: Test
     ]
 
 
-def test_an_elective_outside_our_groups_is_listed_and_never_a_warning(
-    client: TestClient, database: StudentDatabase
-):
+def test_an_elective_outside_our_groups_is_listed_and_never_a_warning(client: TestClient, database: StudentDatabase):
     """Emile's Spanish: registered in a course of no set of ours while placed in a French group.
 
     It never entered the check at all, because the check only judged the courses of our
@@ -1189,6 +1186,7 @@ def test_an_elective_carries_its_crns_and_falls_back_to_the_crn_when_unnamed(
     listed = client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["electives"]
     assert [(e["courseCode"], e["crns"]) for e in listed] == [("23902", ["23902"]), ("SPRT-628", ["23900", "23901"])]
 
+
 def test_a_pull_that_changes_a_students_registrations_is_written_to_their_history(
     client: TestClient, database: StudentDatabase
 ):
@@ -1262,9 +1260,7 @@ def test_a_course_taught_twice_over_expects_both_of_its_sections(client: TestCli
     assert seen == [("A002", "MATH-001", "missing", ("22151", "23561"), ("22151",))]
 
 
-def test_two_groups_of_one_set_is_flagged_however_they_were_placed(
-    client: TestClient, database: StudentDatabase
-):
+def test_two_groups_of_one_set_is_flagged_however_they_were_placed(client: TestClient, database: StudentDatabase):
     """A student sits in one group of a set; the registrar having them in two is a fault.
 
     It needs no opinion from us about where they belong — it is a contradiction inside the
@@ -1304,9 +1300,7 @@ def test_two_groups_of_one_set_is_flagged_however_they_were_placed(
     ]
 
 
-def test_one_group_of_a_set_is_several_registrations_and_no_fault(
-    client: TestClient, database: StudentDatabase
-):
+def test_one_group_of_a_set_is_several_registrations_and_no_fault(client: TestClient, database: StudentDatabase):
     """A set carries several courses, so one group of it is a CRN for each — all correct."""
     cohort_id = build_cohort(database, maths_in_tutorials="23561")
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
@@ -1437,9 +1431,7 @@ def test_without_a_term_link_there_is_no_comparison(client: TestClient, database
     ]
 
 
-def test_a_cohort_present_only_through_a_shared_set_is_still_covered(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_cohort_present_only_through_a_shared_set_is_still_covered(client: TestClient, database: StudentDatabase):
     """The language hour is the case that hides. A set open to every cohort sits on ONE
     cohort's row, so a cohort whose only presence in a semester is that set has no
     `cohort_scopes` row for it — and reading the cohort's own sets alone would report
@@ -1513,9 +1505,7 @@ def test_a_language_group_on_another_cohort_s_row_is_expected_of_the_student_in_
     assert french_lines[0]["expected"] == ["24001"]
 
 
-def test_a_semester_the_cohort_is_not_taught_in_says_nothing_at_all(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_semester_the_cohort_is_not_taught_in_says_nothing_at_all(client: TestClient, database: StudentDatabase):
     """A floor is not a flag, and "0 of 3 checked" about a semester we do not teach is neither."""
     cohort_id = build_cohort(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
@@ -1586,7 +1576,9 @@ def test_a_timetable_pull_is_written_down_with_what_it_could_not_answer(client: 
             "asked": ["23425", "23426", "23427"],
             "sections": [
                 {
-                    "crn": "23425", "courseCode": "MATH-001", "ours": True,
+                    "crn": "23425",
+                    "courseCode": "MATH-001",
+                    "ours": True,
                     "meetings": [{"meetsOn": "2026-09-07", "startsAt": "08:30", "endsAt": "10:00"}],
                 }
             ],
@@ -1603,8 +1595,14 @@ def test_a_timetable_pull_is_written_down_with_what_it_could_not_answer(client: 
 def test_a_pull_that_does_not_account_for_what_it_asked_is_refused(client: TestClient):
     answer = client.post(
         "/api/v1/portal/facility-timetable",
-        json={"termCode": "262710", "asked": ["23425", "23426"], "sections": [], "silent": [], "failed": [],
-              "complete": True},
+        json={
+            "termCode": "262710",
+            "asked": ["23425", "23426"],
+            "sections": [],
+            "silent": [],
+            "failed": [],
+            "complete": True,
+        },
     )
 
     assert answer.status_code == status.HTTP_400_BAD_REQUEST
@@ -1643,12 +1641,15 @@ def test_clashes_are_readable_without_the_student_hub(client: TestClient, databa
     client.post(
         "/api/v1/portal/facility-timetable",
         json={
-            "termCode": "262710", "asked": ["22151", "23652"],
+            "termCode": "262710",
+            "asked": ["22151", "23652"],
             "sections": [
                 {"crn": "22151", "ours": True, "meetings": [meeting]},
                 {"crn": "23652", "ours": True, "meetings": [meeting]},
             ],
-            "silent": [], "failed": [], "complete": True,
+            "silent": [],
+            "failed": [],
+            "complete": True,
         },
     )
 
@@ -1743,9 +1744,7 @@ def test_both_halves_are_expected_from_the_first_day(client: TestClient, databas
     assert [m for m in found if m["studentId"] == "A002"] == []
 
 
-def test_between_the_halves_only_the_one_still_to_come_is_expected(
-    client: TestClient, database: StudentDatabase
-):
+def test_between_the_halves_only_the_one_still_to_come_is_expected(client: TestClient, database: StudentDatabase):
     cohort_id = build_cohort(database, maths_in_tutorials="23436", second_half="23820")
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
     # The week between the halves: the first has finished, the second has not begun.
@@ -2016,9 +2015,7 @@ def test_the_register_check_says_where_the_teacher_has_drifted(client: TestClien
     assert found["teacherUnnamed"] == []
 
 
-def test_a_section_the_registrar_staffs_and_we_have_not_is_its_own_list(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_section_the_registrar_staffs_and_we_have_not_is_its_own_list(client: TestClient, database: StudentDatabase):
     # A line to copy across, not a conversation to have. Different problem, different list.
     teach(database, client, ours="TBD", theirs="Valerie LE GUYON")
 
@@ -2110,9 +2107,7 @@ def test_collisions_are_blind_rather_than_none_before_the_registrar_is_swept(cli
     assert found["swept"] is False
 
 
-def test_a_collision_is_reported_once_per_slot_and_can_be_settled(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_collision_is_reported_once_per_slot_and_can_be_settled(client: TestClient, database: StudentDatabase):
     cohort = database.create_cohort(name="Foundation Year", term="2026-27")
     cm = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=HUB_TERM)
     database.set_cell(
@@ -2143,9 +2138,15 @@ def test_a_collision_is_reported_once_per_slot_and_can_be_settled(
     # Accepted once, about the slot — and it leaves the list so the page can reach zero.
     settled = client.post(
         f"{BASE}/section-collisions/settle",
-        json={"termCode": TERM, "ourCrn": "23302", "weekday": row["weekday"],
-              "startsAt": row["startsAt"], "endsAt": row["endsAt"],
-              "disposition": "accepted", "note": "protected option block"},
+        json={
+            "termCode": TERM,
+            "ourCrn": "23302",
+            "weekday": row["weekday"],
+            "startsAt": row["startsAt"],
+            "endsAt": row["endsAt"],
+            "disposition": "accepted",
+            "note": "protected option block",
+        },
     )
     assert settled.status_code == status.HTTP_204_NO_CONTENT
 
@@ -2157,8 +2158,14 @@ def test_a_collision_is_reported_once_per_slot_and_can_be_settled(
 def test_a_collision_can_only_be_accepted_or_referred(client: TestClient):
     refused = client.post(
         f"{BASE}/section-collisions/settle",
-        json={"termCode": TERM, "ourCrn": "23302", "weekday": "Tue", "startsAt": "16:30",
-              "endsAt": "18:00", "disposition": "ignored"},
+        json={
+            "termCode": TERM,
+            "ourCrn": "23302",
+            "weekday": "Tue",
+            "startsAt": "16:30",
+            "endsAt": "18:00",
+            "disposition": "ignored",
+        },
     )
 
     assert refused.status_code == status.HTTP_400_BAD_REQUEST
@@ -2285,9 +2292,7 @@ def test_every_part_counts_as_a_section_of_ours(client: TestClient, database: St
     assert sorted(answer["blind"]) == ["23436", "24311"]
 
 
-def test_the_halves_of_one_section_do_not_clash_with_each_other(
-    client: TestClient, database: StudentDatabase
-):
+def test_the_halves_of_one_section_do_not_clash_with_each_other(client: TestClient, database: StudentDatabase):
     """Same room, same hour, different weeks — which is the point of dating the meetings.
 
     A group's own CRNs meeting at one hour is normally a clash with itself, and a section
@@ -2507,10 +2512,18 @@ def a_collision(client: TestClient, database: StudentDatabase) -> str:
             "asked": ["22151", "99001"],
             "complete": True,
             "sections": [
-                {"crn": "22151", "courseCode": "MATH-001", "ours": True,
-                 "meetings": [{"meetsOn": day(-7), "startsAt": "16:30", "endsAt": "18:00"}]},
-                {"crn": "99001", "courseCode": "ENGL-604", "ours": False,
-                 "meetings": [{"meetsOn": day(-7), "startsAt": "16:30", "endsAt": "18:00"}]},
+                {
+                    "crn": "22151",
+                    "courseCode": "MATH-001",
+                    "ours": True,
+                    "meetings": [{"meetsOn": day(-7), "startsAt": "16:30", "endsAt": "18:00"}],
+                },
+                {
+                    "crn": "99001",
+                    "courseCode": "ENGL-604",
+                    "ours": False,
+                    "meetings": [{"meetsOn": day(-7), "startsAt": "16:30", "endsAt": "18:00"}],
+                },
             ],
         },
     )
@@ -2751,9 +2764,7 @@ def test_a_teacher_our_sections_name_and_the_list_does_not_hold_is_reported(
     assert gap["sections"] == 1
 
 
-def test_a_name_one_letter_from_a_portal_profile_is_offered_that_profile(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_name_one_letter_from_a_portal_profile_is_offered_that_profile(client: TestClient, database: StudentDatabase):
     """The three on production are each one letter or one surname away.
 
     `names_agree` refuses them on purpose and still does; this measures only to offer, and
@@ -2771,9 +2782,7 @@ def test_a_name_one_letter_from_a_portal_profile_is_offered_that_profile(
     assert gap["portalEmail"] == "wafa.ahmed@sorbonne.ae"
 
 
-def test_two_people_a_name_could_be_are_reported_with_no_candidate(
-    client: TestClient, database: StudentDatabase
-):
+def test_two_people_a_name_could_be_are_reported_with_no_candidate(client: TestClient, database: StudentDatabase):
     client.post(
         f"{BASE}/filters/{make_filter(client, 'teachers', name='Profs')['id']}/sync/teachers",
         json={
@@ -2793,9 +2802,7 @@ def test_two_people_a_name_could_be_are_reported_with_no_candidate(
     assert gap["portalTeacherId"] == ""
 
 
-def test_two_different_people_are_never_offered_for_one_another(
-    client: TestClient, database: StudentDatabase
-):
+def test_two_different_people_are_never_offered_for_one_another(client: TestClient, database: StudentDatabase):
     """The case the whole rule exists to refuse, and the one `names_agree` names."""
     client.post(
         f"{BASE}/filters/{make_filter(client, 'teachers', name='Profs')['id']}/sync/teachers",
@@ -2817,9 +2824,7 @@ def test_a_teacher_already_on_the_list_is_not_a_gap(client: TestClient, database
     assert client.get(f"{BASE}/active-teachers/matches").json()["unnamed"] == []
 
 
-def test_a_section_written_under_the_part_time_spelling_still_counts(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_section_written_under_the_part_time_spelling_still_counts(client: TestClient, database: StudentDatabase):
     """A person on both lists has two names, and our planning may have used either.
 
     On production the registrar issues an address for "Suzanne El chehaly" while the
@@ -2914,9 +2919,7 @@ def test_agreement_is_tried_before_the_letters_are_counted(client: TestClient):
     assert offered["Ahlem Trabelsi"] == exact
 
 
-def test_removing_a_teacher_lets_go_of_the_sections_that_chose_them(
-    client: TestClient, database: StudentDatabase
-):
+def test_removing_a_teacher_lets_go_of_the_sections_that_chose_them(client: TestClient, database: StudentDatabase):
     """A link to nothing does not read as an empty one — it reads as the old typed name.
 
     `group_crns.teacher_id` names a row of this list and no key enforces that the row is
@@ -2938,17 +2941,15 @@ def test_removing_a_teacher_lets_go_of_the_sections_that_chose_them(
     assert client.delete(f"{BASE}/active-teachers/{active['id']}").status_code == status.HTTP_204_NO_CONTENT
 
     with database.engine.connect() as connection:
-        held = connection.execute(
-            text("SELECT teacher_id, teacher FROM group_crns WHERE crn = '24075'")
-        ).mappings().one()
+        held = (
+            connection.execute(text("SELECT teacher_id, teacher FROM group_crns WHERE crn = '24075'")).mappings().one()
+        )
     # The link is let go; the typed name is not touched, because nobody asked for that.
     assert held["teacher_id"] == ""
     assert held["teacher"] == "Mai El Sawy"
 
 
-def test_removing_a_teacher_leaves_everybody_elses_sections_alone(
-    client: TestClient, database: StudentDatabase
-):
+def test_removing_a_teacher_leaves_everybody_elses_sections_alone(client: TestClient, database: StudentDatabase):
     seed_teachers(client)
     client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001", "A002"]})
     held = {row["fullName"]: row["id"] for row in client.get(f"{BASE}/active-teachers").json()["teachers"]}
@@ -3011,9 +3012,7 @@ def merged_lecture_set(database: StudentDatabase) -> str:
     return cohort["id"]
 
 
-def test_a_lecture_both_groups_attend_does_not_make_everyone_doubled(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_lecture_both_groups_attend_does_not_make_everyone_doubled(client: TestClient, database: StudentDatabase):
     """The physicist takes the shared lecture and their own option. That is one bundle.
 
     Filing each CRN under one group put the shared lecture under whichever was read first,
@@ -3038,9 +3037,7 @@ def test_a_lecture_both_groups_attend_does_not_make_everyone_doubled(
     assert [row for row in found if row["kind"] == "doubled"] == []
 
 
-def test_a_registration_no_single_group_could_produce_is_still_doubled(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_registration_no_single_group_could_produce_is_still_doubled(client: TestClient, database: StudentDatabase):
     """The rule the check exists for, asked the new way and answering the same.
 
     Nobody can attend the mathematicians' philosophy AND the physicists' option: no one
@@ -3058,7 +3055,8 @@ def test_a_registration_no_single_group_could_produce_is_still_doubled(
     )
 
     [doubled] = [
-        row for row in client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
+        row
+        for row in client.get(f"{BASE}/cohorts/{cohort_id}/registration-check").json()["mismatches"]
         if row["kind"] == "doubled"
     ]
 
@@ -3118,9 +3116,7 @@ def test_two_sub_rows_of_one_group_are_two_bundles_for_the_doubled_check(client:
     assert ("PHYS-118", "missing") not in kinds
 
 
-def test_a_student_registered_in_only_the_shared_lecture_is_not_doubled(
-    client: TestClient, database: StudentDatabase
-):
+def test_a_student_registered_in_only_the_shared_lecture_is_not_doubled(client: TestClient, database: StudentDatabase):
     # It sits in both bundles, so either covers it. Not a contradiction.
     cohort_id = merged_lecture_set(database)
     client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
@@ -3224,9 +3220,10 @@ def test_a_teacher_carries_on_into_a_semester_and_leaves_it_alone(client: TestCl
     assert len(client.get(f"{BASE}/active-teachers").json()["teachers"]) == 2
 
     # Leaving Semester 2 leaves Semester 1 and the record alone.
-    assert client.delete(
-        f"{BASE}/active-teachers/{spring['id']}", params={"term": SPRING}
-    ).status_code == status.HTTP_204_NO_CONTENT
+    assert (
+        client.delete(f"{BASE}/active-teachers/{spring['id']}", params={"term": SPRING}).status_code
+        == status.HTTP_204_NO_CONTENT
+    )
     assert [row["fullName"] for row in teachers_in(SPRING)] == ["Ahlem Trabelsi"]
     still = {row["fullName"]: row for row in teachers_in(TERM)}
     assert still["Bilal Maaz"]["terms"] == [TERM]

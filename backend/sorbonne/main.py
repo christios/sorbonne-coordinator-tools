@@ -1,9 +1,9 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from sorbonne.api.auth import router as auth_router
@@ -46,6 +46,7 @@ from sorbonne.config import config
 from sorbonne.services.auth_gate import StaffAuthGate
 from sorbonne.services.migrations import apply_schema_migrations
 from sorbonne.services.no_store import NoStore
+from sorbonne.services.student_database import NotACohortOfStudents
 
 
 # Public pages the Google consent screen links to. They sit outside the sign-in
@@ -61,6 +62,12 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Sorbonne Coordinator Tools API", lifespan=lifespan)
+
+
+@app.exception_handler(NotACohortOfStudents)
+async def _not_a_cohort_of_students(_: Request, exc: NotACohortOfStudents) -> JSONResponse:
+    """All cohorts asked to do what only a cohort of students does: a sentence, not a 500."""
+    return JSONResponse(status_code=400, content={"detail": str(exc)})
 
 app.add_middleware(StaffAuthGate)
 app.add_middleware(

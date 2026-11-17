@@ -48,7 +48,7 @@ def database() -> StudentDatabase:
 def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM students"))
-        connection.execute(text("DELETE FROM student_cohorts"))
+        connection.execute(text("DELETE FROM student_cohorts WHERE id <> 'all-cohorts'"))  # All cohorts stays: 0099
         # The term link and the registrar's record outlive a cohort, so a test that made
         # one leaks into the next — and "this semester has no portal term" is a thing
         # several tests below assert about.
@@ -533,10 +533,11 @@ def test_a_cohort_is_told_who_is_missing_from_a_shared_set_it_does_not_own(
 def test_a_shared_sets_own_gaps_are_reported_once_by_the_cohort_that_owns_it(
     client: TestClient, database: StudentDatabase
 ):
-    """Whether a language group has the CRNs its set teaches is Foundation Year's business.
+    """Whether a language group has the CRNs its set teaches is All cohorts' business.
 
     Asking it of every cohort would say one gap four times over, which is why readiness
-    takes the shared sets for "who is missing" and not for "has this group its CRNs".
+    takes the shared sets for "who is missing" and not for "has this group its CRNs". It
+    used to be Foundation Year's, which held the row; nobody's cohort holds it now.
     """
     owner = build_cohort(database)
     shared = build_shared_language(database, owner)
@@ -546,8 +547,9 @@ def test_a_shared_sets_own_gaps_are_reported_once_by_the_cohort_that_owns_it(
     report = use(client, sections_then({})).get(f"/api/v1/publication/terms/{TERM}").json()
     said = {cohort["cohort"]: cohort["warnings"] for cohort in report["cohorts"]}
 
-    assert any("A1 has no CRN for SPAN-101" in warning for warning in said["Foundation Year"])
+    assert any("A1 has no CRN for SPAN-101" in warning for warning in said["All cohorts"])
     assert not any("SPAN-101" in warning for warning in said["L1"])
+    assert not any("SPAN-101" in warning for warning in said["Foundation Year"])
 
 
 def test_two_cohorts_own_blocks_at_the_same_hour_are_still_not_a_clash(

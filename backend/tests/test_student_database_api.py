@@ -10,7 +10,7 @@ from sorbonne.api import team_rosters as team_rosters_api
 from sorbonne.main import app
 from sorbonne.services import auth_gate, coordinator_directory
 from sorbonne.services.staff_auth import StaffUser
-from sorbonne.services.student_database import StudentDatabase
+from sorbonne.services.student_database import ALL_COHORTS, StudentDatabase
 from sorbonne.services.team_rosters import TeamRosterStore
 from tests.conftest import TEST_DATABASE_URL
 from tests.test_group_reference_import import COHORT_HEADERS, COHORT_ROWS, workbook
@@ -940,12 +940,12 @@ def test_a_set_open_to_every_cohort_holds_the_whole_department(client: TestClien
 
 
 def test_a_shared_set_is_answered_for_every_cohort_when_asked(client: TestClient, cohort_id: str):
-    """The row has to live under some cohort; the set belongs to the department.
+    """The set belongs to the department: it is All cohorts', whichever cohort asked for it.
 
     Reaching it only from whichever cohort happened to hold it is what made the languages
     look like Foundation Year's. So the shared sets are what a cohort's catalogue gives you
-    unasked, and each says whose row it is so a page can keep the two apart. `own_only`
-    is for the caller that means this cohort's own paperwork.
+    unasked, and each says whose row it is — All cohorts' — so a page can keep the two
+    apart. `own_only` is for the caller that means this cohort's own paperwork.
     """
     other = client.post("/api/v1/student-database/cohorts", json={**EXPECTS, "name": "L2 elsewhere"}).json()
     client.post(f"/api/v1/student-database/cohorts/{cohort_id}/scopes", json={"code": "LANG", "openToAll": True})
@@ -960,9 +960,12 @@ def test_a_shared_set_is_answered_for_every_cohort_when_asked(client: TestClient
     assert [scope["code"] for scope in narrowed["scopes"]] == ["TD"]
     codes = [scope["code"] for scope in plainly["scopes"]]
     assert "TD" in codes
-    mine = [scope for scope in plainly["scopes"] if scope["cohortId"] == cohort_id]
-    assert [scope["code"] for scope in mine] == ["LANG"]
-    assert mine[0]["openToAll"] is True
+    theirs = [scope for scope in plainly["scopes"] if scope["cohortId"] == ALL_COHORTS]
+    assert [scope["code"] for scope in theirs] == ["LANG"]
+    assert theirs[0]["openToAll"] is True
+    # Not the asking cohort's, either: its own-only catalogue holds nothing.
+    asked = client.get(f"/api/v1/student-database/cohorts/{cohort_id}/catalogue", params={"own_only": True}).json()
+    assert asked["scopes"] == []
 
 
 def test_a_set_of_one_cohort_still_turns_outsiders_away(client: TestClient, cohort_id: str, view_id: str):

@@ -29,7 +29,9 @@ def programs() -> CoursePrograms:
             "programme_codes",
             "student_cohorts",
         ):
-            connection.execute(text(f"DELETE FROM {table}"))  # noqa: S608
+            # All cohorts stays: migration 0099 makes it once, and the sets it holds need it.
+            spare = " WHERE id <> 'all-cohorts'" if table == "student_cohorts" else ""
+            connection.execute(text(f"DELETE FROM {table}{spare}"))  # noqa: S608
     return store
 
 
