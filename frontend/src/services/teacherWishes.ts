@@ -210,19 +210,20 @@ export function describeBlock(block: Pick<WishBlock, "kind" | "days" | "from" | 
 /** One line of a summary: the blocks that read as one, however many strokes they took. */
 export type SummaryEntry = Pick<WishBlock, "kind" | "days" | "from" | "to" | "repeat" | "week"> & {
   blocks: WishBlock[];
-  /** Their reasons, each once. */
+  /** Their reason, the one they all share — none, or one. */
   comments: string[];
 };
 
 /**
  * An answer's blocks as a summary lists them (17 Nov 2026): blocks alike — the same kind, repeating
- * the same way from the same week — are one line when they make one stretch of time. A day
+ * the same way from the same week, with the same reason — are one line when they make one stretch
+ * of time. Another reason keeps a block on a line of its own (18 Nov 2026), as does none beside one. A day
  * marked in two strokes, morning and afternoon, is one day ("Tue whole day" once it covers the
  * grid); the same hours marked day by day are one line ("Mon, Wed 10:00–12:00"). Nothing is
  * changed in the answer: each block stays as it was made, and a line knows the blocks it holds.
  */
 export function summaryEntries(blocks: WishBlock[]): SummaryEntry[] {
-  type Entry = Omit<SummaryEntry, "comments">;
+  type Entry = Omit<SummaryEntry, "comments"> & { reason: string };
   const sorted = (days: number[]) => [...new Set(days)].sort((left, right) => left - right);
   let entries: Entry[] = blocks.map((block) => ({
     kind: block.kind,
@@ -231,9 +232,11 @@ export function summaryEntries(blocks: WishBlock[]): SummaryEntry[] {
     to: block.to,
     repeat: block.repeat,
     week: block.repeat === "all" ? "" : block.week,
+    reason: block.comment.trim(),
     blocks: [block],
   }));
-  const alike = (left: Entry, right: Entry) => left.kind === right.kind && left.repeat === right.repeat && left.week === right.week;
+  const alike = (left: Entry, right: Entry) =>
+    left.kind === right.kind && left.repeat === right.repeat && left.week === right.week && left.reason === right.reason;
   const sameDays = (left: Entry, right: Entry) => left.days.length === right.days.length && left.days.every((day, index) => day === right.days[index]);
   /** The two as one, if they make one stretch: the same days end to end, or the same hours on other days. */
   const joined = (left: Entry, right: Entry): Entry | null => {
@@ -258,9 +261,9 @@ export function summaryEntries(blocks: WishBlock[]): SummaryEntry[] {
       }
     }
   }
-  return entries.map((entry) => {
+  return entries.map(({ reason, ...entry }) => {
     const inOrder = [...entry.blocks].sort((left, right) => Math.min(...left.days) - Math.min(...right.days) || left.from - right.from);
-    return { ...entry, blocks: inOrder, comments: [...new Set(inOrder.map((block) => block.comment.trim()).filter(Boolean))] };
+    return { ...entry, blocks: inOrder, comments: reason ? [reason] : [] };
   });
 }
 

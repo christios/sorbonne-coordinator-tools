@@ -84,7 +84,7 @@ describe("a summary, as its lines read", () => {
     expect(lines([1, 2, 3, 4, 5].map((day) => block(`d${day}`, "constraint", [day], 8, 19, week)))).toEqual(["Mon 18 Jan–Fri 22 Jan, whole week ×5"]);
   });
 
-  it("keeps apart what is not alike, or not one stretch, and keeps each reason once", () => {
+  it("keeps apart what is not alike, or not one stretch, or has another reason", () => {
     // Another kind, another way of repeating, a gap between: lines of their own.
     expect(lines([block("a", "constraint", [2], 8, 10), block("b", "preference", [2], 10, 12)])).toEqual(["Tue 08:00–10:00 ×1", "Tue 10:00–12:00 ×1"]);
     expect(lines([block("a", "constraint", [2], 8, 10), block("b", "constraint", [2], 10, 12, { repeat: "once", week: "2027-01-18" })])).toHaveLength(2);
@@ -93,13 +93,21 @@ describe("a summary, as its lines read", () => {
     expect(
       lines([block("a", "constraint", [2], 8, 19, { repeat: "once", week: "2027-01-18" }), block("b", "constraint", [2], 8, 19, { repeat: "once", week: "2027-01-25" })]),
     ).toHaveLength(2);
-    const [line] = summaryEntries([
+    // The same reason joins (spaces aside); another reason, or none, is a line of its own.
+    const [run, lab, none] = summaryEntries([
       block("a", "constraint", [1], 10, 12, { comment: "School run" }),
-      block("b", "constraint", [3], 10, 12, { comment: "School run" }),
-      block("c", "constraint", [5], 10, 12, { comment: "Lab day " }),
+      block("c", "constraint", [5], 10, 12, { comment: "Lab day" }),
+      block("b", "constraint", [3], 10, 12, { comment: "School run " }),
+      block("d", "constraint", [4], 10, 12),
     ]);
-    expect(line.comments).toEqual(["School run", "Lab day"]);
-    expect(line.blocks.map((each) => each.id)).toEqual(["a", "b", "c"]);
+    expect(run.comments).toEqual(["School run"]);
+    expect(run.blocks.map((each) => each.id)).toEqual(["a", "b"]);
+    expect(lab.comments).toEqual(["Lab day"]);
+    expect(none.comments).toEqual([]);
+    // A day in two strokes with two reasons: two lines, morning and afternoon.
+    expect(
+      lines([block("m", "constraint", [2], 8, 12, { comment: "Clinic" }), block("n", "constraint", [2], 12, 19, { comment: "Lab day" })]),
+    ).toEqual(["Tue 08:00–12:00 ×1", "Tue 12:00–19:00 ×1"]);
   });
 });
 
