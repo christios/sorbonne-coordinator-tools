@@ -73,12 +73,17 @@ describe("a full-timer's first step: their hour reductions", () => {
     expect(screen.queryByRole("heading", { name: "Your week" })).toBeNull();
     expect((screen.getByRole("button", { name: /Preferences and constraints/ }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: "Skip for now" })).toBeTruthy();
-    // The department's own are there to read, not to change: said so at the top and on the part.
-    expect(screen.getByText(/the Head of Department fills these in\. Nothing to do there; just check them\./)).toBeTruthy();
+    // The department's own are there to read, not to change: said so at the top, on a card per
+    // part, and on the part itself, under a banner.
+    expect(screen.getByRole("button", { name: /Department reductions.*Nothing for you to do: just check them\..*Go to part 2/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Your research reductions.*You fill this in.*Go to part 1/ })).toBeTruthy();
     const yours = screen.getByRole("region", { name: "Your research reductions (SAFIR)" });
     expect(within(yours).getByText("You fill this in")).toBeTruthy();
     const theirs = screen.getByRole("region", { name: "Department reductions" });
     expect(within(theirs).getByText("Filled in by the Head of Department")).toBeTruthy();
+    expect(within(theirs).getByRole("note").textContent).toMatch(/^Nothing to fill in here.*you can't change them/);
+    // The panel says who set them; no row says it again.
+    expect(within(theirs).queryByText("Set by the Head of Department")).toBeNull();
     expect(within(theirs).queryByRole("checkbox")).toBeNull();
     expect(within(theirs).queryByRole("spinbutton")).toBeNull();
     expect(within(theirs).getByText("Budget")).toBeTruthy();

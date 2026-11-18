@@ -1,7 +1,7 @@
 import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
-import { ReductionFields, ReductionTotals } from "@/components/ReductionFields";
+import { PartCard, ReductionFields, ReductionTotals } from "@/components/ReductionFields";
 import { useReductionDraft } from "@/components/useReductionDraft";
 import { type ReductionInput, type ReductionSheet, heldWords, yearWords } from "@/services/hourReductions";
 
@@ -35,16 +35,26 @@ export function ReductionsStep({
     <div className="space-y-5">
       <div>
         <h2 className="text-base font-semibold text-[#171717]">Your hour reductions for {yearWords(sheet.year)}</h2>
-        <p className="mt-1 text-sm text-[#475467]">Your yearly service is {sheet.service} h of teaching. This step has two parts:</p>
-        {/* Whose each part is, said before either is shown (17 Nov 2026: the second was taken for the teacher's). */}
-        <ol className="mt-2 grid gap-1 text-sm text-[#344054]">
-          <li>
-            <b>1. Your research reductions</b>: you fill these in.
-          </li>
-          <li>
-            <b>2. Department reductions</b>: the Head of Department fills these in. Nothing to do there; just check them.
-          </li>
-        </ol>
+        <p className="mt-1 text-sm text-[#475467]">
+          Your yearly service is <b className="text-[#171717]">{sheet.service} h</b> of teaching. Reductions take hours off
+          it. This step has two parts:
+        </p>
+        {/* Whose each part is, said before either is shown, in each part's own colours
+            (17 and 18 Nov 2026: the second was taken for the teacher's to fill in). */}
+        <div className="mt-3 grid gap-3 sm:grid-cols-2">
+          <PartCard
+            owner="you"
+            number={1}
+            title="Your research reductions"
+            words="The students you supervise, your research projects, an HDR. The Head of Department then checks them with SAFIR."
+          />
+          <PartCard
+            owner="hod"
+            number={2}
+            title="Department reductions"
+            words="Committees, heading a programme or the department, joining this year. Nothing for you to do: just check them."
+          />
+        </div>
       </div>
 
       <ReductionFields
@@ -61,7 +71,7 @@ export function ReductionsStep({
         number={2}
         owner="hod"
         title="Department reductions"
-        about="You can't change these: the Head of Department sets them for each full-timer. If one is missing or wrong, say so in the note below."
+        about="The Head of Department sets these for each full-timer, and you can't change them. Just check them: if one is missing or wrong, say so in the note below."
         items={department}
         draft={draft}
         onChange={set}
