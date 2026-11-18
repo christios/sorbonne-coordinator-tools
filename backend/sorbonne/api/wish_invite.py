@@ -10,7 +10,9 @@ list (stage 3): read the open collection and their answer, start from last semes
 save until the deadline. The same store, the same rules; only the door differs.
 
 A full-timer starts with their hour reductions for the year: they declare the research ones
-here, while the window is open, and read those the Head of Department set.
+here, while the window is open, and read those the Head of Department set. A teacher who leads
+a course that semester lays out its weeks here too (the course schedule step), within the
+hours the coordinators set.
 
 A code is a teacher's own link, or the semester's shared link (18 Nov 2026), posted once to
 every teacher. By the shared link, signing in with an address the coordinator set for one of
@@ -28,6 +30,7 @@ from pydantic import BaseModel, Field
 from sorbonne.api.hour_reductions import ItemInput
 from sorbonne.api.teacher_wishes import AnswerInput
 from sorbonne.config import config
+from sorbonne.services.course_plans import LEAD, CoursePlans, InvalidCoursePlan, NotTheLead, UnknownCourse
 from sorbonne.services.engine import engine_for
 from sorbonne.services.hour_reductions import HourReductions, InvalidReductions, NotFullTime, year_of
 from sorbonne.services.microsoft_identity import verify_microsoft_identity
@@ -64,10 +67,26 @@ def get_reductions() -> HourReductions:
     return HourReductions(engine_for(config.database_url))
 
 
+def get_course_plans() -> CoursePlans:
+    return CoursePlans(engine_for(config.database_url))
+
+
 class SignInInput(BaseModel):
     credential: str = Field(min_length=1, max_length=8192)
     # Whose sign-in the credential is: Google's, or a personal Microsoft account's.
     provider: Literal["google", "microsoft"] = "google"
+
+
+class CourseLayout(BaseModel):
+    """One course the teacher leads: its sessions per teaching week by component, and a note."""
+
+    courseCode: str = Field(min_length=1, max_length=40)
+    weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=3)
+    note: str | None = Field(default=None, max_length=2000)
+
+
+class LayoutsInput(BaseModel):
+    courses: list[CourseLayout] = Field(default_factory=list, max_length=40)
 
 
 class DeclarationInput(BaseModel):
@@ -175,14 +194,18 @@ def _reductions(invitation: dict[str, Any], reductions: HourReductions) -> dict[
     return reductions.for_teacher(year_of(term), teacher)
 
 
-def _form(invitation: dict[str, Any], wishes: WishStore, reductions: HourReductions) -> dict[str, Any]:
+def _form(
+    invitation: dict[str, Any], wishes: WishStore, reductions: HourReductions, plans: CoursePlans
+) -> dict[str, Any]:
     """What the teacher's page shows: the call, their answer, whether they may still change it,
-    last semester's answer to start from, and — a full-timer's — their hour reductions."""
+    last semester's answer to start from, and — a full-timer's — their hour reductions, and — a
+    course lead's — the courses whose weeks they lay out."""
     term, teacher = invitation["term_code"], invitation["teacher_id"]
     semester = wishes.semester(term)
     mine = next((row for row in semester["teachers"] if row["teacherId"] == teacher), None)
     return {
         "reductions": _reductions(invitation, reductions),
+        "coursePlans": plans.led_by(term, teacher),
         "semesterName": invitation["semester_name"],
         "teacherName": invitation["teacher_name"],
         "email": invitation["email"],
@@ -226,6 +249,7 @@ def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the recor
     invitations: InvitationStore = Depends(get_invitations),
     wishes: WishStore = Depends(get_wishes),
     reductions: HourReductions = Depends(get_reductions),
+    plans: CoursePlans = Depends(get_course_plans),
 ) -> dict[str, Any]:
     """Signing in with Google or a personal Microsoft account. By a teacher's own link: only its
     address. By the shared link: an address the coordinator set for one of the semester's
@@ -238,7 +262,7 @@ def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the recor
     except SignInRejected as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     if "shared" in door:
-        return _form(shared_sign_in(door["shared"], email, response, invitations), wishes, reductions)
+        return _form(shared_sign_in(door["shared"], email, response, invitations), wishes, reductions, plans)
     found = door["invitation"]
     if email != found["email"]:
         raise HTTPException(
@@ -246,7 +270,7 @@ def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the recor
             detail=f"This invitation was sent to {masked(found['email'])}. Sign in with that account.",
         )
     _let_in(response, found, invitations)
-    return _form(found, wishes, reductions)
+    return _form(found, wishes, reductions, plans)
 
 
 @router.delete("/{code}/session", status_code=status.HTTP_204_NO_CONTENT)
@@ -259,8 +283,9 @@ def form(
     found: dict[str, Any] = Depends(signed_in_invitation),
     wishes: WishStore = Depends(get_wishes),
     reductions: HourReductions = Depends(get_reductions),
+    plans: CoursePlans = Depends(get_course_plans),
 ) -> dict[str, Any]:
-    return _form(found, wishes, reductions)
+    return _form(found, wishes, reductions, plans)
 
 
 @router.put("/{code}/reductions")
@@ -269,6 +294,7 @@ def declare(
     found: dict[str, Any] = Depends(signed_in_invitation),
     wishes: WishStore = Depends(get_wishes),
     reductions: HourReductions = Depends(get_reductions),
+    plans: CoursePlans = Depends(get_course_plans),
 ) -> dict[str, Any]:
     """A full-timer's research reductions, declared while the preferences are open."""
     if not wishes.window(found["term_code"], found["teacher_id"])["open"]:
@@ -291,7 +317,41 @@ def declare(
         ) from exc
     except InvalidReductions as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    return _form(found, wishes, reductions)
+    return _form(found, wishes, reductions, plans)
+
+
+@router.put("/{code}/course-plans")
+def lay_out(  # noqa: PLR0913 - the courses, the invitation, and the records the form reads
+    body: LayoutsInput,
+    found: dict[str, Any] = Depends(signed_in_invitation),
+    wishes: WishStore = Depends(get_wishes),
+    reductions: HourReductions = Depends(get_reductions),
+    plans: CoursePlans = Depends(get_course_plans),
+) -> dict[str, Any]:
+    """A lead's courses, laid out week by week, while the preferences are open: only courses
+    they lead, and only within the hours the coordinators set."""
+    if not wishes.window(found["term_code"], found["teacher_id"])["open"]:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail="The deadline has passed, so your course schedule can no longer be changed here. Write to the "
+            "coordinator.",
+        )
+    try:
+        plans.lay_out_all(
+            found["term_code"],
+            [course.model_dump() for course in body.courses],
+            actor=found["email"],
+            source=LEAD,
+            lead_id=found["teacher_id"],
+        )
+    except (NotTheLead, UnknownCourse) as exc:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=f"You don't lead {exc.args[0]} this semester, so its weeks are not yours to lay out.",
+        ) from exc
+    except InvalidCoursePlan as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    return _form(found, wishes, reductions, plans)
 
 
 @router.put("/{code}/answer")
@@ -300,6 +360,7 @@ def answer(
     found: dict[str, Any] = Depends(signed_in_invitation),
     wishes: WishStore = Depends(get_wishes),
     reductions: HourReductions = Depends(get_reductions),
+    plans: CoursePlans = Depends(get_course_plans),
 ) -> dict[str, Any]:
     given = body.given()
     try:
@@ -311,4 +372,4 @@ def answer(
         ) from exc
     except InvalidWishes as exc:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
-    return _form(found, wishes, reductions)
+    return _form(found, wishes, reductions, plans)

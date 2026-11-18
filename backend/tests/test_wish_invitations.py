@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sorbonne.api import teacher_wishes as coordinators
 from sorbonne.api import wish_invite as door
 from sorbonne.main import app
+from sorbonne.services.course_plans import CoursePlans
 from sorbonne.services.engine import engine_for
 from sorbonne.services.hour_reductions import HourReductions
 from sorbonne.services.staff_auth import SignInRejected
@@ -55,6 +56,8 @@ def client(stores: tuple[WishStore, InvitationStore], monkeypatch: pytest.Monkey
     app.dependency_overrides[door.get_invitations] = lambda: invitations
     # A full-timer's hour reductions are read beside their answer, from the same scratch database.
     app.dependency_overrides[door.get_reductions] = lambda: HourReductions(wishes.engine)
+    # And a course lead's courses, the same way.
+    app.dependency_overrides[door.get_course_plans] = lambda: CoursePlans(wishes.engine)
 
     # Google, as it would answer for whoever signs in: the address a test says.
     def google(credential: str) -> tuple[str, str]:
@@ -73,6 +76,7 @@ def client(stores: tuple[WishStore, InvitationStore], monkeypatch: pytest.Monkey
             door.get_wishes,
             door.get_invitations,
             door.get_reductions,
+            door.get_course_plans,
         ):
             app.dependency_overrides.pop(get, None)
 

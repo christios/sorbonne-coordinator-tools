@@ -17,6 +17,7 @@ from sorbonne.api import wish_invite as door
 from sorbonne.main import app
 from sorbonne.services import auth_gate
 from sorbonne.services.account_access import AccountAccess
+from sorbonne.services.course_plans import CoursePlans
 from sorbonne.services.engine import engine_for
 from sorbonne.services.hour_reductions import HourReductions, InvalidReductions, full_time, year_of
 from sorbonne.services.staff_auth import StaffUser
@@ -80,6 +81,7 @@ def client(store: HourReductions, monkeypatch: pytest.MonkeyPatch) -> TestClient
         door.get_wishes: lambda: wishes,
         door.get_invitations: lambda: invitations,
         door.get_reductions: lambda: store,
+        door.get_course_plans: lambda: CoursePlans(engine),
         department_api.get_reductions: lambda: store,
         # Who administers what is read from the tests' database too: the page reads it from
         # the configured one, which is a developer's own wherever the two are kept apart.
