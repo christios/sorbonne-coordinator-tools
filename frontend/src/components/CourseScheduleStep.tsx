@@ -57,8 +57,9 @@ export function CourseScheduleStep({
           {many ? "Your courses" : "Your course"}, week by week{semesterName ? ` in ${semesterName}` : ""}
         </h2>
         <p className="mt-1 text-sm text-[#475467]">
-          You lead {many ? `${step.courses.length} courses` : "this course"} this semester. In each week, put how many sessions
-          it has. The coordinators set the total hours: if one looks wrong, say so in the note.
+          You lead {many ? `${step.courses.length} courses` : "this course"} this semester. In each week, put the number of
+          sessions, not hours: the hours they make show under each box. The coordinators set the total hours: if one
+          looks wrong, say so in the note.
         </p>
       </div>
 

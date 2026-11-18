@@ -104,6 +104,9 @@ describe("a course lead's step: their courses, week by week", () => {
     expect(total("TD")).toBe("1.5 of 3 h");
     fireEvent.keyDown(within(grid).getByRole("textbox", { name: "TD sessions in week 3" }), { key: "ArrowUp" });
     expect(total("TD")).toBe("3 of 3 h");
+    // A box holds sessions, not hours: what it makes is said under it, and on the row.
+    expect(within(grid).getByRole("textbox", { name: "TD sessions in week 3" }).closest("td")?.textContent).toBe("1.5 h");
+    expect(within(grid).getAllByText(/in a box = one/)).toHaveLength(2);
     fireEvent.keyDown(within(grid).getByRole("textbox", { name: "TD sessions in week 3" }), { key: "ArrowDown" });
     expect(total("TD")).toBe("1.5 of 3 h");
     fireEvent.change(screen.getByRole("textbox", { name: "Note about MATH-002" }), { target: { value: "TD needs 4.5 h" } });

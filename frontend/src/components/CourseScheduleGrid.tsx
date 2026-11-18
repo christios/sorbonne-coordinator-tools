@@ -103,8 +103,11 @@ export function CourseScheduleGrid({
                     <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
                     <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
                   </span>
-                  <span className="mt-1 block text-[11px] text-[#667085]">
-                    Sessions of {figure(target.length ?? 0)} h{component === "CM" ? "" : ", each group"}
+                  {/* What a number in a box stands for: sessions, not hours (18 Nov 2026: "1" was not read as 1.5 h). */}
+                  <span className="mt-1 block text-[11px] leading-4 text-[#475467]">
+                    <b className="rounded border border-[#9fb6cf] bg-[#eef4fa] px-1 font-semibold text-[#1f4e79]">1</b> in a box = one{" "}
+                    <b className="font-semibold text-[#344054]">{figure(target.length ?? 0)} h</b> session
+                    {component === "CM" ? "" : ", for each group"}
                   </span>
                   {/* The running total against the locked target: green once they meet. */}
                   <span
@@ -127,11 +130,18 @@ export function CourseScheduleGrid({
                 </th>
                 {weeks.map((week) => {
                   const count = layout[component]?.[String(week.week)] ?? 0;
+                  // The hours a box makes, under it: the sessions times one session's length.
+                  const hours = (
+                    <span aria-hidden="true" className="mt-0.5 block h-3.5 whitespace-nowrap text-[10px] leading-3 tabular-nums text-[#667085]">
+                      {count ? `${figure(count * (target.length ?? 0))} h` : ""}
+                    </span>
+                  );
                   return (
                     <td key={week.week} className={`border-b border-[#eef1f5] px-0.5 py-1 text-center align-middle ${week.holidays.length ? "bg-[#fdf9ee]" : ""}`}>
                       {editable ? (
                         <input
                           aria-label={`${component} sessions in week ${week.week}`}
+                          title={`How many ${component} sessions in week ${week.week}: each is ${figure(target.length ?? 0)} h`}
                           inputMode="numeric"
                           value={count ? String(count) : ""}
                           placeholder="·"
@@ -150,6 +160,7 @@ export function CourseScheduleGrid({
                           {count || "·"}
                         </span>
                       )}
+                      {hours}
                     </td>
                   );
                 })}
