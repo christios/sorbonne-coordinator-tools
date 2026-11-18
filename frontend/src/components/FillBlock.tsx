@@ -8,10 +8,12 @@ import { SelectMenu } from "@/components/SelectMenu";
 import { type FillCandidate, type FillOrder, type FillPlan, type FillPolicy, clashKey, majorsByStudent, placementsByGroup, planFill } from "@/services/groupFill";
 import type { GroupClash } from "@/services/publication";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
-import { shortProgram,
+import {
+  ALL_COHORTS, shortProgram,
   type CatalogueScope,
   type Cohort,
   type PlacementReport,
+  everyCohortsAssignments,
   fetchAssignments,
   fetchStudents,
   groupIsRetired,
@@ -89,9 +91,14 @@ export function FillBlock({
     });
 
   const students = useQuery({ queryKey: ["students", ""], queryFn: () => fetchStudents(""), enabled: open });
+  /*
+   * Every group each candidate is in, which is what keeps a fill off an hour they already
+   * have. A placement is filed under the student's own cohort, so for All cohorts' sets —
+   * whose candidates are every cohort's — that is every cohort's placements together.
+   */
   const assignments = useQuery({
-    queryKey: ["assignments", cohort.id],
-    queryFn: () => fetchAssignments(cohort.id),
+    queryKey: ["assignments", cohort.id === ALL_COHORTS ? "every-cohort" : cohort.id],
+    queryFn: () => (cohort.id === ALL_COHORTS ? everyCohortsAssignments() : fetchAssignments(cohort.id)),
     enabled: open,
   });
   const held = useQuery({
@@ -114,12 +121,11 @@ export function FillBlock({
    *
    * This briefly also admitted anyone appearing in `fetchAssignments(cohort.id)`, on the
    * reasoning that holding a group filed under a cohort is a second way of belonging to it.
-   * That reasoning is wrong, and the way it is wrong is worth keeping written down: an
-   * assignment is filed under the cohort that owns the SET, not the cohort of the student.
-   * A set open to every cohort — the languages — lives on one cohort's row and takes
-   * everybody, so every language student in the department is filed under whichever cohort
-   * happens to hold that set. On the real data that turned Foundation Year's lecture fill
-   * from one candidate into seventy-eight.
+   * That reasoning was wrong while placements in the languages were filed under the cohort
+   * that held the set, which turned Foundation Year's lecture fill from one candidate into
+   * seventy-eight. They are filed under the student's own cohort now, but membership is
+   * still read from the record and nowhere else. For All cohorts' sets, "in the cohort"
+   * means in any cohort that semester.
    */
   const everyone = useMemo<FillCandidate[]>(() => {
     if (!students.data || !assignments.data || !held.data) return [];
@@ -190,7 +196,7 @@ export function FillBlock({
     <Modal
       open={open}
       title={`Fill ${scope.code}`}
-      description={`${cohort.name} · nobody already in a ${scope.code} group moves.`}
+      description={`${cohort.id === ALL_COHORTS ? "Every cohort's students" : cohort.name} · nobody already in a ${scope.code} group moves.`}
       onClose={onClose}
       footer={
         <div className="flex items-center justify-end gap-3">
@@ -275,7 +281,9 @@ export function FillBlock({
         {loading ? (
           <p className="text-sm text-[#667085]">Reading who is in the cohort…</p>
         ) : everyone.length === 0 ? (
-          <p className="text-sm text-[#667085]">Everyone in {cohort.name} already sits in a {scope.code} group.</p>
+          <p className="text-sm text-[#667085]">
+            Everyone in {cohort.id === ALL_COHORTS ? "every cohort" : cohort.name} already sits in a {scope.code} group.
+          </p>
         ) : candidates.length === 0 ? (
           <p className="text-sm text-[#667085]">Nobody chosen yet, so there is nobody to place.</p>
         ) : (

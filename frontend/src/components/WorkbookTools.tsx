@@ -32,11 +32,11 @@ import { useSemesterShown } from "@/services/semesterYears";
 /**
  * Where this cohort's own students are placed — and nobody else's.
  *
- * An assignment is filed under the cohort that owns the SET, not the cohort of the student,
- * so a set open to every cohort files every language student in the department under
- * whichever cohort happens to hold that set. All three exports read the placements, and all
- * three used to hand out a workbook, an admissions list and a student handout naming
- * seventy-eight people where Foundation Year has one to name.
+ * An assignment used to be filed under the cohort that owned the SET, so the languages filed
+ * every language student in the department under Foundation Year, and all three exports
+ * handed out a workbook, an admissions list and a student handout naming seventy-eight
+ * people where Foundation Year had one to name. Placements are filed under the student's
+ * own cohort now; the files still ask the records who is in the cohort.
  *
  * The records say who is in a cohort. The placements say where they sit.
  */
@@ -131,6 +131,17 @@ export function WorkbookTools({
     (section.teacherId ? (teachers.data ?? []).find((teacher) => teacher.id === section.teacherId)?.fullName : "") ||
     section.teacher;
   const scopes = catalogue.data?.scopes ?? [];
+  /*
+   * What a student is handed: their cohort's sets and All cohorts' — their language group.
+   * The workbook stays the cohort's own sets, since reading it back leaves All cohorts'
+   * alone; the list and the handout said nothing of the languages outside Foundation Year.
+   */
+  const everything = useQuery({
+    queryKey: ["catalogue", cohortId, termId],
+    queryFn: () => fetchCatalogue(cohortId, termId),
+    enabled: open && Boolean(cohortId && termId),
+  });
+  const handedOut = everything.data?.scopes ?? scopes;
   const [exporting, setExporting] = useState<"" | "workbook" | "list" | "handout" | "timetable">("");
   // The timetable is the one file here that can be every cohort's at once.
   const [everyCohort, setEveryCohort] = useState(false);
@@ -199,15 +210,15 @@ export function WorkbookTools({
     setExporting("list");
     try {
       const held = await namesHeld();
-      const placements = await placementsOfMembers(cohort.id, termId, scopes);
+      const placements = await placementsOfMembers(cohort.id, termId, handedOut);
       // Which major each placement took, so a student reads their major's own cells.
       const majors = await fetchAssignmentMajors(cohort.id);
-      const exempt = await exemptionsIn(scopes);
+      const exempt = await exemptionsIn(handedOut);
       await downloadAdmissionsList(
         {
           prefix: prefixOf(cohort.name),
           year: shortYear(cohort.term),
-          scopes,
+          scopes: handedOut,
           students: Object.entries(placements).map(([studentId, groups]) => ({
             studentId,
             name: held[studentId] ?? "",
@@ -273,11 +284,11 @@ export function WorkbookTools({
       const programs = await fieldHeld("MAJOR_CODE_DESC");
       const family = await fieldHeld("LAST_NAME");
       const first = await fieldHeld("FIRST_NAME");
-      const placements = await placementsOfMembers(cohort.id, termId, scopes);
+      const placements = await placementsOfMembers(cohort.id, termId, handedOut);
       // Which half each placement took, so each student reads their own major's lectures.
       const majors = await fetchAssignmentMajors(cohort.id);
-      const exempt = await exemptionsIn(scopes);
-      const labelOf = new Map(scopes.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
+      const exempt = await exemptionsIn(handedOut);
+      const labelOf = new Map(handedOut.flatMap((scope) => scope.groups.map((group) => [group.id, group.label] as const)));
       const students = Object.entries(placements).map(([studentId, byScopeId]) => ({
         majors: majors[studentId] ?? {},
         exempt: exempt[studentId] ?? [],
@@ -297,7 +308,7 @@ export function WorkbookTools({
       }));
       const semester = semesterLabel(terms.find((term) => term.id === termId)?.name ?? "");
       await downloadHandout(
-        { cohortName: cohort.name, semester, year: cohort.term, scopes, students, teacherOf },
+        { cohortName: cohort.name, semester, year: cohort.term, scopes: handedOut, students, teacherOf },
         handoutName(cohort.workbookTab || prefixOf(cohort.name), cohort.term, sheetTitle(cohort, semester)),
       );
     } finally {

@@ -11,7 +11,8 @@ import { YearPill } from "@/components/YearPill";
 import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
-import { EMPTY_PART, partsOf, type Cohort, type SectionPart } from "@/services/studentDatabase";
+import type { MissingFrom } from "@/services/publicationView";
+import { ALL_COHORTS, EMPTY_PART, partsOf, type Cohort, type SectionPart } from "@/services/studentDatabase";
 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 
@@ -508,7 +509,8 @@ export function CourseDetail({
    * that drift apart.
    */
   teacherDrift: Set<string>;
-  unassigned: Record<string, string[]>;
+  /** Who each set still needs, by cohort: one cohort for a cohort's course, every cohort for All cohorts'. */
+  unassigned: Record<string, MissingFrom[]>;
   clashes: GroupClash[] | null;
   onChanged: () => void;
   onFilled: (report: FillReport) => void;
@@ -560,8 +562,8 @@ export function CourseDetail({
 
       <div className="relative space-y-6 px-5 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
         {card.sets.map((set) => {
-          const missing = unassigned[set.scope.code] ?? [];
-          const left = missing.length;
+          const missingByCohort = (unassigned[set.scope.code] ?? []).filter((each) => each.ids.length);
+          const left = missingByCohort.reduce((sum, each) => sum + each.ids.length, 0);
           /*
            * A group that holds nothing for this course is not a section of it.
            *
@@ -630,29 +632,39 @@ export function CourseDetail({
                   />
                 </InfoTip>
                 {set.scope.openToAll ? (
-                  <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Across cohorts</span>
+                  <span className={`${chip} bg-[#e8edf3] text-[#1f4e79]`}>Open to every cohort</span>
                 ) : null}
-                {left ? (
-                  /*
-                   * The count is the question; the students are the answer.
-                   *
-                   * "6 in no group" told a coordinator there was work to do and then made
-                   * them go and find who it was for, in a table of three thousand rows.
-                   * Pressing it opens the Cohorts page on this cohort and exactly those
-                   * six — that page being where a student is put into a block.
-                   */
-                  <button
-                    type="button"
-                    disabled={!onPlaceStudents}
-                    onClick={() => onPlaceStudents?.(card.cohortId, missing)}
-                    title={onPlaceStudents ? `Place the ${left} student${left === 1 ? "" : "s"} in no ${set.scope.code} group` : undefined}
-                    className={`${chip} inline-flex items-center gap-1 bg-[#fdf9ee] text-[#8a6116] ${
-                      onPlaceStudents ? "hover:bg-[#f9efd6] hover:underline" : "cursor-default"
-                    }`}
-                  >
-                    <AlertTriangle size={11} aria-hidden="true" /> {left} in no group
-                  </button>
-                ) : null}
+                {left
+                  ? /*
+                     * The count is the question; the students are the answer.
+                     *
+                     * "6 in no group" told a coordinator there was work to do and then made
+                     * them go and find who it was for, in a table of three thousand rows.
+                     * Pressing it opens the Cohorts page on the cohort and exactly those
+                     * six — that page being where a student is put into a block. All cohorts'
+                     * sets say it once per cohort, each opening that cohort's page.
+                     */
+                    missingByCohort.map((each) => (
+                      <button
+                        key={each.cohortId}
+                        type="button"
+                        disabled={!onPlaceStudents}
+                        onClick={() => onPlaceStudents?.(each.cohortId, each.ids)}
+                        title={
+                          onPlaceStudents
+                            ? `Place the ${each.ids.length} student${each.ids.length === 1 ? "" : "s"} in no ${set.scope.code} group`
+                            : undefined
+                        }
+                        className={`${chip} inline-flex items-center gap-1 bg-[#fdf9ee] text-[#8a6116] ${
+                          onPlaceStudents ? "hover:bg-[#f9efd6] hover:underline" : "cursor-default"
+                        }`}
+                      >
+                        <AlertTriangle size={11} aria-hidden="true" />{" "}
+                        {card.cohortId === ALL_COHORTS ? `${each.cohortName} · ` : ""}
+                        {each.ids.length} in no group
+                      </button>
+                    ))
+                  : null}
                 {cohort ? (
                   <button
                     type="button"

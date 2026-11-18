@@ -14,7 +14,9 @@ import { CommentPeek } from "@/components/CommentPeek";
 import { Modal } from "@/components/Modal";
 import { SCHEMA_TERM } from "@/services/remembered";
 import { datesOf, isWholeSemester, WHOLE_SEMESTER, type HourWindow } from "@/services/hourWindow";
-import { academicYearOfTerm, claimsOfSemester, crnDistribution, hoursRowsFor, type CrnLine, type HoursSource } from "@/services/teacherHoursRows";
+import { semesterDaysOf } from "@/services/requisitionCheck";
+import { fetchPlans } from "@/services/semesterPlans";
+import { claimsOfSemester, crnDistribution, hoursRowsFor, type CrnLine, type HoursSource } from "@/services/teacherHoursRows";
 import { fetchTermWeeks } from "@/services/termWeeks";
 import { downloadTeacherHours, periodsCovering } from "@/services/hoursExport";
 import { opensOnFor, periodChoices, periodEnd, PERIOD_OPENS_ON } from "@/services/payPeriods";
@@ -217,34 +219,16 @@ export function TeacherHours({
     [submitted.data, chosenTerm, weeks.data],
   );
   /*
-   * The plan of every semester of the chosen one's academic year, teacher by teacher, and
-   * of those before it. A requisition is a year's; held against one semester's plan it read
-   * every Semester 2 teacher as under-planned by their whole Semester 1.
+   * Every semester's days, so each requisition counts in the semesters its contract dates
+   * cover: the Requisition columns and their warnings are the semester's own. A year's
+   * requisitions against one semester read every Semester 2 teacher as Semester 1's, and
+   * a year's plan against them hid that Semester 2 had no requisition yet.
    */
-  const academicYear = academicYearOfTerm(termCode);
-  const year = useMemo(() => {
-    if (!academicYear) return undefined;
-    const planned = new Map<string, number>();
-    const earlier = new Map<string, number>();
-    for (const id of termIds) {
-      const code = links.data?.[id] ?? "";
-      if (academicYearOfTerm(code) !== academicYear) continue;
-      const theirs = requestSheets(
-        cards,
-        id,
-        termName(id),
-        () => "",
-        (teacherId) => (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "",
-        (cohortId) => (cohorts.data ?? []).find((candidate) => candidate.id === cohortId) ?? { name: "" },
-      );
-      for (const row of loadRows(teacherLoads(theirs), teachers.data ?? [], crnsByTeacher(theirs))) {
-        const key = row.teacherId || row.teacher.trim().toLowerCase();
-        planned.set(key, (planned.get(key) ?? 0) + row.total);
-        if (id !== chosenTerm && code < termCode) earlier.set(key, (earlier.get(key) ?? 0) + row.total);
-      }
-    }
-    return { planned, earlier };
-  }, [academicYear, termIds, links.data, cards, teachers.data, cohorts.data, chosenTerm, termCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans, retry: false });
+  const semesterOnScreen = useMemo(
+    () => (chosenTerm ? { id: chosenTerm, days: semesterDaysOf(plans.data ?? [], { id: chosenTerm, termCode }) } : undefined),
+    [chosenTerm, termCode, plans.data],
+  );
   /*
    * Everything the table is made of, gathered once.
    *
@@ -261,13 +245,12 @@ export function TeacherHours({
       owners,
       submitted: claimsHere,
       contracts: contracts.data ?? {},
-      academicYear,
-      year,
+      semester: semesterOnScreen,
       decided,
       threshold: apart?.enabled === false ? Number.POSITIVE_INFINITY : (apart?.threshold ?? DEFAULT_APART),
       today,
     }),
-    [sheets, teachers.data, notes.data, met.data, booked.data, owners, claimsHere, contracts.data, academicYear, year,
+    [sheets, teachers.data, notes.data, met.data, booked.data, owners, claimsHere, contracts.data, semesterOnScreen,
      decided, apart?.enabled, apart?.threshold, today],
   );
   const rows = useMemo(

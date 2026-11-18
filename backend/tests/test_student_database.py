@@ -8,11 +8,13 @@ from sqlalchemy import text
 from sorbonne.services.group_reference_import import parse_group_reference
 from sorbonne.services.workbook_diff import diff_reference
 from sorbonne.services.student_database import (
+    ALL_COHORTS,
     CohortNotFound,
     CohortSpansSemesters,
     DuplicateLabel,
     InvalidCohortMove,
     InvalidRule,
+    NotACohortOfStudents,
     SavedSearch,
     SharedSetTaken,
     StudentDatabase,
@@ -144,9 +146,7 @@ class TestEditingTheCatalogue:
         group = group_of(scope_of(database.read_catalogue(cohort["id"]), "TD"), "1A")
         assert (group["capacity"], group["note"]) == (18, "Tuesday")
 
-    def test_removing_a_group_takes_its_crns_with_it(
-        self, database: StudentDatabase, cohort: dict, scope_id: str
-    ):
+    def test_removing_a_group_takes_its_crns_with_it(self, database: StudentDatabase, cohort: dict, scope_id: str):
         course_id = database.add_course(scope_id, code="MATH001")
         group_id = database.add_group(scope_id, label="1")
         database.set_cell(group_id=group_id, course_id=course_id, crn="23223")
@@ -175,8 +175,18 @@ def test_the_catalogue_carries_no_student_identity(database: StudentDatabase, co
 
     # A programme a group prefers is the group's, not any student's.
     assert fields == {
-        "id", "label", "capacity", "note", "parentGroupId", "parentGroupIds", "firstFor", "parallelWith", "majors",
-        "byMajor", "assigned", "crns",
+        "id",
+        "label",
+        "capacity",
+        "note",
+        "parentGroupId",
+        "parentGroupIds",
+        "firstFor",
+        "parallelWith",
+        "majors",
+        "byMajor",
+        "assigned",
+        "crns",
     }
 
 
@@ -227,9 +237,7 @@ def test_placing_a_student_records_when(database: StudentDatabase, cohort: dict)
     assert _since(database, "A001", cohort["id"]), "placement should leave a moment behind"
 
 
-def test_re_saving_a_student_into_the_same_cohort_is_not_a_placement(
-    database: StudentDatabase, cohort: dict
-) -> None:
+def test_re_saving_a_student_into_the_same_cohort_is_not_a_placement(database: StudentDatabase, cohort: dict) -> None:
     # The moment is the baseline "what changed since we put them here" is measured
     # from. Moving it on a no-op would silently forgive every change made in between.
     _hold(database, "A001")
@@ -357,10 +365,10 @@ def test_a_cohort_is_not_rolled_over_into_the_semester_it_is_from(database: Stud
 
 @pytest.fixture
 def two_semesters_of_fys(database: StudentDatabase):
-    """FYS as on 9 Nov 2026: its students in both semesters, its sets in the autumn — one of
-    them the languages, open to every cohort, with an L1 student placed in it — and a set
-    of its own in the spring. Removed afterwards: a set open to every cohort left behind
-    turns up in every other test's catalogue."""
+    """FYS as on 9 Nov 2026: its students in both semesters, its TD in the autumn, the
+    languages open to every cohort with an FYS and an L1 student placed in them, and a set
+    of its own in the spring. The languages were made from FYS's page, as they were then;
+    they are All cohorts' (0099), and the fixture in conftest clears them away."""
     fys_student, l1_student = (f"F{uuid4().hex[:8].upper()}" for _ in range(2))
     _hold(database, fys_student, l1_student)
     autumn, spring = (f"{season}-{uuid4().hex[:6]}" for season in ("autumn", "spring"))
@@ -392,17 +400,75 @@ def test_removing_a_cohort_from_one_semester_leaves_the_other_whole(
     sets = [each["code"] for each in taken["sets"]]
     assert (taken["members"], sets, taken["otherSemesters"]) == (1, ["TD"], [autumn])
     assert database.get_cohort(fys["id"])["memberCounts"] == {autumn: 1}
-    # The autumn keeps its sets, and both students keep their French group.
+    # The autumn keeps its set, and both students keep their French group.
     with database.engine.connect() as connection:
-        autumn_sets = connection.execute(
-            text("SELECT code FROM cohort_scopes WHERE cohort_id = :id ORDER BY code"), {"id": fys["id"]}
-        ).scalars().all()
+        autumn_sets = (
+            connection.execute(
+                text("SELECT code FROM cohort_scopes WHERE cohort_id = :id ORDER BY code"), {"id": fys["id"]}
+            )
+            .scalars()
+            .all()
+        )
         french = connection.execute(
             text("""SELECT count(*) FROM group_assignments a JOIN cohort_scopes s ON s.id = a.scope_id
                     WHERE s.code = 'LANG' AND a.student_id = ANY(:ids)"""),
             {"ids": [fys_student, l1_student]},
         ).scalar()
-    assert (autumn_sets, french) == (["LANG", "TD"], 2)
+    assert (autumn_sets, french) == (["TD"], 2)
+
+
+def test_the_languages_are_no_cohorts_and_outlive_any_of_them(database: StudentDatabase, two_semesters_of_fys) -> None:
+    """9 Nov 2026, the other way round: FYS out of the autumn takes its TD and its own
+    student's French group, and leaves LANG, its group and the L1 student in it alone."""
+    fys, _l1, fys_student, l1_student, autumn, _spring = two_semesters_of_fys
+    with database.engine.connect() as connection:
+        owner = connection.execute(
+            text("SELECT cohort_id FROM cohort_scopes WHERE code = 'LANG' AND term_id = :t"), {"t": autumn}
+        ).scalar()
+    assert owner == ALL_COHORTS
+
+    database.remove_from_semester(fys["id"], autumn)
+
+    with database.engine.connect() as connection:
+        left = (
+            connection.execute(
+                text("""SELECT a.student_id FROM group_assignments a JOIN cohort_scopes s ON s.id = a.scope_id
+                    WHERE s.code = 'LANG' AND s.term_id = :t"""),
+                {"t": autumn},
+            )
+            .scalars()
+            .all()
+        )
+    assert left == [l1_student]
+    assert fys_student not in left
+
+
+def test_all_cohorts_holds_sets_and_never_students(database: StudentDatabase) -> None:
+    student = f"S{uuid4().hex[:8].upper()}"
+    _hold(database, student)
+    for refused in (
+        lambda: database.set_cohort([student], ALL_COHORTS, term_id="autumn"),
+        lambda: database.delete_cohort(ALL_COHORTS),
+        lambda: database.remove_from_semester(ALL_COHORTS, "autumn"),
+        lambda: database.roll_over(ALL_COHORTS, "autumn", "spring"),
+        lambda: database.update_cohort(ALL_COHORTS, name="Everybody", term="", notes=""),
+    ):
+        with pytest.raises(NotACohortOfStudents):
+            refused()
+    assert ALL_COHORTS not in [cohort["id"] for cohort in database.list_cohorts()]
+    assert database.list_cohorts(with_all=True)[-1]["everyone"] is True
+
+
+def test_all_cohorts_reads_every_cohorts_students_for_its_files(database: StudentDatabase) -> None:
+    """Its sets take anybody a cohort holds that semester, so its workbook and lists do too."""
+    student, term = f"S{uuid4().hex[:8].upper()}", f"autumn-{uuid4().hex[:6]}"
+    _hold(database, student)
+    l1 = database.create_cohort(name="L1")
+    database.set_cohort([student], l1["id"], term_id=term)
+
+    assert [row["studentId"] for row in database.list_members(ALL_COHORTS, term)] == [student]
+    assert database.student_ids_of(ALL_COHORTS, term) == {student}
+    assert database.list_members(ALL_COHORTS, "another-semester") == []
 
 
 def test_what_a_semester_holds_is_counted_before_it_is_removed(database: StudentDatabase, two_semesters_of_fys) -> None:
@@ -410,8 +476,10 @@ def test_what_a_semester_holds_is_counted_before_it_is_removed(database: Student
 
     reach = database.semester_reach(fys["id"], autumn)
 
-    assert (reach["members"], reach["placements"], reach["othersPlacements"]) == (1, 3, 1)
-    assert sorted((each["code"], each["openToAll"]) for each in reach["sets"]) == [("LANG", True), ("TD", False)]
+    # Its TD, and its own student's French group — never the L1 student's.
+    assert (reach["members"], reach["placements"], reach["othersPlacements"]) == (1, 1, 0)
+    assert [(each["code"], each["openToAll"]) for each in reach["sets"]] == [("TD", False)]
+    assert (reach["sharedSets"], reach["sharedPlacements"]) == (["LANG"], 1)
     assert reach["otherSemesters"] == [spring]
 
 
@@ -432,8 +500,8 @@ def test_a_cohort_holding_two_semesters_is_not_deleted_whole(database: StudentDa
 def test_removing_l1_from_a_semester_counts_its_students_language_groups(
     database: StudentDatabase, two_semesters_of_fys
 ) -> None:
-    """L1 has no set of its own in the autumn; its student's French group sits in FYS's LANG,
-    filed under L1. Removing L1 from the autumn takes that group: it is counted beforehand."""
+    """L1 has no set of its own in the autumn; its student's French group sits in All cohorts'
+    LANG, filed under L1. Removing L1 from the autumn takes that group: it is counted beforehand."""
     _fys, l1, *_rest, autumn, _spring = two_semesters_of_fys
 
     reach = database.semester_reach(l1["id"], autumn)
@@ -449,7 +517,7 @@ def test_a_cohort_whose_only_other_semester_is_a_language_group_is_not_deleted_w
     fys, l1, _fys_student, l1_student, autumn, spring = two_semesters_of_fys
     with database.engine.begin() as connection:
         lang = connection.execute(
-            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": fys["id"]}
+            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": ALL_COHORTS}
         ).scalar()
         connection.execute(
             text("UPDATE cohort_scopes SET term_id = :spring WHERE id = :id"), {"spring": spring, "id": lang}
@@ -473,7 +541,7 @@ def test_a_language_set_takes_only_students_held_in_its_own_semester(
         lang, french = connection.execute(
             text("""SELECT s.id, g.id FROM cohort_scopes s JOIN scope_groups g ON g.scope_id = s.id
                     WHERE s.cohort_id = :id AND s.code = 'LANG'"""),
-            {"id": fys["id"]},
+            {"id": ALL_COHORTS},
         ).one()
 
     report = database.assign_many(scope_id=lang, student_ids=[newcomer, fys_student], group_id=french)
@@ -484,16 +552,24 @@ def test_a_language_set_takes_only_students_held_in_its_own_semester(
 def test_a_semester_holds_one_set_open_to_every_cohort_under_a_code(
     database: StudentDatabase, two_semesters_of_fys
 ) -> None:
-    """FYS holds the autumn's LANG, open to every cohort; L1 may not make a second one there,
-    which would split the languages between two sets. Its own LANG, or the spring's, is fine."""
+    """All cohorts holds the autumn's LANG; L1 may not make a second one open to every cohort
+    there, which would split the languages between two sets. Its own LANG is fine, and stays
+    its own whatever a caller says of it; so is the spring's, made on All cohorts."""
     _fys, l1, *_rest, autumn, spring = two_semesters_of_fys
 
-    with pytest.raises(SharedSetTaken, match="already open to every cohort this semester, on FYS"):
+    with pytest.raises(SharedSetTaken, match="already open to every cohort this semester, on All cohorts"):
         database.add_scope(l1["id"], code="lang", term_id=autumn, open_to_all=True)
     own = database.add_scope(l1["id"], code="LANG", term_id=autumn)
-    with pytest.raises(SharedSetTaken):
-        database.update_scope(own, code="LANG", name="", note="", open_to_all=True)
-    database.add_scope(l1["id"], code="LANG", term_id=spring, open_to_all=True)
+    database.update_scope(own, code="LANG", name="", note="", open_to_all=True)
+    spring_lang = database.add_scope(l1["id"], code="LANG", term_id=spring, open_to_all=True)
+    with database.engine.connect() as connection:
+        held = dict(
+            connection.execute(
+                text("SELECT id, cohort_id || ':' || open_to_all FROM cohort_scopes WHERE id = ANY(:ids)"),
+                {"ids": [own, spring_lang]},
+            ).all()
+        )
+    assert (held[own], held[spring_lang]) == (f"{l1['id']}:false", f"{ALL_COHORTS}:true")
 
 
 def test_a_set_is_carried_into_another_semester_with_its_groups_and_exemptions(
@@ -507,7 +583,7 @@ def test_a_set_is_carried_into_another_semester_with_its_groups_and_exemptions(
         lang, french = connection.execute(
             text("""SELECT s.id, g.id FROM cohort_scopes s JOIN scope_groups g ON g.scope_id = s.id
                     WHERE s.cohort_id = :id AND s.code = 'LANG'"""),
-            {"id": fys["id"]},
+            {"id": ALL_COHORTS},
         ).one()
     course = database.add_course(lang, code="FREN-101", name="French")
     database.set_cell(group_id=french, course_id=course, crn="23304", part=1)
@@ -570,7 +646,7 @@ def test_carrying_a_set_counts_its_exemptions_by_reason_and_may_leave_them(
     fys, _l1, fys_student, l1_student, _autumn, spring = two_semesters_of_fys
     with database.engine.connect() as connection:
         lang = connection.execute(
-            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": fys["id"]}
+            text("SELECT id FROM cohort_scopes WHERE cohort_id = :id AND code = 'LANG'"), {"id": ALL_COHORTS}
         ).scalar()
     course = database.add_course(lang, code="SCEN-101", name="French")
     database.set_exemption(student_id=fys_student, course_id=course, reason="LEA track")

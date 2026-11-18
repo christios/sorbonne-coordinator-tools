@@ -86,7 +86,12 @@ def test_admin_hours_are_counted_apart_from_teaching(client: TestClient, store: 
         expected_revision=made["revision"],
         label="Physics TD",
         academic_year="2026-2027",
-        content={**made["content"], "admin": [{"id": "a", "title": "Coordination", "hours": "8,5 h"}]},
+        content={
+            **made["content"],
+            "contractFrom": "2026-08-31",
+            "contractTo": "2026-12-31",
+            "admin": [{"id": "a", "title": "Coordination", "hours": "8,5 h"}],
+        },
     )
 
     summary = client.get(f"{BASE}/summary").json()["summary"][teacher["id"]]
@@ -94,6 +99,16 @@ def test_admin_hours_are_counted_apart_from_teaching(client: TestClient, store: 
     assert summary["contractedHours"] == 21
     assert summary["adminHours"] == 8.5
     assert summary["byYear"] == {"2026-2027": {"requisitions": 1, "teachingHours": 21, "adminHours": 8.5}}
+    # Each requisition with its contract dates, for a page about one semester to place it.
+    assert summary["requisitionList"] == [
+        {
+            "academicYear": "2026-2027",
+            "contractFrom": "2026-08-31",
+            "contractTo": "2026-12-31",
+            "teachingHours": 21,
+            "adminHours": 8.5,
+        }
+    ]
 
 
 def test_a_teacher_with_nothing_is_absent_from_the_summary_rather_than_wrong(

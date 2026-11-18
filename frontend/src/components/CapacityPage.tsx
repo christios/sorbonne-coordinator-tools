@@ -400,9 +400,9 @@ export function CapacityPage() {
   /*
    * This cohort's own, and the department's.
    *
-   * A set open to every cohort is filed under whichever one holds its row — the languages
+   * A set open to every cohort was filed under whichever one held its row — the languages
    * under Foundation Year — so asking for a cohort's rows showed them to that cohort and
-   * to nobody else. They belong to every year, and are shown to every year.
+   * to nobody else. They are All cohorts' now: every year's, and shown to every year.
    *
    * They are kept out of the totals, though: twenty language groups would swamp L2's four,
    * and their seats are not L2's to count. The shared sets carry their own numbers below.

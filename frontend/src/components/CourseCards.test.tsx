@@ -431,3 +431,59 @@ describe("a set whose groups hold one major each", () => {
     expect(choice.textContent).not.toMatch(/Mathematics|mutuali/i);
   });
 });
+
+describe("the languages, on All cohorts", () => {
+  const EVERYONE: database.Cohort = { ...COHORT, id: database.ALL_COHORTS, name: "All cohorts", term: "", everyone: true, memberCount: 0 };
+  const L1: database.Cohort = { ...COHORT, id: "c2", name: "L1" };
+
+  beforeEach(() => {
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue([
+      ...CATALOGUES,
+      {
+        cohort: { id: database.ALL_COHORTS, name: "All cohorts", term: "" },
+        scopes: [
+          {
+            id: "s-lang", code: "LANG", name: "Languages", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: true,
+            courses: [{ id: "fr", code: "SCEN-101", name: "Languages", component: "TD", request: EMPTY_REQUEST }],
+            groups: [{ id: "a1", label: "A1-G1", capacity: 30, note: "", parentGroupId: "", assigned: 20, crns: { fr: { ...EMPTY_SECTION, crn: "23302" } } }],
+          },
+        ],
+      },
+    ]);
+    // Each cohort is asked who is missing from LANG; All cohorts holds nobody to miss.
+    vi.spyOn(publication, "fetchPublication").mockResolvedValue({
+      cohorts: [
+        { cohortId: "c1", cohort: "Foundation Year", students: 12, studentsResolved: 10, unassigned: { TD: ["A9"], LANG: ["A9"] }, warnings: [], clashes: [], isReady: false },
+        { cohortId: "c2", cohort: "L1", students: 5, studentsResolved: 5, unassigned: { LANG: ["B1", "B2"] }, warnings: [], clashes: [], isReady: false },
+        { cohortId: database.ALL_COHORTS, cohort: "All cohorts", students: 0, studentsResolved: 0, unassigned: {}, warnings: [], clashes: [], isReady: true },
+      ],
+      validation: {},
+      unmatchedCrns: 0, sections: 40, resolved: { students: 10, enrolments: 20 }, isReady: false, coverage: { linked: true, portalTermCode: "262710", pulledAt: "now", asked: 2, timetabled: 2, blind: [], hubReachable: null },
+    });
+  });
+
+  it("are listed under a cohort's courses, and open on All cohorts", async () => {
+    window.localStorage.setItem("scen-remembered:cohort", "c1");
+    const place = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <CourseCards cohorts={[COHORT, L1, EVERYONE]} onPlaceStudents={place} />
+      </QueryClientProvider>,
+    );
+
+    const courses = await screen.findByRole("navigation", { name: "Courses" });
+    expect(within(courses).getByText("All cohorts")).toBeTruthy();
+    // Foundation Year's own course is the one open; the languages are not its.
+    expect(screen.getByRole("heading", { name: "MATH001" })).toBeTruthy();
+
+    fireEvent.click(within(courses).getByText("SCEN-101"));
+
+    const detail = (await screen.findByRole("heading", { name: "SCEN-101" })).closest("section") as HTMLElement;
+    expect(detail.textContent).toContain("All cohorts · Semester 1");
+    // Who is missing, cohort by cohort, each sent to their own cohort's page.
+    fireEvent.click(within(detail).getByRole("button", { name: /L1 · 2 in no group/ }));
+    expect(place).toHaveBeenCalledWith("c2", ["B1", "B2"]);
+    window.localStorage.clear();
+  });
+});

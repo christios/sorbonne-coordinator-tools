@@ -10,9 +10,18 @@ import type { Operation, WorkbookPreview } from "@/services/workbookReview";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
+/**
+ * All cohorts: the sets every cohort's students are placed in — the languages — and nobody's
+ * cohort. LANG sat on Foundation Year's row until 17 Nov 2026 and went wherever FYS went;
+ * it is this row's now, which holds sets and never students.
+ */
+export const ALL_COHORTS = "all-cohorts";
+
 export type Cohort = {
   id: string;
   name: string;
+  /** All cohorts: holds the sets every cohort shares, and no student of its own. */
+  everyone?: boolean;
   term: string;
   notes: string;
   /**
@@ -280,6 +289,11 @@ export async function fetchCohorts(): Promise<Cohort[]> {
   return (await request<{ cohorts: Cohort[] }>(`${BASE}/cohorts`)).cohorts;
 }
 
+/** The cohorts and, after them, All cohorts: for the pages the shared sets are set up on. */
+export async function fetchCohortsWithAll(): Promise<Cohort[]> {
+  return (await request<{ cohorts: Cohort[] }>(`${BASE}/cohorts?with_all=true`)).cohorts;
+}
+
 export type CohortInput = {
   name: string;
   term?: string;
@@ -492,6 +506,21 @@ export type TeamsCheck = {
 export function fetchTeamsCheck(cohortId: string, termId = ""): Promise<TeamsCheck> {
   const term = termId ? `?term=${encodeURIComponent(termId)}` : "";
   return request<TeamsCheck>(`${BASE}/cohorts/${cohortId}/teams-check${term}`);
+}
+
+/**
+ * Every cohort's placements together, `student id -> {scope id: group id}`. A placement is
+ * filed under its student's own cohort, so this is every student's every group — what a
+ * fill of All cohorts' sets needs to keep its candidates off the hours they already have.
+ */
+export async function everyCohortsAssignments(): Promise<Record<string, Record<string, string>>> {
+  const cohorts = await fetchCohorts();
+  const reads = await Promise.all(cohorts.map((cohort) => fetchAssignments(cohort.id)));
+  const merged: Record<string, Record<string, string>> = {};
+  for (const read of reads) {
+    for (const [student, placed] of Object.entries(read)) merged[student] = { ...(merged[student] ?? {}), ...placed };
+  }
+  return merged;
 }
 
 export async function fetchAssignments(cohortId: string): Promise<Record<string, Record<string, string>>> {
@@ -923,7 +952,9 @@ export function cohortIn(student: Pick<Student, "cohorts">, termId: string): Stu
 
 /** Whether they are in this cohort — in one semester, or in any. */
 export function isIn(student: Pick<Student, "cohorts">, cohortId: string, termId?: string): boolean {
-  return student.cohorts.some((held) => held.id === cohortId && (termId === undefined || held.termId === termId));
+  // All cohorts' sets take anybody a cohort holds that semester: Fill LANG offers them all.
+  const whose = (held: StudentCohort) => cohortId === ALL_COHORTS || held.id === cohortId;
+  return student.cohorts.some((held) => whose(held) && (termId === undefined || held.termId === termId));
 }
 
 /** The cohort a student is read as in when no semester is named: the one they joined last. */
@@ -965,12 +996,12 @@ export function withGroupsIn<T extends Student>(students: T[], termId?: string):
  * that cohort: a group's roster, a fill. Somebody not in it reads as in none.
  */
 export function asMemberOf<T extends Student>(students: T[], cohortId: string, termId?: string): T[] {
-  return students.map((student) =>
-    seenAs(
-      student,
-      student.cohorts.find((held) => held.id === cohortId && (termId === undefined || held.termId === termId)) ?? null,
-    ),
-  );
+  return students.map((student) => {
+    const inTerm = student.cohorts.filter((held) => termId === undefined || held.termId === termId);
+    // Read from All cohorts — a language group's roster — a student is in their own cohort.
+    if (cohortId === ALL_COHORTS) return seenAs(student, latestCohort(inTerm));
+    return seenAs(student, inTerm.find((held) => held.id === cohortId) ?? null);
+  });
 }
 
 export type SyncReport = {

@@ -45,6 +45,7 @@ import { exportTeacherTimetables } from "@/services/timetableExports";
 import { fetchTimetableTerms } from "@/services/timetables";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 import { useTicks } from "@/components/useTicks";
+import { useGroupCohorts } from "@/services/groupCohorts";
 
 /**
  * An Active teacher with what the planning has them teaching: the kinds of class their
@@ -393,15 +394,17 @@ export function ActiveTeachers({
    */
   const semesterId = semester?.id ?? "";
   const shown = useMemo(() => (semesterId ? cards.filter((card) => card.termId === semesterId) : cards), [cards, semesterId]);
+  // Whose each language group is, by the students in it: a language teacher teaches those cohorts.
+  const groupCohorts = useGroupCohorts();
   const rows = useMemo<TeacherRow[]>(() => {
     const order = ["CM", "TD", "TP"];
     const teachers = active.data ?? [];
     const nameOf = new Map(teachers.map((teacher) => [teacher.id, teacher.fullName]));
     const planned = plannedTeachers(shown, links.data ?? {}, (id) => nameOf.get(id) ?? "");
     return teachers.map((teacher) => {
-      const live = sectionsTaughtBy(shown, teacher.id, teacher.fullName).filter((section) => !section.retired);
+      const live = sectionsTaughtBy(shown, teacher.id, teacher.fullName, groupCohorts).filter((section) => !section.retired);
       const kinds = new Set(live.map((section) => section.component.toUpperCase()));
-      const cohorts = new Set(live.map((section) => section.cohortName).filter(Boolean));
+      const cohorts = new Set(live.flatMap((section) => section.cohorts).filter(Boolean));
       return {
         ...teacher,
         teaches: [...kinds].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99)),
@@ -410,7 +413,7 @@ export function ActiveTeachers({
         warnings: [...portalScheduleWarnings({ teacher, cards: shown, links: links.data ?? {}, registrar, planned, decided })],
       };
     });
-  }, [active.data, shown, links.data, registrar, decided]);
+  }, [active.data, shown, links.data, registrar, decided, groupCohorts]);
 
   // The dismissed ones, teacher by teacher, for the count and the list "Bring back" opens.
   const dismissedGroups = useMemo<DismissedGroup[]>(

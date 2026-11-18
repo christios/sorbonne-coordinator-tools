@@ -33,6 +33,7 @@ import { CopyButton } from "@/components/CopyButton";
 import { asMailList, emailsFor } from "@/services/studentEmails";
 import { fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { cohortsOfGroup, useGroupCohorts } from "@/services/groupCohorts";
 
 /**
  * One CRN, in full — the section, not the course it belongs to.
@@ -77,6 +78,8 @@ export function CrnRecord({
   const nameOf = (teacherId: string) =>
     (teachers.data ?? []).find((teacher) => teacher.id === teacherId)?.fullName ?? "";
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards, enabled: open });
+  // A language group is the cohorts' whose students sit in it, not one cohort's.
+  const groupCohorts = useGroupCohorts(open);
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, enabled: open });
   const check = useQuery({ queryKey: ["register-check", row.termCode], queryFn: () => fetchRegisterCheck(row.termCode), enabled: open, retry: false });
   const portal = useQuery({ queryKey: ["term-crns", row.termCode], queryFn: () => fetchTermCrns(row.termCode), enabled: open });
@@ -237,7 +240,7 @@ export function CrnRecord({
                 return (
                   <li key={`${card.key}|${entry.group.id}|${entry.section?.part ?? 1}`}>
                     <p className="font-medium text-[#344054]">
-                      {card.cohortName} · {set.scope.code} {entry.group.label}
+                      {cohortsOfGroup(card, entry.group.id, groupCohorts).join(", ")} · {set.scope.code} {entry.group.label}
                       <span className="ml-2 text-xs font-normal text-[#98a2b3]">{card.termName}</span>
                       {entry.parts && entry.parts > 1 ? (
                         <span className="ml-2 text-xs font-normal text-[#1f4e79]">

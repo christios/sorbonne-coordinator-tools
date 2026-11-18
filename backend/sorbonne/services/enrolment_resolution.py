@@ -215,13 +215,14 @@ def readiness(  # noqa: PLR0913 - one keyword per thing a cohort needs to be rea
     for a course its scope teaches.
 
     `shared_scopes` and `shared_groups` are the sets open to every cohort — the languages,
-    which sit on Foundation Year's row. A student of ANY cohort is placed in one, so every
+    which sit on All cohorts' row (they were Foundation Year's until 0099). A student of ANY
+    cohort is placed in one, so every
     cohort must be asked who is missing from them: without this, seventeen students outside
     Foundation Year had no language group and nothing anywhere said so, while the same fact
     was reported for the four inside it.
 
     They are deliberately NOT asked the second question below, "has this group a CRN for
-    every course of its set". That is the owning cohort's business and it already asks it;
+    every course of its set". That is All cohorts' business and it already asks it;
     asking it once per cohort would repeat one gap four times over.
 
     Who a set is for is read off its groups' sub-rows. A set whose every group holds only

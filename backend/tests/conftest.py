@@ -30,6 +30,35 @@ def apply_postgres_migrations() -> None:
 
 
 @pytest.fixture(autouse=True)
+def all_cohorts(apply_postgres_migrations: None):  # noqa: ARG001 - after the migrations, which make it
+    """All cohorts, there for every test and holding only what that test put on it.
+
+    Migration 0099 makes the row, but a test that empties every table takes it too. And a
+    test used to clear its languages away by deleting its own cohort; they are All cohorts'
+    now, so they would stand in the next test's way under the same code and semester.
+    """
+    from sqlalchemy import text  # noqa: PLC0415 - only the fixture needs it
+
+    from sorbonne.services.engine import engine_for  # noqa: PLC0415
+    from sorbonne.services.student_database import ALL_COHORTS, ALL_COHORTS_NAME  # noqa: PLC0415
+
+    engine = engine_for(TEST_DATABASE_URL)
+
+    def fresh() -> None:
+        with engine.begin() as connection:
+            connection.execute(
+                text("""INSERT INTO student_cohorts (id, name, created_at, updated_at)
+                        VALUES (:id, :name, '', '') ON CONFLICT (id) DO NOTHING"""),
+                {"id": ALL_COHORTS, "name": ALL_COHORTS_NAME},
+            )
+            connection.execute(text("DELETE FROM cohort_scopes WHERE cohort_id = :id"), {"id": ALL_COHORTS})
+
+    fresh()
+    yield
+    fresh()
+
+
+@pytest.fixture(autouse=True)
 def staff_directory(monkeypatch: pytest.MonkeyPatch) -> dict[str, Access]:
     """The invited staff list, in memory: nobody is invited unless a test invites them.
 

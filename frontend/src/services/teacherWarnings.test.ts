@@ -196,18 +196,28 @@ describe("how loudly a warning says itself", () => {
   });
 });
 
-describe("a requisition, which is a year's", () => {
-  it("is held against the year's plan, not one semester's", () => {
-    // 30 h planned in Semester 2, 30 h in Semester 1, a 60 h requisition for the year:
-    // against Semester 2 alone it read "Requisition over 30 h".
-    const year = { label: "2026-2027", planned: 60, taughtSoFar: 30 };
-    const held = warningsFor(figures({ planned: 30, contracted: 60, taughtSoFar: 0, year }));
+describe("a requisition, which is a semester's", () => {
+  it("holds the semester's plan against the semester's requisitions", () => {
+    // Bilal Maaz, 18 Nov 2026: 50 h in Semester 1 and a 50 h Semester 1 requisition.
+    const held = warningsFor(figures({ planned: 50, registrar: 50, contracted: 50, taughtSoFar: 0 }));
     expect(kinds(held)).not.toContain("plan_vs_contract");
   });
 
-  it("counts the year's earlier semesters in what has been used", () => {
-    const year = { label: "2026-2027", planned: 60, taughtSoFar: 59 };
-    const [spent] = warningsFor(figures({ planned: 30, contracted: 60, taughtSoFar: 29, registrar: 30, year })).filter(
+  it("says a semester planned for somebody paid by requisition, with none for it yet", () => {
+    // His Semester 2: 60 h planned, his only requisition Semester 1's.
+    const [unpaid] = warningsFor(figures({ planned: 60, registrar: 0, contracted: 0, taughtSoFar: 0, paidElsewhere: true })).filter(
+      (warning) => warning.kind === "plan_vs_contract",
+    );
+    expect(unpaid.label).toBe("Requisition short 60 h");
+    expect(unpaid.sentence).toContain("none of their requisitions is for it yet");
+  });
+
+  it("stays silent for somebody with no requisition anywhere", () => {
+    expect(kinds(warningsFor(figures({ planned: 60, registrar: 60, contracted: 0, taughtSoFar: 0 })))).not.toContain("plan_vs_contract");
+  });
+
+  it("counts only the semester's teaching against what is left of it", () => {
+    const [spent] = warningsFor(figures({ planned: 30, contracted: 30, taughtSoFar: 29, registrar: 30 })).filter(
       (warning) => warning.kind === "contract_nearly_spent",
     );
     expect(spent.label).toBe("1 h of requisition left");

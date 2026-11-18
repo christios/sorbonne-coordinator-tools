@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildCards, parentsOf } from "@/services/courseCards";
 import type { ActiveCrn } from "@/services/portalLists";
-import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
+import { ALL_COHORTS, EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import { REQUEST_COLUMNS, asNumber, buildTimetableWorkbook, groupLabelsOf, hoursColumn, parallelNote, requestSheets, sectionName, semesterLabel, sheetPrefix, sheetTitle, shortSemester, splitCourseCode, teacherHours } from "@/services/timetableExport";
 
 const FYS: CohortCatalogue = {
@@ -230,5 +230,26 @@ describe("groups that must run in parallel", () => {
     ] as never;
     const labelOf = groupLabelsOf(cards);
     expect([labelOf("g2"), labelOf("g3"), labelOf("nope")]).toEqual(["TD 2", "PHIL-TD 1", ""]);
+  });
+});
+
+describe("All cohorts' sheet", () => {
+  it("comes after the years', is called ALL, and is every degree's", () => {
+    const languages: CohortCatalogue = {
+      cohort: { id: ALL_COHORTS, name: "All cohorts", term: "" },
+      scopes: [
+        {
+          id: "s-lang", code: "LANG", name: "Languages", note: "", termId: "term-1", kind: "shared", parentScopeId: "", openToAll: true,
+          courses: [{ id: "fr", code: "SCEN-101", name: "Languages", component: "TD", request: EMPTY_REQUEST }],
+          groups: [{ id: "a1", label: "A1-G1", capacity: 30, note: "", parentGroupId: "", assigned: 20, crns: { fr: { ...EMPTY_SECTION, crn: "23302" } } }],
+        },
+      ],
+    };
+    const cards = buildCards([languages, FYS], termName);
+
+    const sheets = requestSheets(cards, "term-1", "Semester 1", () => "Foundation Year for Sciences", nameOf);
+
+    expect(sheets.map((sheet) => sheet.title)).toEqual(["FY-S1", "ALL-S1"]);
+    expect(sheets[1].rows[0].degree).toBe("All cohorts");
   });
 });

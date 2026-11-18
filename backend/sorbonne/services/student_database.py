@@ -61,8 +61,30 @@ SECTION_FIELDS = (
 )
 
 
+#: The sets every cohort's students are placed in — the languages — and nobody's cohort.
+#:
+#: LANG sat on Foundation Year's row, so it went where FYS went: deleting FYS on 9 Nov 2026
+#: took every student's French group, and every page that read a class's cohort off its set
+#: called a first year's language class FYS's. It belongs here now, a row of its own that
+#: holds sets and never students. A set is open to every cohort exactly when it is this
+#: row's (migration 0099).
+ALL_COHORTS = "all-cohorts"
+ALL_COHORTS_NAME = "All cohorts"
+
+
 class CohortNotFound(Exception):
     pass
+
+
+class NotACohortOfStudents(ValueError):
+    """Something only a cohort of students can do, asked of All cohorts, said in words."""
+
+
+def _of_students(cohort_id: str, what: str) -> None:
+    if cohort_id == ALL_COHORTS:
+        raise NotACohortOfStudents(
+            f"{ALL_COHORTS_NAME} holds the sets every cohort shares, never students, so it cannot {what}."
+        )
 
 
 class InvalidCohortMove(ValueError):
@@ -76,6 +98,12 @@ _HELD_TERMS = """SELECT term_id FROM cohort_members WHERE cohort_id = :id AND te
                  UNION SELECT term_id FROM cohort_scopes WHERE cohort_id = :id AND term_id <> :term
                  UNION SELECT s.term_id FROM group_assignments a JOIN cohort_scopes s ON s.id = a.scope_id
                         WHERE a.cohort_id = :id AND s.term_id <> :term"""
+
+
+# A cohort's placements, as `group_assignments a` — or, for All cohorts, every placement
+# in its sets, whoever's student it is filed under.
+_PLACED_BY = """(a.cohort_id = :id OR (:id = :all AND a.scope_id IN
+                    (SELECT id FROM cohort_scopes WHERE cohort_id = :all)))"""
 
 
 def _held_there(open_to_all: bool) -> str:
@@ -269,7 +297,13 @@ class StudentDatabase:
 
     # --------------------------------------------------------------- cohorts
 
-    def list_cohorts(self) -> list[dict[str, Any]]:
+    def list_cohorts(self, *, with_all: bool = False) -> list[dict[str, Any]]:
+        """The cohorts of students — and All cohorts after them, only when asked for.
+
+        Left out by default, so a page that lists cohorts to count, move or message students
+        never offers one that has none. Group schema and Groups & CRNs ask for it: it is where
+        the languages are set up.
+        """
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
@@ -289,7 +323,8 @@ class StudentDatabase:
                 .mappings()
                 .all()
             )
-        return [_cohort(row) for row in rows]
+        cohorts = [_cohort(row) for row in rows if row["id"] != ALL_COHORTS]
+        return [*cohorts, *[_cohort(row) for row in rows if row["id"] == ALL_COHORTS and with_all]]
 
     def get_cohort(self, cohort_id: str) -> dict[str, Any]:
         with self.engine.connect() as connection:
@@ -365,6 +400,7 @@ class StudentDatabase:
     ) -> dict[str, Any]:
         """Every column as sent — except the Teams channels, which only a caller that names
         them changes, so a caller that never shows them cannot blank them."""
+        _of_students(cohort_id, "be renamed or given majors")
         with self.engine.begin() as connection:
             updated = connection.execute(
                 text("""UPDATE student_cohorts SET name = :name, term = :term, notes = :notes,
@@ -400,6 +436,7 @@ class StudentDatabase:
         students or sets in two semesters is now removed from them one at a time
         (`remove_from_semester`), and deleted only once a single semester is left.
         """
+        _of_students(cohort_id, "be deleted")
         with self.engine.begin() as connection:
             held = sorted(
                 term
@@ -491,6 +528,7 @@ class StudentDatabase:
         then its sets of that semester go, with their groups, CRNs and placements. Other
         semesters keep everything. Answers with what was taken, as `semester_reach` counted.
         """
+        _of_students(cohort_id, "be removed from a semester; remove its sets one by one")
         reach = self.semester_reach(cohort_id, term_id)
         term = reach["termId"]
         with self.engine.connect() as connection:
@@ -518,6 +556,7 @@ class StudentDatabase:
         already in another cohort that semester is left where they are and named: which of
         the two they belong in is a coordinator's call, not this one's.
         """
+        _of_students(cohort_id, "be rolled over; carry its sets instead")
         source, target = _text(from_term), _text(to_term)
         if source == target:
             raise InvalidCohortMove("Roll over into another semester than the one it is from.")
@@ -833,6 +872,8 @@ class StudentDatabase:
         L1 to L2 does not thereby stop being in French A1. They are re-filed under the cohort
         joined, since a placement is filed under the student's own cohort and read by it.
         """
+        if cohort_id is not None:
+            _of_students(cohort_id, "take students")
         wanted = _clean_ids(student_ids)
         if not wanted:
             return 0
@@ -929,13 +970,17 @@ class StudentDatabase:
         return len(present)
 
     def list_members(self, cohort_id: str, term_id: str | None = None) -> list[dict[str, Any]]:
-        """One cohort's students — the same records, narrowed to that cohort, in one semester or any."""
+        """One cohort's students — the same records, narrowed to that cohort, in one semester or any.
+
+        All cohorts holds nobody of its own; its sets take anybody a cohort holds, so its files
+        and its workbook are read against every cohort's students.
+        """
         self.get_cohort(cohort_id)
         return [
             student
             for student in self.list_students()
             if any(
-                cohort["id"] == cohort_id and (term_id is None or cohort["termId"] == term_id)
+                (cohort_id in (ALL_COHORTS, cohort["id"])) and (term_id is None or cohort["termId"] == term_id)
                 for cohort in student["cohorts"]
             )
         ]
@@ -1543,9 +1588,9 @@ class StudentDatabase:
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
-                    text("""SELECT student_id, scope_id, major_id FROM group_assignments
-                            WHERE cohort_id = :id AND major_id <> ''"""),
-                    {"id": cohort_id},
+                    text(f"""SELECT student_id, scope_id, major_id FROM group_assignments a
+                             WHERE {_PLACED_BY} AND major_id <> ''"""),
+                    {"id": cohort_id, "all": ALL_COHORTS},
                 )
                 .mappings()
                 .all()
@@ -1651,6 +1696,17 @@ class StudentDatabase:
             }
         return held
 
+    def all_cohorts_codes(self, term_id: str) -> set[str]:
+        """The codes of All cohorts' sets in this semester, upper-cased: "LANG"."""
+        with self.engine.connect() as connection:
+            return {
+                str(row[0]).upper()
+                for row in connection.execute(
+                    text("SELECT code FROM cohort_scopes WHERE cohort_id = :all AND term_id = :term"),
+                    {"all": ALL_COHORTS, "term": term_id},
+                )
+            }
+
     def group_ids_by_label(self, cohort_id: str, term_id: str) -> dict[str, dict[str, str]]:
         """`{scope code: {group label upper: group id}}`, for naming what a sheet cannot match."""
         with self.engine.connect() as connection:
@@ -1686,6 +1742,15 @@ class StudentDatabase:
                 kind = operation.get("op")
                 if kind == "place":
                     scope_id = self._scope_of_group(connection, operation["groupId"])
+                    filed_under = cohort_id
+                    if self._open_to_all(connection, scope_id):
+                        # Under the student's own cohort, as every other way of placing files
+                        # it: the cohort reads its students' placements by what they are filed under.
+                        filed_under = self._cohorts_of(connection, [operation["studentId"]], scope_id).get(
+                            operation["studentId"], ""
+                        )
+                        if not filed_under:
+                            continue
                     before = self._held_in_scope(connection, scope_id, [operation["studentId"]])
                     connection.execute(
                         text("""INSERT INTO group_assignments
@@ -1697,7 +1762,7 @@ class StudentDatabase:
                                               updated_at = excluded.updated_at,
                                               updated_by = excluded.updated_by"""),
                         {
-                            "cohort": cohort_id,
+                            "cohort": filed_under,
                             "student": operation["studentId"],
                             "scope": scope_id,
                             "group": operation["groupId"],
@@ -1745,17 +1810,34 @@ class StudentDatabase:
         return applied
 
     def student_ids_of(self, cohort_id: str, term_id: str | None = None) -> set[str]:
-        """Who this cohort holds, in one semester or any. The roster is the registrar's, never a spreadsheet's."""
+        """Who this cohort holds, in one semester or any. The roster is the registrar's, never a spreadsheet's.
+
+        All cohorts' sets may hold anybody a cohort holds, so that is who it answers with.
+        """
+        if cohort_id == ALL_COHORTS:
+            with self.engine.connect() as connection:
+                return {
+                    row[0]
+                    for row in connection.execute(
+                        text("""SELECT DISTINCT student_id FROM cohort_members
+                                WHERE CAST(:term AS text) IS NULL OR term_id = :term"""),
+                        {"term": term_id},
+                    )
+                }
         return self.cohort_members(cohort_id, term_id)
 
     def assignments_of(self, cohort_id: str) -> dict[str, dict[str, str]]:
-        """`student id -> {scope id: group id}` for one cohort, for the screens."""
+        """`student id -> {scope id: group id}` for one cohort, for the screens.
+
+        For All cohorts, everybody placed in its sets: a placement is filed under the
+        student's own cohort, and All cohorts has no students to file anything under.
+        """
         with self.engine.connect() as connection:
             rows = (
                 connection.execute(
-                    text("""SELECT student_id, scope_id, group_id FROM group_assignments
-                            WHERE cohort_id = :id"""),
-                    {"id": cohort_id},
+                    text(f"""SELECT student_id, scope_id, group_id FROM group_assignments a
+                             WHERE {_PLACED_BY}"""),
+                    {"id": cohort_id, "all": ALL_COHORTS},
                 )
                 .mappings()
                 .all()
@@ -1867,8 +1949,8 @@ class StudentDatabase:
                 "majorId": row["major_id"],
             }
 
-        # A set open to every cohort sits on ONE cohort's row, so anything that reads a
-        # semester cohort by cohort loses it for everybody else — which is how a student's
+        # A set open to every cohort sits on All cohorts' row (FYS's until 0099), so anything
+        # that reads a semester cohort by cohort loses it for everybody else — which is how a student's
         # language hour came to be checked against the owning cohort's lectures and nobody
         # else's. These are carried separately rather than folded into `scopes`: readiness
         # and resolution must go on seeing a cohort's own sets and only those, or every
@@ -2402,7 +2484,12 @@ class StudentDatabase:
         group_column: str = "",
         column_index: int = 0,
     ) -> str:
+        """A set on a cohort, or on All cohorts. A set asked to be open to every cohort is
+        made on All cohorts whichever cohort asked: open means nobody's cohort's."""
         self.get_cohort(cohort_id)
+        if open_to_all:
+            cohort_id = ALL_COHORTS
+        open_to_all = cohort_id == ALL_COHORTS
         scope_id = str(uuid4())
         with self.engine.begin() as connection:
             if self._scope_id(connection, cohort_id, _text(code), _text(term_id)):
@@ -2457,6 +2544,9 @@ class StudentDatabase:
             )
             if standing and standing != scope_id:
                 raise DuplicateLabel(code)
+            # Open to every cohort is where the set is, not a tick: All cohorts' sets are, and
+            # no cohort's own set is. What the caller sent is not asked.
+            open_to_all = bool(held) and held["cohort_id"] == ALL_COHORTS
             if held:
                 self._shared_set_free(
                     connection, code=code, term_id=held["term_id"] or "", open_to_all=open_to_all, scope_id=scope_id
@@ -2988,14 +3078,15 @@ class StudentDatabase:
         connection.execute(
             text("""INSERT INTO cohort_scopes
                         (id, cohort_id, code, name, note, term_id, tab, group_column,
-                         group_column_index, position)
+                         group_column_index, position, open_to_all)
                     VALUES (:id, :cohort_id, :code, :name, '', :term_id, :tab, :group_column,
                             :group_column_index,
                             (SELECT coalesce(max(position), 0) + 1 FROM cohort_scopes
-                             WHERE cohort_id = :cohort_id))"""),
+                             WHERE cohort_id = :cohort_id), :open_to_all)"""),
             {
                 "id": scope_id,
                 "cohort_id": cohort_id,
+                "open_to_all": cohort_id == ALL_COHORTS,
                 "tab": _text(tab),
                 "group_column": _text(group_column),
                 "group_column_index": int(column_index or 0),
@@ -3634,6 +3725,8 @@ def _cohort(row) -> dict[str, Any]:
     return {
         "id": row["id"],
         "name": row["name"],
+        # All cohorts: the sets every cohort shares, and never a student of its own.
+        "everyone": row["id"] == ALL_COHORTS,
         "term": row["term"],
         "notes": row["notes"],
         # What the cohort expects, as the portal codes it: the majors and terms it spans.

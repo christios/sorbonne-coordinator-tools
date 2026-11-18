@@ -22,7 +22,7 @@ import { DAY_NAMES, formatRoom, parseIsoDate } from "@/services/weekSchedule";
 import { programCode } from "@/services/programmes";
 import { withProgrammeColumn } from "@/services/coursePrograms";
 import { fieldHeld } from "@/services/rosterStore";
-import { fetchAssignmentMajors, fetchAssignments, fetchCourseCards } from "@/services/studentDatabase";
+import { ALL_COHORTS, fetchAssignmentMajors, fetchAssignments, fetchCourseCards } from "@/services/studentDatabase";
 import { fetchTermWeeks } from "@/services/termWeeks";
 import { fetchSessionChanges } from "@/services/sessionChanges";
 import { useRooms } from "@/services/rooms";
@@ -37,7 +37,7 @@ import { fetchTimetableTerms, type TimetableTerm } from "@/services/timetables";
 const widthStart = () => (typeof window !== "undefined" && window.innerWidth < 640 ? 3.5 : WIDTH.start);
 
 /** A section as the filters read it: the entry, and what its cohort, majors, set and classes are. */
-type SectionRow = TimetableEntry & { cohort: string; majors: string[]; subject: string; set: string; rooms: string[]; days: string[] };
+type SectionRow = TimetableEntry & { cohorts: string[]; majors: string[]; subject: string; set: string; rooms: string[]; days: string[] };
 
 /** The subject is the code's first segment: MATH-222 and MATH-351 are one subject. */
 const subjectOf = (code: string) => (code.split("-", 1)[0] || code).toUpperCase();
@@ -53,7 +53,8 @@ const column = (id: string, displayName: string, type: GridColumn<SectionRow>["t
 });
 /** Everything a section can be filtered on, the way a table's columns can. */
 const COLUMNS: GridColumn<SectionRow>[] = [
-  column("cohort", "Cohort", "option", (row) => row.cohort),
+  // Several for a language class: the cohorts whose students sit in it.
+  column("cohort", "Cohort", "multiOption", (row) => row.cohorts),
   column("majors", "Major", "multiOption", (row) => row.majors),
   column("subject", "Subject", "option", (row) => row.subject),
   column("code", "Course", "option", (row) => row.code),
@@ -77,13 +78,17 @@ const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
  * every render, which is what lets the queries keep its answer until theirs change.
  */
 function placedByGroup(reads: { data?: Record<string, Record<string, string>> }[]) {
-  const byGroup = new Map<string, { studentId: string; subRow: string }[]>();
+  // `cohort` is the cohort's place in the reads — the one it is filed under, its own.
+  const byGroup = new Map<string, { studentId: string; subRow: string; cohort: number }[]>();
   for (let index = 0; index < reads.length; index += 2) {
     const subRowsOf = reads[index + 1]?.data ?? {};
     for (const [studentId, byScope] of Object.entries(reads[index].data ?? {})) {
       for (const [scopeId, groupId] of Object.entries(byScope)) {
         const key = `${scopeId}|${groupId}`;
-        byGroup.set(key, [...(byGroup.get(key) ?? []), { studentId, subRow: subRowsOf[studentId]?.[scopeId] ?? "" }]);
+        byGroup.set(key, [
+          ...(byGroup.get(key) ?? []),
+          { studentId, subRow: subRowsOf[studentId]?.[scopeId] ?? "", cohort: index / 2 },
+        ]);
       }
     }
   }
@@ -225,7 +230,12 @@ function SemesterWeek({ layout, term }: { layout: Layout; term: TimetableTerm })
    * group. A section nobody is placed in has no major, and neither does a student this
    * browser holds nothing for.
    */
-  const cohortIds = (catalogues.data ?? []).map((catalogue) => catalogue.cohort.id);
+  // The cohorts of students: All cohorts' placements are each filed under one of them already.
+  const cohortsRead = useMemo(
+    () => (catalogues.data ?? []).map((catalogue) => catalogue.cohort).filter((cohort) => cohort.id !== ALL_COHORTS),
+    [catalogues.data],
+  );
+  const cohortIds = cohortsRead.map((cohort) => cohort.id);
   const placed = useQueries({
     queries: cohortIds.flatMap((cohortId) => [
       { queryKey: ["assignments", cohortId], queryFn: () => fetchAssignments(cohortId), retry: false },
@@ -241,9 +251,15 @@ function SemesterWeek({ layout, term }: { layout: Layout; term: TimetableTerm })
   const { groupOf, cohortOf, majorsOf } = useMemo(() => {
     const majorOf = programmes.data ?? {};
     const groups = new Map<string, string>();
-    const whose = new Map<string, string>();
+    const whose = new Map<string, Set<string>>();
     const majors = new Map<string, Set<string>>();
-    for (const card of buildCards(catalogues.data ?? [], () => "", [])) {
+    const everyCohort = cohortsRead.map((cohort) => cohort.name);
+    /*
+     * Only this semester's sets. The registrar reuses CRN numbers from term to term, so a
+     * Semester 2 section numbered like a Semester 1 language group was called FYS's and
+     * given that group's name.
+     */
+    for (const card of buildCards(catalogues.data ?? [], () => "", []).filter((card) => !card.termId || card.termId === term.id)) {
       for (const set of card.sets) {
         for (const row of set.rows.filter((entry) => teaches(entry)).flatMap((entry) => rowsPerPart(entry))) {
           const crn = row.section?.crn;
@@ -255,14 +271,21 @@ function SemesterWeek({ layout, term }: { layout: Layout; term: TimetableTerm })
           );
           const codes = students.map((student) => programCode(majorOf[student.studentId] ?? "")).filter(Boolean);
           majors.set(crn, new Set([...(majors.get(crn) ?? []), ...codes]));
+          /*
+           * Whose class it is: its set's cohort — or, for All cohorts' sets, the cohorts of
+           * the students in it. A1-G1 is FYS's, L1's, L2's and L3's; a language group nobody
+           * is placed in yet could be anybody's, so it is every cohort's.
+           */
+          const placedCohorts = students.map((student) => cohortsRead[student.cohort]?.name ?? "").filter(Boolean);
+          const these = card.cohortId !== ALL_COHORTS ? [card.cohortName] : placedCohorts.length ? placedCohorts : everyCohort;
+          whose.set(crn, new Set([...(whose.get(crn) ?? []), ...these]));
           if (groups.has(crn)) continue;
           groups.set(crn, `${set.scope.code} ${subRowLabel(row.group.label, row.major?.program ?? "", (row.group.majors ?? []).length)}`.trim());
-          whose.set(crn, card.cohortName);
         }
       }
     }
     return { groupOf: groups, cohortOf: whose, majorsOf: majors };
-  }, [catalogues.data, placed, programmes.data]);
+  }, [catalogues.data, cohortsRead, placed, programmes.data, term.id]);
 
   const all = useMemo<TimetableEntry[]>(() => {
     const crns = held.data?.crns ?? {};
@@ -307,7 +330,7 @@ function SemesterWeek({ layout, term }: { layout: Layout; term: TimetableTerm })
         const classes = classesOf.get(entry.crn) ?? [];
         return {
           ...entry,
-          cohort: cohortOf.get(entry.crn) ?? "",
+          cohorts: [...(cohortOf.get(entry.crn) ?? [])].sort(),
           majors: [...(majorsOf.get(entry.crn) ?? [])].sort(),
           subject: subjectOf(entry.code),
           set: (entry.group ?? "").split(" ", 1)[0] ?? "",
@@ -324,7 +347,7 @@ function SemesterWeek({ layout, term }: { layout: Layout; term: TimetableTerm })
     const words = query.trim().toLowerCase();
     if (!words) return rows;
     return rows.filter((row) =>
-      [row.crn, row.code, row.title, row.staff ?? "", row.group ?? "", row.cohort, ...row.rooms]
+      [row.crn, row.code, row.title, row.staff ?? "", row.group ?? "", ...row.cohorts, ...row.rooms]
         .join(" ")
         .toLowerCase()
         .includes(words),

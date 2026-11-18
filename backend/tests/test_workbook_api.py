@@ -14,15 +14,12 @@ from sqlalchemy import text
 
 from sorbonne.api import student_database as api
 from sorbonne.main import app
-from sorbonne.services.student_database import StudentDatabase
+from sorbonne.services.student_database import ALL_COHORTS, StudentDatabase
 from tests.conftest import TEST_DATABASE_URL
 
 SPREADSHEET = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 TERM = "term-1"
-WORKBOOK = (
-    "/Users/chriscay/Documents/scen-student-platform/sample-data/group-templates/"
-    "FYS-Groups-26-27-S1_filled.xlsx"
-)
+WORKBOOK = "/Users/chriscay/Documents/scen-student-platform/sample-data/group-templates/FYS-Groups-26-27-S1_filled.xlsx"
 
 
 @pytest.fixture
@@ -34,7 +31,7 @@ def database() -> StudentDatabase:
 def empty_shared_tables() -> None:
     with StudentDatabase(TEST_DATABASE_URL).engine.begin() as connection:
         connection.execute(text("DELETE FROM students"))
-        connection.execute(text("DELETE FROM student_cohorts"))
+        connection.execute(text("DELETE FROM student_cohorts WHERE id <> 'all-cohorts'"))  # All cohorts stays: 0099
 
 
 @pytest.fixture
@@ -114,9 +111,7 @@ def test_re_uploading_what_is_already_there_asks_for_nothing(client: TestClient,
     assert again["reference"]["summary"]["unchanged"] > 0
 
 
-def test_a_corrected_crn_shows_both_values_and_is_not_applied_until_ticked(
-    client: TestClient, database, content
-):
+def test_a_corrected_crn_shows_both_values_and_is_not_applied_until_ticked(client: TestClient, database, content):
     cohort = database.create_cohort(name="Foundation Year")
     payload = preview(client, cohort["id"], content).json()
     apply(client, cohort["id"], rows_of(payload))
@@ -252,3 +247,50 @@ def test_the_workbook_cannot_place_somebody_the_cohort_does_not_hold(client, dat
     assert {row["studentId"] for row in payload["rows"]} == {"A00021503", "A00021506"}
     assert payload["summary"]["unknownStudents"] > 0
     assert "A00021503" not in payload["unknownStudents"]
+
+
+# ------------------------------------------------------------ All cohorts (0099)
+#
+# The sample is FYS's and carries no languages, so its RDNS block stands in for them here:
+# a set on All cohorts' row, under a code a cohort's workbook also has.
+
+
+def test_a_cohorts_workbook_leaves_all_cohorts_sets_alone(client: TestClient, database, content):
+    """FYS's workbook used to carry LANG, while LANG was FYS's. Read now, it would offer a
+    second LANG of FYS's own and place FYS's students in it; it says where LANG is instead."""
+    database.add_scope(ALL_COHORTS, code="RDNS", term_id=TERM)
+    cohort = database.create_cohort(name="Foundation Year")
+    seed_students(database, cohort["id"], ["A00021503"])
+
+    payload = preview(client, cohort["id"], content).json()
+
+    assert sorted({block["scopeCode"] for block in payload["reference"]["blocks"]}) == ["CM", "TD"]
+    assert not [row for row in payload["placements"]["rows"] if row.get("scopeCode", "").upper() == "RDNS"]
+    assert "RDNS left alone: it is set up on All cohorts, so import it there." in payload["placements"]["note"]
+
+
+def test_all_cohorts_workbook_files_each_placement_under_the_students_own_cohort(client: TestClient, database, content):
+    """All cohorts holds no students, so who its sets may hold is anybody a cohort holds that
+    semester — and each placement is filed under that student's cohort, which is how the
+    cohort reads it back."""
+    fys = database.create_cohort(name="Foundation Year")
+    first = preview(client, ALL_COHORTS, content).json()
+    apply(client, ALL_COHORTS, [row for row in rows_of(first) if row.get("scopeCode", "").upper() == "RDNS"])
+    seed_students(database, fys["id"], ["A00021503"])
+
+    payload = preview(client, ALL_COHORTS, content).json()
+    rdns = [
+        row
+        for row in payload["placements"]["rows"]
+        if row["studentId"] == "A00021503" and row.get("scopeCode", "").upper() == "RDNS"
+    ]
+    assert rdns
+    apply(client, ALL_COHORTS, rdns[:1])
+
+    with database.engine.connect() as connection:
+        owner, open_to_all = connection.execute(
+            text("SELECT cohort_id, open_to_all FROM cohort_scopes WHERE code = 'RDNS' AND term_id = :t"), {"t": TERM}
+        ).one()
+    assert (owner, open_to_all) == (ALL_COHORTS, True)
+    assert database.assignments_of(fys["id"])["A00021503"]
+    assert database.assignments_of(ALL_COHORTS)["A00021503"]

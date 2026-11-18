@@ -286,3 +286,37 @@ describe("choosing a sub-row's major", () => {
     expect(everywhere).not.toHaveBeenCalled();
   });
 });
+
+describe("the languages, on All cohorts", () => {
+  const lang = {
+    id: "s-lang", code: "LANG", name: "Languages", note: "", termId: "term-1", kind: "shared",
+    parentScopeId: "", openToAll: true, cohortId: database.ALL_COHORTS,
+    courses: [{ id: "fr", code: "SCEN-101", name: "French", component: "TD", request: database.EMPTY_REQUEST }],
+    groups: [{ id: "a1", label: "A1-G1", capacity: 30, note: "", program: "", parentGroupId: "", assigned: 22, crns: {}, majors: [] }],
+  };
+  const everyone = cohort({ id: database.ALL_COHORTS, name: "All cohorts", everyone: true, term: "" });
+
+  it("are shown on a cohort's page to read, with the way to where they are changed", async () => {
+    vi.spyOn(portal, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    const read = vi.spyOn(database, "fetchCatalogue").mockImplementation(async (cohortId) =>
+      cohortId === database.ALL_COHORTS
+        ? ({ scopes: [lang] } as unknown as { scopes: database.CatalogueScope[] })
+        : ({ scopes: [...catalogue([]).scopes, lang] } as unknown as { scopes: database.CatalogueScope[] }),
+    );
+    shown([cohort(), everyone]);
+
+    fireEvent.click(await screen.findByRole("button", { name: /LANG/ }));
+    // To read: no tick, no bin, and the editing happens elsewhere.
+    expect(await screen.findByText(/belongs to none of them/)).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "Open to every cohort" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove LANG" })).toBeNull();
+    // Nor counted in L1's totals: 1 set, its own.
+    expect(screen.getByText(/^1 set · /)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Edit on All cohorts/ }));
+
+    await waitFor(() => expect(read).toHaveBeenCalledWith(database.ALL_COHORTS, "term-1"));
+    expect(await screen.findByRole("button", { name: "Remove LANG" })).toBeTruthy();
+    expect(screen.getByText("Open to every cohort")).toBeTruthy();
+  });
+});

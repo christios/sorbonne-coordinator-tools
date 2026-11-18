@@ -289,7 +289,11 @@ def classes_from_groups(  # noqa: PLR0913 - one argument per table Groups & CRNs
     CRN changes, and its places, which is how the calendar tells which classes may share
     students: the cohort, the set (and the set it is nested in), the group and its parents.
     """
-    cohorts_of_semester = sorted({scope["cohort_name"] for scope in scopes})
+    # The cohorts of students: All cohorts holds the shared sets and nobody of its own, so it
+    # is not one of them — unless it is all the semester has yet.
+    cohorts_of_semester = sorted({scope["cohort_name"] for scope in scopes if not scope["open_to_all"]}) or sorted(
+        {scope["cohort_name"] for scope in scopes}
+    )
     by_scope: dict[str, list[Any]] = {}
     for course in courses:
         by_scope.setdefault(course["scope_id"], []).append(course)

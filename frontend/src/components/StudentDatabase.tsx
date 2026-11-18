@@ -33,7 +33,7 @@ import { ViewBar } from "@/components/ViewBar";
 import { usePageState } from "@/components/usePageState";
 import { useRemembered } from "@/components/useRemembered";
 import { detailFromLocation, locationFor, pageFromLocation, type SettingsSection } from "@/routes/toolRoute";
-import { fetchCohorts, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
+import { fetchCohorts, fetchCohortsWithAll, fetchDiscrepancyRules, fetchStudents, fetchViews } from "@/services/studentDatabase";
 import { fetchTimetableStatus } from "@/services/timetables";
 import { SCHEMA_TERM } from "@/services/remembered";
 
@@ -239,6 +239,12 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
   const [page, setPage] = useState<PageId>(
     () => movedWeek(pageOf(window.location.hash), detailFromLocation(window.location.hash)).page,
   );
+  // And All cohorts after them, for the two pages the shared sets are set up on.
+  const withAll = useQuery({
+    queryKey: ["cohorts", "with-all"],
+    queryFn: fetchCohortsWithAll,
+    enabled: page === "group-schema" || page === "groups",
+  });
   /*
    * And what is open WITHIN the page — the week of one semester, say.
    *
@@ -390,6 +396,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
   }, [client, viewId]);
 
   const knownCohorts = cohorts.data ?? [];
+  const settingUp = withAll.data ?? knownCohorts;
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -514,11 +521,11 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
           {page === "teacher-preferences" ? <TeacherWishesPage header={pageHeader} /> : null}
           {page === "hour-reductions" ? <HourReductionsPage /> : null}
           {page === "part-time-teachers" ? <TeacherDatabase header={pageHeader} /> : null}
-          {page === "group-schema" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
-          {page === "group-schema" && !cohorts.isLoading ? (
-            <GroupSchema cohorts={knownCohorts} onOpenGroups={() => openPage("groups")} />
+          {page === "group-schema" && withAll.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
+          {page === "group-schema" && !withAll.isLoading ? (
+            <GroupSchema cohorts={settingUp} onOpenGroups={() => openPage("groups")} />
           ) : null}
-          {page === "groups" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
+          {page === "groups" && withAll.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
           {page === "cohorts" && !cohorts.isLoading ? (
             <CohortsPage cohorts={knownCohorts} focus={cohortFocus} onFocusTaken={() => setCohortFocus(null)} />
           ) : null}
@@ -526,9 +533,9 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
             <DiscrepancyRulesEditor open={sharedRulesOpen} scope={{ kind: "shared" }} onClose={() => setSharedRulesOpen(false)} />
           ) : null}
           {page === "cohorts" && cohorts.isLoading ? <ScreenLoading label="Loading cohorts…" /> : null}
-          {page === "groups" && !cohorts.isLoading ? (
+          {page === "groups" && !withAll.isLoading ? (
             <CourseCards
-              cohorts={knownCohorts}
+              cohorts={settingUp}
               header={pageHeader}
               onShowStudents={(ids: string[]) => {
                 setPreselect(ids);

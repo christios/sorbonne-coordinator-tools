@@ -22,16 +22,26 @@ import {
   type ActiveCrn,
   type ActiveTeacher,
 } from "@/services/portalLists";
-import { requisitionCheck } from "@/services/requisitionCheck";
+import { requisitionCheck, semesterContract, semesterDaysOf } from "@/services/requisitionCheck";
 import { teacherTimetable } from "@/services/personTimetable";
 import { requisitionHours, totalAdminHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
-import { type BookedHours, bookedHoursOf, portalShareOf, registrarHoursFor, sameTeacher, sectionsTaughtBy } from "@/services/teacherLoad";
+import {
+  type BookedHours,
+  type TaughtSection,
+  bookedHoursOf,
+  portalShareOf,
+  registrarHoursFor,
+  sameTeacher,
+  sectionsTaughtBy,
+} from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
+import { fetchPlans } from "@/services/semesterPlans";
 import { semesterAsItWent } from "@/services/teacherHoursRows";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
+import { useGroupCohorts } from "@/services/groupCohorts";
 
 /**
  * Enough of a teacher to open their record.
@@ -136,9 +146,10 @@ export function TeacherRecord({
     () => buildCards(catalogues.data ?? [], termName, courses.data ?? [], parentOf),
     [catalogues.data, terms.data, courses.data, parentOf], // eslint-disable-line react-hooks/exhaustive-deps
   );
+  const groupCohorts = useGroupCohorts(open);
   const sections = useMemo(
-    () => sectionsTaughtBy(cards, held?.id ?? teacher.id ?? "", teacher.fullName),
-    [cards, held, teacher.id, teacher.fullName],
+    () => sectionsTaughtBy(cards, held?.id ?? teacher.id ?? "", teacher.fullName, groupCohorts),
+    [cards, held, teacher.id, teacher.fullName, groupCohorts],
   );
 
   /*
@@ -164,13 +175,29 @@ export function TeacherRecord({
       requisitionsLoading: reads.some((read) => read.isLoading),
     }),
   });
-  const contracted = requisitionHours(requisitions);
+
+  /*
+   * The tiles, and the requisition held against the planning, are the semester chosen in
+   * the header's, as Actual teaching hours always was. With Semester 2 planned, the year's
+   * hours (Bilal Maaz's 110) stood beside one semester's portal hours and requisition (50).
+   * A requisition names no semester: it is the one its contract dates overlap.
+   */
+  const { semester, term: semesterTerm } = usePortalSemester();
+  const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans, enabled: open, retry: false });
+  const semesterDays = useMemo(
+    () => semesterDaysOf(plans.data ?? [], semester ? { id: semester.id, termCode: semesterTerm } : null),
+    [plans.data, semester, semesterTerm],
+  );
+  const contract = semester
+    ? semesterContract(sections, requisitions, semesterDays, semester.id)
+    : { requisitions, runsPast: [], warnings: requisitionCheck(sections, requisitions) };
+  const contracted = requisitionHours(contract.requisitions);
   // Paid on the same requisitions and never taught, so said beside the teaching, not in it.
-  const admin = requisitions.reduce((sum, requisition) => sum + totalAdminHours(requisition.content), 0);
+  const admin = contract.requisitions.reduce((sum, requisition) => sum + totalAdminHours(requisition.content), 0);
   // The contract against the cards, both ways — only once every requisition has been read,
   // or a course still loading would read as one the requisition never paid for.
-  const contractRead = Boolean(partTimeId) && !requisitionList.isLoading && !requisitionsLoading;
-  const contractWarnings = contractRead && requisitions.length ? requisitionCheck(sections, requisitions) : [];
+  const contractRead = Boolean(partTimeId) && !requisitionList.isLoading && !requisitionsLoading && !plans.isLoading;
+  const contractWarnings = contractRead && requisitions.length ? contract.warnings : [];
 
   /*
    * When they teach, from the registrar's sweep.
@@ -220,7 +247,8 @@ export function TeacherRecord({
   );
   const mine = timetable.filter((entry) => !entry.standingIn);
   const ownCrns = new Set(mine.map((entry) => entry.crn));
-  const termCodes = [...new Set(mine.map((entry) => entry.termCode).filter(Boolean))];
+  // The header's semester's too, for the tile: the portal may book them where we plan nothing.
+  const termCodes = [...new Set([...mine.map((entry) => entry.termCode), semesterTerm].filter(Boolean))];
   const concerning = notes.filter(
     (note) =>
       ownCrns.has(note.crn) ||
@@ -228,7 +256,7 @@ export function TeacherRecord({
   );
   const adjusted = adjustmentsFor(notes, me, ownCrns, sameTeacher);
   // The registrar's count of their teaching, beside ours in the tiles. No warning on it.
-  const { registrarHours, booked } = useQueries({
+  const { registrarByTerm, booked } = useQueries({
     queries: termCodes.map((termCode) => ({
       queryKey: ["facility-hours", termCode],
       queryFn: () => fetchFacilityHours(termCode),
@@ -236,7 +264,9 @@ export function TeacherRecord({
       retry: false,
     })),
     combine: (reads) => ({
-      registrarHours: reads.reduce((sum, read) => sum + registrarHoursFor(read.data ?? {}, teacher.fullName, sameTeacher), 0),
+      registrarByTerm: new Map(
+        reads.map((read, index) => [termCodes[index], registrarHoursFor(read.data ?? {}, teacher.fullName, sameTeacher)] as const),
+      ),
       /*
        * And per section, for the table: `term|crn -> their hours on it`, with the terms that have
        * answered at all, so a section the registrar has no timetable for can be told from
@@ -264,10 +294,9 @@ export function TeacherRecord({
     .join(" · ");
   /*
    * What they actually taught in the semester chosen in the header: the figure their row on
-   * Teacher hours shows in its Total column, worked out the same way. One semester's, where
-   * the tiles beside it are the year's, so the line under it says which and how it is made.
+   * Teacher hours shows in its Total column, worked out the same way. The line under it
+   * says how it is made.
    */
-  const { semester, term: semesterTerm } = usePortalSemester();
   const cohorts = useQuery({ queryKey: ["cohorts"], queryFn: fetchCohorts, enabled: open });
   const semesterNotes = useQuery({
     queryKey: ["session-changes", semesterTerm],
@@ -287,22 +316,32 @@ export function TeacherRecord({
   const wentSaid = !semester
     ? "no semester chosen"
     : readingSemester
-      ? `reading ${semester.name}…`
+      ? "reading the semester…"
       : !went
-        ? `nothing in ${semester.name}`
+        ? "nothing this semester"
         : went.cancelled || went.coveredByOthers || went.coveredForOthers
           ? [
-              `${semester.name}: ${round(went.planned)} h planned`,
+              `${round(went.planned)} h planned`,
               went.cancelled ? `−${round(went.cancelled)} h cancelled` : "",
               went.coveredByOthers ? `−${round(went.coveredByOthers)} h covered by others` : "",
               went.coveredForOthers ? `+${round(went.coveredForOthers)} h covered for others` : "",
             ]
               .filter(Boolean)
               .join(" · ")
-          : `${semester.name}, as planned`;
+          : "as planned";
   const inRegister = (crn: string) => (registered.data ?? []).find((row) => row.crn === crn) ?? null;
-  const hours = live.reduce((sum, section) => sum + (Number(section.hours) || 0), 0);
-  const students = live.reduce((sum, section) => sum + section.students, 0);
+  // The tiles' sections: the header's semester's, or every one while no semester is chosen.
+  const sectionsHere = semester ? sections.filter((section) => section.termId === semester.id) : sections;
+  const liveHere = sectionsHere.filter((section) => !section.retired);
+  const hoursOf = (list: TaughtSection[]) => round(list.reduce((sum, section) => sum + (Number(section.hours) || 0), 0));
+  const hours = hoursOf(liveHere);
+  const yearHours = hoursOf(live);
+  const students = liveHere.reduce((sum, section) => sum + section.students, 0);
+  const registrarHours = semester
+    ? (registrarByTerm.get(semesterTerm) ?? 0)
+    : [...registrarByTerm.values()].reduce((sum, value) => sum + value, 0);
+  // Said only where there is something to say: a semester with nothing planned or paid is no news.
+  const contractShown = contractRead && requisitions.length > 0 && (contract.requisitions.length > 0 || liveHere.length > 0);
   const facts = held ?? teacher;
 
   return (
@@ -317,28 +356,41 @@ export function TeacherRecord({
         * Three counts of the same teaching, side by side: what our planning asks for, what
         * the registrar has booked, and what the contract pays for. A comparison, not a
         * verdict — hours move during a semester — but one that used to take three pages.
-        * Beside the plan, what it came to in the header's semester once classes were
-        * cancelled or covered: the Total on their Teacher hours row.
+        * Beside the plan, what it came to once classes were cancelled or covered: the Total
+        * on their Teacher hours row. Every tile is the header's semester's, said once above
+        * them; the plan says the year's beside it when the year holds more.
         *
-        * The pill on each label says where its number comes from, so the two hours tiles
-        * carry no line underneath saying it again; the others keep theirs, which are figures.
+        * The pill on each label says where its number comes from, so the hours tiles carry
+        * no line underneath saying it again; a line under one is a figure.
         */}
       {/*
         * Two to a row on a phone, where one each made five screens-widths of tiles to
         * scroll past before the week. The requisition tile, whose line underneath is the
         * longest, goes last there and takes the row.
         */}
+      {semester ? (
+        <p className="mb-2 text-xs text-[#667085]">
+          <span className="font-semibold text-[#344054]">{semester.name}</span>, the semester chosen in the page header.
+          What they teach, further down, lists every semester.
+        </p>
+      ) : null}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Sections</p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{live.length}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Sections">{liveHere.length}</p>
           <p className="mt-0.5 text-xs text-[#98a2b3]">
-            {sections.length > live.length ? `${sections.length - live.length} more retired` : "this year"}
+            {[
+              sectionsHere.length > liveHere.length ? `${sectionsHere.length - liveHere.length} more retired` : "",
+              semester && live.length > liveHere.length ? `${live.length - liveHere.length} more in other semesters` : "",
+            ]
+              .filter(Boolean)
+              .join(" · ") || (semester ? "this semester" : "this year")}
           </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours <SourceMark source="planning" /></p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{hours || "—"}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Planned hours">{hours || "—"}</p>
+          {semester && yearHours !== hours ? <p className="mt-0.5 text-xs text-[#98a2b3]">{yearHours} h over the year</p> : null}
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3 max-sm:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Actual teaching hours <SourceMark source="planning" /></p>
@@ -349,7 +401,7 @@ export function TeacherRecord({
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Portal hours <SourceMark source="registrar" /></p>
-          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]">{registrarHours || "—"}</p>
+          <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Portal hours">{round(registrarHours) || "—"}</p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3 max-sm:order-last max-sm:col-span-2">
           <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Requisition teaching hours <SourceMark source="part-time" /></p>
@@ -359,14 +411,21 @@ export function TeacherRecord({
           <p className="mt-0.5 text-xs text-[#98a2b3]">
             {!partTimeId
               ? "not a part-time teacher"
-              : requisitionList.isLoading || requisitionsLoading
+              : requisitionList.isLoading || requisitionsLoading || plans.isLoading
                 ? "reading the requisitions…"
                 : contracted.byLabel.length
                   ? [
-                      ...contracted.byLabel.map((entry) => `${entry.label}: ${entry.hours} h`),
+                      ...contracted.byLabel.map(
+                        (entry, index) =>
+                          `${entry.label}: ${entry.hours} h${
+                            contract.runsPast.includes(contract.requisitions[index]) ? ", for more than this semester" : ""
+                          }`,
+                      ),
                       ...(admin ? [`and ${Math.round(admin * 1000) / 1000} h of admin`] : []),
                     ].join(" · ")
-                  : "no requisition yet"}
+                  : semester && requisitions.length
+                    ? `none for ${semester.name} yet`
+                    : "no requisition yet"}
           </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
@@ -383,10 +442,11 @@ export function TeacherRecord({
         * and hours that differ where both name the course. Said only for a part-time
         * teacher with a requisition; the hours tiles above are the comparison for everyone.
         */}
-      {contractRead && requisitions.length ? (
+      {contractShown ? (
         <section className="mt-5" aria-label="Requisition against planning">
           <h4 className="text-sm font-semibold text-[#171717]">
             Requisition against planning <SourceMark source="part-time" /> <SourceMark source="planning" />
+            {semester ? <span className="ml-1.5 text-xs font-normal text-[#98a2b3]">{semester.name}</span> : null}
           </h4>
           {contractWarnings.length === 0 ? (
             <p className="mt-1 text-sm text-[#2f6b3d]">The requisition and the planning name the same courses for the same hours.</p>
@@ -505,11 +565,11 @@ export function TeacherRecord({
                     {section.scopeCode} {section.groupLabel}
                     <span className={`sm:hidden ${section.retired ? "" : "text-[#667085]"}`}>
                       {" "}
-                      · {section.cohortName} · {section.termName || "no semester"}
+                      · {section.cohorts.join(", ")} · {section.termName || "no semester"}
                     </span>
                   </td>
                   <td className={`px-3 py-2 max-sm:hidden ${section.retired ? "" : "text-[#667085]"}`}>
-                    {section.cohortName} · {section.termName || "no semester"}
+                    {section.cohorts.join(", ")} · {section.termName || "no semester"}
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums max-sm:p-0 max-sm:text-xs">
                     <PhoneLabel>CRN</PhoneLabel>
