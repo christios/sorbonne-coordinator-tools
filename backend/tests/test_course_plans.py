@@ -271,3 +271,31 @@ def test_a_plan_outlives_its_course_leaving_the_semesters_list(plans: CoursePlan
 
     phys = _course(plans.semester(TERM), PHYS)
     assert (phys["active"], phys["components"]["CM"]["hours"]) == (False, 20)
+
+
+def test_a_weeks_sessions_may_last_longer_or_shorter_than_usual(client: TestClient):
+    client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"CM": {"hours": 6, "length": 1.5}}, "leadId": LEAD})
+
+    laid = client.put(
+        f"{AT}/{TERM}/{MATH}/weeks",
+        json={
+            "weeks": {"CM": {"1": 1, "2": 1, "3": 1}},
+            # Week 2 is a three-hour session; week 3 said at the usual length, week 5 has none.
+            "lengths": {"CM": {"2": 3, "3": 1.5, "5": 2}},
+        },
+    )
+    assert laid.status_code == status.HTTP_200_OK, laid.text
+    assert laid.json()["lengths"] == {"CM": {"2": 3.0}}
+
+    too_long = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": {"CM": {"2": 1}}, "lengths": {"CM": {"2": 9}}})
+    assert too_long.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "week 2" in too_long.json()["detail"]
+
+    # The lead says it in their request, the same way.
+    code = _invitee(client, LEAD, "valerie@gmail.com")
+    saved = client.put(
+        f"{DOOR}/{code}/course-plans",
+        json={"courses": [{"courseCode": MATH, "weeks": {"CM": {"1": 1, "4": 1}}, "lengths": {"CM": {"4": 4.5}}}]},
+    )
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    assert saved.json()["coursePlans"]["courses"][0]["lengths"] == {"CM": {"4": 4.5}}

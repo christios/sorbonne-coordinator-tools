@@ -6,7 +6,8 @@ One plan per course per semester, shared by every cohort that takes it (user, 18
     each. Coordinators set them; they are the targets, locked for the lead.
   - **lead** — the teacher who leads the course that semester, picked by hand by coordinators.
     Nothing suggests one, not even the CM teacher.
-  - **weeks** — how many sessions of each fall in each teaching week. The lead lays them out
+  - **weeks** — how many sessions of each fall in each teaching week, and the weeks whose
+    sessions last longer or shorter than usual (a three-hour exam session). The lead lays them out
     in the Timetable preferences request (a step of its own, only for leads), or a coordinator
     does for them; a lead who disagrees with a total says so in the note.
 
@@ -41,6 +42,8 @@ LONGEST_SESSION = 8
 MOST_SESSIONS = 7
 NOTE_LENGTH = 2000
 CODE_LENGTH = 40
+#: Two lengths this close are the same one.
+SAME_LENGTH = 0.001
 #: How a lay-out came: the lead through their invitation, or a coordinator for them.
 LEAD, COORDINATOR = "lead", "coordinator"
 _TERM = re.compile(r"^\d{6}$")
@@ -152,6 +155,21 @@ def _layout(raw: object) -> dict[str, dict[str, int]]:
     }
 
 
+def _lengths(raw: object) -> dict[str, dict[str, float]]:
+    """A week's own session length, as kept: {"CM": {"8": 3.0}}; anything unreadable, none."""
+    try:
+        held = json.loads(raw or "{}") if isinstance(raw, str) else raw
+    except ValueError:
+        return {}
+    if not isinstance(held, dict):
+        return {}
+    return {
+        component: {str(week): float(hours) for week, hours in (held.get(component) or {}).items()}
+        for component in COMPONENTS
+        if isinstance(held.get(component), dict) and held.get(component)
+    }
+
+
 def _plan(row: Any, names: dict[str, str]) -> dict[str, Any]:
     """A course's plan for a semester, as every page reads it."""
     return {
@@ -174,6 +192,8 @@ def _plan(row: Any, names: dict[str, str]) -> dict[str, Any]:
         "leadSetAt": row["lead_set_at"] or "",
         "leadSetBy": name_for(row["lead_set_by"]) if row["lead_set_by"] else "",
         "weeks": _layout(row["weeks"]),
+        # Only the weeks whose sessions last other than the component's usual length.
+        "lengths": _lengths(row["lengths"]),
         "note": row["note"] or "",
         "answeredAt": row["answered_at"] or "",
         "answeredBy": (
@@ -194,6 +214,7 @@ _PLANS = """
            coalesce(p.hours_updated_by, '') AS hours_updated_by,
            coalesce(p.lead_id, '') AS lead_id, coalesce(p.lead_set_at, '') AS lead_set_at,
            coalesce(p.lead_set_by, '') AS lead_set_by, coalesce(p.weeks, '{}') AS weeks,
+           coalesce(p.lengths, '{}') AS lengths,
            coalesce(p.note, '') AS note, coalesce(p.answered_at, '') AS answered_at,
            coalesce(p.answered_by, '') AS answered_by, coalesce(p.answer_source, '') AS answer_source
     FROM active_courses a
@@ -342,16 +363,18 @@ class CoursePlans:
         actor: str = "",
         source: str = COORDINATOR,
         lead_id: str = "",
+        lengths: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """How many sessions of each component fall in each teaching week, and the lead's note.
 
         By the lead (`source` "lead", with their `lead_id`) only for a course they lead; by a
         coordinator for anybody's. Only the components the course has hours for are kept: the
-        lead lays out the coordinators' totals, never one of their own.
+        lead lays out the coordinators' totals, never one of their own. A week's sessions may
+        last other than the usual length (`lengths`, hours by week), which the totals count.
         """
         return self.lay_out_all(
             term_code,
-            [{"courseCode": course_code, "weeks": weeks, "note": note}],
+            [{"courseCode": course_code, "weeks": weeks, "note": note, "lengths": lengths or {}}],
             actor=actor,
             source=source,
             lead_id=lead_id,
@@ -379,6 +402,7 @@ class CoursePlans:
                     raise NotTheLead(code)
                 try:
                     layout = self._checked_layout(given.get("weeks") or {}, current, count)
+                    lengths = self._checked_lengths(given.get("lengths") or {}, current, layout)
                 except InvalidCoursePlan as exc:
                     # Said with the course's code when the lead's step sends several.
                     if len(layouts) > 1:
@@ -387,11 +411,12 @@ class CoursePlans:
                 note = given.get("note")
                 self._ensure(connection, term, code)
                 connection.execute(
-                    text("""UPDATE course_plans SET weeks = :weeks, note = :note, answered_at = :at,
+                    text("""UPDATE course_plans SET weeks = :weeks, lengths = :lengths, note = :note, answered_at = :at,
                                 answered_by = :by, answer_source = :source
                             WHERE term_code = :term AND course_code = :code"""),
                     {
                         "weeks": json.dumps(layout),
+                        "lengths": json.dumps(lengths),
                         "note": current["note"] if note is None else _words(note, NOTE_LENGTH),
                         "at": _now(),
                         "by": actor,
@@ -430,3 +455,25 @@ class CoursePlans:
             if kept:
                 layout[component] = dict(sorted(kept.items(), key=lambda item: int(item[0])))
         return layout
+
+    @staticmethod
+    def _checked_lengths(
+        lengths: dict[str, Any], current: dict[str, Any], layout: dict[str, dict[str, int]]
+    ) -> dict[str, dict[str, float]]:
+        """The weeks whose sessions last other than usual: only weeks that have sessions, and only
+        where the length differs from the component's usual one."""
+        kept: dict[str, dict[str, float]] = {}
+        for component, by_week in (lengths or {}).items():
+            if component not in COMPONENTS:
+                raise InvalidCoursePlan(f"A course's sessions are CM, TD or TP, not {component}.")
+            usual = current["components"][component]["length"]
+            for week, hours in (by_week or {}).items():
+                length = _figure(hours, f"A {component} session in week {week}", LONGEST_SESSION)
+                if length is None or str(week) not in layout.get(component, {}):
+                    continue
+                if usual is not None and abs(length - usual) < SAME_LENGTH:
+                    continue
+                kept.setdefault(component, {})[str(int(str(week)))] = length
+        return {
+            component: dict(sorted(weeks.items(), key=lambda item: int(item[0]))) for component, weeks in kept.items()
+        }

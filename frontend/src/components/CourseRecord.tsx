@@ -196,7 +196,7 @@ export function CourseRecord({
           }
         >
           {plan?.active ? (
-            <CoursePlanLines plan={plan} />
+            <CoursePlanLines plan={plan} weeks={plans.data?.weeks ?? []} />
           ) : (
             <Empty>Not active in {semester?.name ?? "this semester"}, so it has no plan here.</Empty>
           )}

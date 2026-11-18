@@ -26,6 +26,9 @@ export type ComponentHours = { hours: number | null; length: number | null };
 /** Sessions per teaching week, by component: `{ TD: { "2": 1, "3": 1 } }`; weeks with none left out. */
 export type Layout = Partial<Record<Component, Record<string, number>>>;
 
+/** The weeks whose sessions last other than the usual length, in hours: `{ CM: { "8": 3 } }`. */
+export type Lengths = Partial<Record<Component, Record<string, number>>>;
+
 export type TeachingWeek = {
   week: number;
   /** "2027-01-11"; "" while the semester's Week 1 is not set. */
@@ -47,6 +50,8 @@ export type CoursePlan = {
   leadSetAt: string;
   leadSetBy: string;
   weeks: Layout;
+  /** Absent from a server older than week lengths: every session then lasts the usual length. */
+  lengths?: Lengths;
   note: string;
   /** When the weeks were last laid out, by whom, and how: by the lead, or a coordinator for them. */
   answeredAt: string;
@@ -100,7 +105,11 @@ export async function changeCoursePlan(term: string, courseCode: string, change:
 }
 
 /** The weeks laid out by a coordinator, for the lead. */
-export async function layOutCourse(term: string, courseCode: string, layout: { weeks: Layout; note: string }): Promise<CoursePlan> {
+export async function layOutCourse(
+  term: string,
+  courseCode: string,
+  layout: { weeks: Layout; lengths: Lengths; note: string },
+): Promise<CoursePlan> {
   return answer(
     await apiFetch(`${BASE}/${encodeURIComponent(term)}/${encodeURIComponent(courseCode)}/weeks`, json("PUT", layout)),
     "The course schedule could not be saved. Try again in a moment.",
@@ -128,9 +137,32 @@ export function laidOut(layout: Layout): boolean {
   return COMPONENTS.some((component) => sessionsOf(layout[component]) > 0);
 }
 
-/** Hours a component's sessions add up to: sessions × one session's length. */
-export function hoursLaidOut(plan: Pick<CoursePlan, "components">, layout: Layout, component: Component): number {
-  return sessionsOf(layout[component]) * (plan.components[component]?.length ?? 0);
+/** How long a component's sessions last in a week: that week's own length, else the usual one. */
+export function lengthIn(plan: Pick<CoursePlan, "components">, lengths: Lengths, component: Component, week: number | string): number {
+  return lengths[component]?.[String(week)] ?? plan.components[component]?.length ?? 0;
+}
+
+/** Hours a component's sessions add up to: each week's sessions × that week's length. */
+export function hoursLaidOut(
+  plan: Pick<CoursePlan, "components">,
+  layout: Layout,
+  component: Component,
+  lengths: Lengths = {},
+): number {
+  return Object.entries(layout[component] ?? {}).reduce(
+    (sum, [week, count]) => sum + (count > 0 ? count * lengthIn(plan, lengths, component, week) : 0),
+    0,
+  );
+}
+
+/** "3 h in week 8 · 1 h in weeks 2, 9": the weeks whose sessions last other than usual. */
+export function lengthWords(byWeek: Record<string, number> | undefined): string {
+  const by = new Map<number, number[]>();
+  for (const [week, hours] of Object.entries(byWeek ?? {})) by.set(hours, [...(by.get(hours) ?? []), Number(week)]);
+  return [...by.entries()]
+    .sort((a, b) => Math.min(...a[1]) - Math.min(...b[1]))
+    .map(([hours, weeks]) => `${figure(hours)} h in ${weeksSaid(weeks.sort((x, y) => x - y)).toLowerCase()}`)
+    .join(" · ");
 }
 
 /**
@@ -183,7 +215,8 @@ export function hoursWords(component: Component, held: ComponentHours): string {
  */
 export function planStanding(plan: CoursePlan): { state: "no-lead" | "waiting" | "answered"; offTarget: Component[] } {
   const offTarget = componentsOf(plan).filter(
-    (component) => Math.abs(hoursLaidOut(plan, plan.weeks, component) - (plan.components[component].hours ?? 0)) > 0.01,
+    (component) =>
+      Math.abs(hoursLaidOut(plan, plan.weeks, component, plan.lengths ?? {}) - (plan.components[component].hours ?? 0)) > 0.01,
   );
   if (plan.answeredAt && laidOut(plan.weeks)) return { state: "answered", offTarget };
   return { state: plan.leadId ? "waiting" : "no-lead", offTarget: [] };
@@ -208,6 +241,8 @@ export type ClassPlan = {
   hours: number;
   length: number;
   weeks: Record<string, number>;
+  /** The weeks whose sessions last other than `length`. */
+  lengths: Record<string, number>;
 };
 
 /** The class's component, when it is one of the three a course plan has. */
@@ -223,7 +258,13 @@ export function classPlanOf(section: PlanSection, byCode: Map<string, CoursePlan
   if (!component || !plan) return null;
   const held = plan.components[component];
   if (!held?.hours || !held.length) return null;
-  return { component, hours: held.hours, length: held.length, weeks: plan.weeks[component] ?? {} };
+  return {
+    component,
+    hours: held.hours,
+    length: held.length,
+    weeks: plan.weeks[component] ?? {},
+    lengths: plan.lengths?.[component] ?? {},
+  };
 }
 
 /**
@@ -279,11 +320,22 @@ export function coursePlanDrift(plan: Plan, byCode: Map<string, CoursePlan>): Ma
     const series = plan.series.filter((one) => one.sectionId === section.id);
     if (!series.length) continue;
     const lines: string[] = [];
-    const lengths = [...new Set(series.map((one) => Math.round(hoursOf(one) * 100) / 100))].filter(
-      (length) => !sameHours(length, classPlan.length),
-    );
-    if (lengths.length) {
-      lines.push(`Sessions of ${lengths.map(figure).join(" and ")} h, not ${figure(classPlan.length)} h`);
+    const laid = sessionsOf(classPlan.weeks) > 0;
+    // Each class against the usual length — but in a week with a length of its own, the week's
+    // hours below say it, and once is enough.
+    const usualWeek = (week: number) => !(String(week) in classPlan.lengths);
+    const lengths = laid
+      ? [
+          ...new Set(
+            plan.classes
+              .filter((entry) => entry.sectionId === section.id && usualWeek(entry.week))
+              .map((entry) => Math.round(hoursOf(entry) * 100) / 100),
+          ),
+        ]
+      : [...new Set(series.map((one) => Math.round(hoursOf(one) * 100) / 100))];
+    const off = lengths.filter((length) => !sameHours(length, classPlan.length));
+    if (off.length) {
+      lines.push(`Sessions of ${off.map(figure).join(" and ")} h, not ${figure(classPlan.length)} h`);
     }
     if (sessionsOf(classPlan.weeks)) {
       const placed = new Map<number, number>();
@@ -294,7 +346,7 @@ export function coursePlanDrift(plan: Plan, byCode: Map<string, CoursePlan>): Ma
       const missing: number[] = [];
       const other: string[] = [];
       for (let week = 1; week <= plan.weeks; week += 1) {
-        const wanted = (classPlan.weeks[String(week)] ?? 0) * classPlan.length;
+        const wanted = (classPlan.weeks[String(week)] ?? 0) * (classPlan.lengths[String(week)] ?? classPlan.length);
         const held = placed.get(week) ?? 0;
         if (sameHours(wanted, held)) continue;
         if (!wanted) extra.push(week);
@@ -307,9 +359,10 @@ export function coursePlanDrift(plan: Plan, byCode: Map<string, CoursePlan>): Ma
     }
     if (!lines.length) continue;
     const when = sessionsOf(classPlan.weeks) ? ` in ${layoutWords(classPlan.weeks).toLowerCase()}` : "";
+    const own = Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : "";
     found.set(section.id, {
       sectionId: section.id,
-      lines: [`Course plan · ${classPlan.component}${when}, sessions of ${figure(classPlan.length)} h`, ...lines],
+      lines: [`Course plan · ${classPlan.component}${when}, sessions of ${figure(classPlan.length)} h${own}`, ...lines],
     });
   }
   return found;

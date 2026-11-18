@@ -6,7 +6,7 @@
  * The SCEN Requests app will do the same for the teachers on its list (stage 3).
  */
 
-import type { CoursePlanSemester, Layout } from "@/services/coursePlans";
+import type { CoursePlanSemester, Layout, Lengths } from "@/services/coursePlans";
 import type { ReductionInput, ReductionSheet } from "@/services/hourReductions";
 import { apiFetch, API_BASE_URL } from "@/services/http";
 import { refusalWords, type AnswerWindow, type WishCalendar, type WishCollection, type Wishes, type WishesInput } from "@/services/teacherWishes";
@@ -121,7 +121,7 @@ export async function saveInviteeReductions(
 /** A course lead's courses, laid out week by week, each with a note for the coordinators. */
 export async function saveInviteeCoursePlans(
   code: string,
-  courses: { courseCode: string; weeks: Layout; note: string }[],
+  courses: { courseCode: string; weeks: Layout; lengths: Lengths; note: string }[],
 ): Promise<InviteeForm> {
   return answer(
     await apiFetch(at(code, "/course-plans"), {

@@ -48,8 +48,18 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
  * What the course plan says of this class, under its weeks — and, amber, where the chosen
  * weeks or length are not what it says. Nothing is refused: it is the coordinator's call.
  */
-function CoursePlanNote({ plan, weeks, minutes }: { plan: { words: string; weeks: number[] | null; length: number }; weeks: number[]; minutes: number }) {
+function CoursePlanNote({
+  plan,
+  weeks,
+  minutes,
+}: {
+  plan: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number> };
+  weeks: number[];
+  minutes: number;
+}) {
   const extra = plan.weeks ? weeks.filter((week) => !plan.weeks?.includes(week)) : [];
+  // Weeks whose sessions last other than usual: a series has one length, so those weeks are changed on their own.
+  const odd = weeks.filter((week) => String(week) in (plan.lengths ?? {}));
   const longer = minutes > 0 && Math.abs(minutes - plan.length * 60) > 0.5;
   return (
     <span className="text-xs text-[#475467]">
@@ -58,6 +68,12 @@ function CoursePlanNote({ plan, weeks, minutes }: { plan: { words: string; weeks
       {longer ? (
         <span className="block font-semibold text-[#8a6116]">
           This class is {Math.round((minutes / 60) * 100) / 100} h; the course plan&rsquo;s sessions are {plan.length} h.
+        </span>
+      ) : null}
+      {odd.length ? (
+        <span className="block font-semibold text-[#8a6116]">
+          {odd.map((week) => `Week ${week}'s session is ${plan.lengths?.[String(week)]} h`).join("; ")}: once placed, change that
+          week&rsquo;s class on its own.
         </span>
       ) : null}
     </span>
@@ -294,7 +310,7 @@ export function PlanClassDialog({
    * The class's share of its course's plan: what it says in words, the weeks it still has
    * sessions for, and one session's length. Offered and compared, never enforced.
    */
-  coursePlan?: { words: string; weeks: number[] | null; length: number } | null;
+  coursePlan?: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number> } | null;
   rooms: string[];
   initial: ClassDraft;
   /** The semester's teachers and their wishes, when wishes are being collected for it. */

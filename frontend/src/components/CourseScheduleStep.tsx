@@ -2,19 +2,13 @@ import { Loader2 } from "lucide-react";
 import { useState } from "react";
 
 import { CourseScheduleGrid } from "@/components/CourseScheduleGrid";
-import {
-  componentsOf,
-  figure,
-  hoursLaidOut,
-  hoursWords,
-  layoutWords,
-  type CoursePlan,
-  type CoursePlanSemester,
-  type Layout,
-} from "@/services/coursePlans";
+import { componentsOf, hoursWords, type CoursePlan, type CoursePlanSemester, type Layout, type Lengths } from "@/services/coursePlans";
 
-/** What the step sends: each course the teacher leads, its weeks and its note. */
-export type CourseLayouts = { courseCode: string; weeks: Layout; note: string }[];
+/** What the step sends: each course the teacher leads, its weeks, the weeks of another length, and its note. */
+export type CourseLayouts = { courseCode: string; weeks: Layout; lengths: Lengths; note: string }[];
+
+type Draft = { weeks: Layout; lengths: Lengths; note: string };
+const EMPTY: Draft = { weeks: {}, lengths: {}, note: "" };
 
 /** "Elements of Calculus" after the code, when the course has a title. */
 const named = (course: Pick<CoursePlan, "courseCode" | "title">) => (course.title ? `${course.courseCode} · ${course.title}` : course.courseCode);
@@ -43,10 +37,12 @@ export function CourseScheduleStep({
   /** On to the preferences without saving: the coordinators see the course as not laid out yet. */
   onSkip?: () => void;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, { weeks: Layout; note: string }>>(() =>
-    Object.fromEntries(step.courses.map((course) => [course.courseCode, { weeks: course.weeks, note: course.note }])),
+  const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
+    Object.fromEntries(
+      step.courses.map((course) => [course.courseCode, { weeks: course.weeks, lengths: course.lengths ?? {}, note: course.note }]),
+    ),
   );
-  const change = (code: string, patch: Partial<{ weeks: Layout; note: string }>) =>
+  const change = (code: string, patch: Partial<Draft>) =>
     setDrafts((current) => ({ ...current, [code]: { ...current[code], ...patch } }));
   const many = step.courses.length > 1;
 
@@ -71,7 +67,7 @@ export function CourseScheduleStep({
       ) : null}
 
       {step.courses.map((course) => {
-        const draft = drafts[course.courseCode] ?? { weeks: {}, note: "" };
+        const draft = drafts[course.courseCode] ?? EMPTY;
         const components = componentsOf(course);
         return (
           <section key={course.courseCode} aria-label={course.courseCode} className="space-y-3 rounded-lg border border-[#d0d5dd] px-3 py-3 sm:px-4">
@@ -92,9 +88,9 @@ export function CourseScheduleStep({
               <CourseScheduleGrid
                 plan={course}
                 weeks={step.weeks}
-                layout={draft.weeks}
+                value={draft}
                 label={`${course.courseCode} sessions week by week`}
-                onChange={(weeks) => change(course.courseCode, { weeks })}
+                onChange={(next) => change(course.courseCode, next)}
               />
             ) : null}
             <label className="block text-sm font-semibold text-[#344054]">
@@ -128,7 +124,7 @@ export function CourseScheduleStep({
           type="button"
           disabled={busy}
           onClick={() =>
-            onSave(step.courses.map((course) => ({ courseCode: course.courseCode, ...(drafts[course.courseCode] ?? { weeks: {}, note: "" }) })))
+            onSave(step.courses.map((course) => ({ courseCode: course.courseCode, ...(drafts[course.courseCode] ?? EMPTY) })))
           }
           className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
@@ -137,53 +133,5 @@ export function CourseScheduleStep({
         </button>
       </div>
     </div>
-  );
-}
-
-/** One course's weeks in a line per component: "TD · Weeks 2–14 · 21 of 21 h". */
-export function CourseLayoutLines({ course }: { course: CoursePlan }) {
-  const components = componentsOf(course);
-  if (!components.length) return <p className="text-sm text-[#667085]">No hours set yet.</p>;
-  return (
-    <ul className="space-y-0.5 text-sm text-[#344054]">
-      {components.map((component) => {
-        const done = hoursLaidOut(course, course.weeks, component);
-        const target = course.components[component].hours ?? 0;
-        const met = Math.abs(done - target) < 0.01;
-        return (
-          <li key={component}>
-            <b>{component}</b> · {layoutWords(course.weeks[component])} ·{" "}
-            <span className={met ? "text-[#2e7d55]" : "font-semibold text-[#8a6116]"}>
-              {figure(done)} of {figure(target)} h
-            </span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/** The courses as laid out, to read: what was sent, with a way back to the step. */
-export function CourseScheduleSummary({ step, onChange }: { step: CoursePlanSemester; onChange?: () => void }) {
-  return (
-    <section className="rounded-lg border border-[#d0d5dd] px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-[#171717]">{step.courses.length > 1 ? "Your courses, week by week" : "Your course, week by week"}</h3>
-        {onChange ? (
-          <button type="button" onClick={onChange} className="text-xs font-semibold text-[#1f4e79] underline">
-            Change
-          </button>
-        ) : null}
-      </div>
-      <div className="mt-1.5 space-y-2">
-        {step.courses.map((course) => (
-          <div key={course.courseCode}>
-            <p className="text-sm font-semibold text-[#344054]">{named(course)}</p>
-            {course.answeredAt ? <CourseLayoutLines course={course} /> : <p className="text-sm text-[#667085]">Not laid out yet.</p>}
-            {course.note ? <p className="mt-0.5 text-sm italic text-[#475467]">&ldquo;{course.note}&rdquo;</p> : null}
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }

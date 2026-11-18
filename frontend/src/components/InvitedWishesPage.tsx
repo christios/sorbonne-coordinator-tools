@@ -3,13 +3,16 @@ import { CalendarClock, CalendarHeart, Check, CheckCircle2, Loader2, Lock, LogOu
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-import { CourseScheduleStep, CourseScheduleSummary, type CourseLayouts } from "@/components/CourseScheduleStep";
-import { ReductionsStep, ReductionsSummary } from "@/components/ReductionsStep";
+import { CourseScheduleStep, type CourseLayouts } from "@/components/CourseScheduleStep";
+import { ReductionsStep } from "@/components/ReductionsStep";
+import { CourseScheduleSummaryBody, ReductionsSummaryBody, SummaryCard, SummaryIntro } from "@/components/RequestSummary";
 import { MicrosoftButton } from "@/components/MicrosoftButton";
 import { GoogleButton } from "@/components/SignInGate";
 import { WishesForm } from "@/components/WishesForm";
 import { WishesSummary } from "@/components/WishesSummary";
 import { fetchSignInConfig } from "@/services/auth";
+import { componentsOf, laidOut, type CoursePlan } from "@/services/coursePlans";
+import { yearWords } from "@/services/hourReductions";
 import type { Wishes, WishesInput } from "@/services/teacherWishes";
 import {
   InviteRefused,
@@ -24,6 +27,9 @@ import {
   signOutInvitee,
   type InviteeForm,
 } from "@/services/wishInvite";
+
+/** A course needs nothing more from its lead: its weeks are laid out, or it has no hours to lay out. */
+const courseDone = (course: CoursePlan) => laidOut(course.weeks) || !componentsOf(course).length;
 
 /** The steps of the request: a full-timer's reductions, a course lead's courses, the form. */
 type Step = "reductions" | "courses" | "preferences";
@@ -248,7 +254,9 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const answerBy = open.reopenedUntil && open.deadline && open.reopenedUntil > open.deadline ? open.reopenedUntil : open.deadline;
   const reductions = data.reductions ?? null;
   const courses = data.coursePlans ?? null;
-  const coursesDone = !courses || courses.courses.every((course) => course.answeredAt);
+  // Done once every course with hours has weeks laid out: a course saved empty is still to do,
+  // and one the coordinators gave no hours to has nothing to do.
+  const coursesDone = !courses || courses.courses.every((course) => courseDone(course));
   // The steps this teacher has: a full-timer's hour reductions, a course lead's courses, then the form.
   const steps: [Step, string][] = [];
   if (reductions) steps.push(["reductions", "Hour reductions"]);
@@ -271,11 +279,13 @@ export function InvitedWishesPage({ code }: { code: string }) {
     setEditing(true);
     document.querySelector("main")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   };
-  // Straight to the course step, from wherever the page says it is still to do.
-  const layOutCourses = () => {
+  // Back into one step of the request, from its card in the summary.
+  const changeTo = (to: Step) => {
     changeAnswer();
-    setStep("courses");
+    setStep(to);
   };
+  // Straight to the course step, from wherever the page says it is still to do.
+  const layOutCourses = () => changeTo("courses");
   // The answer as sent, while it can still change: "Change my answer" floats at the foot of the
   // window, where the Guided tour button sits while answering (18 Nov 2026).
   const canChange = Boolean(collection) && open.open && Boolean(data.wishes) && !answering;
@@ -469,43 +479,40 @@ export function InvitedWishesPage({ code }: { code: string }) {
           </>
         ) : data.wishes ? (
           <>
-            {saved === "submitted" ? <h3 className="mb-3 text-base font-semibold text-[#171717]">What you sent</h3> : null}
-            {reductions ? (
-              <div className="mb-4">
-                <ReductionsSummary
-                  sheet={reductions}
-                  onChange={
-                    open.open
-                      ? () => {
-                          changeAnswer();
-                          setStep("reductions");
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            ) : null}
-            {courses ? (
-              <div className="mb-4">
-                <CourseScheduleSummary
-                  step={courses}
-                  onChange={
-                    open.open
-                      ? () => {
-                          changeAnswer();
-                          setStep("courses");
-                        }
-                      : undefined
-                  }
-                />
-              </div>
-            ) : null}
-            <WishesSummary
-              name={data.teacherName}
-              collection={collection}
-              wishes={data.wishes}
-              voice="you"
-            />
+            {/*
+              * The answer read back, said to be a summary of the whole request (18 Nov 2026), each
+              * part a card numbered as its step was, with its own Change while the window is open.
+              */}
+            <SummaryIntro semesterName={data.semesterName} open={open.open} />
+            <div className="grid grid-cols-1 gap-4">
+              {steps.map(([key, label], index) =>
+                key === "reductions" && reductions ? (
+                  <SummaryCard
+                    key={key}
+                    number={index + 1}
+                    title={label}
+                    aside={yearWords(reductions.year)}
+                    onChange={open.open ? () => changeTo("reductions") : undefined}
+                  >
+                    <ReductionsSummaryBody sheet={reductions} />
+                  </SummaryCard>
+                ) : key === "courses" && courses ? (
+                  <SummaryCard
+                    key={key}
+                    number={index + 1}
+                    title={label}
+                    aside={`${courses.courses.filter((course) => laidOut(course.weeks)).length} of ${courses.courses.length} laid out`}
+                    onChange={open.open ? () => changeTo("courses") : undefined}
+                  >
+                    <CourseScheduleSummaryBody step={courses} />
+                  </SummaryCard>
+                ) : key === "preferences" && data.wishes ? (
+                  <SummaryCard key={key} number={index + 1} title={label} onChange={open.open ? () => changeTo("preferences") : undefined}>
+                    <WishesSummary name={data.teacherName} collection={collection} wishes={data.wishes} voice="you" />
+                  </SummaryCard>
+                ) : null,
+              )}
+            </div>
           </>
         ) : (
           <p className="text-sm text-[#667085]">The deadline has passed and no answer was given. Write to the coordinator.</p>

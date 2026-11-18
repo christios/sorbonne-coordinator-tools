@@ -2,8 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Pencil } from "lucide-react";
 import { useState } from "react";
 
-import { CourseScheduleGrid } from "@/components/CourseScheduleGrid";
-import { CourseLayoutLines } from "@/components/CourseScheduleStep";
+import { CourseScheduleGrid, type ScheduleDraft } from "@/components/CourseScheduleGrid";
+import { CourseWeeks } from "@/components/RequestSummary";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
@@ -16,7 +16,6 @@ import {
   layOutCourse,
   type Component,
   type CoursePlan,
-  type Layout,
   type TeachingWeek,
 } from "@/services/coursePlans";
 import { fetchActiveTeachers } from "@/services/portalLists";
@@ -43,10 +42,10 @@ export function CourseScheduleEditor({
   onSaved: (plan: CoursePlan) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [layout, setLayout] = useState<Layout>(plan.weeks);
+  const [draft, setDraft] = useState<ScheduleDraft>({ weeks: plan.weeks, lengths: plan.lengths ?? {} });
   const [note, setNote] = useState(plan.note);
   const save = useMutation({
-    mutationFn: () => layOutCourse(term, plan.courseCode, { weeks: layout, note }),
+    mutationFn: () => layOutCourse(term, plan.courseCode, { ...draft, note }),
     onSuccess: (saved) => {
       setEditing(false);
       onSaved(saved);
@@ -54,7 +53,7 @@ export function CourseScheduleEditor({
   });
   const components = componentsOf(plan);
   const start = () => {
-    setLayout(plan.weeks);
+    setDraft({ weeks: plan.weeks, lengths: plan.lengths ?? {} });
     setNote(plan.note);
     save.reset();
     setEditing(true);
@@ -93,8 +92,8 @@ export function CourseScheduleEditor({
       <CourseScheduleGrid
         plan={plan}
         weeks={weeks}
-        layout={editing ? layout : plan.weeks}
-        onChange={editing ? setLayout : undefined}
+        value={editing ? draft : { weeks: plan.weeks, lengths: plan.lengths ?? {} }}
+        onChange={editing ? setDraft : undefined}
         label={`${plan.courseCode} sessions week by week`}
       />
       {editing ? (
@@ -302,11 +301,11 @@ export function CoursePlanDialog({
   );
 }
 
-/** A course's plan in a few words, for a record or a list: its hours and where its weeks stand. */
-export function CoursePlanLines({ plan }: { plan: CoursePlan }) {
+/** A course's plan at a glance, for its record: its weeks and hours, its lead and where the weeks stand. */
+export function CoursePlanLines({ plan, weeks }: { plan: CoursePlan; weeks: TeachingWeek[] }) {
   return (
-    <div className="space-y-1 text-sm">
-      <CourseLayoutLines course={plan} />
+    <div className="space-y-2 text-sm">
+      {weeks.length ? <CourseWeeks course={plan} weeks={weeks} /> : null}
       <p className="text-xs text-[#667085]">
         Lead: {plan.leadName || "nobody yet"} · {answeredWords(plan)}
       </p>

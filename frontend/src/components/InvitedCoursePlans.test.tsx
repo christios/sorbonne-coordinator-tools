@@ -114,7 +114,12 @@ describe("a course lead's step: their courses, week by week", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith("the-code", [
-        { courseCode: "MATH-002", weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1 } }, note: "TD needs 4.5 h" },
+        {
+          courseCode: "MATH-002",
+          weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1 } },
+          lengths: {},
+          note: "TD needs 4.5 h",
+        },
       ]),
     );
     expect(await screen.findByRole("heading", { name: "Your week" })).toBeTruthy();
@@ -145,15 +150,69 @@ describe("a course lead's step: their courses, week by week", () => {
     expect(await screen.findByRole("table", { name: "MATH-002 sessions week by week" })).toBeTruthy();
   });
 
-  it("shows the courses as laid out beside the answer sent", async () => {
-    const laid = { ...COURSE, answeredAt: "2026-11-18T11:00:00Z", answerSource: "lead" as const, note: "Fine", weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1 } } };
+  it("shows the courses as laid out, in the summary of the whole request", async () => {
+    const laid = {
+      ...COURSE,
+      answeredAt: "2026-11-18T11:00:00Z",
+      answerSource: "lead" as const,
+      note: "Fine",
+      weeks: { CM: { "1": 1, "2": 1, "4": 1 }, TD: { "2": 1 } },
+      lengths: { CM: { "4": 3 } },
+    };
     vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue({ ...FORM, wishes: SUBMITTED, coursePlans: { ...STEP, courses: [laid] } });
     page();
 
     expect(await screen.findByText("Your answer is submitted: nothing more to do.")).toBeTruthy();
-    const summary = screen.getByRole("heading", { name: "Your course, week by week" }).closest("section") as HTMLElement;
-    expect(within(summary).getByText("6 of 6 h")).toBeTruthy();
-    expect(within(summary).getByText("1.5 of 3 h")).toBeTruthy();
-    expect(within(summary).getByText(/Weeks 1–4/)).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Summary of your requests for Semester 2 2026-27" })).toBeTruthy();
+    // A card per part, numbered as its step was: the course schedule, then the preferences.
+    const card = screen.getByRole("region", { name: "Course schedule" });
+    expect(within(card).getByText("1 of 1 laid out")).toBeTruthy();
+    expect(within(card).getByRole("button", { name: "Change course schedule" })).toBeTruthy();
+    // 1.5 + 1.5 + a 3 h week: 6 of 6 h; the week of its own length said under the strip.
+    expect(within(card).getByText("6 of 6 h")).toBeTruthy();
+    expect(within(card).getByText("1.5 of 3 h")).toBeTruthy();
+    // The week of its own length: one session, in amber, its 3 h under it.
+    expect(within(card).getByRole("img", { name: "Week 4: 1 CM session of 3 h" }).textContent).toBe("13 h");
+    expect(within(card).getByRole("img", { name: "Week 3: no CM session" })).toBeTruthy();
+    expect(within(card).getByRole("group", { name: "CM: Weeks 1–2, 4, 3 h in week 4" })).toBeTruthy();
+    expect(within(card).getByText("Fine")).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Preferences and constraints" })).toBeTruthy();
+  });
+
+  it("lets a week's sessions last longer than usual, counted in the total", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "1" } });
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 2" }), { target: { value: "1" } });
+    expect(total("CM")).toBe("3 of 6 h");
+
+    // The hours under week 2's box: its session is a three-hour exam.
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 1.5 h" }));
+    const length = await screen.findByRole("textbox", { name: "Hours each CM session lasts in week 2" });
+    fireEvent.change(length, { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(total("CM")).toBe("4.5 of 6 h");
+    expect(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 3 h" })).toBeTruthy();
+
+    // Back to the usual length, and on again to 3 h; emptied, the week keeps no length of its own.
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 3 h" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to 1.5 h" }));
+    expect(total("CM")).toBe("3 of 6 h");
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 1.5 h" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Hours each CM session lasts in week 2" }), { target: { value: "20" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByRole("alert").textContent).toMatch(/between 0 and 8 hours/);
+    fireEvent.change(screen.getByRole("textbox", { name: "Hours each CM session lasts in week 2" }), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("the-code", [
+        { courseCode: "MATH-002", weeks: { CM: { "1": 1, "2": 1 } }, lengths: { CM: { "2": 3 } }, note: "" },
+      ]),
+    );
   });
 });

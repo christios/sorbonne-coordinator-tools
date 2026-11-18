@@ -67,6 +67,7 @@ import {
   fetchCoursePlans,
   figure,
   layoutWords,
+  lengthWords,
   proposedWeeks,
   sessionsOf,
   type CoursePlan,
@@ -1214,10 +1215,12 @@ export function SemesterPlan({
             const classPlan = section ? classPlanOf(section, coursePlanOf) : null;
             if (!section || !classPlan) return null;
             const laid = sessionsOf(classPlan.weeks) > 0;
+            const own = Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : "";
             return {
-              words: `${classPlan.component} ${laid ? layoutWords(classPlan.weeks).toLowerCase() : "(weeks not laid out yet)"}, sessions of ${figure(classPlan.length)} h`,
+              words: `${classPlan.component} ${laid ? layoutWords(classPlan.weeks).toLowerCase() : "(weeks not laid out yet)"}, sessions of ${figure(classPlan.length)} h${own}`,
               weeks: laid ? proposedWeeks(data, section, classPlan, dialog.series?.id ?? "") : null,
               length: classPlan.length,
+              lengths: classPlan.lengths,
             };
           })()}
           editing={
@@ -1317,6 +1320,7 @@ function TrayCoursePlan({
     <p data-course-plan={section.id} className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[#475467]">
       <span className="truncate" title={`Course plan: ${classPlan.component}, ${figure(classPlan.hours)} h${classPlan.component === "CM" ? "" : " a group"}`}>
         Course plan · {laid ? layoutWords(classPlan.weeks) : "weeks not laid out yet"} · {figure(classPlan.length)} h
+        {Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : ""}
       </span>
       {off ? (
         <span title={off.join("\n")} className="rounded-full bg-[#fdf6e3] px-1.5 font-semibold text-[#8a6116]">

@@ -121,7 +121,8 @@ describe("an invited teacher's link", () => {
     const end = thanks.closest("[data-submitted]") as HTMLElement;
     expect(end.textContent).toContain("Your answer is submitted. You’re all done.");
     expect(end.textContent).toContain("There is nothing more to do: you can close this page.");
-    expect(screen.getByRole("heading", { name: "What you sent" })).toBeTruthy();
+    // Under it, the whole request read back, said to be a summary of it.
+    expect(screen.getByRole("heading", { name: "Summary of your requests for Semester 2 2026-27" })).toBeTruthy();
     // Changing it is a button in the thank-you, and one floating at the foot of the window.
     const inThanks = within(end).getByRole("button", { name: "Change my answer" });
     const floating = document.querySelector("[data-change-answer]") as HTMLElement;

@@ -48,6 +48,8 @@ class LayoutInput(BaseModel):
     """Sessions per teaching week, by component: {"TD": {"2": 1, "3": 1}}, and the lead's note."""
 
     weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=3)
+    # The weeks whose sessions last other than usual, in hours: {"CM": {"8": 3}}.
+    lengths: dict[str, dict[str, float]] = Field(default_factory=dict, max_length=3)
     note: str | None = Field(default=None, max_length=2000)
 
 
@@ -97,6 +99,14 @@ def lay_out(
 ) -> dict[str, Any]:
     """The weeks laid out by a coordinator, for the lead."""
     try:
-        return plans.lay_out(term_code, course_code, body.weeks, body.note, actor=_actor(request), source=COORDINATOR)
+        return plans.lay_out(
+            term_code,
+            course_code,
+            body.weeks,
+            body.note,
+            actor=_actor(request),
+            source=COORDINATOR,
+            lengths=body.lengths,
+        )
     except (InvalidCoursePlan, UnknownCourse) as exc:
         raise _refused(exc) from exc

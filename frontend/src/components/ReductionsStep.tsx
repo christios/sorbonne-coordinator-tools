@@ -3,7 +3,7 @@ import { useState } from "react";
 
 import { PartCard, ReductionFields, ReductionTotals } from "@/components/ReductionFields";
 import { useReductionDraft } from "@/components/useReductionDraft";
-import { type ReductionInput, type ReductionSheet, heldWords, yearWords } from "@/services/hourReductions";
+import { type ReductionInput, type ReductionSheet, yearWords } from "@/services/hourReductions";
 
 /**
  * A full-timer's first step of the preferences request: their hour reductions for the year.
@@ -117,38 +117,5 @@ export function ReductionsStep({
         </button>
       </div>
     </div>
-  );
-}
-
-/** The year's reductions, to read: what each kind holds, and the two totals. */
-export function ReductionsSummary({ sheet, onChange }: { sheet: ReductionSheet; onChange?: () => void }) {
-  const held = sheet.items.filter((item) => item.hours > 0);
-  return (
-    <section className="rounded-lg border border-[#d0d5dd] px-4 py-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-[#171717]">Your hour reductions for {yearWords(sheet.year)}</h3>
-        {onChange ? (
-          <button type="button" onClick={onChange} className="text-xs font-semibold text-[#1f4e79] underline">
-            Change
-          </button>
-        ) : null}
-      </div>
-      {held.length ? (
-        <ul className="mt-1.5 space-y-0.5 text-sm text-[#344054]">
-          {held.map((item) => (
-            <li key={item.kind}>
-              {item.label}: {heldWords(item)} · <b>{item.hours} h</b>
-              {item.state === "declared" ? <span className="text-[#7a5410]"> (to be validated)</span> : null}
-              {item.group === "department" ? <span className="text-[#667085]"> (set by the Head of Department)</span> : null}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-1 text-sm text-[#475467]">None.</p>
-      )}
-      <p className="mt-2 text-sm text-[#344054]">
-        Reductions <b>{sheet.total} h</b> · teaching owed <b>{sheet.owed} h</b> of {sheet.service} h
-      </p>
-    </section>
   );
 }

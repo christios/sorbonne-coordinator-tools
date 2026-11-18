@@ -94,7 +94,7 @@ describe("a course's plan, for coordinators", () => {
     fireEvent.click(within(grid).getByRole("button", { name: "Spread evenly" }));
     fireEvent.click(screen.getByRole("button", { name: "Save the weeks" }));
 
-    await waitFor(() => expect(layOut).toHaveBeenCalledWith("262720", "MATH-002", { weeks: { TD: { "2": 1, "3": 1 } }, note: "" }));
+    await waitFor(() => expect(layOut).toHaveBeenCalledWith("262720", "MATH-002", { weeks: { TD: { "2": 1, "3": 1 } }, lengths: {}, note: "" }));
     expect(await screen.findByText(/Laid out by Christian for the lead/)).toBeTruthy();
   });
 });

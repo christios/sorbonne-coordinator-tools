@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   coursePlanDrift,
   hoursIn,
+  hoursLaidOut,
+  lengthWords,
   layoutWords,
   planStanding,
   proposedWeeks,
@@ -126,6 +128,25 @@ describe("saying a layout", () => {
   });
 });
 
+describe("a week whose sessions last other than usual", () => {
+  it("counts its own length in the hours, and is said by week", () => {
+    expect(hoursLaidOut(PLAN, { CM: { "1": 1, "8": 1 } }, "CM", { CM: { "8": 3 } })).toBe(4.5);
+    expect(lengthWords({ "8": 3, "12": 3, "2": 1 })).toBe("1 h in week 2 · 3 h in weeks 8, 12");
+    // Fifteen sessions of 1.5 h, week 8's lasting 3 h: 24 h, the target.
+    const answered = { ...PLAN, answeredAt: "x", weeks: { CM: weeks(1, 15), TD: weeks(1, 14) }, lengths: { CM: { "8": 3 } } };
+    expect(planStanding(answered)).toEqual({ state: "answered", offTarget: [] });
+    expect(planStanding({ ...answered, weeks: { ...answered.weeks, CM: weeks(1, 16) } }).offTarget).toEqual(["CM"]);
+  });
+
+  it("flags the week on the plan by its hours, not as a session of the wrong length", () => {
+    const own = new Map([["MATH-002", { ...PLAN, weeks: { TD: weeks(2, 15) }, lengths: { TD: { "8": 3 } } }]]);
+    const placed = planOf([series({ id: "s1", weeks: Array.from({ length: 14 }, (_, index) => index + 2) })]);
+    const lines = coursePlanDrift(placed, own).get("td1")?.lines ?? [];
+    expect(lines[0]).toBe("Course plan · TD in weeks 2–15, sessions of 1.5 h (3 h in week 8)");
+    expect(lines).toEqual([lines[0], "Week 8: 1.5 h placed, 3 h planned"]);
+  });
+});
+
 describe("a Groups & CRNs row against the course plan", () => {
   it("reads one number of hours, and says what differs", () => {
     expect(hoursIn("24")).toBe(24);
@@ -141,17 +162,17 @@ describe("the Semester plan and the course plan", () => {
 
   it("proposes the weeks the course plan still has sessions for", () => {
     const empty = planOf([]);
-    expect(proposedWeeks(empty, section(), { component: "TD", hours: 21, length: 1.5, weeks: weeks(2, 15) })).toEqual(
+    expect(proposedWeeks(empty, section(), { component: "TD", hours: 21, length: 1.5, weeks: weeks(2, 15), lengths: {} })).toEqual(
       Array.from({ length: 14 }, (_, index) => index + 2),
     );
     // Two a week in week 5: a second series is proposed week 5 alone.
-    const twice = { component: "TD" as const, hours: 22.5, length: 1.5, weeks: { ...weeks(2, 15), "5": 2 } };
+    const twice = { component: "TD" as const, hours: 22.5, length: 1.5, weeks: { ...weeks(2, 15), "5": 2 }, lengths: {} };
     const one = planOf([series({ id: "s1", weeks: Array.from({ length: 14 }, (_, index) => index + 2) })]);
     expect(proposedWeeks(one, section(), twice)).toEqual([5]);
     // The series being changed does not count against itself.
     expect(proposedWeeks(one, section(), twice, "s1")).toHaveLength(14);
     // Nothing laid out: nothing proposed, the plan's own default stands.
-    expect(proposedWeeks(empty, section(), { component: "TD", hours: 21, length: 1.5, weeks: {} })).toBeNull();
+    expect(proposedWeeks(empty, section(), { component: "TD", hours: 21, length: 1.5, weeks: {}, lengths: {} })).toBeNull();
   });
 
   it("flags nothing for a class that keeps to its course plan, or has no series yet", () => {

@@ -6,6 +6,7 @@ import {
   figure,
   hoursWords,
   layoutWords,
+  lengthWords,
   rowDrift,
   sessionsOf,
   type CoursePlan,
@@ -67,6 +68,9 @@ export function CoursePlanLine({
         {component} {hoursWords(component, held)} · {figure(held.length ?? 0)} h sessions
       </span>
       {sessionsOf(weeks) ? <span className="text-[#667085]">{layoutWords(weeks)}</span> : null}
+      {Object.keys(plan.lengths?.[component] ?? {}).length ? (
+        <span className="font-semibold text-[#8a6116]">{lengthWords(plan.lengths?.[component])}</span>
+      ) : null}
       {differences.length ? (
         <span className="inline-flex items-center gap-1 font-semibold text-[#8a6116]">
           <AlertTriangle size={12} aria-hidden="true" /> Differs: {differences.join("; ")}

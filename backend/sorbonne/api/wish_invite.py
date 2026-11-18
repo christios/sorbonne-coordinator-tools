@@ -82,6 +82,8 @@ class CourseLayout(BaseModel):
 
     courseCode: str = Field(min_length=1, max_length=40)
     weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=3)
+    # The weeks whose sessions last other than usual, in hours: {"CM": {"8": 3}}.
+    lengths: dict[str, dict[str, float]] = Field(default_factory=dict, max_length=3)
     note: str | None = Field(default=None, max_length=2000)
 
 
