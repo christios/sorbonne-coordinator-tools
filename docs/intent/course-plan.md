@@ -64,6 +64,18 @@ Confirmed intent, 18 November 2026.
   other series; without a layout, every week, as before. A class with no duration on Groups &
   CRNs takes the course plan's session length.
 
+## Added on 18 November 2026, after trying it
+
+- **A week's sessions may last other than usual** (user's go-ahead on the recommendation): the
+  hours under a filled box open "each session lasts … h". One length per week per component;
+  shown in amber; the totals count it. The lead may set it too, since the total stays locked.
+  The Semester plan still proposes one series at the usual length and flags that week by its
+  hours until its class is changed on its own.
+- **The teacher's page after sending is a summary of the whole request:** "Summary of your
+  requests", then a card per step, numbered as the steps are, each with its own Change. A
+  course's weeks show as a strip per component with week numbers and dates, the sessions in
+  each block and the hours under it; hovering a block gives the week in full.
+
 ## Out of scope
 
 - The syllabus builder's course schedule (session cards) — a later phase.
