@@ -136,12 +136,6 @@ export function CourseScheduleGrid({
                       <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
                       <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
                     </span>
-                    {/* What a number in a box stands for: sessions, not hours (18 Nov 2026: "1" was not read as 1.5 h). */}
-                    <span className="mt-1 block text-[11px] leading-4 text-[#475467]">
-                      <b className="rounded border border-[#9fb6cf] bg-[#eef4fa] px-1 font-semibold text-[#1f4e79]">1</b> in a box = one{" "}
-                      <b className="font-semibold text-[#344054]">{figure(usual)} h</b> session
-                      {component === "CM" ? "" : ", for each group"}
-                    </span>
                     {/* The running total against the locked target: green once they meet. */}
                     <span
                       data-total={component}
