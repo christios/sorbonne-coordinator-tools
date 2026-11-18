@@ -15,7 +15,7 @@ here, while the window is open, and read those the Head of Department set.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
@@ -24,6 +24,7 @@ from sorbonne.api.hour_reductions import ItemInput
 from sorbonne.api.teacher_wishes import AnswerInput
 from sorbonne.config import config
 from sorbonne.services.engine import engine_for
+from sorbonne.services.microsoft_identity import verify_microsoft_identity
 from sorbonne.services.hour_reductions import HourReductions, InvalidReductions, NotFullTime, year_of
 from sorbonne.services.staff_auth import AuthNotConfigured, SignInRejected, verify_google_identity
 from sorbonne.services.teacher_wishes import ClosedForAnswers, InvalidWishes, WishStore
@@ -59,7 +60,9 @@ def get_reductions() -> HourReductions:
 
 
 class SignInInput(BaseModel):
-    credential: str = Field(min_length=1, max_length=4096)
+    credential: str = Field(min_length=1, max_length=8192)
+    # Whose sign-in the credential is: Google's, or a personal Microsoft account's.
+    provider: Literal["google", "microsoft"] = "google"
 
 
 class DeclarationInput(BaseModel):
@@ -150,8 +153,9 @@ def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the recor
     wishes: WishStore = Depends(get_wishes),
     reductions: HourReductions = Depends(get_reductions),
 ) -> dict[str, Any]:
+    verify = verify_microsoft_identity if body.provider == "microsoft" else verify_google_identity
     try:
-        email, _name = verify_google_identity(body.credential)
+        email, _name = verify(body.credential)
     except AuthNotConfigured as exc:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Sign-in is not configured.") from exc
     except SignInRejected as exc:
@@ -159,7 +163,7 @@ def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the recor
     if email != found["email"]:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            detail=f"This invitation was sent to {masked(found['email'])}. Sign in with that Google account.",
+            detail=f"This invitation was sent to {masked(found['email'])}. Sign in with that account.",
         )
     invitations.mark(found["id"], "signed_in")
     response.set_cookie(

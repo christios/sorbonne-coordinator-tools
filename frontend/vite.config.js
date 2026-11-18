@@ -12,6 +12,13 @@ export default defineConfig({
   build: {
     outDir: process.env.VITE_OUT_DIR ?? "dist",
     emptyOutDir: true,
+    rollupOptions: {
+      // The application, and the small page Microsoft's sign-in popup comes back to.
+      input: {
+        index: resolve(__dirname, "index.html"),
+        microsoft: resolve(__dirname, "microsoft-signin.html"),
+      },
+    },
   },
   plugins: [viteReact(), tailwindcss(), devSession()],
   test: {

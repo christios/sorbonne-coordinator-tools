@@ -4,7 +4,12 @@ import type { AppId } from "@/routes/apps";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 
-export type SignInConfig = { configured: boolean; clientId: string | null };
+export type SignInConfig = {
+  configured: boolean;
+  clientId: string | null;
+  /** For invited teachers with a personal Microsoft account; absent or null: no Microsoft button. */
+  microsoftClientId?: string | null;
+};
 /**
  * Whoever is signed in, and what the workspace should offer them.
  *

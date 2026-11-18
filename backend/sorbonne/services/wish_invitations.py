@@ -107,7 +107,7 @@ class InvitationStore:
         term = _term(term_code)
         address = (email or "").strip().casefold()
         if not _EMAIL.match(address) or len(address) > LONGEST_EMAIL:
-            raise InvalidWishes("Give the address they sign in to Google with: someone@gmail.com.")
+            raise InvalidWishes("Give the address they sign in with: a Gmail one, or a personal Outlook or Hotmail one.")
         with self.engine.begin() as connection:
             collecting = connection.execute(
                 text("SELECT 1 FROM wish_collections WHERE term_code = :term"), {"term": term}

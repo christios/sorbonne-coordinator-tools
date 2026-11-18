@@ -380,7 +380,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
       </TipPoint>
       <TipPoint step={2}>
         Press <TipButton icon={Send}>Invite</TipButton> on a teacher&rsquo;s row: their link goes out in an email from your own
-        mailbox, and they sign in with that Google account to give their own preferences and constraints until the deadline.
+        mailbox, and they sign in with that Google or Microsoft (Outlook) account to give their own preferences and constraints until the deadline.
       </TipPoint>
       <TipPoint step={3}>
         On <TipPage name="Semester plan" />, a class in a teacher&rsquo;s hard constraint is flagged red, in a soft one amber, and their

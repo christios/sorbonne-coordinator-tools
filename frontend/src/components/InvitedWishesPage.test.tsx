@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InvitedWishesPage } from "@/components/InvitedWishesPage";
 import * as auth from "@/services/auth";
+import * as microsoft from "@/services/microsoftSignIn";
 import type { WishCollection, Wishes } from "@/services/teacherWishes";
 import * as invite from "@/services/wishInvite";
 
@@ -63,6 +64,37 @@ describe("an invited teacher's link", () => {
     expect(screen.getByText("Tell us by January.")).toBeTruthy();
     expect(screen.getByTestId("google-sign-in")).toBeTruthy();
     expect(form).not.toHaveBeenCalled();
+  });
+
+  it("offers Microsoft beside Google once it is set up, and signs in with the token it gives", async () => {
+    vi.spyOn(auth, "fetchSignInConfig").mockResolvedValue({
+      configured: true,
+      clientId: "client.apps.googleusercontent.com",
+      microsoftClientId: "microsoft-app",
+    });
+    vi.spyOn(invite, "fetchInvitation").mockResolvedValue({
+      semesterName: "Semester 2 2026-27", teacherName: "Joumana El Rifai", email: "j************@outlook.com",
+      deadline: "2099-01-10", message: "", signedIn: false,
+    });
+    const popup = vi.spyOn(microsoft, "signInWithMicrosoft").mockResolvedValue("microsoft-id-token");
+    const signIn = vi.spyOn(invite, "signInInvitee").mockResolvedValue(FORM);
+    page();
+    expect(await screen.findByText(/Use Google for a Gmail address, Microsoft for an Outlook or Hotmail one/)).toBeTruthy();
+    expect(screen.getByTestId("google-sign-in")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Sign in with Microsoft" }));
+    await waitFor(() => expect(signIn).toHaveBeenCalledWith("the-code", "microsoft-id-token", "microsoft"));
+    expect(popup).toHaveBeenCalledWith("microsoft-app");
+  });
+
+  it("says why when Microsoft's sign-in did not finish", async () => {
+    vi.spyOn(auth, "fetchSignInConfig").mockResolvedValue({ configured: true, clientId: "google", microsoftClientId: "microsoft-app" });
+    vi.spyOn(invite, "fetchInvitation").mockResolvedValue({
+      semesterName: "", teacherName: "Joumana El Rifai", email: "j***@outlook.com", deadline: "", message: "", signedIn: false,
+    });
+    vi.spyOn(microsoft, "signInWithMicrosoft").mockRejectedValue(new Error("The Microsoft sign-in was closed before it finished."));
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in with Microsoft" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("The Microsoft sign-in was closed before it finished.");
   });
 
   it("offers last semester's answer to start from, and saves the teacher's own", async () => {

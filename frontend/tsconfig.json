@@ -17,7 +17,8 @@
     "jsx": "react-jsx",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@azure/msal-browser/redirect-bridge": ["./node_modules/@azure/msal-browser/types/redirect_bridge/index.d.ts"]
     }
   },
   "include": ["src"],

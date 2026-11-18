@@ -133,7 +133,7 @@ def test_an_unconfigured_deployment_closes_rather_than_opens(
 
     assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert "GOOGLE_AUTH_CLIENT_ID" in response.json()["detail"]
-    assert client.get("/api/v1/auth/config").json() == {"configured": False, "clientId": None}
+    assert client.get("/api/v1/auth/config").json() == {"configured": False, "clientId": None, "microsoftClientId": None}
 
 
 def test_a_cors_preflight_still_works_so_the_browser_sees_the_real_answer(

@@ -57,7 +57,12 @@ def _profile(user: StaffUser) -> dict[str, Any]:
 @router.get("/config")
 def sign_in_config() -> dict[str, Any]:
     """Public: lets the sign-in screen render, or explain that nobody can sign in yet."""
-    return {"configured": is_configured(), "clientId": config.google_auth_client_id if is_configured() else None}
+    return {
+        "configured": is_configured(),
+        "clientId": config.google_auth_client_id if is_configured() else None,
+        # For invited teachers with a personal Microsoft account; None hides that button.
+        "microsoftClientId": config.microsoft_client_id or None,
+    }
 
 
 @router.post("/session")

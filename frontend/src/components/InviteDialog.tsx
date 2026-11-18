@@ -11,6 +11,10 @@ const day = (value: string) =>
 
 /** A Google address, as far as an address can say: Gmail's, or one the teacher says is a Google account. */
 const looksLikeGmail = (email: string) => /@(gmail|googlemail)\.com$/i.test(email.trim());
+/** A personal Microsoft address: Outlook's, Hotmail's, Live's or MSN's, in any country. */
+const looksLikeMicrosoft = (email: string) => /@(outlook|hotmail|live|msn)\.[a-z.]+$/i.test(email.trim());
+/** How the invited teacher signs in, said for their address. */
+const signInWith = (email: string) => (looksLikeMicrosoft(email) ? "Microsoft" : "Google");
 
 /** The invitation as the email says it: to the teacher, from the coordinator, with their link. */
 export function invitationEmail({
@@ -39,7 +43,7 @@ export function invitationEmail({
       "",
       `Your link: ${link}`,
       "",
-      `Sign in with your Google account ${email}: the link opens your form and nothing else, and only for that account.${
+      `Sign in with your ${signInWith(email)} account ${email}: the link opens your form and nothing else, and only for that account.${
         collection.deadline ? ` Please answer by ${day(collection.deadline)}; you can change your answer until then.` : ""
       }`,
       "",
@@ -74,7 +78,9 @@ export function InviteDialog({
   onClose: () => void;
   onInvited: () => void;
 }) {
-  const [email, setEmail] = useState(teacher.invitation?.email ?? (looksLikeGmail(teacher.email) ? teacher.email : ""));
+  const [email, setEmail] = useState(
+    teacher.invitation?.email ?? (looksLikeGmail(teacher.email) || looksLikeMicrosoft(teacher.email) ? teacher.email : ""),
+  );
   const [copied, setCopied] = useState<"" | "link" | "email">("");
   const invite = useMutation({
     mutationFn: () => inviteTeacher(term, teacher.teacherId, email.trim()),
@@ -112,17 +118,18 @@ export function InviteDialog({
             </p>
           ) : null}
           <label className="grid gap-1">
-            <span className="text-sm font-medium text-[#344054]">Their Google account</span>
+            <span className="text-sm font-medium text-[#344054]">Their Google or Microsoft account</span>
             <input
               type="email"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="someone@gmail.com"
+              placeholder="someone@gmail.com or someone@outlook.com"
               autoFocus
               className="w-full rounded-md border border-[#d0d5dd] px-3 py-2 text-sm"
             />
             <span className="text-xs text-[#667085]">
-              They sign in with this account to open their form, and only this one opens it.
+              A Gmail address, or a personal Outlook, Hotmail or Live one. They sign in with this account to open their form, and
+              only this one opens it.
             </span>
           </label>
           {invite.isError ? (

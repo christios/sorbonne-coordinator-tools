@@ -24,6 +24,10 @@ class Config(BaseSettings):
     # Staff sign-in. Without all three the application closes rather than opening:
     # see sorbonne/services/auth_gate.py.
     google_auth_client_id: str | None = None
+    # Invited teachers who sign in with a personal Microsoft account (Outlook, Hotmail, Live):
+    # the application's id in Microsoft's registration. Public, like Google's; without it the
+    # Microsoft button is not shown. See services/microsoft_identity.py.
+    microsoft_client_id: str | None = None
     coordinator_access_emails: str = ""
     session_secret: str | None = None
     session_hours: int = 12

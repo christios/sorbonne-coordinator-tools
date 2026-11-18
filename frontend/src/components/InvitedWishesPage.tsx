@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { createPortal } from "react-dom";
 
 import { ReductionsStep, ReductionsSummary } from "@/components/ReductionsStep";
+import { MicrosoftButton } from "@/components/MicrosoftButton";
 import { GoogleButton } from "@/components/SignInGate";
 import { WishesForm } from "@/components/WishesForm";
 import { WishesSummary } from "@/components/WishesSummary";
@@ -86,7 +87,13 @@ export function InvitedWishesPage({ code }: { code: string }) {
     client.setQueryData(["invitee-form", code], data);
     client.setQueryData(["invitation", code], (current: unknown) => (current ? { ...(current as object), signedIn: true } : current));
   };
-  const signIn = useMutation({ mutationFn: (credential: string) => signInInvitee(code, credential), onSuccess: showForm });
+  const signIn = useMutation({
+    mutationFn: ({ credential, provider }: { credential: string; provider: "google" | "microsoft" }) =>
+      signInInvitee(code, credential, provider),
+    onSuccess: showForm,
+  });
+  // Microsoft's popup, closed or blocked, says so here; its token goes the same way as Google's.
+  const [microsoftTrouble, setMicrosoftTrouble] = useState("");
   const signOut = useMutation({
     mutationFn: () => signOutInvitee(code),
     onSuccess: () => {
@@ -133,6 +140,8 @@ export function InvitedWishesPage({ code }: { code: string }) {
   }
 
   const invite = invitation.data;
+  // A personal Microsoft account, beside Google, once the application is registered with Microsoft.
+  const microsoftId = config.data?.microsoftClientId ?? "";
   if (!signedIn) {
     return (
       <Frame>
@@ -144,16 +153,32 @@ export function InvitedWishesPage({ code }: { code: string }) {
         {invite.message ? <p className="mt-3 whitespace-pre-line rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">{invite.message}</p> : null}
         {invite.deadline ? <p className="mt-3 text-sm text-[#344054]">Please answer by <b>{day(invite.deadline)}</b>.</p> : null}
         <p className="mt-5 text-sm text-[#475467]">
-          Sign in with the Google account this invitation was sent to: <b className="text-[#171717]">{invite.email}</b>. Only
-          you can open your answer.
+          Sign in with the account this invitation was sent to: <b className="text-[#171717]">{invite.email}</b>. Only you can
+          open your answer.
+          {microsoftId ? " Use Google for a Gmail address, Microsoft for an Outlook or Hotmail one." : ""}
         </p>
         {config.data?.configured && config.data.clientId ? (
-          <GoogleButton clientId={config.data.clientId} onCredential={(credential) => signIn.mutate(credential)} />
+          <GoogleButton clientId={config.data.clientId} onCredential={(credential) => signIn.mutate({ credential, provider: "google" })} />
         ) : (
           <p role="alert" className="mt-4 text-sm text-[#a6292f]">
             Sign-in is not available right now. Please try again later.
           </p>
         )}
+        {microsoftId ? (
+          <>
+            <p className="my-3 text-center text-xs font-semibold uppercase tracking-wide text-[#98a2b3]">or</p>
+            <MicrosoftButton
+              clientId={microsoftId}
+              onCredential={(credential) => signIn.mutate({ credential, provider: "microsoft" })}
+              onError={setMicrosoftTrouble}
+            />
+          </>
+        ) : null}
+        {microsoftTrouble ? (
+          <p role="alert" className="mt-3 text-center text-sm text-[#a6292f]">
+            {microsoftTrouble}
+          </p>
+        ) : null}
         {signIn.isPending ? <p className="mt-3 text-center text-sm text-[#667085]">Signing you in…</p> : null}
         {import.meta.env.DEV ? (
           // The local copy only: Google's sign-in does not finish on a developer's address.

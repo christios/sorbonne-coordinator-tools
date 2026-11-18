@@ -68,12 +68,12 @@ export async function fetchInvitation(code: string): Promise<Invitation> {
   return answer(await apiFetch(at(code)), "This invitation could not be read. Try again in a moment.");
 }
 
-export async function signInInvitee(code: string, credential: string): Promise<InviteeForm> {
+export async function signInInvitee(code: string, credential: string, provider: "google" | "microsoft" = "google"): Promise<InviteeForm> {
   return answer(
     await apiFetch(at(code, "/session"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ credential }),
+      body: JSON.stringify({ credential, provider }),
     }),
     "That sign-in could not be completed.",
   );
