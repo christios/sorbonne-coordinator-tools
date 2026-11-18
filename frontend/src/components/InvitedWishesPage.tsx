@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, Check, CheckCircle2, Loader2, LogOut } from "lucide-react";
+import { CalendarHeart, Check, CheckCircle2, Loader2, LogOut, Pencil } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 import { ReductionsStep, ReductionsSummary } from "@/components/ReductionsStep";
 import { GoogleButton } from "@/components/SignInGate";
@@ -195,6 +196,15 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const onStep = !reductions ? "preferences" : (step ?? (reductions.declaredAt ? "preferences" : "reductions"));
   const answering = Boolean(collection) && open.open && (editing || !data.wishes || data.wishes.status === "draft");
   if (answering && onStep === "preferences" && !formShown) setFormShown(true);
+  // Back into the form, from wherever the button was: the thank-you, or the corner of the page.
+  const changeAnswer = () => {
+    setSaved("");
+    setEditing(true);
+    document.querySelector("main")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
+  // The answer as sent, while it can still change: "Change my answer" floats at the foot of the
+  // window, where the Guided tour button sits while answering (18 Nov 2026).
+  const canChange = Boolean(collection) && open.open && Boolean(data.wishes) && !answering;
   return (
     <Frame wide>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eef1f5] pb-4">
@@ -233,10 +243,17 @@ export function InvitedWishesPage({ code }: { code: string }) {
           <h2 className="mt-4 text-2xl font-semibold text-[#14532d] sm:text-3xl">Thank you, {data.teacherName}!</h2>
           <p className="mt-2 text-base font-semibold text-[#1f5c3d] sm:text-lg">Your answer is submitted. You&rsquo;re all done.</p>
           <p className="mt-1 text-sm text-[#2e7d55]">The coordinator has it. There is nothing more to do: you can close this page.</p>
-          {open.open && answerBy ? (
-            <p className="mx-auto mt-4 max-w-md text-sm text-[#475467]">
-              Something changed? Press <b>Change my answer</b> below, until {day(answerBy)}.
-            </p>
+          {open.open ? (
+            <div className="mt-5 flex flex-col items-center gap-2">
+              <p className="text-sm text-[#475467]">Something changed?{answerBy ? ` You can change it until ${day(answerBy)}.` : ""}</p>
+              <button
+                type="button"
+                onClick={changeAnswer}
+                className="inline-flex items-center gap-2 rounded-md border border-[#1f4e79] bg-white px-4 py-2 text-sm font-semibold text-[#1f4e79] hover:bg-[#eef4fa]"
+              >
+                <Pencil size={15} aria-hidden="true" /> Change my answer
+              </button>
+            </div>
           ) : null}
         </section>
       ) : data.wishes?.status === "submitted" && !editing && !answering ? (
@@ -342,8 +359,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
                   onChange={
                     open.open
                       ? () => {
-                          setSaved("");
-                          setEditing(true);
+                          changeAnswer();
                           setStep("reductions");
                         }
                       : undefined
@@ -356,21 +372,27 @@ export function InvitedWishesPage({ code }: { code: string }) {
               collection={collection}
               wishes={data.wishes}
               voice="you"
-              editLabel="Change my answer"
-              onEdit={
-                open.open
-                  ? () => {
-                      setSaved("");
-                      setEditing(true);
-                    }
-                  : undefined
-              }
             />
           </>
         ) : (
           <p className="text-sm text-[#667085]">The deadline has passed and no answer was given. Write to the coordinator.</p>
         )}
       </div>
+      {/* Room under the answer, so the floating button never hides its last line. */}
+      {canChange ? <div aria-hidden="true" className="h-14" /> : null}
+      {canChange
+        ? createPortal(
+            <button
+              type="button"
+              data-change-answer
+              onClick={changeAnswer}
+              className="fixed bottom-4 right-4 z-[92] inline-flex items-center gap-2 rounded-full bg-[#1f4e79] px-4 py-2.5 text-sm font-semibold text-white shadow-[0_6px_20px_rgba(16,24,40,0.25)] hover:bg-[#173d5f] sm:bottom-6 sm:right-6"
+            >
+              <Pencil size={16} aria-hidden="true" /> Change my answer
+            </button>,
+            document.body,
+          )
+        : null}
     </Frame>
   );
 }

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { InvitedWishesPage } from "@/components/InvitedWishesPage";
@@ -90,7 +90,29 @@ describe("an invited teacher's link", () => {
     expect(end.textContent).toContain("Your answer is submitted. You’re all done.");
     expect(end.textContent).toContain("There is nothing more to do: you can close this page.");
     expect(screen.getByRole("heading", { name: "What you sent" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Change my answer" })).toBeTruthy();
+    // Changing it is a button in the thank-you, and one floating at the foot of the window.
+    const inThanks = within(end).getByRole("button", { name: "Change my answer" });
+    const floating = document.querySelector("[data-change-answer]") as HTMLElement;
+    expect(floating.textContent).toBe(" Change my answer");
+    expect(screen.getAllByRole("button", { name: "Change my answer" })).toHaveLength(2);
+    // Either takes the teacher back into the form, and both go.
+    fireEvent.click(inThanks);
+    expect(await screen.findByRole("button", { name: /^Next: Limits/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Change my answer" })).toBeNull();
+    expect(document.querySelector("[data-change-answer]")).toBeNull();
+  });
+
+  it("floats Change my answer over an answer already sent, while it can change", async () => {
+    vi.spyOn(invite, "fetchInvitation").mockResolvedValue({
+      semesterName: "", teacherName: "Joumana El Rifai", email: "j***@gmail.com", deadline: "", message: "", signedIn: true,
+    });
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue({ ...FORM, wishes: ANSWER });
+    page();
+    expect(await screen.findByText(/Your answer is submitted: nothing more to do/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /^Next: Limits/ })).toBeNull();
+    fireEvent.click(document.querySelector("[data-change-answer]") as HTMLElement);
+    expect(await screen.findByRole("button", { name: /^Next: Limits/ })).toBeTruthy();
+    expect(document.querySelector("[data-change-answer]")).toBeNull();
   });
 
   it("shows the answer to read, and no way to change it, after the deadline", async () => {
