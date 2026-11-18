@@ -252,7 +252,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   // The steps this teacher has: a full-timer's hour reductions, a course lead's courses, then the form.
   const steps: [Step, string][] = [];
   if (reductions) steps.push(["reductions", "Hour reductions"]);
-  if (courses) steps.push(["courses", courses.courses.length > 1 ? "Course schedules" : "Course schedule"]);
+  if (courses) steps.push(["courses", "Course schedule"]);
   steps.push(["preferences", "Preferences and constraints"]);
   // Where they are: the first step they have not been through, until they choose one.
   const onStep: Step =
