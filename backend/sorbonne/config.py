@@ -25,9 +25,11 @@ class Config(BaseSettings):
     # see sorbonne/services/auth_gate.py.
     google_auth_client_id: str | None = None
     # Invited teachers who sign in with a personal Microsoft account (Outlook, Hotmail, Live):
-    # the application's id in Microsoft's registration. Public, like Google's; without it the
-    # Microsoft button is not shown. See services/microsoft_identity.py.
-    microsoft_client_id: str | None = None
+    # the application's id in Microsoft's registration ("SCEN Timetable preferences",
+    # personal accounts only, registered 18 Nov 2026). Public, like Google's, so it is kept
+    # here; MICROSOFT_CLIENT_ID overrides it, and empty hides the Microsoft button. See
+    # services/microsoft_identity.py.
+    microsoft_client_id: str | None = "9593d312-14d3-4ecd-9b3f-c77896c1344f"
     coordinator_access_emails: str = ""
     session_secret: str | None = None
     session_hours: int = 12
