@@ -42,6 +42,7 @@ export function CourseScheduleGrid({
   value,
   onChange,
   label,
+  hint = true,
 }: {
   plan: Pick<CoursePlan, "courseCode" | "components">;
   weeks: TeachingWeek[];
@@ -50,6 +51,8 @@ export function CourseScheduleGrid({
   onChange?: (value: ScheduleDraft) => void;
   /** What the grid is called to a screen reader: the course. */
   label?: string;
+  /** The line under the grid on pressing the hours: off where the page says it already, as the lead's step does. */
+  hint?: boolean;
 }) {
   const components = componentsOf(plan);
   const editable = Boolean(onChange);
@@ -227,7 +230,7 @@ export function CourseScheduleGrid({
           </tbody>
         </table>
       </div>
-      {editable && components.length ? (
+      {editable && hint && components.length ? (
         <p className="mt-1.5 text-xs text-[#667085]">
           A week&rsquo;s sessions longer or shorter than usual, like an exam? Press the hours under its box.
         </p>

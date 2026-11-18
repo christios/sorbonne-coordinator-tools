@@ -1,7 +1,8 @@
-import { Loader2 } from "lucide-react";
+import { Clock3, Hash, Loader2, MessageSquareText, Target } from "lucide-react";
 import { useState } from "react";
 
 import { CourseScheduleGrid } from "@/components/CourseScheduleGrid";
+import { HowTo } from "@/components/HowTo";
 import { componentsOf, hoursWords, type CoursePlan, type CoursePlanSemester, type Layout, type Lengths } from "@/services/coursePlans";
 
 /** What the step sends: each course the teacher leads, its weeks, the weeks of another length, and its note. */
@@ -52,11 +53,22 @@ export function CourseScheduleStep({
         <h2 className="text-base font-semibold text-[#171717]">
           {many ? "Your courses" : "Your course"}, week by week{semesterName ? ` in ${semesterName}` : ""}
         </h2>
-        <p className="mt-1 text-sm text-[#475467]">
-          You lead {many ? `${step.courses.length} courses` : "this course"} this semester. In each week, put the number of
-          sessions, not hours: the hours they make show under each box. The coordinators set the total hours: if one
-          looks wrong, say so in the note.
-        </p>
+        <p className="mt-1 text-sm text-[#475467]">You lead {many ? `${step.courses.length} courses` : "this course"} this semester.</p>
+        {/* How the grid is filled, in the preferences week's own three steps (18 Nov 2026). */}
+        <HowTo
+          steps={[
+            { icon: Hash, title: "Sessions in each week", hint: "Not hours: the hours show under each box" },
+            { icon: Clock3, title: "A longer or shorter session?", hint: "Press the hours under its box to change it" },
+            { icon: Target, title: "Reach each total", hint: "Green once they make the hours set · or Spread evenly" },
+          ]}
+        >
+          <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e5c27a] bg-[#fdf9ee] px-3 py-2">
+            <span className="text-[11px] text-[#8a6116]">A total looks wrong?</span>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-[#8a6116]">
+              <MessageSquareText size={12} aria-hidden="true" /> Say so in the note
+            </span>
+          </div>
+        </HowTo>
       </div>
 
       {!step.weeks.length ? (
@@ -90,6 +102,7 @@ export function CourseScheduleStep({
                 weeks={step.weeks}
                 value={draft}
                 label={`${course.courseCode} sessions week by week`}
+                hint={false}
                 onChange={(next) => change(course.courseCode, next)}
               />
             ) : null}
