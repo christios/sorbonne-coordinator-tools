@@ -12,8 +12,13 @@ import { refusalWords, type AnswerWindow, type WishCalendar, type WishCollection
 
 const DOOR = `${API_BASE_URL}/api/v1/invite/wishes`;
 
-/** What a link says before signing in: the semester, whose wishes, and the address, masked. */
+/**
+ * What a link says before signing in: the semester, whose wishes, and the address, masked.
+ * The semester's shared link (`shared`) names nobody until signed in: an address the
+ * coordinator set for a teacher opens that teacher's form, any other is refused.
+ */
 export type Invitation = {
+  shared?: boolean;
   semesterName: string;
   teacherName: string;
   email: string;
@@ -121,6 +126,18 @@ export async function openAsInviteeHere(code: string): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ code }),
+    }),
+    "Only the local copy can do that.",
+  );
+}
+
+/** On a developer's own machine only: sign in by a shared link as if with Google at `email`. */
+export async function openSharedHere(code: string, email: string): Promise<{ email: string }> {
+  return answer(
+    await apiFetch(`${API_BASE_URL}/api/v1/dev/wish-share-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code, email }),
     }),
     "Only the local copy can do that.",
   );

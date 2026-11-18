@@ -53,6 +53,11 @@ class InviteeInput(BaseModel):
     code: str = Field(min_length=1, max_length=128)
 
 
+class SharedInput(BaseModel):
+    code: str = Field(min_length=1, max_length=128)
+    email: str = Field(min_length=3, max_length=254)
+
+
 @router.post("/wish-invitee-session")
 def wish_invitee_session(body: InviteeInput, response: Response) -> dict[str, str]:
     """Open an invitation's page as its teacher, without their Google account: for looking
@@ -69,6 +74,20 @@ def wish_invitee_session(body: InviteeInput, response: Response) -> dict[str, st
         samesite="lax",
         path=INVITEE_PATH,
     )
+    return {"email": found["email"]}
+
+
+@router.post("/wish-share-session")
+def wish_share_session(body: SharedInput, response: Response) -> dict[str, str]:
+    """Sign in by a semester's shared link as if with Google at `email`: for trying, on this
+    machine, an address on the list and one that is not. Local databases only."""
+    from sorbonne.api.wish_invite import shared_sign_in  # noqa: PLC0415 - dev-only
+
+    invitations = InvitationStore(engine_for(config.database_url))
+    shared = invitations.shared(body.code)
+    if shared is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, detail="No such shared link.")
+    found = shared_sign_in(shared, body.email.strip().casefold(), response, invitations)
     return {"email": found["email"]}
 
 

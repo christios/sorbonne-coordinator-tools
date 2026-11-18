@@ -11,6 +11,11 @@ save until the deadline. The same store, the same rules; only the door differs.
 
 A full-timer starts with their hour reductions for the year: they declare the research ones
 here, while the window is open, and read those the Head of Department set.
+
+A code is a teacher's own link, or the semester's shared link (18 Nov 2026), posted once to
+every teacher. By the shared link, signing in with an address the coordinator set for one of
+the semester's teachers opens that teacher's form — the invitee's session then says which
+invitation it is — and any other address is refused: the coordinator keeps the list.
 """
 
 from __future__ import annotations
@@ -24,8 +29,8 @@ from sorbonne.api.hour_reductions import ItemInput
 from sorbonne.api.teacher_wishes import AnswerInput
 from sorbonne.config import config
 from sorbonne.services.engine import engine_for
-from sorbonne.services.microsoft_identity import verify_microsoft_identity
 from sorbonne.services.hour_reductions import HourReductions, InvalidReductions, NotFullTime, year_of
+from sorbonne.services.microsoft_identity import verify_microsoft_identity
 from sorbonne.services.staff_auth import AuthNotConfigured, SignInRejected, verify_google_identity
 from sorbonne.services.teacher_wishes import ClosedForAnswers, InvalidWishes, WishStore
 from sorbonne.services.wish_invitations import (
@@ -72,29 +77,93 @@ class DeclarationInput(BaseModel):
     note: str | None = Field(default=None, max_length=1000)
 
 
-def _invitation(code: str, invitations: InvitationStore) -> dict[str, Any]:
-    try:
-        return invitations.for_code(code)
-    except NotInvited as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=NOT_VALID) from exc
-
-
 def _signed_in(invitation: dict[str, Any], request: Request) -> bool:
     session = read_invitee_session(request.cookies.get(INVITEE_COOKIE))
     return bool(session and session["invitation"] == invitation["id"] and session["email"] == invitation["email"])
 
 
-def found_invitation(code: str, invitations: InvitationStore = Depends(get_invitations)) -> dict[str, Any]:
-    """The link, checked before anything else is read of the request — its body included — so a
-    code that is no invitation is refused the same way whatever comes with it."""
-    return _invitation(code, invitations)
+def found_door(code: str, invitations: InvitationStore = Depends(get_invitations)) -> dict[str, Any]:
+    """The link — a teacher's own, as {"invitation": …}, or the semester's shared one, as
+    {"shared": …} — checked before anything else is read of the request, its body included,
+    so a code that is neither is refused the same way whatever comes with it."""
+    try:
+        return {"invitation": invitations.for_code(code)}
+    except NotInvited:
+        shared = invitations.shared(code)
+        if shared is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=NOT_VALID) from None
+        return {"shared": shared}
 
 
-def signed_in_invitation(request: Request, found: dict[str, Any] = Depends(found_invitation)) -> dict[str, Any]:
+def _session_invitation(door: dict[str, Any], request: Request, invitations: InvitationStore) -> dict[str, Any] | None:
+    """The invitation the invitee's session opens by this door: the link's own, or — by the
+    shared link — whichever of the semester's the session names, at the address it names."""
+    if "invitation" in door:
+        return door["invitation"] if _signed_in(door["invitation"], request) else None
+    session = read_invitee_session(request.cookies.get(INVITEE_COOKIE))
+    if not session:
+        return None
+    found = invitations.by_id(session["invitation"])
+    if found is None or found["term_code"] != door["shared"]["term_code"] or found["email"] != session["email"]:
+        return None
+    return found
+
+
+def signed_in_invitation(
+    request: Request,
+    door: dict[str, Any] = Depends(found_door),
+    invitations: InvitationStore = Depends(get_invitations),
+) -> dict[str, Any]:
     """The link, and the invitee's own session for it."""
-    if not _signed_in(found, request):
+    found = _session_invitation(door, request, invitations)
+    if found is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=SIGN_IN)
     return found
+
+
+def _let_in(response: Response, invitation: dict[str, Any], invitations: InvitationStore) -> None:
+    """The invitee's session for an invitation, as signing in with its address gives it."""
+    invitations.mark(invitation["id"], "signed_in")
+    response.set_cookie(
+        INVITEE_COOKIE,
+        issue_invitee_session(invitation["id"], invitation["email"]),
+        max_age=INVITEE_HOURS * 3600,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path=INVITEE_PATH,
+    )
+
+
+def _shared_state(shared: dict[str, Any], invitation: dict[str, Any] | None) -> dict[str, Any]:
+    """What the shared link shows before the form: the semester, and — signed in already —
+    whose form this browser opens."""
+    return {
+        "shared": True,
+        "semesterName": shared["semester_name"],
+        "deadline": shared["deadline"],
+        "message": shared["message"],
+        "teacherName": invitation["teacher_name"] if invitation else "",
+        "email": masked(invitation["email"]) if invitation else "",
+        "signedIn": invitation is not None,
+    }
+
+
+def shared_sign_in(
+    shared: dict[str, Any], email: str, response: Response, invitations: InvitationStore
+) -> dict[str, Any]:
+    """Signed in by the shared link: the invitation the coordinator made for this address in
+    the semester, let in as its own link would be; refused for an address not on the list."""
+    invitation = invitations.for_address(shared["term_code"], email)
+    if invitation is None:
+        semester = f" for {shared['semester_name']}" if shared["semester_name"] else ""
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            detail=f"{email} is not on the list{semester}. Sign in with the address you gave the coordinator, "
+            "or write to them to add this one.",
+        )
+    _let_in(response, invitation, invitations)
+    return invitation
 
 
 def _reductions(invitation: dict[str, Any], reductions: HourReductions) -> dict[str, Any] | None:
@@ -128,13 +197,18 @@ def _form(invitation: dict[str, Any], wishes: WishStore, reductions: HourReducti
 @router.get("/{code}")
 def invitation(
     request: Request,
-    found: dict[str, Any] = Depends(found_invitation),
+    door: dict[str, Any] = Depends(found_door),
     invitations: InvitationStore = Depends(get_invitations),
 ) -> dict[str, Any]:
     """What the link is for, before signing in: the semester, whose wishes, and the address
-    to sign in with — masked, the link being something that can be forwarded."""
+    to sign in with — masked, the link being something that can be forwarded. By the shared
+    link: the semester, and whose form this browser opens, if signed in."""
+    if "shared" in door:
+        return _shared_state(door["shared"], _session_invitation(door, request, invitations))
+    found = door["invitation"]
     invitations.mark(found["id"], "opened")
     return {
+        "shared": False,
         "semesterName": found["semester_name"],
         "teacherName": found["teacher_name"],
         "email": masked(found["email"]),
@@ -148,11 +222,14 @@ def invitation(
 def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the records the form reads
     body: SignInInput,
     response: Response,
-    found: dict[str, Any] = Depends(found_invitation),
+    door: dict[str, Any] = Depends(found_door),
     invitations: InvitationStore = Depends(get_invitations),
     wishes: WishStore = Depends(get_wishes),
     reductions: HourReductions = Depends(get_reductions),
 ) -> dict[str, Any]:
+    """Signing in with Google or a personal Microsoft account. By a teacher's own link: only its
+    address. By the shared link: an address the coordinator set for one of the semester's
+    teachers, which opens that teacher's form; any other is refused."""
     verify = verify_microsoft_identity if body.provider == "microsoft" else verify_google_identity
     try:
         email, _name = verify(body.credential)
@@ -160,26 +237,20 @@ def sign_in(  # noqa: PLR0913 - the credential, the cookie to set, and the recor
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, detail="Sign-in is not configured.") from exc
     except SignInRejected as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
+    if "shared" in door:
+        return _form(shared_sign_in(door["shared"], email, response, invitations), wishes, reductions)
+    found = door["invitation"]
     if email != found["email"]:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
             detail=f"This invitation was sent to {masked(found['email'])}. Sign in with that account.",
         )
-    invitations.mark(found["id"], "signed_in")
-    response.set_cookie(
-        INVITEE_COOKIE,
-        issue_invitee_session(found["id"], email),
-        max_age=INVITEE_HOURS * 3600,
-        httponly=True,
-        secure=True,
-        samesite="lax",
-        path=INVITEE_PATH,
-    )
+    _let_in(response, found, invitations)
     return _form(found, wishes, reductions)
 
 
 @router.delete("/{code}/session", status_code=status.HTTP_204_NO_CONTENT)
-def sign_out(response: Response, _found: dict[str, Any] = Depends(found_invitation)) -> None:
+def sign_out(response: Response, _door: dict[str, Any] = Depends(found_door)) -> None:
     response.delete_cookie(INVITEE_COOKIE, path=INVITEE_PATH)
 
 

@@ -140,3 +140,17 @@ def test_an_invited_outlook_address_signs_in_with_microsoft_and_only_it(client: 
     assert signed.status_code == 200, signed.text
     assert signed.json()["teacherName"] == "Joumana El Rifai"
     assert client.get(f"{DOOR}/{code}/form").status_code == 200
+
+
+def test_an_outlook_address_on_the_list_signs_in_by_the_shared_link(client: TestClient, key: tuple[str, str]):
+    invitations.collecting(client)
+    invitations.invited(client, "prof.someone@outlook.com")
+    code = client.post(f"{AT}/collection/{TERM}/share-link").json()["shareCode"]
+
+    def sign_in(credential: str) -> object:
+        return client.post(f"{DOOR}/{code}/session", json={"credential": credential, "provider": "microsoft"})
+
+    assert sign_in(token(key, email="other@outlook.com")).status_code == status.HTTP_403_FORBIDDEN
+    signed = sign_in(token(key))
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["teacherName"] == "Joumana El Rifai"

@@ -159,6 +159,17 @@ def invite(
     return {"code": code, "invitation": record}
 
 
+@router.post("/collection/{term}/share-link")
+def make_share_link(term: str, invitations: InvitationStore = Depends(get_invitations)) -> dict[str, str]:
+    """The semester's one link for every teacher, made new; the one before stops working. It
+    lets nobody in by itself: an address set for a teacher opens that teacher's form, any
+    other is refused."""
+    try:
+        return {"shareCode": invitations.make_share_link(term)}
+    except (InvalidWishes, NoCollection) as exc:
+        raise _refused(exc) from exc
+
+
 @router.delete("/{term}/{teacher_id}/invitation", status_code=status.HTTP_204_NO_CONTENT)
 def withdraw(term: str, teacher_id: str, invitations: InvitationStore = Depends(get_invitations)) -> None:
     try:

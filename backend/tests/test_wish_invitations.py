@@ -107,6 +107,7 @@ def test_a_link_says_what_it_is_for_and_whose_address_to_sign_in_with(client: Te
     seen = client.get(f"{DOOR}/{code}")
     assert seen.status_code == 200, seen.text
     assert {key: value for key, value in seen.json().items() if key != "semesterName"} == {
+        "shared": False,
         "teacherName": "Joumana El Rifai",
         "email": "j************@gmail.com",
         "deadline": "2099-01-10",
@@ -220,3 +221,88 @@ def test_last_semesters_answer_is_offered_to_start_from_with_only_its_weekly_blo
     assert form["previous"]["wishes"]["note"] == "Mornings"
     # The weekly block carries over; the day away was that semester's.
     assert [block["id"] for block in form["previous"]["wishes"]["blocks"]] == ["tue"]
+
+
+# ---------------------------------------------------------------- one link for every teacher
+
+STRANGER = "someone.new@gmail.com"
+
+
+def shared_link(client: TestClient) -> str:
+    made = client.post(f"{AT}/collection/{TERM}/share-link")
+    assert made.status_code == 200, made.text
+    return made.json()["shareCode"]
+
+
+def joumanas_row(client: TestClient) -> dict:
+    listed = client.get(AT, params={"term": TERM}).json()
+    return next(row for row in listed["teachers"] if row["teacherId"] == "invite-test-joumana")
+
+
+def test_the_shared_link_opens_an_address_on_the_list_on_its_teachers_form(client: TestClient):
+    collecting(client)
+    invited(client)
+    code = shared_link(client)
+    assert client.get(AT, params={"term": TERM}).json()["shareCode"] == code
+
+    before = client.get(f"{DOOR}/{code}").json()
+    assert (before["shared"], before["signedIn"], before["teacherName"], before["email"]) == (True, False, "", "")
+    assert before["message"] == "Tell us by January."
+
+    signed = client.post(f"{DOOR}/{code}/session", json={"credential": GMAIL})
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["teacherName"] == "Joumana El Rifai"
+    after = client.get(f"{DOOR}/{code}").json()
+    assert (after["signedIn"], after["teacherName"]) == (True, "Joumana El Rifai")
+    form = client.get(f"{DOOR}/{code}/form")
+    assert form.status_code == 200, form.text
+    # The shared link is the coordinators' to read, not in the teacher's form.
+    assert code not in form.text
+    saved = client.put(f"{DOOR}/{code}/answer", json={"blocks": WEEK, "submit": True})
+    assert saved.status_code == 200, saved.text
+    row = joumanas_row(client)
+    assert (row["wishes"]["updatedBy"], bool(row["invitation"]["signedInAt"])) == (GMAIL, True)
+
+
+def test_an_address_not_on_the_list_is_refused_and_sees_nothing(client: TestClient):
+    collecting(client)
+    invited(client)
+    code = shared_link(client)
+    refused = client.post(f"{DOOR}/{code}/session", json={"credential": STRANGER})
+    assert refused.status_code == status.HTTP_403_FORBIDDEN
+    assert refused.json()["detail"].startswith(f"{STRANGER} is not on the list")
+    assert client.cookies.get(INVITEE_COOKIE) is None
+    assert client.get(f"{DOOR}/{code}").json()["signedIn"] is False
+    assert client.get(f"{DOOR}/{code}/form").status_code == status.HTTP_401_UNAUTHORIZED
+    assert client.put(f"{DOOR}/{code}/answer", json={"blocks": WEEK}).status_code == status.HTTP_401_UNAUTHORIZED
+
+    # Set for the teacher by the coordinator, the same address gets in.
+    invited(client, STRANGER)
+    assert client.post(f"{DOOR}/{code}/session", json={"credential": STRANGER}).status_code == 200
+    # And the address set before no longer does: one address a teacher.
+    client.delete(f"{DOOR}/{code}/session")
+    assert client.post(f"{DOOR}/{code}/session", json={"credential": GMAIL}).status_code == status.HTTP_403_FORBIDDEN
+
+
+def test_a_new_shared_link_stops_the_one_before(client: TestClient):
+    collecting(client)
+    invited(client)
+    first = shared_link(client)
+    client.post(f"{DOOR}/{first}/session", json={"credential": GMAIL})
+    second = shared_link(client)
+    assert client.get(f"{DOOR}/{first}").status_code == status.HTTP_401_UNAUTHORIZED
+    # Signed in already, the teacher stays so by the new link.
+    assert client.get(f"{DOOR}/{second}").json()["signedIn"] is True
+    client.delete(f"{DOOR}/{second}/session")
+    assert client.get(f"{DOOR}/{second}").json()["signedIn"] is False
+
+
+def test_a_teachers_session_does_not_open_another_semesters_shared_link(client: TestClient):
+    collecting(client)
+    code = invited(client)
+    client.post(f"{DOOR}/{code}/session", json={"credential": GMAIL})
+    other = client.put(f"{AT}/collection/262710", json={"deadline": "2099-01-10"})
+    assert other.status_code == 200, other.text
+    autumn_link = client.post(f"{AT}/collection/262710/share-link").json()["shareCode"]
+    assert client.get(f"{DOOR}/{autumn_link}").json()["signedIn"] is False
+    assert client.get(f"{DOOR}/{autumn_link}/form").status_code == status.HTTP_401_UNAUTHORIZED

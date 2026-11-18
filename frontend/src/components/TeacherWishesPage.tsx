@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, Link2Off, LockOpen, RefreshCw, Send, Settings } from "lucide-react";
+import { CalendarHeart, Link2, Link2Off, LockOpen, RefreshCw, Send, Settings } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -11,6 +11,7 @@ import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/compon
 import { Modal } from "@/components/Modal";
 import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
+import { SharedLinkDialog } from "@/components/SharedLink";
 import { TableFilterBar } from "@/components/TableFilterBar";
 import { TeacherAvatar } from "@/components/TeacherDatabase";
 import { usePageState } from "@/components/usePageState";
@@ -287,6 +288,8 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
     retry: false,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // The semester's one link for every teacher, to copy or make anew.
+  const [sharing, setSharing] = useState(false);
   /*
    * The teacher whose wishes are open: their answer to read, or the form. An answer given is
    * read first, and changed only through "Edit their answer"; nobody's is changed by a slip.
@@ -382,6 +385,10 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         Press <TipButton icon={Send}>Invite</TipButton> on a teacher&rsquo;s row: their link goes out in an email from your own
         mailbox, and they sign in with that Google or Microsoft (Outlook) account to give their own preferences and constraints until the deadline.
       </TipPoint>
+      <TipPoint step={2}>
+        Or press <TipButton icon={Link2}>Shared link</TipButton> and post one link for everyone. The address you set for a teacher
+        opens their form; any other is refused.
+      </TipPoint>
       <TipPoint step={3}>
         On <TipPage name="Semester plan" />, a class in a teacher&rsquo;s hard constraint is flagged red, in a soft one amber, and their
         week is shaded while you move it.
@@ -465,6 +472,9 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                 {deadlineWords}
               </span>
               {tip}
+              <button type="button" onClick={() => setSharing(true)} className={BAR_BUTTON}>
+                <Link2 size={16} aria-hidden="true" /> Shared link
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -610,6 +620,17 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
         </>
       )}
 
+      {sharing && collection ? (
+        <SharedLinkDialog
+          term={term}
+          semesterName={semesterName}
+          shareCode={wishes.data?.shareCode ?? ""}
+          collection={collection}
+          sender={me?.name ?? ""}
+          onClose={() => setSharing(false)}
+          onMade={refresh}
+        />
+      ) : null}
       {settingsOpen ? (
         <CollectionSettings
           open

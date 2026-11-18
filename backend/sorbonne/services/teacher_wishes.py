@@ -631,6 +631,8 @@ class WishStore:
             ).mappings().first()
         return {
             "collection": _collection(row) if row else None,
+            # The semester's one link for every teacher, for the coordinators; "" until made.
+            "shareCode": (row["share_code"] if row else "") or "",
             # The semester's teaching weeks, for marking time away week by week; None until it has them.
             "calendar": _calendar(plan),
             "teachers": [

@@ -327,7 +327,13 @@ export type WishTeacher = {
 
 /** Whether a teacher may still answer for themselves: until the deadline, or a reopening. */
 export type AnswerWindow = { open: boolean; deadline: string; reopenedUntil: string };
-export type WishSemester = { collection: WishCollection | null; calendar?: WishCalendar | null; teachers: WishTeacher[] };
+export type WishSemester = {
+  collection: WishCollection | null;
+  calendar?: WishCalendar | null;
+  teachers: WishTeacher[];
+  /** The semester's one link for every teacher; "" until made. */
+  shareCode?: string;
+};
 
 export type WishesInput = Pick<Wishes, "blocks" | "limits" | "limitKinds" | "comments" | "needs" | "note" | "overCapReason"> & {
   submit: boolean;
@@ -436,6 +442,11 @@ export async function closeAgain(termCode: string, teacherId: string): Promise<v
 
 /** The link a teacher opens: this site's own address, and the code. */
 export const invitationLink = (code: string) => `${window.location.origin}/preferences/${code}`;
+
+/** The semester's shared link, made new: the one before stops working. */
+export async function makeShareLink(termCode: string): Promise<{ shareCode: string }> {
+  return answer(await apiFetch(`${BASE}/collection/${encodeURIComponent(termCode)}/share-link`, { method: "POST" }));
+}
 
 export async function forgetWishes(termCode: string, teacherId: string): Promise<void> {
   return answer(

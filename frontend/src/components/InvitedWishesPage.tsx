@@ -15,6 +15,7 @@ import {
   fetchInvitation,
   fetchInviteeForm,
   openAsInviteeHere,
+  openSharedHere,
   saveInviteeAnswer,
   saveInviteeReductions,
   signInInvitee,
@@ -57,7 +58,11 @@ function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean
 export function InvitedWishesPage({ code }: { code: string }) {
   const client = useQueryClient();
   const config = useQuery({ queryKey: ["sign-in-config"], queryFn: fetchSignInConfig, retry: false });
-  const invitation = useQuery({ queryKey: ["invitation", code], queryFn: () => fetchInvitation(code), retry: false });
+  const invitation = useQuery({
+    queryKey: ["invitation", code],
+    queryFn: () => fetchInvitation(code),
+    retry: false,
+  });
   const signedIn = invitation.data?.signedIn === true;
   const form = useQuery({ queryKey: ["invitee-form", code], queryFn: () => fetchInviteeForm(code), enabled: signedIn, retry: false });
   const [editing, setEditing] = useState(false);
@@ -100,6 +105,8 @@ export function InvitedWishesPage({ code }: { code: string }) {
       dirty.current = false;
       client.removeQueries({ queryKey: ["invitee-form", code] });
       client.setQueryData(["invitation", code], (current: unknown) => (current ? { ...(current as object), signedIn: false } : current));
+      // By the shared link, where this browser stands now comes from the server: nobody, signed out.
+      void client.invalidateQueries({ queryKey: ["invitation", code] });
     },
   });
   const declare = useMutation({
@@ -145,7 +152,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   if (!signedIn) {
     return (
       <Frame>
-        <p className="text-base font-semibold text-[#171717]">Hello {invite.teacherName},</p>
+        <p className="text-base font-semibold text-[#171717]">{invite.shared ? "Hello," : `Hello ${invite.teacherName},`}</p>
         <p className="mt-2 text-sm leading-6 text-[#475467]">
           Please tell us when you can&rsquo;t teach{invite.semesterName ? ` in ${invite.semesterName}` : ""}, when you&rsquo;d rather
           not, and what matters most to you. We use your answer while we build the timetable.
@@ -153,8 +160,15 @@ export function InvitedWishesPage({ code }: { code: string }) {
         {invite.message ? <p className="mt-3 whitespace-pre-line rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">{invite.message}</p> : null}
         {invite.deadline ? <p className="mt-3 text-sm text-[#344054]">Please answer by <b>{day(invite.deadline)}</b>.</p> : null}
         <p className="mt-5 text-sm text-[#475467]">
-          Sign in with the account this invitation was sent to: <b className="text-[#171717]">{invite.email}</b>. Only you can
-          open your answer.
+          {invite.shared ? (
+            // The semester's shared link names nobody: the address signed in with says whose form it is.
+            <>Sign in with the account whose address you gave the coordinator. It opens your own form, and only yours.</>
+          ) : (
+            <>
+              Sign in with the account this invitation was sent to: <b className="text-[#171717]">{invite.email}</b>. Only you can
+              open your answer.
+            </>
+          )}
           {microsoftId ? " Use Google for a Gmail address, Microsoft for an Outlook or Hotmail one." : ""}
         </p>
         {config.data?.configured && config.data.clientId ? (
@@ -180,7 +194,9 @@ export function InvitedWishesPage({ code }: { code: string }) {
           </p>
         ) : null}
         {signIn.isPending ? <p className="mt-3 text-center text-sm text-[#667085]">Signing you in…</p> : null}
-        {import.meta.env.DEV ? (
+        {import.meta.env.DEV && invite.shared ? (
+          <LocalSharedSignIn code={code} onSignedIn={() => void invitation.refetch()} />
+        ) : import.meta.env.DEV ? (
           // The local copy only: Google's sign-in does not finish on a developer's address.
           <button
             type="button"
@@ -419,5 +435,34 @@ export function InvitedWishesPage({ code }: { code: string }) {
           )
         : null}
     </Frame>
+  );
+}
+
+/** The local copy only, by a shared link: sign in as an address, as Google would say it. */
+function LocalSharedSignIn({ code, onSignedIn }: { code: string; onSignedIn: () => void }) {
+  const [email, setEmail] = useState("");
+  const open = useMutation({ mutationFn: () => openSharedHere(code, email), onSuccess: onSignedIn });
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        open.mutate();
+      }}
+      className="mx-auto mt-4 grid max-w-sm gap-1 rounded-md border border-dashed border-[#d99b1c] px-2 py-1.5"
+    >
+      <span className="flex items-center gap-2">
+        <input
+          aria-label="Sign in as (local copy only)"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+          placeholder="someone@gmail.com"
+          className="min-w-0 flex-1 rounded border border-[#e5c27a] px-2 py-1 text-xs"
+        />
+        <button type="submit" className="whitespace-nowrap text-xs font-semibold text-[#8a6116]">
+          Sign in as (local copy only)
+        </button>
+      </span>
+      {open.isError ? <span className="text-xs text-[#a6292f]">{(open.error as Error).message}</span> : null}
+    </form>
   );
 }
