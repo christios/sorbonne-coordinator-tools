@@ -21,6 +21,7 @@ import { fetchSemesterShortNames, setSemesterShortName } from "@/services/portal
 import { cycleLabel, opensOnFor, periodContaining, periodLabel, PERIOD_OPENS_ON } from "@/services/payPeriods";
 import { fetchPayCycles, setPayCycle } from "@/services/teachers";
 import { judgeSlot } from "@/services/planJudge";
+import { sessionsWords } from "@/services/coursePlans";
 import { KIND_PREFIX, LEVEL_NAME, activeIn, describeLine, lengthWords, type WishTeacher } from "@/services/teacherWishes";
 import { formatDayAndMonth, minutesOf, toIsoDate, weekStartOf } from "@/services/weekSchedule";
 
@@ -53,7 +54,7 @@ function CoursePlanNote({
   weeks,
   minutes,
 }: {
-  plan: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number> };
+  plan: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number[]> };
   weeks: number[];
   minutes: number;
 }) {
@@ -72,8 +73,8 @@ function CoursePlanNote({
       ) : null}
       {odd.length ? (
         <span className="block font-semibold text-[#8a6116]">
-          {odd.map((week) => `Week ${week}'s session is ${plan.lengths?.[String(week)]} h`).join("; ")}: once placed, change that
-          week&rsquo;s class on its own.
+          {odd.map((week) => `Week ${week}: ${sessionsWords(plan.lengths?.[String(week)] ?? [])}`).join("; ")}. Once placed, change
+          that week&rsquo;s class on its own.
         </span>
       ) : null}
     </span>
@@ -310,7 +311,7 @@ export function PlanClassDialog({
    * The class's share of its course's plan: what it says in words, the weeks it still has
    * sessions for, and one session's length. Offered and compared, never enforced.
    */
-  coursePlan?: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number> } | null;
+  coursePlan?: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number[]> } | null;
   rooms: string[];
   initial: ClassDraft;
   /** The semester's teachers and their wishes, when wishes are being collected for it. */

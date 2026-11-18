@@ -285,7 +285,7 @@ def test_a_weeks_sessions_may_last_longer_or_shorter_than_usual(client: TestClie
         },
     )
     assert laid.status_code == status.HTTP_200_OK, laid.text
-    assert laid.json()["lengths"] == {"CM": {"2": 3.0}}
+    assert laid.json()["lengths"] == {"CM": {"2": [3.0]}}
 
     too_long = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": {"CM": {"2": 1}}, "lengths": {"CM": {"2": 9}}})
     assert too_long.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
@@ -298,4 +298,15 @@ def test_a_weeks_sessions_may_last_longer_or_shorter_than_usual(client: TestClie
         json={"courses": [{"courseCode": MATH, "weeks": {"CM": {"1": 1, "4": 1}}, "lengths": {"CM": {"4": 4.5}}}]},
     )
     assert saved.status_code == status.HTTP_200_OK, saved.text
-    assert saved.json()["coursePlans"]["courses"][0]["lengths"] == {"CM": {"4": 4.5}}
+    assert saved.json()["coursePlans"]["courses"][0]["lengths"] == {"CM": {"4": [4.5]}}
+
+    # Two sessions in a week, each its own length: a usual one and a three-hour exam.
+    mixed = client.put(
+        f"{AT}/{TERM}/{MATH}/weeks",
+        json={"weeks": {"CM": {"2": 2, "3": 2}}, "lengths": {"CM": {"2": [1.5, 3], "3": [1.5, 1.5]}}},
+    )
+    assert mixed.status_code == status.HTTP_200_OK, mixed.text
+    assert mixed.json()["lengths"] == {"CM": {"2": [1.5, 3.0]}}
+    short = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": {"CM": {"2": 2}}, "lengths": {"CM": {"2": [3]}}})
+    assert short.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "say how long each one lasts" in short.json()["detail"]

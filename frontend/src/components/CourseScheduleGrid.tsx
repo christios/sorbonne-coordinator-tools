@@ -7,7 +7,8 @@ import {
   componentsOf,
   figure,
   hoursLaidOut,
-  lengthIn,
+  sessionLengths,
+  sessionsWords,
   sessionsOf,
   spreadEvenly,
   type Component,
@@ -55,21 +56,29 @@ export function CourseScheduleGrid({
   const numbers = weeks.map((week) => week.week);
   const { weeks: layout, lengths } = value;
 
-  /** A week's own length for a component, or back to the usual one with null; nothing empty kept. */
-  const withLength = (current: Lengths, component: Component, week: number, hours: number | null): Lengths => {
+  /**
+   * A week's own session lengths for a component, one per session, or back to the usual length
+   * with null — and back to it too when every one is the usual length; nothing empty kept.
+   */
+  const withLengths = (current: Lengths, component: Component, week: number, hours: number[] | null): Lengths => {
+    const usual = plan.components[component]?.length ?? 0;
     const row = { ...(current[component] ?? {}) };
-    if (hours === null) delete row[String(week)];
+    if (hours === null || hours.every((each) => Math.abs(each - usual) < 0.001)) delete row[String(week)];
     else row[String(week)] = hours;
     const next = { ...current, [component]: row };
     if (!Object.keys(row).length) delete next[component];
     return next;
   };
-  const set = (component: Component, week: number, count: number) => {
+  const set = (component: Component, week: number, wanted: number) => {
+    const count = Math.max(0, Math.min(MOST_SESSIONS, wanted));
     const row = { ...(layout[component] ?? {}) };
-    if (count > 0) row[String(week)] = Math.min(MOST_SESSIONS, count);
+    if (count > 0) row[String(week)] = count;
     else delete row[String(week)];
-    // A week with no sessions left keeps no length of its own.
-    onChange?.({ weeks: { ...layout, [component]: row }, lengths: count > 0 ? lengths : withLength(lengths, component, week, null) });
+    // The week's own lengths follow its sessions: a session added lasts the usual length, one
+    // taken away takes its length with it, and a week with none keeps no length of its own.
+    const own = lengths[component]?.[String(week)];
+    const kept = own && count ? sessionLengths(plan.components[component]?.length ?? 0, own, count) : null;
+    onChange?.({ weeks: { ...layout, [component]: row }, lengths: withLengths(lengths, component, week, kept) });
   };
   const keys = (component: Component, week: number) => (event: KeyboardEvent<HTMLInputElement>) => {
     const held = layout[component]?.[String(week)] ?? 0;
@@ -156,14 +165,19 @@ export function CourseScheduleGrid({
                   </th>
                   {weeks.map((week) => {
                     const count = layout[component]?.[String(week.week)] ?? 0;
-                    const length = lengthIn(plan, lengths, component, week.week);
+                    const each = sessionLengths(usual, lengths[component]?.[String(week.week)], count);
+                    const hours = each.reduce((sum, one) => sum + one, 0);
                     const own = String(week.week) in (lengths[component] ?? {});
                     return (
                       <td key={week.week} className={`border-b border-[#eef1f5] px-0.5 py-1 text-center align-middle ${week.holidays.length ? "bg-[#fdf9ee]" : ""}`}>
                         {editable ? (
                           <input
                             aria-label={`${component} sessions in week ${week.week}`}
-                            title={`How many ${component} sessions in week ${week.week}: each is ${figure(length)} h`}
+                            title={
+                              count
+                                ? `${count} ${component} session${count === 1 ? "" : "s"} in week ${week.week}: ${sessionsWords(each)}`
+                                : `How many ${component} sessions in week ${week.week}: each is ${figure(usual)} h`
+                            }
                             inputMode="numeric"
                             value={count ? String(count) : ""}
                             placeholder="·"
@@ -191,18 +205,17 @@ export function CourseScheduleGrid({
                           <WeekLength
                             component={component}
                             week={week.week}
-                            count={count}
-                            length={length}
+                            lengths={each}
                             usual={usual}
                             own={own}
-                            onChange={(hours) => onChange?.({ weeks: layout, lengths: withLength(lengths, component, week.week, hours) })}
+                            onChange={(next) => onChange?.({ weeks: layout, lengths: withLengths(lengths, component, week.week, next) })}
                           />
                         ) : (
                           <span
                             aria-hidden="true"
                             className={`mt-0.5 block h-3.5 whitespace-nowrap text-[10px] leading-3 tabular-nums ${own ? "font-bold text-[#8a6116]" : "text-[#667085]"}`}
                           >
-                            {count ? `${figure(count * length)} h` : ""}
+                            {count ? `${figure(hours)} h` : ""}
                           </span>
                         )}
                       </td>
@@ -224,59 +237,61 @@ export function CourseScheduleGrid({
 }
 
 /**
- * The hours under a filled box, pressed to say that week's sessions last other than usual:
- * "each session lasts 3 h", or back to the usual length.
+ * The hours under a filled box, pressed to say how long that week's sessions last: one length
+ * for a single session, a length for each when the week holds more — a usual session and a
+ * three-hour exam (18 Nov 2026) — or back to the usual length.
  */
 function WeekLength({
   component,
   week,
-  count,
-  length,
+  lengths,
   usual,
   own,
   onChange,
 }: {
   component: Component;
   week: number;
-  count: number;
-  length: number;
+  /** Each session's length this week, as it stands. */
+  lengths: number[];
   usual: number;
   own: boolean;
-  /** The week's own length in hours, or null for the usual one. */
-  onChange: (hours: number | null) => void;
+  /** Each session's length in hours, or null for the usual one. */
+  onChange: (hours: number[] | null) => void;
 }) {
+  const count = lengths.length;
   const [open, setOpen] = useState(false);
-  const [typed, setTyped] = useState(figure(length));
+  const [typed, setTyped] = useState<string[]>(() => lengths.map(figure));
   const [problem, setProblem] = useState("");
   const openChange = (next: boolean) => {
     if (next) {
-      setTyped(figure(length));
+      setTyped(lengths.map(figure));
       setProblem("");
     }
     setOpen(next);
   };
   const done = (event: FormEvent) => {
     event.preventDefault();
-    const hours = Number(typed.trim().replace(",", "."));
-    if (!typed.trim() || !(hours > 0 && hours <= LONGEST_SESSION)) {
+    const hours = typed.map((one) => Number(one.trim().replace(",", ".")));
+    if (typed.some((one) => !one.trim()) || hours.some((one) => !(one > 0 && one <= LONGEST_SESSION))) {
       setProblem(`A session lasts between 0 and ${LONGEST_SESSION} hours, like 3 or 1.5.`);
       return;
     }
-    onChange(Math.abs(hours - usual) < 0.001 ? null : Math.round(hours * 100) / 100);
+    onChange(hours.map((one) => Math.round(one * 100) / 100));
     setOpen(false);
   };
+  const total = lengths.reduce((sum, one) => sum + one, 0);
   return (
     <Popover.Root open={open} onOpenChange={openChange}>
       <Popover.Trigger asChild>
         <button
           type="button"
-          aria-label={`Length of each ${component} session in week ${week}: ${figure(length)} h`}
+          aria-label={`Length of the ${component} session${count === 1 ? "" : "s"} in week ${week}: ${sessionsWords(lengths)}`}
           title="Change how long this week's sessions last"
           className={`mx-auto mt-0.5 block h-3.5 whitespace-nowrap rounded px-0.5 text-[10px] leading-3 tabular-nums underline decoration-dotted underline-offset-2 hover:bg-[#eef4fa] ${
             own ? "font-bold text-[#8a6116]" : "text-[#667085] hover:text-[#1f4e79]"
           }`}
         >
-          {figure(count * length)} h
+          {figure(total)} h
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -290,20 +305,31 @@ function WeekLength({
           <form onSubmit={done}>
             <p className="text-sm font-semibold text-[#171717]">
               {component} · week {week}
+              <span className="font-normal text-[#667085]">
+                {" "}
+                · {count} session{count === 1 ? "" : "s"}
+              </span>
             </p>
-            <label className="mt-2 flex items-center gap-2 text-sm text-[#344054]">
-              {count === 1 ? "The session lasts" : `Each of the ${count} sessions lasts`}
-              <input
-                aria-label={`Hours each ${component} session lasts in week ${week}`}
-                inputMode="decimal"
-                autoFocus
-                value={typed}
-                onChange={(event) => setTyped(event.target.value)}
-                className="w-16 rounded-md border border-[#b7bec8] px-2 py-1 text-sm tabular-nums"
-              />
-              h
-            </label>
-            <p className="mt-1 text-xs text-[#667085]">Usually {figure(usual)} h.</p>
+            <div className="mt-2 grid gap-1.5">
+              {typed.map((value, index) => (
+                <label key={index} className="flex items-center justify-between gap-2 text-sm text-[#344054]">
+                  {count === 1 ? "The session lasts" : `Session ${index + 1} lasts`}
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      aria-label={count === 1 ? `Hours the ${component} session lasts in week ${week}` : `Hours ${component} session ${index + 1} lasts in week ${week}`}
+                      inputMode="decimal"
+                      autoFocus={index === 0}
+                      value={value}
+                      onFocus={(event) => event.target.select()}
+                      onChange={(event) => setTyped((current) => current.map((one, at) => (at === index ? event.target.value : one)))}
+                      className="w-16 rounded-md border border-[#b7bec8] px-2 py-1 text-sm tabular-nums"
+                    />
+                    h
+                  </span>
+                </label>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-[#667085]">Usually {figure(usual)} h each.</p>
             {problem ? (
               <p role="alert" className="mt-1 text-xs text-[#a6292f]">
                 {problem}
@@ -319,7 +345,7 @@ function WeekLength({
                   }}
                   className="text-xs font-semibold text-[#1f4e79] underline"
                 >
-                  Back to {figure(usual)} h
+                  Back to {figure(usual)} h{count > 1 ? " each" : ""}
                 </button>
               ) : (
                 <span />

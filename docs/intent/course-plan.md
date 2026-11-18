@@ -67,8 +67,9 @@ Confirmed intent, 18 November 2026.
 ## Added on 18 November 2026, after trying it
 
 - **A week's sessions may last other than usual** (user's go-ahead on the recommendation): the
-  hours under a filled box open "each session lasts … h". One length per week per component;
-  shown in amber; the totals count it. The lead may set it too, since the total stays locked.
+  hours under a filled box open "each session lasts … h". Each session of a week has its own
+  length, so a week can hold a usual session and a three-hour exam (user, same day); shown in
+  amber; the totals count them. The lead may set it too, since the total stays locked.
   The Semester plan still proposes one series at the usual length and flags that week by its
   hours until its class is changed on its own.
 - **The teacher's page after sending is a summary of the whole request:** "Summary of your

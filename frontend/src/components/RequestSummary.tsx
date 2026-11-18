@@ -7,7 +7,8 @@ import {
   hoursLaidOut,
   laidOut,
   layoutWords,
-  lengthIn,
+  sessionLengths,
+  sessionsWords,
   lengthWords,
   planStanding,
   type CoursePlan,
@@ -192,12 +193,13 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
             >
               {weeks.map((week) => {
                 const count = course.weeks[component]?.[String(week.week)] ?? 0;
-                const length = lengthIn(course, lengths, component, week.week);
+                const each = sessionLengths(course.components[component].length ?? 0, own[String(week.week)], count);
+                const hours = each.reduce((sum, one) => sum + one, 0);
                 const odd = String(week.week) in own;
                 // As the lead filled it in: the sessions in the block, the hours they make under it;
                 // the week in full on hover, in the app's own bubble.
                 const said = count
-                  ? `Week ${week.week}: ${count} ${component} session${count === 1 ? "" : "s"} of ${figure(length)} h`
+                  ? `Week ${week.week}: ${count} ${component} session${count === 1 ? "" : "s"} of ${sessionsWords(each)}`
                   : `Week ${week.week}: no ${component} session`;
                 return (
                   <Tip
@@ -207,7 +209,7 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
                     delay={80}
                     icon={CalendarDays}
                     title={`Week ${week.week}${week.monday ? ` · ${formatDayAndMonth(week.monday)}` : ""}`}
-                    content={<WeekDetail component={component} count={count} length={length} usual={course.components[component].length ?? 0} holidays={week.holidays} />}
+                    content={<WeekDetail component={component} lengths={each} usual={course.components[component].length ?? 0} holidays={week.holidays} />}
                   >
                   <span role="img" aria-label={said} className="flex min-w-0 flex-1 cursor-default flex-col items-stretch">
                     <span
@@ -220,7 +222,7 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
                     <span
                       className={`mt-0.5 h-3 overflow-hidden text-center text-[9px] tabular-nums leading-3 ${odd ? "font-bold text-[#8a6116]" : "text-[#667085]"}`}
                     >
-                      {count ? `${figure(count * length)} h` : ""}
+                      {count ? `${figure(hours)} h` : ""}
                     </span>
                   </span>
                   </Tip>
@@ -252,35 +254,39 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
   );
 }
 
-/** One week of a strip, on hover: its sessions and the hours they make, a length not the usual one, a holiday. */
+/** One week of a strip, on hover: its sessions and how long each lasts, what they make, a holiday. */
 function WeekDetail({
   component,
-  count,
-  length,
+  lengths,
   usual,
   holidays,
 }: {
   component: string;
-  count: number;
-  length: number;
+  /** Each session's length this week. */
+  lengths: number[];
   usual: number;
   holidays: TeachingWeek["holidays"];
 }) {
+  const count = lengths.length;
+  const total = lengths.reduce((sum, one) => sum + one, 0);
+  const same = new Set(lengths).size === 1;
+  const odd = lengths.filter((one) => Math.abs(one - usual) > 0.001);
   return (
     <span className="block space-y-0.5">
       {count ? (
         <span className="block text-[#171717]">
           <b>
             {count} {component} session{count === 1 ? "" : "s"}
-          </b>{" "}
-          of {figure(length)} h{count > 1 ? ` · ${figure(count * length)} h in all` : ""}
+          </b>
+          {same ? ` of ${figure(lengths[0])} h` : `: ${lengths.map((one) => `${figure(one)} h`).join(", ")}`}
+          {count > 1 ? ` · ${figure(total)} h in all` : ""}
         </span>
       ) : (
         <span className="block">No {component} session this week.</span>
       )}
-      {count && Math.abs(length - usual) > 0.001 ? (
+      {odd.length ? (
         <span className="block font-semibold text-[#8a6116]">
-          {length > usual ? "Longer" : "Shorter"} than the usual {figure(usual)} h
+          {same ? `${lengths[0] > usual ? "Longer" : "Shorter"} than the usual ${figure(usual)} h` : `Usually ${figure(usual)} h each`}
         </span>
       ) : null}
       {holidays.map((day) => (

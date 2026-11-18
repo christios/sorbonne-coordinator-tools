@@ -130,16 +130,20 @@ describe("saying a layout", () => {
 
 describe("a week whose sessions last other than usual", () => {
   it("counts its own length in the hours, and is said by week", () => {
-    expect(hoursLaidOut(PLAN, { CM: { "1": 1, "8": 1 } }, "CM", { CM: { "8": 3 } })).toBe(4.5);
-    expect(lengthWords({ "8": 3, "12": 3, "2": 1 })).toBe("1 h in week 2 · 3 h in weeks 8, 12");
+    expect(hoursLaidOut(PLAN, { CM: { "1": 1, "8": 1 } }, "CM", { CM: { "8": [3] } })).toBe(4.5);
+    // Two sessions in a week, each its own length: a usual one and a three-hour exam.
+    expect(hoursLaidOut(PLAN, { CM: { "8": 2 } }, "CM", { CM: { "8": [1.5, 3] } })).toBe(4.5);
+    expect(lengthWords({ "8": [3], "12": [3], "2": [1], "10": [1.5, 3] })).toBe(
+      "1 h in week 2 · 3 h in weeks 8, 12 · 1.5 h + 3 h in week 10",
+    );
     // Fifteen sessions of 1.5 h, week 8's lasting 3 h: 24 h, the target.
-    const answered = { ...PLAN, answeredAt: "x", weeks: { CM: weeks(1, 15), TD: weeks(1, 14) }, lengths: { CM: { "8": 3 } } };
+    const answered = { ...PLAN, answeredAt: "x", weeks: { CM: weeks(1, 15), TD: weeks(1, 14) }, lengths: { CM: { "8": [3] } } };
     expect(planStanding(answered)).toEqual({ state: "answered", offTarget: [] });
     expect(planStanding({ ...answered, weeks: { ...answered.weeks, CM: weeks(1, 16) } }).offTarget).toEqual(["CM"]);
   });
 
   it("flags the week on the plan by its hours, not as a session of the wrong length", () => {
-    const own = new Map([["MATH-002", { ...PLAN, weeks: { TD: weeks(2, 15) }, lengths: { TD: { "8": 3 } } }]]);
+    const own = new Map([["MATH-002", { ...PLAN, weeks: { TD: weeks(2, 15) }, lengths: { TD: { "8": [3] } } }]]);
     const placed = planOf([series({ id: "s1", weeks: Array.from({ length: 14 }, (_, index) => index + 2) })]);
     const lines = coursePlanDrift(placed, own).get("td1")?.lines ?? [];
     expect(lines[0]).toBe("Course plan · TD in weeks 2–15, sessions of 1.5 h (3 h in week 8)");

@@ -157,7 +157,7 @@ describe("a course lead's step: their courses, week by week", () => {
       answerSource: "lead" as const,
       note: "Fine",
       weeks: { CM: { "1": 1, "2": 1, "4": 1 }, TD: { "2": 1 } },
-      lengths: { CM: { "4": 3 } },
+      lengths: { CM: { "4": [3] } },
     };
     vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue({ ...FORM, wishes: SUBMITTED, coursePlans: { ...STEP, courses: [laid] } });
     page();
@@ -190,28 +190,58 @@ describe("a course lead's step: their courses, week by week", () => {
     expect(total("CM")).toBe("3 of 6 h");
 
     // The hours under week 2's box: its session is a three-hour exam.
-    fireEvent.click(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 1.5 h" }));
-    const length = await screen.findByRole("textbox", { name: "Hours each CM session lasts in week 2" });
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of the CM session in week 2: 1.5 h" }));
+    const length = await screen.findByRole("textbox", { name: "Hours the CM session lasts in week 2" });
     fireEvent.change(length, { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(total("CM")).toBe("4.5 of 6 h");
-    expect(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 3 h" })).toBeTruthy();
+    expect(within(grid).getByRole("button", { name: "Length of the CM session in week 2: 3 h" })).toBeTruthy();
 
     // Back to the usual length, and on again to 3 h; emptied, the week keeps no length of its own.
-    fireEvent.click(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 3 h" }));
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of the CM session in week 2: 3 h" }));
     fireEvent.click(await screen.findByRole("button", { name: "Back to 1.5 h" }));
     expect(total("CM")).toBe("3 of 6 h");
-    fireEvent.click(within(grid).getByRole("button", { name: "Length of each CM session in week 2: 1.5 h" }));
-    fireEvent.change(await screen.findByRole("textbox", { name: "Hours each CM session lasts in week 2" }), { target: { value: "20" } });
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of the CM session in week 2: 1.5 h" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Hours the CM session lasts in week 2" }), { target: { value: "20" } });
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.getByRole("alert").textContent).toMatch(/between 0 and 8 hours/);
-    fireEvent.change(screen.getByRole("textbox", { name: "Hours each CM session lasts in week 2" }), { target: { value: "3" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Hours the CM session lasts in week 2" }), { target: { value: "3" } });
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
     fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith("the-code", [
-        { courseCode: "MATH-002", weeks: { CM: { "1": 1, "2": 1 } }, lengths: { CM: { "2": 3 } }, note: "" },
+        { courseCode: "MATH-002", weeks: { CM: { "1": 1, "2": 1 } }, lengths: { CM: { "2": [3] } }, note: "" },
+      ]),
+    );
+  });
+
+  it("lets two sessions of one week last differently: a usual one and an exam", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 3" }), { target: { value: "2" } });
+    expect(total("CM")).toBe("3 of 6 h");
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of the CM sessions in week 3: 1.5 h" }));
+    // A length for each of the week's sessions.
+    expect(await screen.findByRole("textbox", { name: "Hours CM session 1 lasts in week 3" })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox", { name: "Hours CM session 2 lasts in week 3" }), { target: { value: "3" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(total("CM")).toBe("4.5 of 6 h");
+    expect(within(grid).getByRole("button", { name: "Length of the CM sessions in week 3: 1.5 h + 3 h" })).toBeTruthy();
+
+    // A third session that week lasts the usual length; taken away again, the exam stays.
+    fireEvent.keyDown(within(grid).getByRole("textbox", { name: "CM sessions in week 3" }), { key: "ArrowUp" });
+    expect(total("CM")).toBe("6 of 6 h");
+    fireEvent.keyDown(within(grid).getByRole("textbox", { name: "CM sessions in week 3" }), { key: "ArrowDown" });
+    expect(total("CM")).toBe("4.5 of 6 h");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("the-code", [
+        { courseCode: "MATH-002", weeks: { CM: { "3": 2 } }, lengths: { CM: { "3": [1.5, 3] } }, note: "" },
       ]),
     );
   });

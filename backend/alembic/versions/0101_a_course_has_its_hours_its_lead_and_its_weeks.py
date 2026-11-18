@@ -52,7 +52,8 @@ def upgrade() -> None:
         sa.Column("lead_set_by", sa.Text(), nullable=False, server_default=""),
         # {"CM": {"1": 1, "2": 1}, "TD": {...}}: sessions per teaching week, weeks with none left out.
         sa.Column("weeks", sa.Text(), nullable=False, server_default="{}"),
-        # {"CM": {"8": 3}}: the weeks whose sessions last other than the usual length, in hours.
+        # {"CM": {"8": [1.5, 3]}}: the weeks whose sessions last other than the usual length, each
+        # session's hours.
         sa.Column("lengths", sa.Text(), nullable=False, server_default="{}"),
         sa.Column("note", sa.Text(), nullable=False, server_default=""),
         # When the weeks were last laid out, by whom, and how: "lead" through their invitation,

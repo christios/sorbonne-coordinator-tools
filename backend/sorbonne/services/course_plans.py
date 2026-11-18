@@ -7,7 +7,8 @@ One plan per course per semester, shared by every cohort that takes it (user, 18
   - **lead** — the teacher who leads the course that semester, picked by hand by coordinators.
     Nothing suggests one, not even the CM teacher.
   - **weeks** — how many sessions of each fall in each teaching week, and the weeks whose
-    sessions last longer or shorter than usual (a three-hour exam session). The lead lays them out
+    sessions last longer or shorter than usual — each session its own length, so a week can hold
+    a usual one and a three-hour exam. The lead lays them out
     in the Timetable preferences request (a step of its own, only for leads), or a coordinator
     does for them; a lead who disagrees with a total says so in the note.
 
@@ -155,8 +156,17 @@ def _layout(raw: object) -> dict[str, dict[str, int]]:
     }
 
 
-def _lengths(raw: object) -> dict[str, dict[str, float]]:
-    """A week's own session length, as kept: {"CM": {"8": 3.0}}; anything unreadable, none."""
+def _session_lengths(value: object) -> list[float]:
+    """One week's session lengths as kept: a list, one per session; a single number (as first
+    kept) is one length for the week."""
+    if isinstance(value, list):
+        return [float(hours) for hours in value]
+    return [float(value)]  # type: ignore[arg-type]
+
+
+def _lengths(raw: object) -> dict[str, dict[str, list[float]]]:
+    """The weeks whose sessions last other than usual, as kept: {"CM": {"8": [1.5, 3.0]}}, each
+    session's length in hours; anything unreadable, none."""
     try:
         held = json.loads(raw or "{}") if isinstance(raw, str) else raw
     except ValueError:
@@ -164,7 +174,7 @@ def _lengths(raw: object) -> dict[str, dict[str, float]]:
     if not isinstance(held, dict):
         return {}
     return {
-        component: {str(week): float(hours) for week, hours in (held.get(component) or {}).items()}
+        component: {str(week): _session_lengths(hours) for week, hours in (held.get(component) or {}).items()}
         for component in COMPONENTS
         if isinstance(held.get(component), dict) and held.get(component)
     }
@@ -459,21 +469,36 @@ class CoursePlans:
     @staticmethod
     def _checked_lengths(
         lengths: dict[str, Any], current: dict[str, Any], layout: dict[str, dict[str, int]]
-    ) -> dict[str, dict[str, float]]:
-        """The weeks whose sessions last other than usual: only weeks that have sessions, and only
-        where the length differs from the component's usual one."""
-        kept: dict[str, dict[str, float]] = {}
+    ) -> dict[str, dict[str, list[float]]]:
+        """The weeks whose sessions last other than usual, each session its own length: only weeks
+        that have sessions, a length for each of them (one number stands for all), and only where
+        one differs from the component's usual length."""
+        kept: dict[str, dict[str, list[float]]] = {}
         for component, by_week in (lengths or {}).items():
             if component not in COMPONENTS:
                 raise InvalidCoursePlan(f"A course's sessions are CM, TD or TP, not {component}.")
             usual = current["components"][component]["length"]
-            for week, hours in (by_week or {}).items():
-                length = _figure(hours, f"A {component} session in week {week}", LONGEST_SESSION)
-                if length is None or str(week) not in layout.get(component, {}):
+            for week, given in (by_week or {}).items():
+                count = layout.get(component, {}).get(str(week), 0)
+                if not count:
                     continue
-                if usual is not None and abs(length - usual) < SAME_LENGTH:
+                said = given if isinstance(given, list) else [given] * count
+                if len(said) != count:
+                    raise InvalidCoursePlan(
+                        f"Week {week} has {count} {component} session{'s' if count != 1 else ''}: "
+                        "say how long each one lasts."
+                    )
+                session_lengths = []
+                for hours in said:
+                    length = _figure(hours, f"A {component} session in week {week}", LONGEST_SESSION)
+                    if length is None:
+                        raise InvalidCoursePlan(
+                            f"A {component} session in week {week} lasts some hours, like 3 or 1.5."
+                        )
+                    session_lengths.append(length)
+                if usual is not None and all(abs(length - usual) < SAME_LENGTH for length in session_lengths):
                     continue
-                kept.setdefault(component, {})[str(int(str(week)))] = length
+                kept.setdefault(component, {})[str(int(str(week)))] = session_lengths
         return {
             component: dict(sorted(weeks.items(), key=lambda item: int(item[0]))) for component, weeks in kept.items()
         }
