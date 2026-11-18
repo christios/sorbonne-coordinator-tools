@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, Check, CheckCircle2, Loader2, LogOut, Pencil } from "lucide-react";
+import { CalendarClock, CalendarHeart, Check, CheckCircle2, Loader2, Lock, LogOut, Pencil } from "lucide-react";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -287,12 +287,35 @@ export function InvitedWishesPage({ code }: { code: string }) {
             {data.teacherName}
             {data.semesterName ? <span className="font-normal text-[#667085]"> · {data.semesterName}</span> : null}
           </p>
-          <p className="mt-1 text-sm text-[#667085]">
-            {!open.open
-              ? "The deadline has passed: your answer can no longer be changed here. Write to the coordinator if something has changed."
-              : answerBy
-                ? `You can change your answer until ${day(answerBy)}.`
-                : "You can change your answer at any time while preferences are collected."}
+          {/*
+            * Until when the answer can change, as a badge rather than a grey line under the name
+            * (18 Nov 2026: it was read past). Blue while open, the date in bold; red once closed.
+            */}
+          <p
+            data-answer-window={open.open ? "open" : "closed"}
+            className={`mt-2 inline-flex items-start gap-2 rounded-lg border px-3 py-1.5 text-sm font-medium sm:items-center ${
+              open.open ? "border-[#9fb6cf] bg-[#eef4fa] text-[#1f4e79]" : "border-[#e5b7b9] bg-[#fdf3f3] text-[#a6292f]"
+            }`}
+          >
+            {open.open ? (
+              <CalendarClock size={16} className="mt-0.5 shrink-0 sm:mt-0" aria-hidden="true" />
+            ) : (
+              <Lock size={16} className="mt-0.5 shrink-0 sm:mt-0" aria-hidden="true" />
+            )}
+            <span>
+              {!open.open ? (
+                <>
+                  <b>The deadline has passed:</b> your answer can no longer be changed here. Write to the coordinator if
+                  something has changed.
+                </>
+              ) : answerBy ? (
+                <>
+                  You can change your answer until <b className="font-bold">{day(answerBy)}</b>.
+                </>
+              ) : (
+                "You can change your answer at any time while preferences are collected."
+              )}
+            </span>
           </p>
         </div>
         <button
