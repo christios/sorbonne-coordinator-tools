@@ -239,9 +239,10 @@ export function ReductionFields({
           return (
             <li
               key={item.kind}
-              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_auto_4.5rem]"
+              className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2.5 sm:grid-cols-[minmax(0,1fr)_15rem_4.5rem]"
             >
-              {/* On a phone the kind takes the whole row; what is held and its hours share the next. */}
+              {/* On a phone the kind takes the whole row; what is held and its hours share the next.
+                  Wider, the boxes sit in one fixed column, so they line up row under row. */}
               <div className="col-span-2 min-w-0 sm:col-span-1">
                 <p className="text-sm font-semibold text-[#171717]">{item.label}</p>
                 <p className="text-xs text-[#475467]">{item.rule}</p>
