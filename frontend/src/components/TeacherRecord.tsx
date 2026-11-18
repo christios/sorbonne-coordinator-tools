@@ -22,7 +22,7 @@ import {
   type ActiveCrn,
   type ActiveTeacher,
 } from "@/services/portalLists";
-import { type SemesterDays, daysOfSemester, requisitionCheck, semesterContract } from "@/services/requisitionCheck";
+import { requisitionCheck, semesterContract, semesterDaysOf } from "@/services/requisitionCheck";
 import { teacherTimetable } from "@/services/personTimetable";
 import { requisitionHours, totalAdminHours } from "@/services/requisitions";
 import type { ColumnSource } from "@/services/studentColumns";
@@ -37,7 +37,7 @@ import {
 } from "@/services/teacherLoad";
 import { getTeacherRequisition, listTeacherRequisitions } from "@/services/teachers";
 import { fetchPlans } from "@/services/semesterPlans";
-import { academicYearOfTerm, semesterAsItWent } from "@/services/teacherHoursRows";
+import { semesterAsItWent } from "@/services/teacherHoursRows";
 import { fetchCohorts, fetchCourseCards } from "@/services/studentDatabase";
 import { requestSheets } from "@/services/timetableExport";
 import { fetchTimetableTerms } from "@/services/timetables";
@@ -184,17 +184,10 @@ export function TeacherRecord({
    */
   const { semester, term: semesterTerm } = usePortalSemester();
   const plans = useQuery({ queryKey: ["plans"], queryFn: fetchPlans, enabled: open, retry: false });
-  const semesterDays = useMemo((): SemesterDays[] => {
-    const known = (plans.data ?? []).map((plan) => ({
-      id: plan.semesterId,
-      academicYear: academicYearOfTerm(plan.termCode),
-      ...(daysOfSemester(plan.weekOne, plan.weeks) ?? { from: "", to: "" }),
-    }));
-    // A semester that is not one of our plans has no Week 1 here, so it goes by its year.
-    return semester && !known.some((entry) => entry.id === semester.id)
-      ? [...known, { id: semester.id, academicYear: academicYearOfTerm(semesterTerm), from: "", to: "" }]
-      : known;
-  }, [plans.data, semester, semesterTerm]);
+  const semesterDays = useMemo(
+    () => semesterDaysOf(plans.data ?? [], semester ? { id: semester.id, termCode: semesterTerm } : null),
+    [plans.data, semester, semesterTerm],
+  );
   const contract = semester
     ? semesterContract(sections, requisitions, semesterDays, semester.id)
     : { requisitions, runsPast: [], warnings: requisitionCheck(sections, requisitions) };

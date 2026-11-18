@@ -115,8 +115,14 @@ export type TeacherSummary = {
   contractedHours: number;
   /** The admin hours they pay for, which nothing is taught in. */
   adminHours?: number;
-  /** Both, per academic year ("2026-2027"), for a page about one semester. */
+  /** Both, per academic year ("2026-2027"). */
   byYear?: Record<string, { requisitions: number; teachingHours: number; adminHours: number }>;
+  /**
+   * Both, per requisition, with its contract dates, for a page about one semester: a
+   * requisition counts in the semesters its dates cover (see semestersOfRequisition).
+   * Absent from a server older than it.
+   */
+  requisitionList?: { academicYear: string; contractFrom: string; contractTo: string; teachingHours: number; adminHours: number }[];
   timeSheets: number;
   newestTimeSheet: TeacherTimeSheet | null;
   hasDocuments: boolean;

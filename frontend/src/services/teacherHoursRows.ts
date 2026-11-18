@@ -35,6 +35,9 @@ import type { RequestSheet } from "@/services/timetableExport";
 import { claimedAdmin, claimedTeaching, type SubmittedTimeSheet, type TeacherSummary } from "@/services/teachers";
 import type { Dismissal } from "@/services/warningDismissals";
 import { DEFAULT_APART, warningsFor } from "@/services/teacherWarnings";
+import { type SemesterDays, semestersOfRequisition } from "@/services/requisitionCheck";
+
+export { academicYearOfTerm } from "@/services/requisitionCheck";
 
 /** Everything the table is made of, read once and asked many times. */
 export type HoursSource = {
@@ -50,14 +53,12 @@ export type HoursSource = {
   owners: Map<string, { id: string; name: string }>;
   submitted: SubmittedTimeSheet[];
   contracts: Record<string, TeacherSummary>;
-  /** The semester's academic year, "2026-2027", for the requisitions of that year; "" for all of them. */
-  academicYear?: string;
   /**
-   * Every semester of that year, for the requisition warnings: a requisition is a year's,
-   * so it is held against the year's plan, and what the year has used so far counts the
-   * earlier semesters' plan. Keyed as the plan is: a teacher's id, or their name in lower case.
+   * The semester on screen, and every semester's days: a requisition counts in the
+   * semesters its contract dates cover, so the columns and the warnings are the semester's
+   * own requisitions. Left out, every requisition a teacher has counts.
    */
-  year?: { planned: Map<string, number>; earlier: Map<string, number> };
+  semester?: { id: string; days: SemesterDays[] };
   decided: Map<string, Dismissal>;
   /** How far apart two figures have to be before the department wants to hear about it. */
   threshold: number;
@@ -342,12 +343,18 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
     };
     const partTime = row.active?.partTimeTeacherId ?? "";
     const paid = contracts[partTime];
-    mine.requisitionedHours = source.academicYear
-      ? (paid?.byYear?.[source.academicYear]?.teachingHours ?? 0)
-      : (paid?.contractedHours ?? 0);
-    mine.adminHours = source.academicYear
-      ? (paid?.byYear?.[source.academicYear]?.adminHours ?? 0)
-      : (paid?.adminHours ?? 0);
+    const { semester } = source;
+    // The semester's requisitions; all of them from a server that does not list them yet.
+    const here =
+      semester && paid?.requisitionList
+        ? paid.requisitionList.filter((entry) => semestersOfRequisition(entry, semester.days).includes(semester.id))
+        : null;
+    const sum = (key: "teachingHours" | "adminHours") =>
+      Math.round((here ?? []).reduce((total, entry) => total + (entry[key] || 0), 0) * 1000) / 1000;
+    mine.requisitionedHours = here ? sum("teachingHours") : (paid?.contractedHours ?? 0);
+    mine.adminHours = here ? sum("adminHours") : (paid?.adminHours ?? 0);
+    // Paid by requisition in another semester and not yet in this one: the plan is unpaid.
+    const paidElsewhere = Boolean(here && here.length === 0 && (paid?.requisitions ?? 0) > 0);
     const claims = submitted
       .filter((sheet) => sheet.teacherId && sheet.teacherId === partTime)
       .map((sheet) => ({
@@ -384,17 +391,10 @@ export function hoursRowsFor(source: HoursSource, window: Window, whole: boolean
         asItWent,
         registrar: registrarHoursFor(booked, row.teacher, sameTeacher),
         // Teaching only: admin hours are paid, not taught, and have nothing to meet. The
-        // semester's year's requisitions, as the column shows, not every year's.
+        // semester's own requisitions, as the column shows.
         contracted: mine.requisitionedHours ?? 0,
+        paidElsewhere,
         taughtSoFar,
-        year:
-          source.year && source.academicYear
-            ? {
-                label: source.academicYear,
-                planned: source.year.planned.get(planKey) ?? (plan?.total ?? 0),
-                taughtSoFar: (source.year.earlier.get(planKey) ?? 0) + taughtSoFar,
-              }
-            : undefined,
         claims,
       },
       threshold,
@@ -431,11 +431,6 @@ export function claimsOfSemester<T extends { periodStart: string; periodEnd?: st
   return claims.filter((claim) => semesterOf(claim) === termId);
 }
 
-/** "2026-2027" for the portal's 262710: the two years a term code's first four digits name. */
-export function academicYearOfTerm(termCode: string): string {
-  const digits = termCode.replace(/\D/g, "");
-  return digits.length >= 4 ? `20${digits.slice(0, 2)}-20${digits.slice(2, 4)}` : "";
-}
 
 /** One teacher's semester, as Teacher hours' Total column has it over the whole semester. */
 export type SemesterAsItWent = {

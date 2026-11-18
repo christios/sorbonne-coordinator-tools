@@ -20,7 +20,7 @@ const row = (over: Partial<RequestRow> = {}): RequestRow => ({
 });
 const HANI = { id: "act-1", fullName: "Hani Sayes", partTimeTeacherId: "pt-1" } as ActiveTeacher;
 
-/** Hani is planned for 40 h of teaching; the requisitions pay for 40 h of it and 12 h of admin in 2026-27. */
+/** Hani is planned for 40 h of teaching; his Semester 1 requisition pays for 40 h of it and 12 h of admin. */
 function source(over: Partial<HoursSource> = {}): HoursSource {
   const sheets: RequestSheet[] = [{ title: "BSc-L1-S1", heading: "BSc-L1-S1", semester: "Semester 1", rows: [row()] }];
   return {
@@ -40,6 +40,10 @@ function source(over: Partial<HoursSource> = {}): HoursSource {
           "2026-2027": { requisitions: 1, teachingHours: 40, adminHours: 12 },
           "2025-2026": { requisitions: 1, teachingHours: 0, adminHours: 8 },
         },
+        requisitionList: [
+          { academicYear: "2026-2027", contractFrom: "2026-08-31", contractTo: "2026-12-31", teachingHours: 40, adminHours: 12 },
+          { academicYear: "2025-2026", contractFrom: "2025-09-01", contractTo: "2025-12-31", teachingHours: 0, adminHours: 8 },
+        ],
         timeSheets: 0,
         newestTimeSheet: null,
         hasDocuments: false,
@@ -53,28 +57,47 @@ function source(over: Partial<HoursSource> = {}): HoursSource {
 }
 const WHOLE = { from: "0000-01-01", to: "9999-12-31" };
 
-describe("admin hours on Teacher hours", () => {
-  it("are the semester's own year's, in a column of their own", () => {
-    const [hani] = hoursRowsFor(source({ academicYear: "2026-2027" }), WHOLE, true);
+// As live on 18 Nov 2026: Semester 1 from 31 Aug for 15 weeks, Semester 2 from 25 Jan for 17.
+const DAYS = [
+  { id: "plan:262710", academicYear: "2026-2027", from: "2026-08-31", to: "2026-12-13" },
+  { id: "plan:262720", academicYear: "2026-2027", from: "2027-01-25", to: "2027-05-23" },
+];
+const S1 = { semester: { id: "plan:262710", days: DAYS } };
+const S2 = { semester: { id: "plan:262720", days: DAYS } };
 
+describe("requisitions on Teacher hours", () => {
+  it("are the semester's own: those whose contract dates fall in it, admin in a column of its own", () => {
+    const [hani] = hoursRowsFor(source(S1), WHOLE, true);
+
+    expect(hani.requisitionedHours).toBe(40);
     expect(hani.adminHours).toBe(12);
     expect(hani.total).toBe(40);
   });
 
-  it("show the teaching the requisitions pay for beside them, the same year's", () => {
-    expect(hoursRowsFor(source({ academicYear: "2026-2027" }), WHOLE, true)[0].requisitionedHours).toBe(40);
-    expect(hoursRowsFor(source({ academicYear: "2025-2026" }), WHOLE, true)[0].requisitionedHours).toBe(0);
-    expect(hoursRowsFor(source(), WHOLE, true)[0].requisitionedHours).toBe(40);
+  it("leave another semester's requisitions out", () => {
+    const [hani] = hoursRowsFor(source(S2), WHOLE, true);
+
+    expect(hani.requisitionedHours).toBe(0);
+    expect(hani.adminHours).toBe(0);
   });
 
-  it("are every year's where the semester's year is not known", () => {
+  it("are every requisition's where the semester is not known", () => {
+    expect(hoursRowsFor(source(), WHOLE, true)[0].requisitionedHours).toBe(40);
     expect(hoursRowsFor(source(), WHOLE, true)[0].adminHours).toBe(20);
   });
 
-  it("never make a warning: the teaching the requisitions pay for matches the plan", () => {
-    const [hani] = hoursRowsFor(source({ academicYear: "2026-2027" }), WHOLE, true);
+  it("make no warning when the semester's requisition pays for its plan", () => {
+    const [hani] = hoursRowsFor(source(S1), WHOLE, true);
 
     expect(hani.warnings.map((warning) => warning.kind)).not.toContain("plan_vs_contract");
+  });
+
+  it("say a semester planned for him that none of his requisitions is for yet", () => {
+    const [hani] = hoursRowsFor(source(S2), WHOLE, true);
+    const unpaid = hani.warnings.find((warning) => warning.kind === "plan_vs_contract");
+
+    expect(unpaid?.label).toBe("Requisition short 40 h");
+    expect(unpaid?.sentence).toBe("Hani Sayes: we plan 40 h this semester and none of their requisitions is for it yet.");
   });
 });
 

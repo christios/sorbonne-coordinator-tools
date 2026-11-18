@@ -69,15 +69,13 @@ export type TeacherFigures = {
   asItWent?: number;
   /** Hours the registrar has booked on the sections it staffs with them. */
   registrar: number;
-  /** Hours their requisitions contract them for. Zero where they have none. */
+  /** Teaching hours their requisitions for this semester contract them for. Zero where they have none. */
   contracted: number;
   /**
-   * What the requisitions are held against, when they are a year's and the page is one
-   * semester's: the plan of every semester of that year, and what that year has used so far
-   * (the earlier semesters' plan and this one's taught so far). Left out, the semester's own
-   * `planned` and `taughtSoFar` are used, as before.
+   * They have requisitions, none of them for this semester: paid by requisition, so a
+   * semester planned for them with nothing paying for it is said, not passed over.
    */
-  year?: { label: string; planned: number; taughtSoFar: number };
+  paidElsewhere?: boolean;
   /** Hours actually taught to date: what met, less cancelled, plus stood in for. */
   taughtSoFar: number;
   /**
@@ -136,19 +134,21 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
   // Ours against their requisitions' teaching hours — never their admin hours, which are
   // paid but not taught. Silent for anybody with no requisition, which is most of the
   // full-time staff.
-  // A year's requisitions against the year's plan: one semester's plan against them read
-  // every Semester 2 teacher as under-planned by their whole Semester 1.
-  const plannedForContract = figures.year?.planned ?? figures.planned;
-  const over = figures.year ? ` over ${figures.year.label}` : "";
-  if (figures.contracted > 0 && plannedForContract > 0 && gap(plannedForContract, figures.contracted) >= apart) {
-    const apartBy = gap(plannedForContract, figures.contracted);
+  // The semester's plan against the semester's requisitions: a requisition counts in the
+  // semesters its contract dates cover, so Semester 1's are never held against Semester 2.
+  const paid = figures.contracted > 0 || Boolean(figures.paidElsewhere);
+  if (paid && figures.planned > 0 && gap(figures.planned, figures.contracted) >= apart) {
+    const apartBy = gap(figures.planned, figures.contracted);
     found.push({
-      key: `teacher-hours:plan-vs-contract:${who}:${plannedForContract}:${figures.contracted}`,
+      key: `teacher-hours:plan-vs-contract:${who}:${figures.planned}:${figures.contracted}`,
       teacherKey: who,
       kind: "plan_vs_contract",
       severity: bySize(apartBy, apart),
-      label: `Requisition ${figures.contracted < plannedForContract ? "short" : "over"} ${hours(apartBy)}`,
-      sentence: `${name}: we plan ${hours(plannedForContract)}${over} and their requisitions pay for ${hours(figures.contracted)} of teaching.`,
+      label: `Requisition ${figures.contracted < figures.planned ? "short" : "over"} ${hours(apartBy)}`,
+      sentence:
+        figures.contracted > 0
+          ? `${name}: we plan ${hours(figures.planned)} this semester and its requisitions pay for ${hours(figures.contracted)} of teaching.`
+          : `${name}: we plan ${hours(figures.planned)} this semester and none of their requisitions is for it yet.`,
       apart: apartBy,
     });
   }
@@ -179,8 +179,8 @@ export function warningsFor(figures: TeacherFigures, apart: number = DEFAULT_APA
    * enough to mention, not how far apart two numbers are. Over the requisition it always
    * shows, whatever the threshold. Admin hours are no part of it: nothing is taught in them.
    */
-  // The year's, when the requisitions are a year's: the earlier semesters count too.
-  const usedSoFar = figures.year?.taughtSoFar ?? figures.taughtSoFar;
+  // The semester's teaching so far against the semester's requisitions.
+  const usedSoFar = figures.taughtSoFar;
   if (figures.contracted > 0 && usedSoFar > 0 && usedSoFar + apart >= figures.contracted) {
     const left = Math.round((figures.contracted - usedSoFar) * 100) / 100;
     found.push({
@@ -213,7 +213,7 @@ export function warningRank(warnings: TeacherWarning[]): number {
 /** What makes each kind of teacher warning go away, for whoever hovers it. */
 export const TEACHER_REMEDIES: Record<string, string> = {
   plan_vs_registrar: "Goes away when the portal's staffing and hours for their sections match ours — change the teacher or hours on Groups & CRNs, or ask the registrar to. A class marked cancelled or covered on its calendar counts as it went.",
-  plan_vs_contract: "Goes away when their requisitions' teaching hours match the plan — amend the requisition, or the sections planned for them.",
+  plan_vs_contract: "Goes away when this semester's requisitions pay for the teaching its plan gives them — amend or add a requisition (it counts in the semesters its contract dates cover), or change the sections planned for them.",
   claim_vs_taught: "Goes away when the teaching the time sheet claims for that period matches what the timetable says they taught. Its admin lines are left out: the timetable never holds them.",
   contract_nearly_spent: "Goes away with a requisition for more teaching hours, or when the plan asks less of them.",
 };

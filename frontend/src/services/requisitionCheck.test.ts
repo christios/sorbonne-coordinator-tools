@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 
-import { daysOfSemester, requisitionCheck, requisitionCourseCode, semesterContract, semestersOfRequisition } from "./requisitionCheck";
+import {
+  academicYearOfTerm,
+  daysOfSemester,
+  requisitionCheck,
+  requisitionCourseCode,
+  semesterContract,
+  semesterDaysOf,
+  semestersOfRequisition,
+} from "./requisitionCheck";
 
 const course = (code: string, hours: string) => ({
   id: code,
@@ -64,16 +72,35 @@ describe("a requisition's semester", () => {
     expect(daysOfSemester("", 15)).toBeNull();
   });
 
+  const dated = (contractFrom: string, contractTo: string, academicYear = "2026-2027") => ({ academicYear, contractFrom, contractTo });
+
   it("is the semester its contract dates overlap — Semester 1's run to 31 December, short of Semester 2", () => {
-    expect(semestersOfRequisition(requisition("2026-08-31", "2026-12-31"), [S1, S2])).toEqual(["plan:262710"]);
-    expect(semestersOfRequisition(requisition("2027-01-18", "2027-05-31"), [S1, S2])).toEqual(["plan:262720"]);
-    expect(semestersOfRequisition(requisition("2026-09-01", "2027-06-30"), [S1, S2])).toEqual(["plan:262710", "plan:262720"]);
+    expect(semestersOfRequisition(dated("2026-08-31", "2026-12-31"), [S1, S2])).toEqual(["plan:262710"]);
+    expect(semestersOfRequisition(dated("2027-01-18", "2027-05-31"), [S1, S2])).toEqual(["plan:262720"]);
+    expect(semestersOfRequisition(dated("2026-09-01", "2027-06-30"), [S1, S2])).toEqual(["plan:262710", "plan:262720"]);
   });
 
   it("goes by its academic year when it has no dates, or its dates miss every semester", () => {
-    expect(semestersOfRequisition(requisition("", ""), [S1, S2])).toEqual(["plan:262710", "plan:262720"]);
-    expect(semestersOfRequisition(requisition("2027-07-01", "2027-07-31"), [S1, S2])).toEqual(["plan:262710", "plan:262720"]);
-    expect(semestersOfRequisition({ ...requisition("", ""), academicYear: "2025-2026" }, [S1, S2])).toEqual([]);
+    expect(semestersOfRequisition(dated("", ""), [S1, S2])).toEqual(["plan:262710", "plan:262720"]);
+    expect(semestersOfRequisition(dated("2027-07-01", "2027-07-31"), [S1, S2])).toEqual(["plan:262710", "plan:262720"]);
+    expect(semestersOfRequisition(dated("", "", "2025-2026"), [S1, S2])).toEqual([]);
+  });
+
+  it("knows each semester's days from the plans, and the one on screen by its year when it is no plan", () => {
+    const plans = [
+      { semesterId: "plan:262710", termCode: "262710", weekOne: "2026-08-31", weeks: 15 },
+      { semesterId: "plan:262720", termCode: "262720", weekOne: "", weeks: 17 },
+    ];
+    expect(semesterDaysOf(plans, { id: "hub-s1", termCode: "262710" })).toEqual([
+      { id: "plan:262710", academicYear: "2026-2027", from: "2026-08-31", to: "2026-12-13" },
+      { id: "plan:262720", academicYear: "2026-2027", from: "", to: "" },
+      { id: "hub-s1", academicYear: "2026-2027", from: "", to: "" },
+    ]);
+  });
+
+  it("reads the academic year from a portal term's first four digits", () => {
+    expect(academicYearOfTerm("262710")).toBe("2026-2027");
+    expect(academicYearOfTerm("")).toBe("");
   });
 
   it("holds a semester's requisitions against that semester's sections only (Bilal Maaz, 18 Nov 2026)", () => {

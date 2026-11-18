@@ -722,6 +722,9 @@ class TeacherStore:
                     "adminHours": 0.0,
                     # The same two, per academic year, for a page that is about one semester.
                     "byYear": {},
+                    # And per requisition, with its contract dates: a requisition names no
+                    # semester, so a page about one places it by the days it runs.
+                    "requisitionList": [],
                     "timeSheets": 0,
                     "newestTimeSheet": None,
                     "hasDocuments": teacher_id in with_documents,
@@ -741,6 +744,16 @@ class TeacherStore:
             year["requisitions"] += 1
             year["teachingHours"] = round(year["teachingHours"] + teaching, 3)
             year["adminHours"] = round(year["adminHours"] + admin, 3)
+            contract = _contract_dates(row["content"])
+            mine["requisitionList"].append(
+                {
+                    "academicYear": str(row["academic_year"] or ""),
+                    "contractFrom": contract[0],
+                    "contractTo": contract[1],
+                    "teachingHours": round(teaching, 3),
+                    "adminHours": round(admin, 3),
+                }
+            )
         for row in sheets:
             mine = entry(row["teacher_id"])
             mine["timeSheets"] += 1
@@ -1020,6 +1033,15 @@ def _requisition_hours(content_json: str, part: str) -> float:
         if found:
             total += float(found.group(0).replace(",", "."))
     return total
+
+
+def _contract_dates(content_json: str) -> tuple[str, str]:
+    """A requisition's "from" and "to" days, as typed; blank where unset or unreadable."""
+    try:
+        content = json.loads(content_json or "{}")
+        return str(content.get("contractFrom") or ""), str(content.get("contractTo") or "")
+    except (TypeError, ValueError, AttributeError):
+        return "", ""
 
 
 def _period(value: str) -> str:

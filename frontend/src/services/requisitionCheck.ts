@@ -101,6 +101,30 @@ export function requisitionCheck(
  */
 export type SemesterDays = { id: string; academicYear: string; from: string; to: string };
 
+/** "2026-2027" for the portal's 262710: the two years a term code's first four digits name. */
+export function academicYearOfTerm(termCode: string): string {
+  const digits = termCode.replace(/\D/g, "");
+  return digits.length >= 4 ? `20${digits.slice(0, 2)}-20${digits.slice(2, 4)}` : "";
+}
+
+/**
+ * Every semester's days, from the semester plans (Week 1 and how many weeks), and the
+ * semester on screen by its year alone when it is not one of them.
+ */
+export function semesterDaysOf(
+  plans: { semesterId: string; termCode: string; weekOne: string; weeks: number }[],
+  shown?: { id: string; termCode: string } | null,
+): SemesterDays[] {
+  const known = plans.map((plan) => ({
+    id: plan.semesterId,
+    academicYear: academicYearOfTerm(plan.termCode),
+    ...(daysOfSemester(plan.weekOne, plan.weeks) ?? { from: "", to: "" }),
+  }));
+  return shown && !known.some((entry) => entry.id === shown.id)
+    ? [...known, { id: shown.id, academicYear: academicYearOfTerm(shown.termCode), from: "", to: "" }]
+    : known;
+}
+
 /** Week 1's Monday to the Sunday ending its last week; nothing for a semester with no Week 1 set. */
 export function daysOfSemester(weekOne: string, weeks: number): { from: string; to: string } | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(weekOne) || !(weeks > 0)) return null;
@@ -121,10 +145,10 @@ export function daysOfSemester(weekOne: string, weeks: number): { from: string; 
  * year, so a requisition is never lost from every semester for a missing date.
  */
 export function semestersOfRequisition(
-  requisition: { academicYear: string; content: { contractFrom: string; contractTo: string } },
+  requisition: { academicYear: string; contractFrom: string; contractTo: string },
   semesters: SemesterDays[],
 ): string[] {
-  const { contractFrom: from, contractTo: to } = requisition.content;
+  const { contractFrom: from, contractTo: to } = requisition;
   if (from && to) {
     const overlapping = semesters.filter((semester) => semester.from && from <= semester.to && to >= semester.from);
     if (overlapping.length) return overlapping.map((semester) => semester.id);
@@ -152,7 +176,10 @@ export function semesterContract<
   semesters: SemesterDays[],
   semesterId: string,
 ): { requisitions: R[]; runsPast: R[]; warnings: RequisitionWarning[] } {
-  const placed = requisitions.map((requisition) => ({ requisition, into: semestersOfRequisition(requisition, semesters) }));
+  const placed = requisitions.map((requisition) => ({
+    requisition,
+    into: semestersOfRequisition({ academicYear: requisition.academicYear, ...requisition.content }, semesters),
+  }));
   const here = placed.filter((entry) => entry.into.includes(semesterId));
   const reach = new Set([semesterId, ...here.flatMap((entry) => entry.into)]);
   const planned = sections.filter((section) => reach.has(section.termId));
