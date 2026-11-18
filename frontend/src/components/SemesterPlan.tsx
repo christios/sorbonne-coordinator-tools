@@ -61,6 +61,17 @@ import {
   type PlacedSession,
 } from "@/services/weekSchedule";
 import { judgeSlot } from "@/services/planJudge";
+import {
+  classPlanOf,
+  coursePlanDrift,
+  fetchCoursePlans,
+  figure,
+  layoutWords,
+  proposedWeeks,
+  sessionsOf,
+  type CoursePlan,
+  type PlanDrift,
+} from "@/services/coursePlans";
 import { checkWishes, describeBlock, fetchWishSemester, mondayOfIso, periodShades, shadingFor } from "@/services/teacherWishes";
 
 /** A class as the filters read it: the class, and what its cohorts, majors, set and classes are. */
@@ -114,7 +125,7 @@ const CLASS_COLUMNS: FilterColumn<{ rooms: string[]; days: string[] }>[] = [
   { id: "days", displayName: "Day", type: "multiOption", accessor: (row) => row.days },
 ];
 
-type TrayShow = "to-place" | "placed" | "over" | "no-teacher" | "no-crn" | "wishes";
+type TrayShow = "to-place" | "placed" | "over" | "no-teacher" | "no-crn" | "wishes" | "off-plan";
 type TraySort = "groups" | "course" | "left" | "teacher" | "cohort";
 
 const TRAY_SHOW: { value: TrayShow; label: string }[] = [
@@ -125,6 +136,8 @@ const TRAY_SHOW: { value: TrayShow; label: string }[] = [
   { value: "no-teacher", label: "No teacher" },
   { value: "no-crn", label: "No CRN" },
   { value: "wishes", label: "Breaks a preference" },
+  // Placed in other weeks, or for other hours a week, than its course's plan says.
+  { value: "off-plan", label: "Off the course plan" },
 ];
 const TRAY_SORT: { value: TraySort; label: string }[] = [
   // Groups & CRNs' own order: cohort, set, group, course.
@@ -243,6 +256,24 @@ export function SemesterPlan({
     () => (data ? checkWishes(data, wishSemester.data?.teachers ?? []) : null),
     [data, wishSemester.data],
   );
+  /*
+   * The course plans: each course's hours and the weeks its lead laid them out in. Placing a
+   * class proposes its weeks, and a class that keeps to other weeks or other hours a week is
+   * flagged amber — nothing is refused. A server without them answers with an error, and the
+   * plan goes without, as it does without wishes.
+   */
+  const coursePlans = useQuery({
+    queryKey: ["course-plans", chosen],
+    queryFn: () => fetchCoursePlans(chosen),
+    enabled: Boolean(chosen),
+    retry: false,
+    refetchInterval: 60_000,
+  });
+  const coursePlanOf = useMemo(
+    () => new Map<string, CoursePlan>((coursePlans.data?.courses ?? []).map((course) => [course.courseCode.toUpperCase(), course])),
+    [coursePlans.data],
+  );
+  const drift = useMemo(() => (data ? coursePlanDrift(data, coursePlanOf) : new Map<string, PlanDrift>()), [data, coursePlanOf]);
   // Whose wishes are shaded: the class being moved, else the class last opened, else the teacher filtered to.
   const [held, setHeld] = useState("");
   const [picked, setPicked] = useState("");
@@ -490,8 +521,11 @@ export function SemesterPlan({
         .join("; "),
       wish: (() => {
         const flag = wishCheck?.flags.get(entry);
-        // A line each on the flag's hover: the Musts and periods first.
-        return flag ? { level: flag.level, said: flag.said.join("\n") } : undefined;
+        // Off its course's plan: amber, after any wish it breaks, on the same flag.
+        const off = drift.get(entry.sectionId);
+        if (!flag && !off) return undefined;
+        // A line each on the flag's hover: the Musts and periods first, then the course plan.
+        return { level: flag?.level ?? "would", said: [...(flag?.said ?? []), ...(off?.lines ?? [])].join("\n") };
       })(),
     };
     classOf.set(session, entry);
@@ -572,16 +606,23 @@ export function SemesterPlan({
    * A new class at a slot. Drawn on the grid, it is as long as it was drawn; dropped from the
    * list or added with +, as long as one session of it is on Groups & CRNs.
    */
-  const draftFor = (sectionId: string, slot: GridSlot, drawn = false): ClassDraft => ({
-    sectionId,
-    weekday: weekdayOf(slot.date),
-    startsAt: slot.start,
-    endsAt: drawn ? slot.end : endOf(sectionsById.get(sectionId), slot.start, slot.end),
-    room: oneRoom,
-    teacherName: "",
-    weeks: allWeeks,
-    note: "",
-  });
+  const draftFor = (sectionId: string, slot: GridSlot, drawn = false): ClassDraft => {
+    const section = sectionsById.get(sectionId);
+    const classPlan = section ? classPlanOf(section, coursePlanOf) : null;
+    // With no duration on Groups & CRNs, one session as long as the course plan's.
+    const lasting = section && !section.duration.trim() && classPlan ? { ...section, duration: String(classPlan.length) } : section;
+    return {
+      sectionId,
+      weekday: weekdayOf(slot.date),
+      startsAt: slot.start,
+      endsAt: drawn ? slot.end : endOf(lasting, slot.start, slot.end),
+      room: oneRoom,
+      teacherName: "",
+      // The weeks its course plan still has sessions for; every week when it has none laid out.
+      weeks: (section && proposedWeeks(data, section, classPlan)) || allWeeks,
+      note: "",
+    };
+  };
   const openClass = (entry: PlanClass) => {
     const series = seriesById.get(entry.seriesId);
     if (!series) return;
@@ -666,7 +707,9 @@ export function SemesterPlan({
           ? !section.teacherName
           : show === "no-crn"
             ? !section.crn
-            : flaggedSections.has(section.id);
+            : show === "off-plan"
+              ? drift.has(section.id)
+              : flaggedSections.has(section.id);
   const keepsAll = (shows: TrayShow[], section: PlanSection) => shows.every((show) => keeps(show, section));
   const trayKept = (section: PlanSection) => keepsAll(trayFilters, section);
   // How many each would leave with the others chosen: the page's filters and the search still apply.
@@ -1098,6 +1141,7 @@ export function SemesterPlan({
                       <p className="truncate text-xs text-[#667085]">
                         {(section.places.length ? facts.slice(1) : facts).filter(Boolean).join(" · ")}
                       </p>
+                      <TrayCoursePlan section={section} coursePlanOf={coursePlanOf} off={drift.get(section.id)?.lines ?? null} />
                       {wishSemester.data?.collection && section.teacherId && !answeredIds.has(section.teacherId) ? (
                         <span className="mt-0.5 inline-block rounded-full bg-[#f2f4f7] px-1.5 text-[11px] text-[#667085]">
                           no preferences
@@ -1165,6 +1209,17 @@ export function SemesterPlan({
           rooms={rooms.map((room) => room.code)}
           initial={dialog.draft}
           wishTeachers={wishSemester.data?.collection ? wishTeachers : undefined}
+          coursePlan={(() => {
+            const section = sectionsById.get(dialog.draft.sectionId);
+            const classPlan = section ? classPlanOf(section, coursePlanOf) : null;
+            if (!section || !classPlan) return null;
+            const laid = sessionsOf(classPlan.weeks) > 0;
+            return {
+              words: `${classPlan.component} ${laid ? layoutWords(classPlan.weeks).toLowerCase() : "(weeks not laid out yet)"}, sessions of ${figure(classPlan.length)} h`,
+              weeks: laid ? proposedWeeks(data, section, classPlan, dialog.series?.id ?? "") : null,
+              length: classPlan.length,
+            };
+          })()}
           editing={
             dialog.entry && dialog.series
               ? {
@@ -1238,5 +1293,36 @@ export function SemesterPlan({
         shown={`${exportSections.size} of ${data.sections.length} classes`}
       />
     </section>
+  );
+}
+
+/**
+ * A class's share of its course's plan, in the list of classes to place: the weeks its lead
+ * laid its component out in and one session's length — and, amber, that what is placed of it
+ * does not keep to them.
+ */
+function TrayCoursePlan({
+  section,
+  coursePlanOf,
+  off,
+}: {
+  section: PlanSection;
+  coursePlanOf: Map<string, CoursePlan>;
+  off: string[] | null;
+}) {
+  const classPlan = classPlanOf(section, coursePlanOf);
+  if (!classPlan) return null;
+  const laid = sessionsOf(classPlan.weeks) > 0;
+  return (
+    <p data-course-plan={section.id} className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[#475467]">
+      <span className="truncate" title={`Course plan: ${classPlan.component}, ${figure(classPlan.hours)} h${classPlan.component === "CM" ? "" : " a group"}`}>
+        Course plan · {laid ? layoutWords(classPlan.weeks) : "weeks not laid out yet"} · {figure(classPlan.length)} h
+      </span>
+      {off ? (
+        <span title={off.join("\n")} className="rounded-full bg-[#fdf6e3] px-1.5 font-semibold text-[#8a6116]">
+          off the plan
+        </span>
+      ) : null}
+    </p>
   );
 }

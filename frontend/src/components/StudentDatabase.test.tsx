@@ -241,14 +241,15 @@ describe("students and their timetables in one place", () => {
     expect(within(pane).queryByRole("button", { name: "Announcements" })).toBeNull();
   });
 
-  it("calls the register by what it lists, which is CRNs and not courses", async () => {
+  it("calls the register by what it lists, which is CRNs, and the courses' own list Active courses", async () => {
     // A row there is one CRN. Called Active courses, a UE or a teacher on the row read as
-    // a fact of that row rather than of the course every row of it shares.
+    // a fact of that row rather than of the course every row of it shares. Since 18 Nov 2026
+    // Active courses is a page of its own, a row per course: its hours, its lead, its weeks.
     renderApp();
     const pane = await screen.findByRole("complementary", { name: /students and timetables/i });
 
     expect(within(pane).getByRole("button", { name: "Active CRNs" })).toBeTruthy();
-    expect(within(pane).queryByRole("button", { name: "Active courses" })).toBeNull();
+    expect(within(pane).getByRole("button", { name: "Active courses" })).toBeTruthy();
   });
 
   it("reaches the semesters, and makes a new one there", async () => {

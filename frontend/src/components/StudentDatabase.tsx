@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Blocks, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users, Scale, Hourglass } from "lucide-react";
+import { Blocks, BookCopy, BookMarked, BookOpen, CalendarCheck, CalendarDays, CalendarHeart, CalendarRange, Clock3, DoorOpen, Contact, GaugeCircle, GraduationCap, ListChecks, ListTree, Megaphone, UserCheck, Users, Scale, Hourglass } from "lucide-react";
 import { Globe } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -19,6 +19,7 @@ import { TeacherRecord, type TeacherRef } from "@/components/TeacherRecord";
 import { CourseCards } from "@/components/CourseCards";
 import { DiscrepancyRulesEditor } from "@/components/DiscrepancyRulesEditor";
 import { PlatformNotConfigured } from "@/components/PlatformNotConfigured";
+import { CoursePlansPage } from "@/components/CoursePlansPage";
 import { PortalCourses } from "@/components/PortalCourses";
 import { PortalTeachers } from "@/components/PortalTeachers";
 import { ScreenLoading } from "@/components/ScreenLoading";
@@ -58,6 +59,8 @@ const PAGES = [
   // courses, which is what it was taken in by — a course brings its CRNs with it — but not
   // what it lists, and a UE or a teacher read as a fact of the row it sat on.
   { id: "active-courses", name: "Active CRNs", icon: BookMarked, group: "Portal validation", parent: "courses" },
+  // The course once, per semester: its hours, its lead and the lead's weeks (18 Nov 2026).
+  { id: "course-plans", name: "Active courses", icon: BookCopy, group: "Portal validation", parent: "courses" },
   { id: "teachers", name: "Teachers", icon: GraduationCap, group: "Portal validation" },
   // The department's own list, chosen from the portal's or brought from the part-time database.
   { id: "active-teachers", name: "Active teachers", icon: UserCheck, group: "Portal validation", parent: "teachers" },
@@ -181,6 +184,10 @@ const TITLES: Record<PageId, { title: string; blurb?: string }> = {
   "active-courses": {
     title: "Active CRNs",
     blurb: "The department's own register: every CRN it answers for, what the portal says about each, and the parent CRN its sections hang from. A course's own facts — its UE, whether it is mutualized — live on the course.",
+  },
+  "course-plans": {
+    title: "Active courses",
+    blurb: "Every course the department teaches this semester, once: its CM, TD and TP hours, the teacher who leads it, and the weeks the lead laid its sessions out in. The Semester plan proposes and checks those weeks.",
   },
   teachers: {
     title: "Teachers",
@@ -516,6 +523,7 @@ export function StudentDatabase({ onOpenSettings }: { onOpenSettings?: (section:
               }}
             />
           ) : null}
+          {page === "course-plans" ? <CoursePlansPage /> : null}
           {page === "teachers" ? <PortalTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "active-teachers" ? <ActiveTeachers onOpenTeacher={setTeacherRecord} header={pageHeader} /> : null}
           {page === "teacher-preferences" ? <TeacherWishesPage header={pageHeader} /> : null}

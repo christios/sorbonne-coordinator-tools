@@ -3,6 +3,7 @@ import { CalendarHeart, Link2, Link2Off, LockOpen, RefreshCw, Send, Settings } f
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CourseScheduleEditor } from "@/components/CoursePlanDialog";
 import { InviteDialog } from "@/components/InviteDialog";
 import { BAR_BUTTON, ICON_BUTTON, ListSearch, SEGMENTS, SegmentCount, ShownCount, segment } from "@/components/ListLook";
 import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
@@ -32,6 +33,7 @@ import {
   type WishTeacher,
   type WishesInput,
 } from "@/services/teacherWishes";
+import { fetchCoursePlans, planStanding, type CoursePlan } from "@/services/coursePlans";
 import { optionsFor } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { isoToday } from "@/services/weekSchedule";
@@ -84,6 +86,56 @@ function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
         <LabelledFigure value={preferences} label="soft" tone="text-[#8a6116]" faint={!preferences} className="shrink-0" />
       </span>
     </span>
+  );
+}
+
+/** A course lead's courses, on their row: how many they lead, and how many are laid out. */
+function LeadLine({ courses }: { courses: CoursePlan[] }) {
+  if (!courses.length) return null;
+  const done = courses.filter((course) => planStanding(course).state === "answered").length;
+  const codes = courses.map((course) => course.courseCode).join(", ");
+  return (
+    <span
+      data-lead-line
+      title={`Leads ${codes}`}
+      className={`block max-w-full truncate text-xs ${done === courses.length ? "text-[#2e7d55]" : "text-[#8a6116]"}`}
+    >
+      Leads {courses.length === 1 ? courses[0].courseCode : `${courses.length} courses`} · {done === courses.length ? "weeks laid out" : `${done} of ${courses.length} laid out`}
+    </span>
+  );
+}
+
+/**
+ * The courses a teacher leads, in their answer's window: the weeks each was laid out in, and
+ * a coordinator filling them in for the lead, as the preferences are filled in for a teacher.
+ */
+function LeadCourses({
+  term,
+  courses,
+  weeks,
+  onSaved,
+}: {
+  term: string;
+  courses: CoursePlan[];
+  weeks: Parameters<typeof CourseScheduleEditor>[0]["weeks"];
+  onSaved: () => void;
+}) {
+  if (!courses.length) return null;
+  return (
+    <section aria-label="Course schedule" className="mb-5 space-y-3 rounded-lg border border-[#d0d5dd] px-4 py-3">
+      <h3 className="text-sm font-semibold text-[#171717]">
+        {courses.length > 1 ? "The courses they lead, week by week" : "The course they lead, week by week"}
+      </h3>
+      {courses.map((course) => (
+        <div key={course.courseCode} className="space-y-1.5">
+          <p className="text-sm font-semibold text-[#344054]">
+            {course.courseCode}
+            {course.title ? <span className="font-normal text-[#667085]"> · {course.title}</span> : null}
+          </p>
+          <CourseScheduleEditor key={`${course.answeredAt}|${course.hoursUpdatedAt}`} term={term} plan={course} weeks={weeks} onSaved={onSaved} />
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -287,6 +339,18 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
     enabled: Boolean(term),
     retry: false,
   });
+  /*
+   * The semester's course plans: a teacher who leads a course has a course schedule step in
+   * their request, and their answer to it is read and filled in from here too.
+   */
+  const coursePlans = useQuery({
+    queryKey: ["course-plans", term],
+    queryFn: () => fetchCoursePlans(term),
+    enabled: Boolean(term),
+    retry: false,
+  });
+  const ledBy = (teacherId: string): CoursePlan[] =>
+    (coursePlans.data?.courses ?? []).filter((course) => course.active && course.leadId === teacherId);
   const [settingsOpen, setSettingsOpen] = useState(false);
   // The semester's one link for every teacher, to copy or make anew.
   const [sharing, setSharing] = useState(false);
@@ -551,6 +615,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                             : "by the teacher"}
                         </span>
                       ) : null}
+                      <LeadLine courses={ledBy(row.teacherId)} />
                       {closed && row.reopenedUntil ? (
                         <span className="text-xs text-[#2e7d55]">
                           Reopened until {dated(row.reopenedUntil)}
@@ -650,6 +715,12 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
           description={`Timetable preferences and constraints request · ${semesterName}${answering.row.wishes ? ` · ${STATUS[answering.row.wishes.status].words.toLowerCase()}` : ""}`}
           onClose={() => askToLeave("close")}
         >
+          <LeadCourses
+            term={term}
+            courses={ledBy(answering.row.teacherId)}
+            weeks={coursePlans.data?.weeks ?? []}
+            onSaved={() => void client.invalidateQueries({ queryKey: ["course-plans", term] })}
+          />
           {answering.editing ? (
             <WishesForm
               collection={collection}

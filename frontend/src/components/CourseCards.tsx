@@ -25,6 +25,7 @@ import { ALL_COHORTS, type Cohort, fetchCourseCards } from "@/services/studentDa
 import { withProgrammeColumn } from "@/services/coursePrograms";
 import { optionsFor, plainCellText } from "@/services/studentColumns";
 import { COHORT, SCHEMA_TERM } from "@/services/remembered";
+import { fetchCoursePlans } from "@/services/coursePlans";
 import { cohortsIn } from "@/services/semesterCohorts";
 import { useSemesterYears } from "@/services/semesterYears";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
@@ -185,6 +186,13 @@ export function CourseCards({
     semesters.find((term) => term.id === termId) ?? semesters.find((term) => cards.some((card) => card.termId === term.id)) ?? semesters[0] ?? null;
   const inSemester = (card: Card) => !semester || card.termId === semester.id;
   const portalTerm = semester ? (links.data?.[semester.id] ?? "") : "";
+  // The semester's course plans: each card shows its course's hours, and where a row differs.
+  const chosenPlans = useQuery({
+    queryKey: ["course-plans", portalTerm],
+    queryFn: () => fetchCoursePlans(portalTerm),
+    enabled: Boolean(portalTerm),
+    retry: false,
+  });
   const semesterCohorts = semester
     ? cohortsIn(cohorts, { id: semester.id, portalTerm, year: yearOf(semester) }, (id) =>
         cards.some((card) => card.cohortId === id && inSemester(card)),
@@ -573,6 +581,7 @@ export function CourseCards({
               unassigned={unassignedOf(chosenCard)}
               clashes={clashes}
               onPlaceStudents={onPlaceStudents}
+              coursePlan={(chosenPlans.data?.courses ?? []).find((plan) => plan.courseCode.toUpperCase() === chosenCard.code.toUpperCase()) ?? null}
               onChanged={refresh}
               onFilled={(reportOfFill) => {
                 setFilled(reportOfFill);

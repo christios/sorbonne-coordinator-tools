@@ -18,6 +18,7 @@ export function ReductionsStep({
   error,
   onSave,
   onSkip,
+  next = "your preferences",
 }: {
   sheet: ReductionSheet;
   busy: boolean;
@@ -25,6 +26,8 @@ export function ReductionsStep({
   onSave: (items: Record<string, ReductionInput>, note: string) => void;
   /** On to the preferences without saving: the Head of Department's page shows them as not declared yet. */
   onSkip?: () => void;
+  /** What comes after this step, for its button: "your preferences", or a course lead's course schedule. */
+  next?: string;
 }) {
   const { draft, set, total, owed, changes } = useReductionDraft(sheet.items, sheet.service);
   const [note, setNote] = useState(sheet.note);
@@ -110,7 +113,7 @@ export function ReductionsStep({
           className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
           {busy ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : null}
-          Save and go on to your preferences
+          Save and go on to {next}
         </button>
       </div>
     </div>

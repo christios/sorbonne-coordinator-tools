@@ -44,18 +44,41 @@ function Field({ label, children, hint }: { label: string; children: ReactNode; 
   );
 }
 
+/**
+ * What the course plan says of this class, under its weeks — and, amber, where the chosen
+ * weeks or length are not what it says. Nothing is refused: it is the coordinator's call.
+ */
+function CoursePlanNote({ plan, weeks, minutes }: { plan: { words: string; weeks: number[] | null; length: number }; weeks: number[]; minutes: number }) {
+  const extra = plan.weeks ? weeks.filter((week) => !plan.weeks?.includes(week)) : [];
+  const longer = minutes > 0 && Math.abs(minutes - plan.length * 60) > 0.5;
+  return (
+    <span className="text-xs text-[#475467]">
+      Course plan: {plan.words}
+      {extra.length ? <span className="block font-semibold text-[#8a6116]">{weeksSaid(extra)} {extra.length === 1 ? "is" : "are"} not among them.</span> : null}
+      {longer ? (
+        <span className="block font-semibold text-[#8a6116]">
+          This class is {Math.round((minutes / 60) * 100) / 100} h; the course plan&rsquo;s sessions are {plan.length} h.
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 /** The teaching weeks, one button each: pressed is a week the class meets in. */
 export function WeekPicker({
   count,
   value,
   onChange,
   dateOf,
+  planned,
 }: {
   count: number;
   value: number[];
   onChange: (weeks: number[]) => void;
   /** The Monday of a week, for its title. */
   dateOf: (week: number) => string;
+  /** The weeks the course plan has sessions for, offered first, and marked under their buttons. */
+  planned?: number[] | null;
 }) {
   const all = Array.from({ length: count }, (_, index) => index + 1);
   const chosen = new Set(value);
@@ -73,6 +96,7 @@ export function WeekPicker({
   return (
     <div className="grid gap-2">
       <div className="flex flex-wrap items-center gap-1.5">
+        {planned?.length ? preset("Course plan", planned) : null}
         {preset("Every week", all)}
         {preset("Odd weeks", all.filter((week) => week % 2 === 1))}
         {preset("Even weeks", all.filter((week) => week % 2 === 0))}
@@ -85,9 +109,9 @@ export function WeekPicker({
             key={week}
             type="button"
             aria-pressed={chosen.has(week)}
-            title={`Week ${week}, from ${dateOf(week)}`}
+            title={`Week ${week}, from ${dateOf(week)}${planned?.includes(week) ? " · in the course plan" : ""}`}
             onClick={() => toggle(week)}
-            className={`h-8 w-8 rounded-md text-xs font-semibold tabular-nums ${
+            className={`h-8 w-8 rounded-md text-xs font-semibold tabular-nums ${planned?.includes(week) ? "underline decoration-[#d99b1c] decoration-2 underline-offset-2" : ""} ${
               chosen.has(week)
                 ? "bg-[#e3ecf5] text-[#1f4e79] ring-1 ring-inset ring-[#1f4e79]/25 hover:bg-[#d6e3f0]"
                 : "border border-[#e4e8ef] bg-white text-[#98a2b3] hover:bg-[#f8fafc]"
@@ -262,9 +286,15 @@ export function PlanClassDialog({
   onDelete,
   onClose,
   wishTeachers,
+  coursePlan,
 }: {
   open: boolean;
   plan: Plan;
+  /**
+   * The class's share of its course's plan: what it says in words, the weeks it still has
+   * sessions for, and one session's length. Offered and compared, never enforced.
+   */
+  coursePlan?: { words: string; weeks: number[] | null; length: number } | null;
   rooms: string[];
   initial: ClassDraft;
   /** The semester's teachers and their wishes, when wishes are being collected for it. */
@@ -437,7 +467,8 @@ export function PlanClassDialog({
             </div>
             {draft.startsAt >= draft.endsAt ? <p className="-mt-2 text-xs text-[#a6292f]">A class ends after it starts.</p> : null}
             <Small title="Weeks">
-              <WeekPicker count={plan.weeks} value={draft.weeks} onChange={(weeks) => set({ weeks })} dateOf={dateOf} />
+              <WeekPicker count={plan.weeks} value={draft.weeks} onChange={(weeks) => set({ weeks })} dateOf={dateOf} planned={coursePlan?.weeks} />
+              {coursePlan ? <CoursePlanNote plan={coursePlan} weeks={draft.weeks} minutes={length} /> : null}
               {editing && editing.seriesWeeks > 1 ? (
                 <span className="text-xs text-[#667085]">Changing the weeks or the note changes every class of the series.</span>
               ) : null}

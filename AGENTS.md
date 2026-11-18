@@ -84,6 +84,15 @@ Important frontend boundaries:
   decision, 5 Nov 2026). The plan is the source of what *should* happen; teacher hours,
   timesheet pre-fill and the SCEN Requests feed keep reading the registrar's booked classes.
   Next: the Excel workbook for the timetabling team, then plan-versus-portal comparison.
+- **2026-11-18 — Course plans** ([intent](docs/intent/course-plan.md), migration `0101`): one plan
+  per course per semester (`course_plans`, keyed by portal term and course code), shared by every
+  cohort. Coordinators set its CM, TD and TP hours (TD/TP per group) with a session length each —
+  locked targets — and pick its lead by hand, never suggested. The lead lays sessions out per
+  teaching week (the Semester plan's numbering) in a step of their preferences invitation, shown
+  only to a teacher who leads a course that semester; a coordinator can fill it in for them. The
+  Active courses page lists them; Groups & CRNs rows are compared with the hours but keep their
+  own, which Teaching loads and requisitions go on reading; the Semester plan proposes a series'
+  weeks from the layout and flags (never blocks) a class off it. The syllabus link is a later phase.
 - History controls belong inside the shared field/control layout. Do not manually position an icon beside individual text fields.
 - Legacy syllabus history can require a parent-path fallback for migrated structured data; preserve that compatibility in the store.
 - The teacher database was created by migration `0007`, which intentionally removed legacy requisition and requisition-folder data. Treat later destructive data migrations with the same explicit care.

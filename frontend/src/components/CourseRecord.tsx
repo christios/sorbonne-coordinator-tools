@@ -1,13 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
+import { CoursePlanDialog, CoursePlanLines } from "@/components/CoursePlanDialog";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
+import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { TimetablesButton } from "@/components/TimetablesButton";
 import { buildCards, rowsPerPart, teaches, type Card as CourseCard } from "@/services/courseCards";
+import { fetchCoursePlans } from "@/services/coursePlans";
 import { filled } from "@/services/courseRequest";
 import {
   fetchActiveCourses,
@@ -110,6 +113,19 @@ export function CourseRecord({
   }));
 
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
+  /*
+   * Its plan in the header's semester: the hours coordinators set, its lead, and the weeks the
+   * lead laid out. Read here, changed in the course plan's window.
+   */
+  const { semester, term: planTerm } = usePortalSemester();
+  const plans = useQuery({
+    queryKey: ["course-plans", planTerm],
+    queryFn: () => fetchCoursePlans(planTerm),
+    enabled: open && Boolean(planTerm),
+    retry: false,
+  });
+  const plan = (plans.data?.courses ?? []).find((row) => row.courseCode.toUpperCase() === code) ?? null;
+  const [planOpen, setPlanOpen] = useState(false);
 
   const report = check.data;
   const differences = report
@@ -153,6 +169,7 @@ export function CourseRecord({
           * untrue about what they are, and left the course, which is the thing they
           * describe, with nowhere to say them.
           */}
+        <div className="flex flex-col gap-3">
         <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
           {course ? (
             <CourseFacts
@@ -167,6 +184,24 @@ export function CourseRecord({
             <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
           )}
         </Card>
+        <Card
+          title={`Hours and lead${semester ? ` · ${semester.name}` : ""}`}
+          note="The course's CM, TD and TP hours this semester, the teacher who leads it, and the weeks the lead laid its sessions out in."
+          action={
+            plan?.active ? (
+              <button type="button" onClick={() => setPlanOpen(true)} className="text-xs font-semibold text-[#1f4e79] underline">
+                Open the course plan
+              </button>
+            ) : null
+          }
+        >
+          {plan?.active ? (
+            <CoursePlanLines plan={plan} />
+          ) : (
+            <Empty>Not active in {semester?.name ?? "this semester"}, so it has no plan here.</Empty>
+          )}
+        </Card>
+        </div>
         <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
           {cards.length === 0 ? (
             <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
@@ -236,6 +271,15 @@ export function CourseRecord({
           />
         </Card>
       </div>
+        {planOpen && plan ? (
+          <CoursePlanDialog
+            term={planTerm}
+            semesterName={semester?.name ?? ""}
+            plan={plan}
+            weeks={plans.data?.weeks ?? []}
+            onClose={() => setPlanOpen(false)}
+          />
+        ) : null}
         {showingCrn ? (
           <CrnRecord
             open

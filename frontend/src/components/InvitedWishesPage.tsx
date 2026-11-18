@@ -3,6 +3,7 @@ import { CalendarHeart, Check, CheckCircle2, Loader2, LogOut, Pencil } from "luc
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { CourseScheduleStep, CourseScheduleSummary, type CourseLayouts } from "@/components/CourseScheduleStep";
 import { ReductionsStep, ReductionsSummary } from "@/components/ReductionsStep";
 import { MicrosoftButton } from "@/components/MicrosoftButton";
 import { GoogleButton } from "@/components/SignInGate";
@@ -17,11 +18,15 @@ import {
   openAsInviteeHere,
   openSharedHere,
   saveInviteeAnswer,
+  saveInviteeCoursePlans,
   saveInviteeReductions,
   signInInvitee,
   signOutInvitee,
   type InviteeForm,
 } from "@/services/wishInvite";
+
+/** The steps of the request: a full-timer's reductions, a course lead's courses, the form. */
+type Step = "reductions" | "courses" | "preferences";
 
 /** "10 January 2027". */
 const day = (value: string) =>
@@ -54,6 +59,7 @@ function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean
  *
  * A full-timer has a first step before the form: their hour reductions for the year. They land
  * on it until they have saved it once, and may skip it for now; afterwards it is one click back.
+ * A course lead has one too, after it: the sessions of each course they lead, week by week.
  */
 export function InvitedWishesPage({ code }: { code: string }) {
   const client = useQueryClient();
@@ -68,8 +74,9 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const [editing, setEditing] = useState(false);
   const [startFrom, setStartFrom] = useState<Wishes | null>(null);
   const [saved, setSaved] = useState<"" | "draft" | "submitted">("");
-  // A full-timer's two steps; null until they choose, when the page decides where they land.
-  const [step, setStep] = useState<"reductions" | "preferences" | null>(null);
+  // The steps before the form (a full-timer's, a course lead's); null until they choose, when
+  // the page decides where they land.
+  const [step, setStep] = useState<Step | null>(null);
   // The form, once opened, stays mounted when they look back at step 1: nothing typed is lost.
   const [formShown, setFormShown] = useState(false);
 
@@ -112,6 +119,13 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const declare = useMutation({
     mutationFn: ({ items, note }: { items: Parameters<typeof saveInviteeReductions>[1]; note: string }) =>
       saveInviteeReductions(code, items, note),
+    onSuccess: (data) => {
+      client.setQueryData(["invitee-form", code], data);
+      setStep(data.coursePlans ? "courses" : "preferences");
+    },
+  });
+  const layOut = useMutation({
+    mutationFn: (courses: CourseLayouts) => saveInviteeCoursePlans(code, courses),
     onSuccess: (data) => {
       client.setQueryData(["invitee-form", code], data);
       setStep("preferences");
@@ -233,8 +247,22 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const { collection, window: open } = data;
   const answerBy = open.reopenedUntil && open.deadline && open.reopenedUntil > open.deadline ? open.reopenedUntil : open.deadline;
   const reductions = data.reductions ?? null;
-  // Where a full-timer is: step 1 until they have been through it, then wherever they chose.
-  const onStep = !reductions ? "preferences" : (step ?? (reductions.declaredAt ? "preferences" : "reductions"));
+  const courses = data.coursePlans ?? null;
+  const coursesDone = !courses || courses.courses.every((course) => course.answeredAt);
+  // The steps this teacher has: a full-timer's hour reductions, a course lead's courses, then the form.
+  const steps: [Step, string][] = [];
+  if (reductions) steps.push(["reductions", "Hour reductions"]);
+  if (courses) steps.push(["courses", courses.courses.length > 1 ? "Course schedules" : "Course schedule"]);
+  steps.push(["preferences", "Preferences and constraints"]);
+  // Where they are: the first step they have not been through, until they choose one.
+  const onStep: Step =
+    step && steps.some(([key]) => key === step)
+      ? step
+      : reductions && !reductions.declaredAt
+        ? "reductions"
+        : !coursesDone
+          ? "courses"
+          : "preferences";
   const answering = Boolean(collection) && open.open && (editing || !data.wishes || data.wishes.status === "draft");
   if (answering && onStep === "preferences" && !formShown) setFormShown(true);
   // Back into the form, from wherever the button was: the thank-you, or the corner of the page.
@@ -242,6 +270,11 @@ export function InvitedWishesPage({ code }: { code: string }) {
     setSaved("");
     setEditing(true);
     document.querySelector("main")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+  };
+  // Straight to the course step, from wherever the page says it is still to do.
+  const layOutCourses = () => {
+    changeAnswer();
+    setStep("courses");
   };
   // The answer as sent, while it can still change: "Change my answer" floats at the foot of the
   // window, where the Guided tour button sits while answering (18 Nov 2026).
@@ -282,8 +315,14 @@ export function InvitedWishesPage({ code }: { code: string }) {
             <Check size={36} strokeWidth={3} aria-hidden="true" />
           </span>
           <h2 className="mt-4 text-2xl font-semibold text-[#14532d] sm:text-3xl">Thank you, {data.teacherName}!</h2>
-          <p className="mt-2 text-base font-semibold text-[#1f5c3d] sm:text-lg">Your answer is submitted. You&rsquo;re all done.</p>
-          <p className="mt-1 text-sm text-[#2e7d55]">The coordinator has it. There is nothing more to do: you can close this page.</p>
+          <p className="mt-2 text-base font-semibold text-[#1f5c3d] sm:text-lg">
+            Your answer is submitted.{coursesDone ? " You\u2019re all done." : ""}
+          </p>
+          {coursesDone ? (
+            <p className="mt-1 text-sm text-[#2e7d55]">The coordinator has it. There is nothing more to do: you can close this page.</p>
+          ) : open.open ? (
+            <CoursesStillOpen many={(courses?.courses.length ?? 0) > 1} onOpen={layOutCourses} />
+          ) : null}
           {open.open ? (
             <div className="mt-5 flex flex-col items-center gap-2">
               <p className="text-sm text-[#475467]">Something changed?{answerBy ? ` You can change it until ${day(answerBy)}.` : ""}</p>
@@ -299,9 +338,16 @@ export function InvitedWishesPage({ code }: { code: string }) {
         </section>
       ) : data.wishes?.status === "submitted" && !editing && !answering ? (
         // Back another day, the answer given: said first, so the page is not read as a form still to fill.
-        <p role="status" className="mt-4 flex items-start gap-2 rounded-md bg-[#e7f4ec] px-3 py-2 text-sm font-semibold text-[#1f5c3d]">
-          <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> Your answer is submitted: nothing more to do.
-        </p>
+        coursesDone || !open.open ? (
+          <p role="status" className="mt-4 flex items-start gap-2 rounded-md bg-[#e7f4ec] px-3 py-2 text-sm font-semibold text-[#1f5c3d]">
+            <CheckCircle2 size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> Your answer is submitted: nothing more to do.
+          </p>
+        ) : (
+          // Made a course lead after answering, or skipped the step: the one thing still to do.
+          <div role="status" className="mt-4 rounded-md bg-[#fdf6e3] px-3 py-2">
+            <CoursesStillOpen many={(courses?.courses.length ?? 0) > 1} onOpen={layOutCourses} />
+          </div>
+        )
       ) : null}
       {saved === "draft" ? (
         <p role="status" className="mt-4 rounded-md bg-[#f2f7fb] px-3 py-2 text-sm text-[#344054]">
@@ -314,14 +360,9 @@ export function InvitedWishesPage({ code }: { code: string }) {
           <p className="text-sm text-[#667085]">Preferences are not being collected for this semester any more.</p>
         ) : answering ? (
           <>
-            {reductions ? (
+            {steps.length > 1 ? (
               <nav aria-label="Steps" className="mb-5 flex flex-wrap gap-2">
-                {(
-                  [
-                    ["reductions", "1", "Hour reductions"],
-                    ["preferences", "2", "Preferences and constraints"],
-                  ] as const
-                ).map(([key, number, label]) => (
+                {steps.map(([key, label], index) => [key, String(index + 1), label] as const).map(([key, number, label]) => (
                   <button
                     key={key}
                     type="button"
@@ -350,8 +391,21 @@ export function InvitedWishesPage({ code }: { code: string }) {
                 busy={declare.isPending}
                 error={declare.isError ? (declare.error as Error).message : ""}
                 onSave={(items, note) => declare.mutate({ items, note })}
+                next={courses ? "your course schedule" : "your preferences"}
                 // Not declared yet is allowed: the Head of Department's page says who has not.
-                onSkip={reductions.declaredAt ? undefined : () => setStep("preferences")}
+                onSkip={reductions.declaredAt ? undefined : () => setStep(courses ? "courses" : "preferences")}
+              />
+            ) : null}
+            {courses && onStep === "courses" ? (
+              <CourseScheduleStep
+                key={courses.courses.map((course) => course.answeredAt).join("|")}
+                step={courses}
+                semesterName={data.semesterName}
+                busy={layOut.isPending}
+                error={layOut.isError ? (layOut.error as Error).message : ""}
+                onSave={(laid) => layOut.mutate(laid)}
+                // Not laid out yet is allowed: the coordinators' page says whose course is waiting.
+                onSkip={coursesDone ? undefined : () => setStep("preferences")}
               />
             ) : null}
             <div hidden={onStep !== "preferences"}>
@@ -408,6 +462,21 @@ export function InvitedWishesPage({ code }: { code: string }) {
                 />
               </div>
             ) : null}
+            {courses ? (
+              <div className="mb-4">
+                <CourseScheduleSummary
+                  step={courses}
+                  onChange={
+                    open.open
+                      ? () => {
+                          changeAnswer();
+                          setStep("courses");
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            ) : null}
             <WishesSummary
               name={data.teacherName}
               collection={collection}
@@ -435,6 +504,18 @@ export function InvitedWishesPage({ code }: { code: string }) {
           )
         : null}
     </Frame>
+  );
+}
+
+/** A course lead's step not done yet, said where the page would otherwise say they are done. */
+function CoursesStillOpen({ many, onOpen }: { many: boolean; onOpen: () => void }) {
+  return (
+    <p className="mt-1 flex flex-wrap items-center justify-center gap-x-3 gap-y-1 text-sm font-semibold text-[#8a6116]">
+      <span>One thing is left: lay out {many ? "the courses you lead" : "the course you lead"} week by week.</span>
+      <button type="button" onClick={onOpen} className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-xs font-semibold text-white">
+        {many ? "Lay out my courses" : "Lay out my course"}
+      </button>
+    </p>
   );
 }
 
