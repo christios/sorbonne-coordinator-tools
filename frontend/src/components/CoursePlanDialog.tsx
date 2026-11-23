@@ -273,28 +273,13 @@ export function PlanHours({ plan }: { plan: CoursePlan }) {
   );
 }
 
-/**
- * A course's plan, set from its record when the record is opened from Groups & CRNs (user,
- * 23 Nov 2026: "fold this part into some preview at the course level"): the hours its sets
- * ask for, read; the lead, picked; and the weeks, filled in for the lead.
- */
-export function CoursePlanEditor({
-  term,
-  plan,
-  weeks,
-  semesterName,
-}: {
-  term: string;
-  plan: CoursePlan;
-  weeks: TeachingWeek[];
-  semesterName: string;
-}) {
+/** The course's lead, picked from the semester's teachers; they lay its weeks out in their request. */
+export function CourseLeadPicker({ term, plan, semesterName }: { term: string; plan: CoursePlan; semesterName: string }) {
   const client = useQueryClient();
   const teachers = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term), enabled: Boolean(term) });
-  const saved = () => void client.invalidateQueries({ queryKey: ["course-plans"] });
   const pickLead = useMutation({
     mutationFn: (leadId: string) => changeCoursePlan(term, plan.courseCode, { leadId }),
-    onSuccess: saved,
+    onSuccess: () => void client.invalidateQueries({ queryKey: ["course-plans"] }),
   });
   const options = [
     { value: "", label: "Nobody yet" },
@@ -306,31 +291,69 @@ export function CoursePlanEditor({
     options.push({ value: plan.leadId, label: plan.leadName || "A teacher not active this semester", searchText: "" });
   }
   return (
+    <div>
+      <SelectMenu
+        label={`Lead of ${plan.courseCode}`}
+        value={plan.leadId}
+        onChange={(value) => pickLead.mutate(value)}
+        searchable
+        disabled={pickLead.isPending}
+        placeholder="Nobody yet"
+        options={options}
+      />
+      {pickLead.error ? <p role="alert" className="mt-1 text-xs text-[#a6292f]">{(pickLead.error as Error).message}</p> : null}
+      <p className="mt-1.5 text-xs text-[#667085]">
+        They lay the weeks out in their Timetable preferences request. Chosen from the teachers active in {semesterName || "the semester"}.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * A course's plan, set from its record when the record is opened from Groups & CRNs (user,
+ * 23 Nov 2026: "fold this part into some preview at the course level"): the hours its sets
+ * ask for, read; the lead, picked; and the weeks, filled in for the lead. The record may set
+ * the hours and the lead above it, in which case it shows the weeks alone.
+ */
+export function CoursePlanEditor({
+  term,
+  plan,
+  weeks,
+  semesterName,
+  hoursAbove = false,
+  leadAbove = false,
+}: {
+  term: string;
+  plan: CoursePlan;
+  weeks: TeachingWeek[];
+  semesterName: string;
+  /** The hours are set just above, so they aren't said again here. */
+  hoursAbove?: boolean;
+  /** So is the lead. */
+  leadAbove?: boolean;
+}) {
+  const client = useQueryClient();
+  const saved = () => void client.invalidateQueries({ queryKey: ["course-plans"] });
+  return (
     <div className="space-y-3">
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-[#344054]">Hours, from Groups &amp; CRNs</p>
-          <PlanHours plan={plan} />
+      {hoursAbove && leadAbove ? null : (
+        <div className={`grid gap-4 ${hoursAbove || leadAbove ? "" : "sm:grid-cols-2"}`}>
+          {hoursAbove ? null : (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold text-[#344054]">Hours, from Groups &amp; CRNs</p>
+              <PlanHours plan={plan} />
+            </div>
+          )}
+          {leadAbove ? null : (
+            <div>
+              <p className="mb-1.5 text-xs font-semibold text-[#344054]">Course lead</p>
+              <CourseLeadPicker term={term} plan={plan} semesterName={semesterName} />
+            </div>
+          )}
         </div>
-        <div>
-          <p className="mb-1.5 text-xs font-semibold text-[#344054]">Course lead</p>
-          <SelectMenu
-            label={`Lead of ${plan.courseCode}`}
-            value={plan.leadId}
-            onChange={(value) => pickLead.mutate(value)}
-            searchable
-            disabled={pickLead.isPending}
-            placeholder="Nobody yet"
-            options={options}
-          />
-          {pickLead.error ? <p role="alert" className="mt-1 text-xs text-[#a6292f]">{(pickLead.error as Error).message}</p> : null}
-          <p className="mt-1.5 text-xs text-[#667085]">
-            They lay the weeks out in their Timetable preferences request. Chosen from the teachers active in {semesterName || "the semester"}.
-          </p>
-        </div>
-      </div>
+      )}
       <div>
-        <p className="mb-1.5 text-xs font-semibold text-[#344054]">Week by week</p>
+        <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">Week by week</p>
         <CourseScheduleEditor key={`${plan.answeredAt}|${plan.hoursUpdatedAt}`} term={term} plan={plan} weeks={weeks} onSaved={saved} />
       </div>
     </div>

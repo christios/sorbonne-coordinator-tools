@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-import { CoursePlanDialog, CoursePlanEditor, CoursePlanLines } from "@/components/CoursePlanDialog";
+import { CourseLeadPicker, CoursePlanDialog, CoursePlanEditor, CoursePlanLines } from "@/components/CoursePlanDialog";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -179,13 +179,47 @@ export function CourseRecord({
           // Set here, from Groups & CRNs: what each set asks, the hours they make, the lead, the weeks.
           <Card
             title={`Course plan${planSemester ? ` · ${planSemester}` : ""}`}
-            note="What each set asks of the course — its hours and session length — then the lead, and the weeks the lead lays its sessions out in."
+            note="The course's hours and session length for each set, what else each set asks, the lead, and the weeks the lead lays its sessions out in."
             className="lg:col-span-2"
           >
             <div className="space-y-4">
+              {/* The course's facts and its lead first, side by side: what is asked about it most. */}
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">The course</p>
+                  {course ? (
+                    <CourseFacts
+                      key={course.id}
+                      inline
+                      course={course}
+                      onSaved={() => {
+                        client.invalidateQueries({ queryKey: ["active-courses"] });
+                        client.invalidateQueries({ queryKey: ["active-crns"] });
+                      }}
+                    />
+                  ) : (
+                    <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
+                  )}
+                </div>
+                <div>
+                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">Course lead</p>
+                  {/* Labelled as the course's fields are, so its menu sits on their line. */}
+                  <p className="text-xs font-semibold text-[#344054]">Lead this semester</p>
+                  <div className="mt-1">
+                    {plan ? <CourseLeadPicker term={planTerm} plan={plan} semesterName={planSemester} /> : <Empty>No plan this semester.</Empty>}
+                  </div>
+                </div>
+              </div>
               {asks}
               {plan ? (
-                <CoursePlanEditor term={planTerm} plan={plan} weeks={plans.data?.weeks ?? []} semesterName={planSemester} />
+                <CoursePlanEditor
+                  term={planTerm}
+                  plan={plan}
+                  weeks={plans.data?.weeks ?? []}
+                  semesterName={planSemester}
+                  hoursAbove={Boolean(asks)}
+                  leadAbove
+                />
               ) : plans.isLoading ? (
                 <Empty>Reading the course plan…</Empty>
               ) : (
@@ -203,6 +237,7 @@ export function CourseRecord({
           * untrue about what they are, and left the course, which is the thing they
           * describe, with nowhere to say them.
           */}
+        {editsPlan ? null : (
         <div className="flex flex-col gap-3">
         <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
           {course ? (
@@ -238,6 +273,7 @@ export function CourseRecord({
         </Card>
         )}
         </div>
+        )}
         <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
           {cards.length === 0 ? (
             <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
@@ -334,7 +370,7 @@ export function CourseRecord({
  * belong. The coefficient is the one the teaching-load sheet lists beside the course, and
  * Teaching loads shows it there.
  */
-function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () => void }) {
+function CourseFacts({ course, onSaved, inline = false }: { course: ActiveCourse; onSaved: () => void; inline?: boolean }) {
   const [ue, setUe] = useState(course.ue);
   const [mutualized, setMutualized] = useState<Mutualized>(course.mutualized);
   const [coefficient, setCoefficient] = useState(course.coefficient ?? "");
@@ -343,71 +379,74 @@ function CourseFacts({ course, onSaved }: { course: ActiveCourse; onSaved: () =>
     onSuccess: onSaved,
   });
   const changed = ue.trim() !== course.ue || mutualized !== course.mutualized || coefficient.trim() !== (course.coefficient ?? "");
+  // In a row of columns at the top of the course's plan (23 Nov 2026); stacked in their own card.
+  const label = inline ? "block text-xs font-semibold text-[#344054]" : "block text-sm font-semibold text-[#344054]";
+  // As tall as the Mutualized menu beside them, so the row lines up (h-10, the menu's own).
+  const input = `${inline ? "mt-1 h-10" : "mt-1.5 py-2"} block w-full rounded-md border border-[#cbd5e1] px-3 text-sm font-normal tabular-nums`;
+  // At the end of the row of fields when inline, under them when stacked.
+  const saveButton = (
+    <button
+      type="button"
+      disabled={!changed || save.isPending}
+      onClick={() => save.mutate()}
+      className={`rounded-md bg-[#1f4e79] font-semibold text-white disabled:bg-[#9ba8b5] ${inline ? "h-10 px-3 text-sm" : "px-4 py-2 text-sm"}`}
+    >
+      {save.isPending ? "Saving…" : "Save"}
+    </button>
+  );
 
   return (
-    <div className="space-y-3">
-      <label className="block text-sm font-semibold text-[#344054]">
-        <span className="flex items-center gap-1">
-          UE
-          <InfoTip label="What the UE is">The Sorbonne unit this course is registered under in Paris.</InfoTip>
-        </span>
-        <input
-          aria-label={`UE of ${course.courseCode}`}
-          value={ue}
-          onChange={(event) => setUe(event.target.value)}
-          placeholder="UL1MA001"
-          className="mt-1.5 block w-full rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal tabular-nums"
-        />
-      </label>
-      <label className="block text-sm font-semibold text-[#344054]">
-        <span className="flex items-center gap-1">
-          Coefficient
-          <InfoTip label="Where the coefficient is used">
-            The course&apos;s coefficient, as the department&apos;s teaching-load sheet lists it. Teaching loads shows it
-            beside the course.
-          </InfoTip>
-        </span>
-        <input
-          aria-label={`Coefficient of ${course.courseCode}`}
-          value={coefficient}
-          inputMode="decimal"
-          onChange={(event) => setCoefficient(event.target.value)}
-          placeholder="15"
-          className="mt-1.5 block w-28 rounded-md border border-[#cbd5e1] px-3 py-2 text-sm font-normal tabular-nums"
-        />
-      </label>
-      <div>
-        <span className="flex items-center gap-1 text-sm font-semibold text-[#344054]">
-          Mutualized
-          <InfoTip label="What mutualized means">
-            Whether the mathematicians and the physicists are taught it together — which decides whether it needs one
-            group or two.
-          </InfoTip>
-        </span>
-        <div className="mt-1.5">
-          <SelectMenu
-            label={`Whether ${course.courseCode} is mutualized`}
-            value={mutualized}
-            onChange={(value) => setMutualized(value as Mutualized)}
-            options={[
-              { value: "", label: "Nobody has said" },
-              { value: "yes", label: "Mutualized — both degrees together" },
-              { value: "no", label: "One degree only" },
-            ]}
+    <div className={inline ? "space-y-2" : "space-y-3"}>
+      <div className={inline ? "grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_5rem_minmax(0,1.2fr)_auto]" : "space-y-3"}>
+        <label className={label}>
+          <span className="flex items-center gap-1">
+            UE
+            <InfoTip label="What the UE is">The Sorbonne unit this course is registered under in Paris.</InfoTip>
+          </span>
+          <input aria-label={`UE of ${course.courseCode}`} value={ue} onChange={(event) => setUe(event.target.value)} placeholder="UL1MA001" className={input} />
+        </label>
+        <label className={label}>
+          <span className="flex items-center gap-1">
+            Coefficient
+            <InfoTip label="Where the coefficient is used">
+              The course&apos;s coefficient, as the department&apos;s teaching-load sheet lists it. Teaching loads shows it
+              beside the course.
+            </InfoTip>
+          </span>
+          <input
+            aria-label={`Coefficient of ${course.courseCode}`}
+            value={coefficient}
+            inputMode="decimal"
+            onChange={(event) => setCoefficient(event.target.value)}
+            placeholder="15"
+            className={`${input} ${inline ? "" : "!w-28"}`}
           />
+        </label>
+        <div>
+          <span className={`flex items-center gap-1 ${label}`}>
+            Mutualized
+            <InfoTip label="What mutualized means">
+              Whether the mathematicians and the physicists are taught it together — which decides whether it needs one
+              group or two.
+            </InfoTip>
+          </span>
+          <div className={inline ? "mt-1" : "mt-1.5"}>
+            <SelectMenu
+              label={`Whether ${course.courseCode} is mutualized`}
+              value={mutualized}
+              onChange={(value) => setMutualized(value as Mutualized)}
+              options={[
+                { value: "", label: inline ? "Not said" : "Nobody has said" },
+                { value: "yes", label: inline ? "Both degrees" : "Mutualized — both degrees together" },
+                { value: "no", label: "One degree only" },
+              ]}
+            />
+          </div>
         </div>
+        {inline ? saveButton : null}
       </div>
       {save.error ? <p role="alert" className="text-sm text-[#a6292f]">{(save.error as Error).message}</p> : null}
-      <div className="flex justify-end">
-        <button
-          type="button"
-          disabled={!changed || save.isPending}
-          onClick={() => save.mutate()}
-          className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
-        >
-          {save.isPending ? "Saving…" : "Save"}
-        </button>
-      </div>
+      {inline ? null : <div className="flex justify-end">{saveButton}</div>}
     </div>
   );
 }

@@ -1,9 +1,12 @@
 import { useMutation } from "@tanstack/react-query";
+import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 
 import { InfoTip, TipButton, TipDo, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
+import { COMPONENT_WORDS, componentOf, figure, type CoursePlan } from "@/services/coursePlans";
+import type { CardSet } from "@/services/courseCards";
 import { isSilent, preferences, spread } from "@/services/courseRequest";
 import type { ActiveTeacher } from "@/services/portalLists";
 import { EMPTY_REQUEST, updateCourseRequest, type Request } from "@/services/studentDatabase";
@@ -57,7 +60,8 @@ export function CourseRequestDialog({
         <div className="flex flex-wrap items-center justify-end gap-3">
           <button
             type="button"
-            onClick={() => setDraft({ ...EMPTY_REQUEST })}
+            // Everything but the hours and the session length, which are set on the plan.
+            onClick={() => setDraft({ ...EMPTY_REQUEST, hours: draft.hours, duration: draft.duration })}
             className="mr-auto text-sm font-semibold text-[#667085] hover:text-[#344054]"
           >
             Clear it
@@ -76,18 +80,15 @@ export function CourseRequestDialog({
         </div>
       }
     >
-      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
-        <label className={fieldLabel}>
-          Total hours
-          <input aria-label={`Hours for ${title}`} value={draft.hours} onChange={(event) => set({ hours: event.target.value })} placeholder="50" className={field} />
-        </label>
+      {/* The hours and a session's length are set in the open, at the top of the course's plan
+          (23 Nov 2026), not in here: what is left is how they are spread, and the rest. */}
+      <p className="mb-3 text-xs text-[#667085]">
+        Hours and session length: set them at the top of the course&rsquo;s plan, above.
+      </p>
+      <div className="grid gap-4 sm:grid-cols-3">
         <label className={`${fieldLabel} sm:col-span-2`}>
           Weeks and sessions per week
           <input aria-label={`Sessions per week for ${title}`} value={draft.sessionsPerWeek} onChange={(event) => set({ sessionsPerWeek: event.target.value })} placeholder="2 sessions — weeks 2 to 14" className={field} />
-        </label>
-        <label className={fieldLabel}>
-          Duration (hr/session)
-          <input aria-label={`Duration for ${title}`} value={draft.duration} onChange={(event) => set({ duration: event.target.value })} placeholder="1.5" className={field} />
         </label>
         <label className={fieldLabel}>
           Weeks
@@ -207,5 +208,105 @@ function Pill({ children }: { children: React.ReactNode }) {
     <span className="inline-flex items-center rounded-full border border-[#cfe0ee] bg-white px-2 py-0.5 text-[11px] font-semibold tabular-nums text-[#1f4e79]">
       {children}
     </span>
+  );
+}
+
+/**
+ * The course's hours and session length, set at its level for each set it is in (user, 23 Nov
+ * 2026: "take the hours out of the hidden 'the course asks'"): typed in the open, at the top
+ * of the course's plan. A section's card may still say its own, which the plan lists as an
+ * exception. Under each, how the plan reads them: from here, from the sections when nothing is
+ * said here, what stands in the way, and the sections that say otherwise.
+ */
+export function CourseHours({ sets, plan, onSaved }: { sets: CardSet[]; plan: CoursePlan | null | undefined; onSaved: () => void }) {
+  const [draft, setDraft] = useState<Record<string, { hours: string; duration: string }>>(() =>
+    Object.fromEntries(sets.map((each) => [each.course.id, { hours: each.course.request.hours, duration: each.course.request.duration }])),
+  );
+  const changed = sets.filter(
+    (each) => draft[each.course.id] && (draft[each.course.id].hours.trim() !== each.course.request.hours || draft[each.course.id].duration.trim() !== each.course.request.duration),
+  );
+  const save = useMutation({
+    mutationFn: () =>
+      Promise.all(
+        changed.map((each) =>
+          updateCourseRequest(each.course.id, {
+            ...each.course.request,
+            hours: draft[each.course.id].hours.trim(),
+            duration: draft[each.course.id].duration.trim(),
+          }),
+        ),
+      ),
+    onSuccess: onSaved,
+  });
+  const small = "block w-full rounded-md border border-[#cbd5e1] px-2 py-1.5 text-sm tabular-nums";
+  // Columns: the set, its hours, its session length, and how the plan reads them.
+  const grid = "grid grid-cols-[minmax(0,9rem)_5.5rem_5.5rem_minmax(0,1fr)] items-center gap-x-3";
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">Hours and session length</p>
+      <div className={`${grid} px-3 pb-1 text-[11px] font-semibold text-[#98a2b3]`}>
+        <span>Set</span>
+        <span>Hours</span>
+        <span>Session (h)</span>
+        <span />
+      </div>
+      <div className="divide-y divide-[#eef1f5] rounded-md border border-[#e4e8ef]">
+        {sets.map((each) => {
+          const component = componentOf({ component: each.course.component || each.scope.code });
+          const held = plan && component ? plan.components[component] : null;
+          const name = `${each.scope.code}${component && component !== each.scope.code ? ` · ${component}` : ""}`;
+          const value = draft[each.course.id] ?? { hours: "", duration: "" };
+          return (
+            <div key={each.course.id} className={`${grid} px-3 py-1.5`}>
+              <span className="min-w-0 truncate text-sm text-[#344054]">
+                <b className="font-semibold text-[#1f4e79]">{name}</b>
+                {component ? <span className="ml-1.5 text-xs text-[#667085]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span> : null}
+              </span>
+              <input
+                aria-label={`Hours for ${name}`}
+                inputMode="decimal"
+                value={value.hours}
+                onChange={(event) => setDraft((current) => ({ ...current, [each.course.id]: { ...value, hours: event.target.value } }))}
+                placeholder={held?.source === "sections" && held.hours ? figure(held.hours) : "—"}
+                className={small}
+              />
+              <input
+                aria-label={`Session length for ${name}`}
+                inputMode="decimal"
+                value={value.duration}
+                onChange={(event) => setDraft((current) => ({ ...current, [each.course.id]: { ...value, duration: event.target.value } }))}
+                placeholder={held?.source === "sections" && held.length ? figure(held.length) : "1.5"}
+                className={small}
+              />
+              {/* How the plan reads them, beside the figures rather than under them. */}
+              <span className="min-w-0 text-xs leading-snug">
+                {held?.source === "sections" && !value.hours ? (
+                  <span className="block text-[#667085]">From its sections, which agree: type it to set it here.</span>
+                ) : null}
+                {held?.issue ? (
+                  <span className="flex items-start gap-1 font-semibold text-[#8a6116]">
+                    <AlertTriangle size={11} className="mt-0.5 shrink-0" aria-hidden="true" /> {held.issue}
+                  </span>
+                ) : null}
+                {held?.exceptions?.length ? (
+                  <span className="block font-semibold text-[#8a6116]">Own figure: {held.exceptions.join(" · ")}</span>
+                ) : null}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      {save.error ? <p role="alert" className="mt-1 text-sm text-[#a6292f]">{(save.error as Error).message}</p> : null}
+      <div className="mt-2 flex justify-end">
+        <button
+          type="button"
+          disabled={!changed.length || save.isPending}
+          onClick={() => save.mutate()}
+          className="rounded-md bg-[#1f4e79] px-3 py-1.5 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+        >
+          {save.isPending ? "Saving…" : "Save the hours"}
+        </button>
+      </div>
+    </div>
   );
 }

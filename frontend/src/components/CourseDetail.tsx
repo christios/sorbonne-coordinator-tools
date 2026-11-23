@@ -6,7 +6,7 @@ import { InfoTip, TipButton, TipDo, TipPage, TipPill, TipPoint, TipUsage } from 
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
 import { CourseRecord } from "@/components/CourseRecord";
-import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
+import { CourseHours, CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
 import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
@@ -976,8 +976,21 @@ export function CourseDetail({
              * window opens over the record, from the line.
              */
             <div className="space-y-1">
+              <CourseHours
+                key={card.sets.map((set) => `${set.course.id}:${set.course.request.hours}:${set.course.request.duration}`).join("|")}
+                sets={card.sets}
+                plan={coursePlan}
+                onSaved={onChanged}
+              />
+              <p className="pt-3 pb-0.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">What else each set asks</p>
               {card.sets.map((set) => (
-                <CourseRequestLine key={set.scope.id} request={set.course.request} scopeCode={set.scope.code} onEdit={() => setAsking(set)} />
+                // The hours and session length are in the table above: the line says the rest.
+                <CourseRequestLine
+                  key={set.scope.id}
+                  request={{ ...set.course.request, hours: "", duration: "" }}
+                  scopeCode={set.scope.code}
+                  onEdit={() => setAsking(set)}
+                />
               ))}
               {asking ? (
                 <CourseRequestDialog
