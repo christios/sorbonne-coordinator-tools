@@ -1,5 +1,5 @@
 import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { WeekCalendar } from "@/components/WeekCalendar";
 import type { CalendarCourse, PlacedSession, SessionNote } from "@/services/weekSchedule";
@@ -98,5 +98,50 @@ describe("what a box says", () => {
       expect(facts?.textContent).toBe("PHYS-125 · TD 310:30–11:304.128Sara KhaledCRN 23638");
       unmount();
     }
+  });
+});
+
+describe("a record's week (23 Nov 2026)", () => {
+  const small = (sessions: PlacedSession[]) =>
+    render(
+      <WeekCalendar
+        weekStart={new Date(2026, 8, 7)}
+        sessions={sessions}
+        courses={new Map([["23638", COURSE]])}
+        today="2026-09-07"
+        compact
+      />,
+    );
+  const phone = (matches: boolean) =>
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches, media: query, addEventListener: () => {}, removeEventListener: () => {} }));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("shows the whole week on a computer, however narrow its box", () => {
+    phone(false);
+    small([classAt()]);
+    expect(screen.queryByRole("group", { name: "Day of the week" })).toBeNull();
+    expect(screen.getByText("Mon")).toBeTruthy();
+    expect(screen.getByText("Fri")).toBeTruthy();
+  });
+
+  it("shows one day at a time on a phone", () => {
+    phone(true);
+    small([classAt()]);
+    expect(screen.getByRole("group", { name: "Day of the week" })).toBeTruthy();
+  });
+
+  it("is always as tall, a short day or a long one, so it never scrolls", () => {
+    phone(false);
+    const heights = [
+      [classAt()],
+      [classAt(), { ...classAt(), date: "2026-09-08", start: "08:00", end: "19:30" }],
+    ].map((sessions) => {
+      const { container, unmount } = small(sessions);
+      const column = container.querySelector("div.relative[style*='height']") as HTMLElement;
+      const height = column.style.height;
+      unmount();
+      return height;
+    });
+    expect(heights).toEqual(["400px", "400px"]);
   });
 });

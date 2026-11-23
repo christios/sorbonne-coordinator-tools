@@ -20,15 +20,33 @@ import {
   type PlacedSession,
 } from "@/services/weekSchedule";
 
-/** Narrower than this, the week is shown one day at a time behind a row of day buttons. */
-const ONE_DAY_BELOW = 520;
 /**
- * And the small calendar on a record, narrower than this: a phone. Five days across a
- * phone are five slivers, and once every box said everything (see ClassFacts) a sliver
- * said it a word a line, a class as tall as the screen. A record's card on a computer is
- * wider than this and keeps its week.
+ * A phone: the week shown one day at a time behind a row of day buttons. Asked of the screen,
+ * never of the calendar's own box (user, 23 Nov 2026): a record's card on a computer is narrow
+ * and still wants its whole week, which a box's width took for a phone's.
  */
-const SMALL_ONE_DAY_BELOW = 420;
+const PHONE = "(max-width: 639px)";
+
+function usePhone(): boolean {
+  const asks = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
+  const [phone, setPhone] = useState(asks);
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(PHONE);
+    const read = () => setPhone(query.matches);
+    read();
+    query.addEventListener?.("change", read);
+    return () => query.removeEventListener?.("change", read);
+  }, []);
+  return phone;
+}
+
+/**
+ * The small calendar on a record is always this tall, its whole day in view without
+ * scrolling (user, 23 Nov 2026): the hours share the height rather than each box growing
+ * until it says everything, which made some records' weeks a screen and more high.
+ */
+const RECORD_HEIGHT = 400;
 const TOP_PADDING = 10;
 /**
  * How narrow a class drawn beside others at its hour may be. Every box says everything
@@ -107,7 +125,9 @@ export function WeekCalendar({
    * height does not change, so one measurement is the answer and not a step towards it.
    */
   const [fit, setFit] = useState(0);
-  const pixelsPerMinute = Math.max(hourHeight / 60, fit);
+  const pixelsPerMinute = compact
+    ? (RECORD_HEIGHT - TOP_PADDING * 2) / Math.max(60, endMinute - startMinute)
+    : Math.max(hourHeight / 60, fit);
   const height = (endMinute - startMinute) * pixelsPerMinute + TOP_PADDING * 2;
   const hours: number[] = [];
   for (let minute = startMinute; minute <= endMinute; minute += 60) hours.push(minute);
@@ -125,8 +145,8 @@ export function WeekCalendar({
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  // Unmeasured — the first paint, or a test — is drawn as a week, which is the honest default.
-  const oneDayAtATime = width > 0 && width < (compact ? SMALL_ONE_DAY_BELOW : ONE_DAY_BELOW);
+  // On a phone alone: anywhere else, the whole week, however narrow the box it is drawn in.
+  const oneDayAtATime = usePhone();
 
   // Where the day has got to, for the line across today's column. Read each minute.
   const [nowMinute, setNowMinute] = useState(() => minuteOfDay(new Date()));
@@ -208,7 +228,8 @@ export function WeekCalendar({
           className="grid overflow-hidden rounded-lg border border-[#d9dee7] bg-white"
           style={{
             gridTemplateColumns: `${gutter}px repeat(${visibleDays.length}, minmax(0, 1fr))`,
-            minWidth: gutter + visibleDays.length * narrowestDay,
+            // A record's week shares the width it is given, never scrolling sideways: its days narrow instead.
+            minWidth: compact ? undefined : gutter + visibleDays.length * narrowestDay,
           }}
         >
           <div className="border-b border-[#e4e8ef] bg-[#fbfcfe]" />
