@@ -6,7 +6,6 @@ import { InfoTip, TipButton, TipDo, TipPage, TipPill, TipPoint, TipUsage } from 
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
 import { CourseRecord } from "@/components/CourseRecord";
-import { CourseHours, CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
 import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
@@ -668,7 +667,6 @@ export function CourseDetail({
   const [showingGroup, setShowingGroup] = useState<SectionRow | null>(null);
   const [filling, setFilling] = useState<CardSet | null>(null);
   // Which set's course line is being written, if any: one per set, as the hours differ.
-  const [asking, setAsking] = useState<CardSet | null>(null);
   /*
    * The course's record, opened with the pen by its name (23 Nov 2026): its facts (UE,
    * coefficient, mutualized), what each set asks of it, its lead and its weeks — set there,
@@ -969,45 +967,6 @@ export function CourseDetail({
             setRecordOpen(false);
             onChanged();
           }}
-          asks={
-            /*
-             * What the course asks, one line per set: a lecture is twenty-four hours and a
-             * tutorial thirty-six, and the two are not one request with an exception. Its
-             * window opens over the record, from the line.
-             */
-            <div className="space-y-1">
-              <CourseHours
-                key={card.sets.map((set) => `${set.course.id}:${set.course.request.hours}:${set.course.request.duration}`).join("|")}
-                sets={card.sets}
-                plan={coursePlan}
-                onSaved={onChanged}
-              />
-              <p className="pt-3 pb-0.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">What else each set asks</p>
-              {card.sets.map((set) => (
-                // The hours and session length are in the table above: the line says the rest.
-                <CourseRequestLine
-                  key={set.scope.id}
-                  request={{ ...set.course.request, hours: "", duration: "" }}
-                  scopeCode={set.scope.code}
-                  onEdit={() => setAsking(set)}
-                />
-              ))}
-              {asking ? (
-                <CourseRequestDialog
-                  courseId={asking.course.id}
-                  title={`${card.code} · ${asking.scope.code}`}
-                  description={`What ${card.name || card.code} asks of the timetable for every ${asking.scope.code} section of it, in ${card.cohortName}, ${card.termName || "this semester"}.`}
-                  held={asking.course.request}
-                  teachers={teachers}
-                  onClose={() => setAsking(null)}
-                  onSaved={() => {
-                    setAsking(null);
-                    onChanged();
-                  }}
-                />
-              ) : null}
-            </div>
-          }
         />
       ) : null}
 

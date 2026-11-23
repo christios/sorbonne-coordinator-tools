@@ -218,7 +218,18 @@ function Pill({ children }: { children: React.ReactNode }) {
  * exception. Under each, how the plan reads them: from here, from the sections when nothing is
  * said here, what stands in the way, and the sections that say otherwise.
  */
-export function CourseHours({ sets, plan, onSaved }: { sets: CardSet[]; plan: CoursePlan | null | undefined; onSaved: () => void }) {
+export function CourseHours({
+  sets,
+  plan,
+  onSaved,
+  labelOf = (each) => each.scope.code,
+}: {
+  sets: CardSet[];
+  plan: CoursePlan | null | undefined;
+  onSaved: () => void;
+  /** How a set is named in the table: its code, with its cohort when the course is in several. */
+  labelOf?: (set: CardSet) => string;
+}) {
   const [draft, setDraft] = useState<Record<string, { hours: string; duration: string }>>(() =>
     Object.fromEntries(sets.map((each) => [each.course.id, { hours: each.course.request.hours, duration: each.course.request.duration }])),
   );
@@ -254,7 +265,7 @@ export function CourseHours({ sets, plan, onSaved }: { sets: CardSet[]; plan: Co
         {sets.map((each) => {
           const component = componentOf({ component: each.course.component || each.scope.code });
           const held = plan && component ? plan.components[component] : null;
-          const name = `${each.scope.code}${component && component !== each.scope.code ? ` · ${component}` : ""}`;
+          const name = `${labelOf(each)}${component && component !== each.scope.code ? ` · ${component}` : ""}`;
           const value = draft[each.course.id] ?? { hours: "", duration: "" };
           return (
             <div key={each.course.id} className={`${grid} px-3 py-1.5`}>

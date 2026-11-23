@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CoursePlanDialog, CoursePlanEditor } from "@/components/CoursePlanDialog";
+import { CoursePlanEditor } from "@/components/CoursePlanDialog";
 import * as plans from "@/services/coursePlans";
 import type { CoursePlan, TeachingWeek } from "@/services/coursePlans";
 import * as portal from "@/services/portalLists";
@@ -29,44 +29,9 @@ const EMPTY: CoursePlan = {
 const WEEKS: TeachingWeek[] = [1, 2, 3].map((week) => ({ week, monday: "", holidays: [] }));
 const teacher = (id: string, fullName: string) => ({ id, fullName, email: "" }) as ActiveTeacher;
 
-const dialog = (plan: CoursePlan) =>
-  render(
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <CoursePlanDialog term="262720" semesterName="Semester 2 2026-27" plan={plan} weeks={WEEKS} onClose={vi.fn()} />
-    </QueryClientProvider>,
-  );
-
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(portal, "fetchActiveTeachers").mockResolvedValue([teacher("samar", "Samar Ghantous"), teacher("valerie", "Valerie Le Guyon")]);
-});
-
-describe("a course's plan on Active courses, read only (23 Nov 2026)", () => {
-  it("reads the hours from Groups & CRNs, says what stands in the way, and points there to change them", () => {
-    dialog({
-      ...EMPTY,
-      leadId: "valerie",
-      leadName: "Valerie Le Guyon",
-      components: {
-        CM: { hours: 24, length: 1.5, issue: "" },
-        TD: { hours: 21, length: null, issue: "No session length in Groups & CRNs yet" },
-        TP: { hours: null, length: null, issue: "Groups & CRNs says 7.5 h and 12 h: the groups must agree" },
-      },
-    });
-
-    expect(screen.getByText(/Set on/).textContent).toContain("Groups & CRNs");
-    const hours = screen.getByRole("region", { name: "Hours" });
-    expect(within(hours).getByText("24 h")).toBeTruthy();
-    expect(within(hours).getByText("No session length in Groups & CRNs yet")).toBeTruthy();
-    expect(within(hours).getByText("Groups & CRNs says 7.5 h and 12 h: the groups must agree")).toBeTruthy();
-    // Nothing to type into, no lead to pick, no weeks to fill in here.
-    expect(screen.queryByRole("textbox")).toBeNull();
-    expect(screen.queryByRole("combobox")).toBeNull();
-    expect(screen.queryByRole("button", { name: /Fill in for the lead|Save/ })).toBeNull();
-    expect(within(screen.getByRole("region", { name: "Course lead" })).getByText("Valerie Le Guyon")).toBeTruthy();
-    // The TD, with no session length, can't be laid out, and says why.
-    expect(screen.getByText(/No session length in Groups & CRNs yet, so its weeks can.t be laid out/)).toBeTruthy();
-  });
 });
 
 const editor = (plan: CoursePlan) =>

@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CourseRecord } from "@/components/CourseRecord";
+import * as coursePlans from "@/services/coursePlans";
 import * as lists from "@/services/portalLists";
 import * as sessionChanges from "@/services/sessionChanges";
 import * as database from "@/services/studentDatabase";
@@ -237,5 +238,40 @@ describe("who teaches each group of it", () => {
 
     const taught = (await screen.findByText("Where we teach it")).closest("section") as HTMLElement;
     expect(await within(taught).findByText("Grace Younes")).toBeTruthy();
+  });
+});
+
+describe("the one course record, wherever it is opened (23 Nov 2026)", () => {
+  it("sets the course's plan at its top: its facts and lead, each set's hours, what else it asks", async () => {
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710" });
+    vi.spyOn(coursePlans, "fetchCoursePlans").mockResolvedValue({
+      termCode: "262710",
+      weeks: [],
+      courses: [
+        {
+          courseCode: "MATH-351", title: "Algebra & Cryptography", coefficient: "", active: true,
+          components: {
+            CM: { hours: 30, length: 1.5, issue: "", source: "sections", exceptions: [] },
+            TD: { hours: null, length: null, issue: "", source: "", exceptions: [] },
+            TP: { hours: null, length: null, issue: "", source: "", exceptions: [] },
+          },
+          hoursUpdatedAt: "", hoursUpdatedBy: "", leadId: "", leadName: "", leadSetAt: "", leadSetBy: "",
+          weeks: {}, note: "", answeredAt: "", answeredBy: "", answerSource: "",
+        },
+      ],
+    });
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <CourseRecord open courseCode="MATH-351" planTerm="262710" planSemesterName="Semester 1" onClose={() => {}} />
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("Course plan · Semester 1")).toBeTruthy();
+    expect(await screen.findByLabelText("UE of MATH-351")).toBeTruthy();
+    expect(await screen.findByRole("combobox", { name: "Lead of MATH-351" })).toBeTruthy();
+    // The CM set's hours, typed here; its sections' 30 h offered until they are.
+    expect(((await screen.findByRole("textbox", { name: "Hours for CM" })) as HTMLInputElement).placeholder).toBe("30");
+    expect(screen.getByText("What else each set asks")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Say what CM asks for/ })).toBeTruthy();
   });
 });

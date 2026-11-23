@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-import { CourseLeadPicker, CoursePlanDialog, CoursePlanEditor, CoursePlanLines } from "@/components/CoursePlanDialog";
+import { CourseLeadPicker, CoursePlanEditor } from "@/components/CoursePlanDialog";
+import { CourseHours, CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -9,7 +10,7 @@ import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { SelectMenu } from "@/components/SelectMenu";
 import { SectionTimetable } from "@/components/SectionTimetable";
 import { TimetablesButton } from "@/components/TimetablesButton";
-import { buildCards, rowsPerPart, teaches, type Card as CourseCard } from "@/services/courseCards";
+import { buildCards, rowsPerPart, teaches, type Card as CourseCard, type CardSet } from "@/services/courseCards";
 import { fetchCoursePlans } from "@/services/coursePlans";
 import { filled } from "@/services/courseRequest";
 import {
@@ -18,6 +19,7 @@ import {
   fetchActiveTeachers,
   fetchRegisterCheck,
   fetchTermCrns,
+  fetchTermLinks,
   updateActiveCourse,
   type ActiveCourse,
   type ActiveCrn,
@@ -50,20 +52,16 @@ export function CourseRecord({
   onClose,
   planTerm: termGiven,
   planSemesterName,
-  asks,
 }: {
   open: boolean;
   courseCode: string;
   onClose: () => void;
   /**
-   * Opened from a Groups & CRNs card (23 Nov 2026), where the course's plan is set: its
-   * semester as the portal numbers it — the card's, which need not be the header's — and its
-   * name. Given, the plan is set here rather than read.
+   * The semester whose plan is shown, as the portal numbers it, and its name: a Groups & CRNs
+   * card's own, which need not be the header's. Left out, the header's semester.
    */
   planTerm?: string;
   planSemesterName?: string;
-  /** What each of the card's sets asks of the course — its hours and session length — to set here. */
-  asks?: ReactNode;
 }) {
   const code = courseCode.trim().toUpperCase();
   const client = useQueryClient();
@@ -126,13 +124,25 @@ export function CourseRecord({
 
   const [showingCrn, setShowingCrn] = useState<ActiveCrn | null>(null);
   /*
-   * Its plan in the header's semester: the hours coordinators set, its lead, and the weeks the
-   * lead laid out. Read here, changed in the course plan's window.
+   * Its plan in the semester shown — the header's, or a Groups & CRNs card's — set here,
+   * wherever the record is opened from (user, 23 Nov 2026: one record, the same on Active
+   * courses, Active CRNs and Groups & CRNs): the course's facts and lead, each set's hours and
+   * session length and what else it asks, and the weeks.
    */
   const { semester, term: headerTerm } = usePortalSemester();
-  const editsPlan = termGiven !== undefined;
-  const planTerm = editsPlan ? termGiven : headerTerm;
-  const planSemester = editsPlan ? planSemesterName ?? "" : (semester?.name ?? "");
+  const planTerm = termGiven ?? headerTerm;
+  const planSemester = termGiven !== undefined ? (planSemesterName ?? "") : (semester?.name ?? "");
+  const links = useQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks, enabled: open, retry: false });
+  // The course's cards in that semester, whichever cohorts take it: their sets carry its hours.
+  const inSemester = cards.filter(
+    (card) => (links.data?.[card.termId] ?? (card.termId.startsWith("plan:") ? card.termId.slice(5) : "")) === planTerm,
+  );
+  const several = inSemester.length > 1;
+  const [asking, setAsking] = useState<{ card: CourseCard; set: CardSet } | null>(null);
+  const refreshPlan = () => {
+    void client.invalidateQueries({ queryKey: ["course-cards"] });
+    void client.invalidateQueries({ queryKey: ["course-plans"] });
+  };
   const plans = useQuery({
     queryKey: ["course-plans", planTerm],
     queryFn: () => fetchCoursePlans(planTerm),
@@ -140,7 +150,6 @@ export function CourseRecord({
     retry: false,
   });
   const plan = (plans.data?.courses ?? []).find((row) => row.courseCode.toUpperCase() === code) ?? null;
-  const [planOpen, setPlanOpen] = useState(false);
 
   const report = check.data;
   const differences = report
@@ -175,59 +184,103 @@ export function CourseRecord({
        * wherever their cards happened to.
        */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {editsPlan ? (
-          // Set here, from Groups & CRNs: what each set asks, the hours they make, the lead, the weeks.
-          <Card
-            title={`Course plan${planSemester ? ` · ${planSemester}` : ""}`}
-            note="The course's hours and session length for each set, what else each set asks, the lead, and the weeks the lead lays its sessions out in."
-            className="lg:col-span-2"
-          >
-            <div className="space-y-4">
-              {/* The course's facts and its lead first, side by side: what is asked about it most. */}
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-                <div>
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">The course</p>
-                  {course ? (
-                    <CourseFacts
-                      key={course.id}
-                      inline
-                      course={course}
-                      onSaved={() => {
-                        client.invalidateQueries({ queryKey: ["active-courses"] });
-                        client.invalidateQueries({ queryKey: ["active-crns"] });
-                      }}
-                    />
+        {/* The course's plan, first and the width of the record: what is asked about a course most. */}
+        <Card
+          title={`Course plan${planSemester ? ` · ${planSemester}` : ""}`}
+          note="The course's facts and its lead; each set's hours and session length, and what else it asks; and the weeks the lead lays its sessions out in."
+          className="lg:col-span-2"
+        >
+          <div className="space-y-4">
+            {/* The course's facts and its lead first, side by side. */}
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">The course</p>
+                {course ? (
+                  <CourseFacts
+                    key={course.id}
+                    inline
+                    course={course}
+                    onSaved={() => {
+                      client.invalidateQueries({ queryKey: ["active-courses"] });
+                      client.invalidateQueries({ queryKey: ["active-crns"] });
+                    }}
+                  />
+                ) : (
+                  <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
+                )}
+              </div>
+              <div>
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">Course lead</p>
+                {/* Labelled as the course's fields are, so its menu sits on their line. */}
+                <p className="text-xs font-semibold text-[#344054]">Lead this semester</p>
+                <div className="mt-1">
+                  {plan ? (
+                    <CourseLeadPicker term={planTerm} plan={plan} semesterName={planSemester} />
                   ) : (
-                    <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
+                    <Empty>Not active in {planSemester || "this semester"}, so it has no plan here.</Empty>
                   )}
                 </div>
-                <div>
-                  <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">Course lead</p>
-                  {/* Labelled as the course's fields are, so its menu sits on their line. */}
-                  <p className="text-xs font-semibold text-[#344054]">Lead this semester</p>
-                  <div className="mt-1">
-                    {plan ? <CourseLeadPicker term={planTerm} plan={plan} semesterName={planSemester} /> : <Empty>No plan this semester.</Empty>}
-                  </div>
-                </div>
               </div>
-              {asks}
-              {plan ? (
-                <CoursePlanEditor
-                  term={planTerm}
-                  plan={plan}
-                  weeks={plans.data?.weeks ?? []}
-                  semesterName={planSemester}
-                  hoursAbove={Boolean(asks)}
-                  leadAbove
-                />
-              ) : plans.isLoading ? (
-                <Empty>Reading the course plan…</Empty>
-              ) : (
-                <Empty>Not active in {planSemester || "this semester"}, so it has no plan here.</Empty>
-              )}
             </div>
-          </Card>
-        ) : null}
+            {inSemester.length ? (
+              <>
+                <CourseHours
+                  key={inSemester.flatMap((card) => card.sets.map((set) => `${set.course.id}:${set.course.request.hours}:${set.course.request.duration}`)).join("|")}
+                  sets={inSemester.flatMap((card) => card.sets)}
+                  labelOf={(set) => {
+                    const card = inSemester.find((each) => each.sets.includes(set));
+                    return several && card ? `${card.cohortName} · ${set.scope.code}` : set.scope.code;
+                  }}
+                  plan={plan}
+                  onSaved={refreshPlan}
+                />
+                <div className="space-y-1">
+                  <p className="pb-0.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">What else each set asks</p>
+                  {inSemester.map((card) => (
+                    <div key={card.key} className="space-y-1">
+                      {several ? <p className="text-xs font-semibold text-[#475467]">{card.cohortName}</p> : null}
+                      {card.sets.map((set) => (
+                        // The hours and session length are in the table above: the line says the rest.
+                        <CourseRequestLine
+                          key={set.scope.id}
+                          request={{ ...set.course.request, hours: "", duration: "" }}
+                          scopeCode={set.scope.code}
+                          onEdit={() => setAsking({ card, set })}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <Empty>On no set in Groups &amp; CRNs for {planSemester || "this semester"}: its hours are set on its sets there.</Empty>
+            )}
+            {plan?.active ? (
+              <CoursePlanEditor
+                term={planTerm}
+                plan={plan}
+                weeks={plans.data?.weeks ?? []}
+                semesterName={planSemester}
+                hoursAbove
+                leadAbove
+              />
+            ) : null}
+          </div>
+          {asking ? (
+            <CourseRequestDialog
+              courseId={asking.set.course.id}
+              title={`${code} · ${asking.set.scope.code}`}
+              description={`What ${asking.card.name || code} asks of the timetable for every ${asking.set.scope.code} section of it, in ${asking.card.cohortName}, ${asking.card.termName || "this semester"}.`}
+              held={asking.set.course.request}
+              teachers={teachers.data ?? []}
+              onClose={() => setAsking(null)}
+              onSaved={() => {
+                setAsking(null);
+                refreshPlan();
+              }}
+            />
+          ) : null}
+        </Card>
         {/*
           * The two things about a course that are ours to say rather than the portal's.
           *
@@ -237,43 +290,6 @@ export function CourseRecord({
           * untrue about what they are, and left the course, which is the thing they
           * describe, with nowhere to say them.
           */}
-        {editsPlan ? null : (
-        <div className="flex flex-col gap-3">
-        <Card title="What we say about it" note="The course's own facts, the same on every CRN of it.">
-          {course ? (
-            <CourseFacts
-              key={course.id}
-              course={course}
-              onSaved={() => {
-                client.invalidateQueries({ queryKey: ["active-courses"] });
-                client.invalidateQueries({ queryKey: ["active-crns"] });
-              }}
-            />
-          ) : (
-            <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
-          )}
-        </Card>
-        {editsPlan ? null : (
-        <Card
-          title={`Hours and lead${semester ? ` · ${semester.name}` : ""}`}
-          note="The course's CM, TD and TP hours this semester, the teacher who leads it, and the weeks the lead laid its sessions out in."
-          action={
-            plan?.active ? (
-              <button type="button" onClick={() => setPlanOpen(true)} className="text-xs font-semibold text-[#1f4e79] underline">
-                Open the course plan
-              </button>
-            ) : null
-          }
-        >
-          {plan?.active ? (
-            <CoursePlanLines plan={plan} weeks={plans.data?.weeks ?? []} />
-          ) : (
-            <Empty>Not active in {semester?.name ?? "this semester"}, so it has no plan here.</Empty>
-          )}
-        </Card>
-        )}
-        </div>
-        )}
         <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
           {cards.length === 0 ? (
             <Empty>On no course card yet. Add it to a set on Group schema.</Empty>
@@ -343,15 +359,6 @@ export function CourseRecord({
           />
         </Card>
       </div>
-        {planOpen && plan ? (
-          <CoursePlanDialog
-            term={planTerm}
-            semesterName={semester?.name ?? ""}
-            plan={plan}
-            weeks={plans.data?.weeks ?? []}
-            onClose={() => setPlanOpen(false)}
-          />
-        ) : null}
         {showingCrn ? (
           <CrnRecord
             open

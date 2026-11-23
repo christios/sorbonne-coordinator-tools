@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-import { CoursePlanDialog } from "@/components/CoursePlanDialog";
+import { CourseRecord } from "@/components/CourseRecord";
 import { InfoTip, TipDo, TipPage, TipPoint } from "@/components/InfoTip";
 import { ListGrid, StatePill } from "@/components/ListGrid";
 import { usePortalSemester } from "@/components/PortalSemesterMenu";
@@ -202,14 +202,8 @@ export function CoursePlansPage() {
         </p>
       ) : null}
       {opened ? (
-        <CoursePlanDialog
-          key={opened.courseCode}
-          term={term}
-          semesterName={semesterName}
-          plan={opened}
-          weeks={weeks}
-          onClose={() => setOpenCode("")}
-        />
+        // The course's one record, as Active CRNs and Groups & CRNs open it (23 Nov 2026).
+        <CourseRecord key={opened.courseCode} open courseCode={opened.courseCode} onClose={() => setOpenCode("")} />
       ) : null}
     </section>
   );
