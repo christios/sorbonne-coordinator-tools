@@ -32,9 +32,12 @@ def get_account_access() -> AccountAccess:
 
 
 class ItemInput(BaseModel):
-    """One kind: how many (students, hours, or 1 for yes), or which (committees, a headship)."""
+    """One kind: how many (students, hours, or 1 for yes), or which (committees, a headship).
 
-    amount: float = Field(default=0, ge=0, le=1000)
+    From the Head of Department, a zero is kept as a zero; no amount and nothing chosen puts
+    the kind back to not set."""
+
+    amount: float | None = Field(default=0, ge=0, le=1000)
     detail: str | list[str] = Field(default="")
     validated: bool = False
 

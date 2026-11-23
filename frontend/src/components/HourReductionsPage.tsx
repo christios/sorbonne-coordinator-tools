@@ -21,6 +21,7 @@ import {
   type ReductionYear,
   fetchReductionYear,
   hoursOf,
+  noneWords,
   saveDepartmentReductions,
   saveReductionRules,
   yearWords,
@@ -80,7 +81,8 @@ const SHORT_OPTION: Record<string, string> = {
 type Teacher = ReductionYear["teachers"][number];
 /** One save: some of one teacher's kinds. */
 type Edit = { teacherId: string; name: string; items: Record<string, ReductionInput> };
-type Draft = { amount: number; detail: string; validated: boolean };
+/** `set` false: nobody has said anything — apart from a figure set to nothing, which is set. */
+type Draft = { amount: number; detail: string; validated: boolean; set: boolean };
 
 const SAVE_KEY = ["hour-reductions", "save"];
 
@@ -88,7 +90,9 @@ const hoursText = (value: number) => `${Number.isInteger(value) ? value : value.
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
 
 /** What a kind's hours are made of, in the few words under its figure: "12 students", "Ethics". */
-function madeOf(item: Pick<ReductionItem, "unit" | "amount" | "detail" | "options">): string {
+function madeOf(item: Pick<ReductionItem, "unit" | "amount" | "detail" | "options" | "state">): string {
+  // Set to nothing, said so under its "0 h", so it is not read as a figure left out.
+  if (item.state && !item.amount && !item.detail) return item.unit === "hours" ? "" : noneWords(item.unit);
   if (item.unit === "students") return item.amount ? plural(item.amount, "student") : "";
   if (item.unit === "committees" && item.detail.includes(",")) {
     // Two or three committees by their initials, "B · E"; the editor names them.
@@ -126,10 +130,17 @@ function applied(teacher: Teacher, items: Record<string, ReductionInput>): Teach
   const next = teacher.items.map((item) => {
     const given = items[item.kind];
     if (!given) return item;
-    const amount = given.amount ?? item.amount;
-    const detail = Array.isArray(given.detail) ? given.detail.join(",") : (given.detail ?? item.detail);
-    const state: ReductionState =
-      !amount && !detail ? "" : item.group === "department" ? "set" : given.validated ? "validated" : "declared";
+    // No amount and nothing chosen: back to not set. A zero stays, set.
+    const cleared = given.amount === null && !given.detail?.length;
+    const amount = cleared ? 0 : (given.amount ?? item.amount);
+    const detail = cleared ? "" : Array.isArray(given.detail) ? given.detail.join(",") : (given.detail ?? item.detail);
+    const state: ReductionState = cleared
+      ? ""
+      : (!amount && !detail) || item.group === "department"
+        ? "set"
+        : given.validated
+          ? "validated"
+          : "declared";
     return { ...item, amount, detail, hours: hoursOf(item, amount, detail), state };
   });
   const total = next.reduce((sum, item) => sum + item.hours, 0);
@@ -138,6 +149,8 @@ function applied(teacher: Teacher, items: Record<string, ReductionInput>): Teach
 
 /** What a kind is given, keeping a research figure's validation as it stands unless said. */
 function input(item: ReductionItem, change: Partial<Draft>): ReductionInput {
+  // Cleared: no amount and nothing chosen, which the server reads as not set.
+  if (change.set === false) return { amount: null, detail: "" };
   return {
     amount: change.amount ?? item.amount,
     detail: change.detail ?? item.detail,
@@ -179,17 +192,23 @@ function reductionColumns(rules: ReductionRule[]): GridColumn<Teacher>[] {
     ...rules.map((rule) => {
       if (rule.unit === "choice") {
         return column(rule.kind, rule.label, "option", (teacher) => {
-          const detail = itemOf(teacher, rule.kind)?.detail ?? "";
-          return detail ? named(rule, detail) : "None";
+          const item = itemOf(teacher, rule.kind);
+          return item?.detail ? named(rule, item.detail) : item?.state ? "None" : "Not set";
         });
       }
       if (rule.unit === "committees") {
         return column(rule.kind, rule.label, "multiOption", (teacher) => {
-          const keys = (itemOf(teacher, rule.kind)?.detail ?? "").split(",").filter(Boolean);
-          return keys.length ? keys.map((key) => named(rule, key)) : ["None"];
+          const item = itemOf(teacher, rule.kind);
+          const keys = (item?.detail ?? "").split(",").filter(Boolean);
+          return keys.length ? keys.map((key) => named(rule, key)) : [item?.state ? "None" : "Not set"];
         });
       }
-      if (rule.unit === "yes") return column(rule.kind, rule.label, "option", (teacher) => (itemOf(teacher, rule.kind)?.amount ? "Yes" : "No"));
+      if (rule.unit === "yes") {
+        return column(rule.kind, rule.label, "option", (teacher) => {
+          const item = itemOf(teacher, rule.kind);
+          return item?.state ? (item.amount ? "Yes" : "No") : "Not set";
+        });
+      }
       return column(rule.kind, `${rule.label} (h)`, "number", (teacher) => itemOf(teacher, rule.kind)?.hours ?? 0);
     }),
     column("total", "Total (h)", "number", (teacher) => teacher.total),
@@ -449,7 +468,9 @@ export function HourReductionsPage() {
         Every figure is in hours, with what it is made of under it.{" "}
         <span className="font-semibold text-[#8a6116]">Amber, marked !</span>: declared by the teacher, still to validate with
         SAFIR. <Check size={11} className="inline align-[-1px] text-[#2e7d55]" aria-hidden="true" /> validated.
-        {year.canChange ? " Click a figure to change it: it is saved when it closes, and Escape leaves it as it was." : ""}{" "}
+        {year.canChange
+          ? " Click a figure to change it: it is saved when it closes, and Escape leaves it as it was. A 0, No or None is kept as a figure; Clear leaves it not set."
+          : ""}{" "}
         Full-time teachers declare theirs as the first step of the timetable preferences request.
       </p>
 
@@ -488,14 +509,14 @@ function HeadTip({
 function RuleTip({ rule, canChange }: { rule: ReductionRule; canChange: boolean }) {
   const enter =
     rule.unit === "students"
-      ? "Click a cell and enter how many students. The hours are worked out."
+      ? "Click a cell and enter how many students, 0 if none. The hours are worked out."
       : rule.unit === "hours"
-        ? "Click a cell and enter the hours."
+        ? "Click a cell and enter the hours, 0 if none."
         : rule.unit === "yes"
-          ? "Click a cell and tick it if it applies this year."
+          ? "Click a cell and choose Yes or No for this year."
           : rule.unit === "committees"
-            ? "Click a cell and tick each committee the teacher sits on."
-            : "Click a cell and choose the one that applies.";
+            ? "Click a cell and tick each committee the teacher sits on, or None."
+            : "Click a cell and choose the one that applies, or None.";
   return (
     <>
       {canChange ? <TipDo>{enter}</TipDo> : null}
@@ -571,7 +592,7 @@ function FigureFace({ item }: { item: ReductionItem }) {
     <LabelledFigure
       value={
         <span className="inline-flex items-center gap-1">
-          {item.hours ? hoursText(item.hours) : "—"}
+          {item.hours || item.state ? hoursText(item.hours) : "—"}
           <StateMark state={item.state} />
         </span>
       }
@@ -595,7 +616,7 @@ function AddMark() {
 }
 
 function figureWords(item: ReductionItem): string {
-  return [item.hours ? hoursText(item.hours) : "none", madeOf(item), standing(item.state)].filter(Boolean).join(", ");
+  return [item.state ? hoursText(item.hours) : "not set", madeOf(item), standing(item.state)].filter(Boolean).join(", ");
 }
 
 function StateMark({ state }: { state: ReductionState }) {
@@ -617,7 +638,12 @@ function StateMark({ state }: { state: ReductionState }) {
  * as it was.
  */
 function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: ReductionItem; onChange: (draft: Draft) => void }) {
-  const fromItem = (): Draft => ({ amount: item.amount, detail: item.detail, validated: item.state === "validated" });
+  const fromItem = (): Draft => ({
+    amount: item.amount,
+    detail: item.detail,
+    validated: item.state === "validated",
+    set: Boolean(item.state),
+  });
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<Draft>(fromItem);
   const keep = useRef(true);
@@ -631,6 +657,7 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
       return;
     }
     const changed =
+      draft.set !== Boolean(item.state) ||
       draft.amount !== item.amount ||
       draft.detail !== item.detail ||
       (item.group === "safir" && draft.validated !== (item.state === "validated"));
@@ -640,6 +667,12 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
   const cancel = () => {
     keep.current = false;
     openChange(false);
+  };
+  /** Back to not set: saved at once when it was set, merely closed when it never was. */
+  const clear = () => {
+    keep.current = false;
+    if (item.state) onChange({ amount: 0, detail: "", validated: false, set: false });
+    setOpen(false);
   };
   const done = (event: FormEvent) => {
     event.preventDefault();
@@ -659,9 +692,10 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
           min={0}
           step={item.unit === "students" ? 1 : 0.5}
           aria-label={item.unit === "students" ? "Students" : "Hours"}
-          value={draft.amount || ""}
-          placeholder="0"
-          onChange={(event) => set({ amount: number(event.target.value) })}
+          value={draft.set ? String(draft.amount) : ""}
+          placeholder="Not set"
+          // An empty box is not set; a 0 is a figure of its own.
+          onChange={(event) => set(event.target.value === "" ? { set: false, amount: 0 } : { set: true, amount: number(event.target.value) })}
           className={field}
         />
         {item.unit === "students" ? (
@@ -674,11 +708,25 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
       </label>
     );
   } else if (item.unit === "yes") {
+    // Yes or No; neither while it is not set.
     control = (
-      <label className="flex items-center gap-2 text-sm text-[#344054]">
-        <input type="checkbox" checked={Boolean(draft.amount)} onChange={(event) => set({ amount: event.target.checked ? 1 : 0 })} />
-        Yes = <b className="tabular-nums text-[#171717]">{hoursText(item.per ?? 0)}</b>
-      </label>
+      <div role="radiogroup" aria-label={item.label} className="space-y-1.5">
+        {[
+          { answer: 1, words: "Yes", hours: item.per ?? 0 },
+          { answer: 0, words: "No", hours: 0 },
+        ].map((choice) => (
+          <label key={choice.words} className="flex items-center gap-2 text-sm text-[#344054]">
+            <input
+              type="radio"
+              name={`${teacher.teacherId}-${item.kind}`}
+              checked={draft.set && Boolean(draft.amount) === Boolean(choice.answer)}
+              onChange={() => set({ amount: choice.answer, set: true })}
+            />
+            <span className="min-w-0 flex-1">{choice.words}</span>
+            <span className="tabular-nums text-[#667085]">{hoursText(choice.hours)}</span>
+          </label>
+        ))}
+      </div>
     );
   } else if (item.unit === "committees") {
     const chosen = draft.detail.split(",").filter(Boolean);
@@ -693,12 +741,21 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
                 const next = (item.options ?? [])
                   .map((entry) => entry.key)
                   .filter((key) => (key === option.key ? event.target.checked : chosen.includes(key)));
-                set({ detail: next.join(","), amount: next.length });
+                set({ detail: next.join(","), amount: next.length, set: true });
               }}
             />
             {option.label}
           </label>
         ))}
+        {/* Set, with no committee: none, apart from not set. */}
+        <label className="flex items-center gap-2 text-sm text-[#344054]">
+          <input
+            type="checkbox"
+            checked={draft.set && !chosen.length}
+            onChange={(event) => set(event.target.checked ? { detail: "", amount: 0, set: true } : { set: false })}
+          />
+          None
+        </label>
         <p className="text-sm text-[#344054]">
           = <b className="tabular-nums text-[#171717]">{hoursText(hours)}</b>
         </p>
@@ -712,11 +769,12 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
             <input
               type="radio"
               name={`${teacher.teacherId}-${item.kind}`}
-              checked={draft.detail === option.key}
-              onChange={() => set({ detail: option.key, amount: option.key ? 1 : 0 })}
+              // Nothing chosen while it is not set; None is a choice of its own.
+              checked={draft.set && draft.detail === option.key}
+              onChange={() => set({ detail: option.key, amount: option.key ? 1 : 0, set: true })}
             />
             <span className="min-w-0 flex-1">{option.label}</span>
-            {option.key ? <span className="tabular-nums text-[#667085]">{hoursText(option.hours)}</span> : null}
+            <span className="tabular-nums text-[#667085]">{hoursText(option.hours)}</span>
           </label>
         ))}
       </div>
@@ -733,7 +791,7 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
             open ? "bg-[#eef4fa]" : ""
           }`}
         >
-          {item.hours ? <FigureFace item={item} /> : <AddMark />}
+          {item.state ? <FigureFace item={item} /> : <AddMark />}
         </button>
       </Popover.Trigger>
       <Popover.Portal>
@@ -763,6 +821,16 @@ function FigureEditor({ teacher, item, onChange }: { teacher: Teacher; item: Red
               </label>
             ) : null}
             <div className="mt-3 flex justify-end gap-2">
+              {item.state || draft.set ? (
+                <button
+                  type="button"
+                  onClick={clear}
+                  title="Leave it not set, as if nobody had said anything"
+                  className="mr-auto rounded-md px-1 py-1.5 text-sm font-semibold text-[#475467] underline-offset-2 hover:text-[#171717] hover:underline"
+                >
+                  Clear
+                </button>
+              ) : null}
               <button type="button" onClick={cancel} className="rounded-md border border-[#b7bec8] px-3 py-1.5 text-sm font-semibold text-[#344054]">
                 Cancel
               </button>

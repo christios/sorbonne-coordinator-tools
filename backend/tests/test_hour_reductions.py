@@ -180,6 +180,37 @@ def test_a_validated_reduction_the_teacher_changes_is_to_be_checked_again(client
     assert _item(changed, "phd")["state"] == "declared"
 
 
+def test_a_zero_is_kept_apart_from_not_set(client: TestClient, store: HourReductions):
+    """The Head of Department's "none" is a figure of its own (23 Nov 2026), not a figure left out."""
+    zeros = client.put(
+        f"{AT}/{YEAR}/{FT}",
+        json={"items": {"phd": {"amount": 0}, "new_joiner": {"amount": 0}, "hod": {"detail": ""}}},
+    )
+    assert zeros.status_code == status.HTTP_200_OK, zeros.text
+    sheet = zeros.json()
+    for kind in ("phd", "new_joiner", "hod"):
+        assert (_item(sheet, kind)["hours"], _item(sheet, kind)["state"]) == (0, "set"), kind
+    # Left out, a kind stays not set.
+    assert _item(sheet, "accreditation")["state"] == ""
+
+    # A teacher's empty box sent with their declaration does not take the zero away.
+    code = _invitee(client, FT, "lama@example.com")
+    declared = client.put(f"{DOOR}/{code}/reductions", json={"items": {"phd": {"amount": 0}, "masters": {"amount": 0}}})
+    sheet = declared.json()["reductions"]
+    assert _item(sheet, "phd")["state"] == "set"
+    assert _item(sheet, "masters")["state"] == ""
+
+    # No amount and nothing chosen puts a kind back to not set.
+    cleared = client.put(f"{AT}/{YEAR}/{FT}", json={"items": {"phd": {"amount": None}, "hod": {"amount": None}}}).json()
+    assert (_item(cleared, "phd")["state"], _item(cleared, "hod")["state"]) == ("", "")
+    assert _item(cleared, "new_joiner")["state"] == "set"
+    with store.engine.connect() as connection:
+        kinds = connection.execute(
+            text("SELECT kind FROM hour_reductions WHERE teacher_id = :id ORDER BY kind"), {"id": FT}
+        ).scalars().all()
+    assert kinds == ["new_joiner"]
+
+
 def test_an_irg_project_shares_its_hours_over_three_years(client: TestClient):
     for year, hours in (("2024-2025", 40), ("2025-2026", 30)):
         assert client.put(f"{AT}/{year}/{FT}", json={"items": {"irg": {"amount": hours}}}).status_code == 200

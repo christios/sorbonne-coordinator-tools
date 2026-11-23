@@ -136,6 +136,50 @@ describe("changing a figure where it stands", () => {
     expect(await screen.findByText("Saved")).toBeTruthy();
   });
 
+  it("keeps a 0 as a figure of its own, apart from a cell nobody has set", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({ amount: 0, hours: 0, state: "set" }, {}));
+    page();
+
+    await open(/^PhD students, Grace Younes: not set/);
+    const box = screen.getByRole("spinbutton", { name: "Students" }) as HTMLInputElement;
+    expect([box.value, box.placeholder]).toEqual(["", "Not set"]);
+    fireEvent.change(box, { target: { value: "0" } });
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("2026-2027", "t-grace", { phd: { amount: 0, detail: "", validated: false } }));
+    // Shown at once as 0 h over "0 students", no longer the empty cell's plus.
+    const grace = screen.getByText("Grace Younes").closest("[role=listitem]") as HTMLElement;
+    expect(within(grace).getByRole("button", { name: "PhD students, Grace Younes: 0 h, 0 students" })).toBeTruthy();
+  });
+
+  it("sets None on the department's own, apart from not set", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({}, { state: "set" }));
+    page();
+
+    await open(/^Head of department, Grace Younes: not set/);
+    // Not set: no option is chosen, None included.
+    expect(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked)).toBe(true);
+    fireEvent.click(screen.getByRole("radio", { name: /None/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("2026-2027", "t-grace", { hod: { amount: 0, detail: "" } }));
+    expect(await screen.findByRole("button", { name: "Head of department, Grace Younes: 0 h, None" })).toBeTruthy();
+  });
+
+  it("puts a figure back to not set with Clear", async () => {
+    vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
+    const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({ amount: 2, hours: 10, state: "declared" }, {}));
+    page();
+
+    await open(/^Head of department, Lama Tarsissi/);
+    fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith("2026-2027", "t-lama", { hod: { amount: null, detail: "" } }));
+    expect(await screen.findByRole("button", { name: "Head of department, Lama Tarsissi: not set" })).toBeTruthy();
+  });
+
   it("leaves a figure as it was on Cancel", async () => {
     vi.spyOn(reductions, "fetchReductionYear").mockResolvedValue(YEAR(true));
     const save = vi.spyOn(reductions, "saveDepartmentReductions").mockResolvedValue(sheetOf({}, {}));

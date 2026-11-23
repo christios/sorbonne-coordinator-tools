@@ -506,7 +506,9 @@ class HourReductions:
             for kind, value in given.items():
                 rule = by_kind[kind]
                 validated = bool(value.get("validated")) if isinstance(value, dict) and rule["group"] == SAFIR else None
-                self._write(connection, year, teacher_id, rule, value, held.get(kind), actor, validated=validated)
+                self._write(
+                    connection, year, teacher_id, rule, value, held.get(kind), actor, validated=validated, keep_zero=True
+                )
         return self.for_teacher(year, teacher_id)
 
     def _write(  # noqa: PLR0913 - one kind, as the caller has it
@@ -520,10 +522,21 @@ class HourReductions:
         actor: str,
         *,
         validated: bool | None,
+        keep_zero: bool = False,
     ) -> None:
-        """One kind for one teacher: kept, changed, or gone when it comes to nothing."""
+        """One kind for one teacher: kept, changed, set to nothing, or not set at all.
+
+        A zero is a figure of its own (23 Nov 2026): the Head of Department saying "none" is
+        not the same as nobody having said anything. Theirs is kept, as set, with nothing to
+        validate; given no amount and nothing chosen, the kind goes back to not set. A
+        teacher's nothing is not set, as it always was, but never takes away a zero the Head
+        of Department set.
+        """
         amount, detail = self._checked_value(connection, year, teacher_id, rule, value)
-        if amount == 0 and not detail:
+        nothing = amount == 0 and not detail
+        cleared = isinstance(value, dict) and value.get("amount") is None and not value.get("detail")
+        held_zero = previous is not None and float(previous["amount"]) == 0 and not previous["detail"]
+        if nothing and (cleared or not (keep_zero or held_zero)):
             connection.execute(
                 text("""DELETE FROM hour_reductions
                         WHERE academic_year = :year AND teacher_id = :id AND kind = :kind"""),
@@ -531,7 +544,7 @@ class HourReductions:
             )
             return
         unchanged = previous is not None and float(previous["amount"]) == amount and previous["detail"] == detail
-        if rule["group"] == DEPARTMENT:
+        if rule["group"] == DEPARTMENT or nothing:
             state = SET
         elif validated is None:
             # The teacher's word: what was validated stays so only while it is what was validated.

@@ -18,7 +18,11 @@ const BASE = `${API_BASE_URL}/api/v1/hour-reductions`;
 export type ReductionGroup = "safir" | "department";
 /** What a kind counts: students, hours, a yes, which committees, or one option from a list. */
 export type ReductionUnit = "students" | "hours" | "yes" | "committees" | "choice";
-/** The teacher's word not yet checked; checked with SAFIR; the Head of Department's own. */
+/**
+ * Not set; the teacher's word not yet checked; checked with SAFIR; the Head of Department's
+ * own. A kind set to nothing — "0 students", "No", "None" — is "set": somebody said so, which
+ * is not the same as nobody having said anything.
+ */
 export type ReductionState = "" | "declared" | "validated" | "set";
 
 export type ReductionOption = { key: string; label: string; hours: number };
@@ -74,8 +78,12 @@ export type ReductionYear = {
   canChangeRules?: boolean;
 };
 
-/** What a kind is given: how many, which, and — the Head of Department's — whether SAFIR confirmed it. */
-export type ReductionInput = { amount?: number; detail?: string | string[]; validated?: boolean };
+/**
+ * What a kind is given: how many, which, and — the Head of Department's — whether SAFIR
+ * confirmed it. From the Head of Department a zero is kept as a zero; `amount: null` with
+ * nothing chosen puts the kind back to not set.
+ */
+export type ReductionInput = { amount?: number | null; detail?: string | string[]; validated?: boolean };
 
 export type ReductionRules = { service: number; rules: ReductionRule[] };
 
@@ -106,6 +114,14 @@ export function heldWords(item: Pick<ReductionItem, "unit" | "amount" | "detail"
   if (item.unit === "yes") return item.amount ? "Yes" : "";
   const keys = item.detail.split(",").filter(Boolean);
   return keys.map((key) => item.options?.find((option) => option.key === key)?.label ?? key).join(", ");
+}
+
+/** What a kind set to nothing reads as: "0 students", "0 h", "No", "None". */
+export function noneWords(unit: ReductionUnit): string {
+  if (unit === "students") return "0 students";
+  if (unit === "hours") return "0 h";
+  if (unit === "yes") return "No";
+  return "None";
 }
 
 /** What a state reads as, beside a kind. */
