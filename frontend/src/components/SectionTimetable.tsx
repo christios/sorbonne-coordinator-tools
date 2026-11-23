@@ -409,8 +409,12 @@ function Timetable({
     </div>
   );
 
+  /*
+   * The whole width it is given, compact or not: a record's calendar was held to 32rem and
+   * left a wide margin on its right once records grew wider (user, 23 Nov 2026).
+   */
   return (
-    <div className={`${compact ? "max-w-[32rem]" : ""} ${fills ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+    <div className={fills ? "flex min-h-0 flex-1 flex-col" : undefined}>
       {sessions.length === 0 ? (
         <Empty>The portal's sweep holds no meetings for {entries.length === 1 ? "this section" : "these sections"}.</Empty>
       ) : (
