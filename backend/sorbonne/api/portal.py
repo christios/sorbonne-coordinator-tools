@@ -366,8 +366,10 @@ def list_active_teachers(term: str = "", store: PortalListStore = Depends(get_st
 
 
 @router.get("/active-teachers/matches")
-def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
+def teacher_matches(term: str = "", store: PortalListStore = Depends(get_store)) -> dict[str, Any]:
     """Every way the department's list and the people actually teaching fail to line up.
+
+    In one semester when `term` (262710) is said: its active teachers, its sections.
 
     `matches` are rows brought from the part-time database that the portal now lists;
     `partTime` are rows chosen from the portal that the part-time database has held all
@@ -375,9 +377,9 @@ def teacher_matches(store: PortalListStore = Depends(get_store)) -> dict[str, An
     all. Every one of them is offered and none is acted on.
     """
     return {
-        "matches": store.unlinked_portal_matches(),
-        "partTime": store.unlinked_part_time_matches(),
-        "unnamed": store.unnamed_in_the_list(),
+        "matches": store.unlinked_portal_matches(term),
+        "partTime": store.unlinked_part_time_matches(term),
+        "unnamed": store.unnamed_in_the_list(term),
     }
 
 

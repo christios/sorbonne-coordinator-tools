@@ -367,6 +367,25 @@ describe("what a teacher takes", () => {
     }
   });
 
+  it("asks for the banners of the semester on screen", async () => {
+    // Semester 1 listed six people "not on the list" who were typed on Semester 2's sections only.
+    window.localStorage.setItem("scen-remembered:schema-term", "term-1");
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "term-1": "262710", "term-2": "262720" });
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([
+      { id: "term-1", name: "Semester 1" },
+      { id: "term-2", name: "Semester 2" },
+    ] as unknown as timetables.TimetableTerm[]);
+    try {
+      show();
+      await screen.findByText("Ahlem Trabelsi");
+
+      await waitFor(() => expect(lists.fetchTeacherMatches).toHaveBeenCalledWith("262710"));
+      expect(lists.fetchTeacherMatches).not.toHaveBeenCalledWith("262720");
+    } finally {
+      window.localStorage.removeItem("scen-remembered:schema-term");
+    }
+  });
+
   it("draws the portal's course codes as values of their own, not as a sentence", async () => {
     show();
     const row = (await screen.findByText("Ahlem Trabelsi")).closest("tr") as HTMLElement;

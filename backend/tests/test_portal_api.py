@@ -2824,6 +2824,42 @@ def test_a_teacher_already_on_the_list_is_not_a_gap(client: TestClient, database
     assert client.get(f"{BASE}/active-teachers/matches").json()["unnamed"] == []
 
 
+def test_a_name_typed_only_on_another_semesters_sections_is_not_this_semesters_gap(
+    client: TestClient, database: StudentDatabase
+):
+    """Semester 1's page listed six people typed on Semester 2's sections only, with their counts."""
+    client.put(f"{BASE}/term-links/{HUB_TERM}", json={"portalTermCode": TERM})
+    client.put(f"{BASE}/term-links/term-2", json={"portalTermCode": "262720"})
+    cohort = database.create_cohort(name="Third year", term="2026-27")
+    for term_id, crn, name in ((HUB_TERM, "23401", "Wafaa Ahmed"), ("term-2", "33401", "Sara Khaled")):
+        scope = database.add_scope(cohort["id"], code="CM", name="Lectures", term_id=term_id)
+        course = database.add_course(scope, code="MATH-351")
+        group = database.add_group(scope, label="A")
+        database.set_cell(group_id=group, course_id=course, crn=crn, teacher=name, part=1)
+
+    def gaps(term: str = "") -> list[str]:
+        asked = f"?term={term}" if term else ""
+        return [gap["name"] for gap in client.get(f"{BASE}/active-teachers/matches{asked}").json()["unnamed"]]
+
+    assert gaps(TERM) == ["Wafaa Ahmed"]
+    assert gaps("262720") == ["Sara Khaled"]
+    # Asked about no semester, every section is read, as before.
+    assert sorted(gaps()) == ["Sara Khaled", "Wafaa Ahmed"]
+
+
+def test_a_join_is_offered_in_the_semesters_the_teacher_is_active_in(client: TestClient):
+    seed_teachers(client)
+    record = part_time(client, "Ahlem Trabelsi", "ahlem@gmail.com")
+    client.post(f"{BASE}/active-teachers", json={"portalTeacherIds": ["A001"], "termCode": "262720"})
+
+    def offered(term: str) -> list[str]:
+        body = client.get(f"{BASE}/active-teachers/matches?term={term}").json()
+        return [match["partTimeTeacherId"] for match in body["partTime"]]
+
+    assert offered("262720") == [record]
+    assert offered(TERM) == []
+
+
 def test_a_section_written_under_the_part_time_spelling_still_counts(client: TestClient, database: StudentDatabase):
     """A person on both lists has two names, and our planning may have used either.
 

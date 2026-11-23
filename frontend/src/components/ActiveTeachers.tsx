@@ -340,7 +340,8 @@ export function ActiveTeachers({
     </button>
   );
   const active = useQuery({ queryKey: ["active-teachers", term], queryFn: () => fetchActiveTeachers(term) });
-  const matches = useQuery({ queryKey: ["teacher-matches"], queryFn: fetchTeacherMatches, retry: false });
+  // The banners above the list are about this semester: Semester 2's names on Semester 1 were a leak.
+  const matches = useQuery({ queryKey: ["teacher-matches", term], queryFn: () => fetchTeacherMatches(term), retry: false });
   // The planning, for the Teaches column: which component types each teacher's sections are.
   const catalogues = useQuery({ queryKey: ["course-cards"], queryFn: fetchCourseCards });
   const terms = useQuery({ queryKey: ["timetable-terms"], queryFn: fetchTimetableTerms, retry: false });

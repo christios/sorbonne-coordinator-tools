@@ -331,8 +331,10 @@ export type TeacherMatches = {
   unnamed: UnnamedTeacher[];
 };
 
-export async function fetchTeacherMatches(): Promise<TeacherMatches> {
-  const body = await request<Partial<TeacherMatches>>("/active-teachers/matches");
+export async function fetchTeacherMatches(term = ""): Promise<TeacherMatches> {
+  // The semester on screen's: its active teachers, and the names typed on its sections.
+  const asked = term ? `?term=${encodeURIComponent(term)}` : "";
+  const body = await request<Partial<TeacherMatches>>(`/active-teachers/matches${asked}`);
   return { matches: body.matches ?? [], partTime: body.partTime ?? [], unnamed: body.unnamed ?? [] };
 }
 

@@ -1099,8 +1099,25 @@ class PortalListStore:
             held.append(teacher)
         return held
 
-    def unlinked_portal_matches(self) -> list[dict[str, Any]]:
+    @staticmethod
+    def _active_in(connection: Any, term_code: str) -> set[str] | None:
+        """The active teachers of one semester, or None when no semester is asked about."""
+        term = _text(term_code)
+        if not term:
+            return None
+        return {
+            row[0]
+            for row in connection.execute(
+                text("SELECT active_id FROM active_teacher_terms WHERE term_code = :t"), {"t": term}
+            )
+        }
+
+    def unlinked_portal_matches(self, term_code: str = "") -> list[dict[str, Any]]:
         """Active teachers who came from the part-time database and look like a portal profile.
+
+        Those active in the semester `term_code` (262710) when it is said: the page offers
+        the joins of the list it shows, and somebody active only in Semester 2 is not on
+        Semester 1's.
 
         A teacher joins the portal's lists when they are first paid through it, which can be
         months after the department started counting on them. Nothing about a sync notices:
@@ -1122,6 +1139,7 @@ class PortalListStore:
                 .mappings()
                 .all()
             )
+            shown = self._active_in(connection, term_code)
         taken = {row["portal_teacher_id"] for row in active if row["portal_teacher_id"]}
         by_name: dict[str, list[Any]] = {}
         for row in portal:
@@ -1132,6 +1150,8 @@ class PortalListStore:
         found: list[dict[str, Any]] = []
         for row in active:
             if row["portal_teacher_id"] or not row["part_time_teacher_id"]:
+                continue
+            if shown is not None and row["id"] not in shown:
                 continue
             # One candidate only. Two people of the same name is a question for a person.
             candidates = by_name.get(_name_key(row["full_name"]), [])
@@ -1151,8 +1171,11 @@ class PortalListStore:
             )
         return sorted(found, key=lambda entry: entry["activeName"].casefold())
 
-    def unlinked_part_time_matches(self) -> list[dict[str, Any]]:
+    def unlinked_part_time_matches(self, term_code: str = "") -> list[dict[str, Any]]:
         """Active teachers chosen from the portal who also have a part-time record.
+
+        Those active in the semester `term_code` when it is said, as for the portal matches.
+        Whether a record is somebody's alone is still asked of every row, in any semester.
 
         The mirror of `unlinked_portal_matches`, and needed for the same reason read the
         other way round. Somebody joins the department as a part-time teacher and is later
@@ -1188,6 +1211,7 @@ class PortalListStore:
                 .mappings()
                 .all()
             )
+            asked = self._active_in(connection, term_code)
         taken = {row["part_time_teacher_id"] for row in active if row["part_time_teacher_id"]}
         free = [row for row in part_time if row["id"] not in taken]
         waiting = [row for row in active if not row["part_time_teacher_id"]]
@@ -1206,6 +1230,8 @@ class PortalListStore:
         # tier safe — nothing here decides anything.
         found: list[dict[str, Any]] = []
         for row in waiting:
+            if asked is not None and row["id"] not in asked:
+                continue
             shown = _text(row["full_name"])
             # One candidate only, each way round, in whichever tier answers. Two people of
             # one name — or one record two rows answer to — is a question for a person, not a
@@ -1227,8 +1253,12 @@ class PortalListStore:
             )
         return sorted(found, key=lambda entry: entry["activeName"].casefold())
 
-    def unnamed_in_the_list(self) -> list[dict[str, Any]]:
+    def unnamed_in_the_list(self, term_code: str = "") -> list[dict[str, Any]]:
         """Teachers our own planning names, whom the department's list does not hold.
+
+        Named on the sections of the semester `term_code` (262710) when it is said. Semester
+        1's page listed six people typed only on Semester 2's sections, with Semester 2's
+        counts — a section is in a semester through its set, as everywhere else here.
 
         The third gap, and the one that costs a coordinator the most: a section carries a
         typed name, nobody on the list answers to it, and every count on the page — hours,
@@ -1249,9 +1279,11 @@ class PortalListStore:
             written = [
                 (row[0], row[1])
                 for row in connection.execute(
-                    text("""SELECT coalesce(gc.teacher, ''), count(*) FROM group_crns gc
+                    text(f"""SELECT coalesce(gc.teacher, ''), count(*) FROM group_crns gc
                             WHERE gc.crn <> '' AND gc.retired = false AND coalesce(gc.teacher, '') <> ''
-                            GROUP BY coalesce(gc.teacher, '')""")
+                              {"AND " + _section_in_term("gc", ":term") if _text(term_code) else ""}
+                            GROUP BY coalesce(gc.teacher, '')"""),
+                    {"term": _text(term_code)},
                 )
             ]
             portal = (
