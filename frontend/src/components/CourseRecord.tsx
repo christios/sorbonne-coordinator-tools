@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 
-import { CoursePlanDialog, CoursePlanLines } from "@/components/CoursePlanDialog";
+import { CoursePlanDialog, CoursePlanEditor, CoursePlanLines } from "@/components/CoursePlanDialog";
 import { CrnRecord } from "@/components/CrnRecord";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -48,10 +48,22 @@ export function CourseRecord({
   open,
   courseCode,
   onClose,
+  planTerm: termGiven,
+  planSemesterName,
+  asks,
 }: {
   open: boolean;
   courseCode: string;
   onClose: () => void;
+  /**
+   * Opened from a Groups & CRNs card (23 Nov 2026), where the course's plan is set: its
+   * semester as the portal numbers it — the card's, which need not be the header's — and its
+   * name. Given, the plan is set here rather than read.
+   */
+  planTerm?: string;
+  planSemesterName?: string;
+  /** What each of the card's sets asks of the course — its hours and session length — to set here. */
+  asks?: ReactNode;
 }) {
   const code = courseCode.trim().toUpperCase();
   const client = useQueryClient();
@@ -117,7 +129,10 @@ export function CourseRecord({
    * Its plan in the header's semester: the hours coordinators set, its lead, and the weeks the
    * lead laid out. Read here, changed in the course plan's window.
    */
-  const { semester, term: planTerm } = usePortalSemester();
+  const { semester, term: headerTerm } = usePortalSemester();
+  const editsPlan = termGiven !== undefined;
+  const planTerm = editsPlan ? termGiven : headerTerm;
+  const planSemester = editsPlan ? planSemesterName ?? "" : (semester?.name ?? "");
   const plans = useQuery({
     queryKey: ["course-plans", planTerm],
     queryFn: () => fetchCoursePlans(planTerm),
@@ -160,6 +175,25 @@ export function CourseRecord({
        * wherever their cards happened to.
        */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        {editsPlan ? (
+          // Set here, from Groups & CRNs: what each set asks, the hours they make, the lead, the weeks.
+          <Card
+            title={`Course plan${planSemester ? ` · ${planSemester}` : ""}`}
+            note="What each set asks of the course — its hours and session length — then the lead, and the weeks the lead lays its sessions out in."
+            className="lg:col-span-2"
+          >
+            <div className="space-y-4">
+              {asks}
+              {plan ? (
+                <CoursePlanEditor term={planTerm} plan={plan} weeks={plans.data?.weeks ?? []} semesterName={planSemester} />
+              ) : plans.isLoading ? (
+                <Empty>Reading the course plan…</Empty>
+              ) : (
+                <Empty>Not active in {planSemester || "this semester"}, so it has no plan here.</Empty>
+              )}
+            </div>
+          </Card>
+        ) : null}
         {/*
           * The two things about a course that are ours to say rather than the portal's.
           *
@@ -184,6 +218,7 @@ export function CourseRecord({
             <Empty>Not in the register, so there is nothing to say about it yet.</Empty>
           )}
         </Card>
+        {editsPlan ? null : (
         <Card
           title={`Hours and lead${semester ? ` · ${semester.name}` : ""}`}
           note="The course's CM, TD and TP hours this semester, the teacher who leads it, and the weeks the lead laid its sessions out in."
@@ -201,6 +236,7 @@ export function CourseRecord({
             <Empty>Not active in {semester?.name ?? "this semester"}, so it has no plan here.</Empty>
           )}
         </Card>
+        )}
         </div>
         <Card title="Where we teach it" note="Every group of every set that holds a section of this course.">
           {cards.length === 0 ? (

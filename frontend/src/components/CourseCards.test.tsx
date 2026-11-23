@@ -155,8 +155,9 @@ describe("the course cards", () => {
     show();
 
     const said = await screen.findByText("Mutualized");
-    // Said here, changed on the course's own record.
-    expect(said.getAttribute("title")).toMatch(/course's own record, under Courses/);
+    // Said here, changed on the course's own record, which the pen by its name opens (23 Nov 2026).
+    expect(said.getAttribute("title")).toMatch(/course's own record: press the pen by its name/);
+    expect(screen.getByRole("button", { name: /^Edit MATH001: its facts, what it asks, its lead and its weeks$/ })).toBeTruthy();
   });
 
   it("says nothing about mutualization until somebody has said", async () => {

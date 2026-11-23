@@ -2,8 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CoursePlanDialog } from "@/components/CoursePlanDialog";
-import { CourseWeekByWeek } from "@/components/CourseWeekByWeek";
+import { CoursePlanDialog, CoursePlanEditor } from "@/components/CoursePlanDialog";
 import * as plans from "@/services/coursePlans";
 import type { CoursePlan, TeachingWeek } from "@/services/coursePlans";
 import * as portal from "@/services/portalLists";
@@ -70,72 +69,54 @@ describe("a course's plan on Active courses, read only (23 Nov 2026)", () => {
   });
 });
 
-const card = (plan: CoursePlan, component = "TD") => {
-  const saved = vi.fn();
+const editor = (plan: CoursePlan) =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <CourseWeekByWeek
-        term="262720"
-        plan={plan}
-        weeks={WEEKS}
-        component={component}
-        teachers={[teacher("samar", "Samar Ghantous"), teacher("valerie", "Valerie Le Guyon")]}
-        onSaved={saved}
-      />
+      <CoursePlanEditor term="262720" plan={plan} weeks={WEEKS} semesterName="Semester 2 2026-27" />
     </QueryClientProvider>,
   );
-  return saved;
-};
 
-describe("a Groups & CRNs card's week by week (23 Nov 2026)", () => {
+describe("a course's plan, set from its record opened in Groups & CRNs (23 Nov 2026)", () => {
   const PLANNED: CoursePlan = {
     ...EMPTY,
     components: { CM: { hours: 3, length: 1.5, issue: "" }, TD: { hours: 3, length: 1.5, issue: "" }, TP: { hours: null, length: null } },
     weeks: { CM: { "1": 1, "2": 1 } },
   };
 
-  it("picks the course's lead from the card", async () => {
+  it("picks the course's lead", async () => {
     const change = vi.spyOn(plans, "changeCoursePlan").mockResolvedValue({ ...PLANNED, leadId: "valerie", leadName: "Valerie Le Guyon" });
-    const saved = card(PLANNED);
+    editor(PLANNED);
 
-    expect(screen.getByRole("region", { name: "MATH-002 TD week by week" }).textContent).toContain("TD 3 h a group · sessions of 1.5 h");
     fireEvent.click(screen.getByRole("combobox", { name: "Lead of MATH-002" }));
     fireEvent.click(await screen.findByRole("option", { name: "Valerie Le Guyon" }));
     await waitFor(() => expect(change).toHaveBeenCalledWith("262720", "MATH-002", { leadId: "valerie" }));
-    await waitFor(() => expect(saved).toHaveBeenCalled());
   });
 
-  it("fills the card's own component in for the lead, keeping the course's other weeks", async () => {
+  it("fills the weeks in for the lead", async () => {
     const lay = vi.spyOn(plans, "layOutCourse").mockResolvedValue(PLANNED);
-    const saved = card(PLANNED);
+    editor(PLANNED);
 
-    // Folded at first: where the weeks stand in a line, and no diagram until it is opened.
-    expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.getByRole("button", { name: /Week by week/ }).getAttribute("aria-expanded")).toBe("false");
-    fireEvent.click(screen.getByRole("button", { name: /Week by week/ }));
-    // Only the card's TD row: the CM is another card's.
-    const grid = screen.getByRole("table", { name: "MATH-002 TD sessions week by week" });
-    expect(within(grid).queryByText("CM")).toBeNull();
+    expect(screen.getByText("Hours, from what each set asks")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Fill in for the lead" }));
+    const grid = screen.getByRole("table", { name: "MATH-002 sessions week by week" });
     fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 1" }), { target: { value: "1" } });
     fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 3" }), { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: "Save the weeks" }));
 
     await waitFor(() =>
-      expect(lay).toHaveBeenCalledWith("262720", "MATH-002", {
-        weeks: { CM: { "1": 1, "2": 1 }, TD: { "1": 1, "3": 1 } },
-        lengths: {},
-      }),
+      expect(lay).toHaveBeenCalledWith(
+        "262720",
+        "MATH-002",
+        expect.objectContaining({ weeks: { CM: { "1": 1, "2": 1 }, TD: { "1": 1, "3": 1 } }, lengths: {} }),
+      ),
     );
-    await waitFor(() => expect(saved).toHaveBeenCalled());
   });
 
-  it("can't be laid out without a session length, and says where it is missing", () => {
-    card({ ...PLANNED, components: { ...PLANNED.components, TD: { hours: 3, length: null, issue: "No session length in Groups & CRNs yet" } } });
-    fireEvent.click(screen.getByRole("button", { name: /Week by week/ }));
+  it("can't lay out a component with no session length, and says it is missing", () => {
+    editor({ ...PLANNED, components: { ...PLANNED.components, TD: { hours: 3, length: null, issue: "No session length in Groups & CRNs yet" } } });
 
-    expect(screen.getByRole("region", { name: "MATH-002 TD week by week" }).textContent).toContain("No session length in Groups & CRNs yet");
-    expect(screen.queryByRole("button", { name: "Fill in for the lead" })).toBeNull();
-    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getAllByText(/No session length in Groups & CRNs yet/).length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole("button", { name: "Fill in for the lead" }));
+    expect(screen.queryByRole("textbox", { name: /TD sessions/ })).toBeNull();
   });
 });

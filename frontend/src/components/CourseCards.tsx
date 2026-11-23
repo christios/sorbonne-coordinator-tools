@@ -585,7 +585,6 @@ export function CourseCards({
               onPlaceStudents={onPlaceStudents}
               coursePlan={(chosenPlans.data?.courses ?? []).find((plan) => plan.courseCode.toUpperCase() === chosenCard.code.toUpperCase()) ?? null}
               coursePlanTerm={portalTerm}
-              teachingWeeks={chosenPlans.data?.weeks ?? []}
               onChanged={refresh}
               onFilled={(reportOfFill) => {
                 setFilled(reportOfFill);

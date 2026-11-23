@@ -5,12 +5,12 @@ import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { InfoTip, TipButton, TipDo, TipPage, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
-import { CourseWeekByWeek } from "@/components/CourseWeekByWeek";
+import { CourseRecord } from "@/components/CourseRecord";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
 import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
-import type { CoursePlan, TeachingWeek } from "@/services/coursePlans";
+import { componentOf, type CoursePlan } from "@/services/coursePlans";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import type { MissingFrom } from "@/services/publicationView";
@@ -473,6 +473,26 @@ function SectionBlock({
 }
 
 /**
+ * A set's share of its course's plan gone wrong, said on the set's line — "No session length in
+ * Groups & CRNs yet" — and fixed in the course's record, which the tag opens.
+ */
+function PlanIssue({ plan, component: said, onOpen }: { plan: CoursePlan | null | undefined; component: string; onOpen: () => void }) {
+  const component = componentOf({ component: said });
+  const issue = plan && component ? plan.components[component].issue : "";
+  if (!issue) return null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      title={`${issue}. Open the course to set what this set asks.`}
+      className="inline-flex max-w-full items-center gap-1 truncate rounded-full bg-[#fdf6e3] px-2 py-0.5 text-[11px] font-semibold text-[#8a6116] hover:underline"
+    >
+      <AlertTriangle size={11} aria-hidden="true" /> {issue}
+    </button>
+  );
+}
+
+/**
  * One course, in full: its sets, and under each the sections anybody teaches of it.
  *
  * Everything this course has to say is said here, where there is room to say it — which
@@ -494,15 +514,12 @@ export function CourseDetail({
   onPlaceStudents,
   coursePlan,
   coursePlanTerm = "",
-  teachingWeeks = [],
 }: {
   card: Card;
   /** The course's plan in the card's semester — its hours, lead and weeks — when it has one. */
   coursePlan?: CoursePlan | null;
   /** The card's semester as the portal numbers it, which the plan is kept by. */
   coursePlanTerm?: string;
-  /** The semester's teaching weeks, which the plan lays the sessions out over. */
-  teachingWeeks?: TeachingWeek[];
   cohort: Cohort | null;
   /** Something the whole semester's request needs, shown where the semester is named. */
   action?: ReactNode;
@@ -534,6 +551,12 @@ export function CourseDetail({
   const [filling, setFilling] = useState<CardSet | null>(null);
   // Which set's course line is being written, if any: one per set, as the hours differ.
   const [asking, setAsking] = useState<CardSet | null>(null);
+  /*
+   * The course's record, opened with the pen by its name (23 Nov 2026): its facts (UE,
+   * coefficient, mutualized), what each set asks of it, its lead and its weeks — set there,
+   * so the sets below show their sections and nothing else.
+   */
+  const [recordOpen, setRecordOpen] = useState(false);
   const [showingRetired, setShowingRetired] = useState<Record<string, boolean>>({});
   const teacherName = (id: string) => teachers.find((teacher) => teacher.id === id)?.fullName ?? "";
 
@@ -545,11 +568,20 @@ export function CourseDetail({
     <section className="flex min-w-0 flex-col rounded-lg border border-[#d9dee7] bg-white lg:h-full lg:min-h-0">
       <header className="flex shrink-0 flex-wrap items-baseline gap-x-3 gap-y-1.5 border-b border-[#eef1f5] px-5 py-4">
         <h3 className="text-lg font-semibold tabular-nums text-[#171717]">{card.code}</h3>
+        <button
+          type="button"
+          onClick={() => setRecordOpen(true)}
+          aria-label={`Edit ${card.code}: its facts, what it asks, its lead and its weeks`}
+          title="The course: its UE, coefficient and mutualized, what each set asks, its lead and its weeks"
+          className="self-center rounded-md p-1 text-[#475467] hover:bg-[#eef4fa] hover:text-[#1f4e79] focus-visible:outline-2 focus-visible:outline-[#1f4e79]"
+        >
+          <Pencil size={15} aria-hidden="true" />
+        </button>
         <p className="text-[#344054]">{card.name || <span className="text-[#98a2b3]">untitled</span>}</p>
         {card.ue ? <span className="text-xs tabular-nums text-[#98a2b3]">{card.ue}</span> : null}
         {card.active?.mutualized ? (
           <span
-            title="Set on the course's own record, under Courses — not here"
+            title="Set on the course's own record: press the pen by its name"
             className={`${chip} ${card.active.mutualized === "yes" ? "bg-[#e8edf3] text-[#1f4e79]" : "bg-[#f2f4f7] text-[#667085]"}`}
           >
             {MUTUALIZED_WORDS[card.active.mutualized]}
@@ -617,6 +649,7 @@ export function CourseDetail({
                   {/* A component named after its set — "CM · CM" — says it twice. */}
                   {set.course.component && set.course.component !== set.scope.code ? ` · ${set.course.component}` : ""}
                 </span>
+                <PlanIssue plan={coursePlan} component={set.course.component || set.scope.code} onOpen={() => setRecordOpen(true)} />
                 <InfoTip label="How to read a section card" title="Reading a section card">
                   <TipDo>Press a card to edit its CRN, teacher, hours and what it asks.</TipDo>
                   <TipPoint tone="serious">
@@ -711,20 +744,6 @@ export function CourseDetail({
                 ) : null}
               </div>
 
-              {/*
-                * What the course asks, above the sections that answer it. One per set: a
-                * lecture is twenty-four hours and a tutorial thirty-six, and the two are
-                * not one request with an exception.
-                */}
-              <CourseRequestLine request={set.course.request} scopeCode={set.scope.code} onEdit={() => setAsking(set)} />
-              <CourseWeekByWeek
-                term={coursePlanTerm}
-                plan={coursePlan}
-                weeks={teachingWeeks}
-                component={set.course.component || set.scope.code}
-                teachers={teachers}
-                onSaved={onChanged}
-              />
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
                 {live.map((row) => (
@@ -822,18 +841,42 @@ export function CourseDetail({
         />
       ) : null}
 
-      {asking ? (
-        <CourseRequestDialog
-          courseId={asking.course.id}
-          title={`${card.code} · ${asking.scope.code}`}
-          description={`What ${card.name || card.code} asks of the timetable for every ${asking.scope.code} section of it, in ${card.cohortName}, ${card.termName || "this semester"}.`}
-          held={asking.course.request}
-          teachers={teachers}
-          onClose={() => setAsking(null)}
-          onSaved={() => {
-            setAsking(null);
+      {recordOpen ? (
+        <CourseRecord
+          open
+          courseCode={card.code}
+          planTerm={coursePlanTerm}
+          planSemesterName={card.termName}
+          onClose={() => {
+            setRecordOpen(false);
             onChanged();
           }}
+          asks={
+            /*
+             * What the course asks, one line per set: a lecture is twenty-four hours and a
+             * tutorial thirty-six, and the two are not one request with an exception. Its
+             * window opens over the record, from the line.
+             */
+            <div className="space-y-1">
+              {card.sets.map((set) => (
+                <CourseRequestLine key={set.scope.id} request={set.course.request} scopeCode={set.scope.code} onEdit={() => setAsking(set)} />
+              ))}
+              {asking ? (
+                <CourseRequestDialog
+                  courseId={asking.course.id}
+                  title={`${card.code} · ${asking.scope.code}`}
+                  description={`What ${card.name || card.code} asks of the timetable for every ${asking.scope.code} section of it, in ${card.cohortName}, ${card.termName || "this semester"}.`}
+                  held={asking.course.request}
+                  teachers={teachers}
+                  onClose={() => setAsking(null)}
+                  onSaved={() => {
+                    setAsking(null);
+                    onChanged();
+                  }}
+                />
+              ) : null}
+            </div>
+          }
         />
       ) : null}
 
