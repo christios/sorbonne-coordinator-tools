@@ -1,7 +1,7 @@
 import { ArrowDown, Lock, PenLine, TriangleAlert } from "lucide-react";
 
 import { type ReductionDraft } from "@/components/useReductionDraft";
-import { type ReductionItem, type ReductionState, heldWords, hoursOf, stateWords } from "@/services/hourReductions";
+import { type ReductionItem, type ReductionState, heldWords, hoursOf, noneWords, stateWords } from "@/services/hourReductions";
 
 const hours = (value: number) => `${Number.isInteger(value) ? value : value.toFixed(1)} h`;
 
@@ -225,6 +225,8 @@ export function ReductionFields({
         {items.map((item) => {
           const value = draft[item.kind] ?? { amount: 0, detail: "", validated: false };
           const given = hoursOf(item, value.amount, value.detail);
+          // What is held in words; a kind the Head of Department set to nothing says so ("None").
+          const held = heldWords({ ...item, ...value }) || (item.state && !changedFrom(item, value) ? noneWords(item.unit) : "");
           const changed = value.amount !== item.amount || value.detail !== item.detail;
           // A teacher's change to a validated figure is theirs again until it is checked.
           const state: ReductionState = !given
@@ -255,10 +257,10 @@ export function ReductionFields({
                   <Control item={item} value={value} onChange={(next) => onChange(item.kind, next)} />
                 ) : owner === "hod" ? (
                   // Read only, and drawn so: no box to type in, "Not set" where nothing is.
-                  heldWords({ ...item, ...value }) ? (
+                  held ? (
                     <span className="inline-flex items-center gap-1 text-sm font-semibold text-[#344054]">
                       <Lock size={12} className="text-[#b08a3e]" aria-hidden="true" />
-                      {heldWords({ ...item, ...value })}
+                      {held}
                     </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 text-sm italic text-[#8a7a5a]">
@@ -267,7 +269,7 @@ export function ReductionFields({
                     </span>
                   )
                 ) : (
-                  <span className="text-sm text-[#344054]">{heldWords({ ...item, ...value }) || "—"}</span>
+                  <span className="text-sm text-[#344054]">{held || "—"}</span>
                 )}
                 {withValidation && item.group === "safir" && given ? (
                   <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#1f5c3d]">
@@ -293,6 +295,11 @@ export function ReductionFields({
       </ul>
     </section>
   );
+}
+
+/** Whether a kind as it is being changed differs from what is saved. */
+function changedFrom(item: ReductionItem, value: { amount: number; detail: string }): boolean {
+  return value.amount !== item.amount || value.detail !== item.detail;
 }
 
 /** The year in two numbers: reductions, and teaching still owed out of the service. */
