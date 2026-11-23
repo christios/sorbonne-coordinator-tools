@@ -6,7 +6,7 @@ import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CourseScheduleEditor } from "@/components/CoursePlanDialog";
 import { InviteDialog } from "@/components/InviteDialog";
 import { BAR_BUTTON, ICON_BUTTON, ListSearch, SEGMENTS, SegmentCount, ShownCount, segment } from "@/components/ListLook";
-import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar } from "@/components/RecordList";
+import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar, SortHead, type RecordSort } from "@/components/RecordList";
 import { useStaffUser } from "@/components/useStaffUser";
 import { InfoTip, TipButton, TipDo, TipPage, TipPoint, TipUsage } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -54,6 +54,46 @@ const dated = (value: string) =>
 
 type Shown = "all" | "submitted" | "draft" | "none";
 const statusOf = (row: WishTeacher): Exclude<Shown, "all"> => row.wishes?.status ?? "none";
+
+/** The columns the list sorts on, by pressing their heading (23 Nov 2026). */
+type SortKey = "name" | "status" | "answer" | "invitation";
+const STATUS_RANK = { submitted: 0, draft: 1, none: 2 } as const;
+const STAGE_RANK = { "Signed in": 0, Opened: 1, Invited: 2, "Not invited": 3 } as const;
+const byName = (a: WishTeacher, b: WishTeacher) => a.name.localeCompare(b.name);
+
+/**
+ * The list in a column's order. Status goes submitted, draft, not started, the latest change
+ * first among each; the answer by its hard constraints' hours a week, then how many hard and
+ * soft constraints it has, a teacher with no answer always last; the invitation by how far it
+ * got, the latest first. Ties go by name.
+ */
+function sortedRows(rows: WishTeacher[], sort: RecordSort<SortKey> | null): WishTeacher[] {
+  if (!sort) return rows;
+  const way = sort.ascending ? 1 : -1;
+  const answer = (row: WishTeacher) => {
+    const blocks = row.wishes?.blocks ?? [];
+    return [
+      recurringConstraintHours(blocks),
+      blocks.filter((block) => block.kind === "constraint").length,
+      blocks.filter((block) => block.kind === "preference").length,
+    ];
+  };
+  const invited = (row: WishTeacher) => row.invitation?.signedInAt || row.invitation?.openedAt || row.invitation?.createdAt || "";
+  const compare = (a: WishTeacher, b: WishTeacher): number => {
+    if (sort.key === "name") return way * byName(a, b);
+    if (sort.key === "status") {
+      return way * (STATUS_RANK[statusOf(a)] - STATUS_RANK[statusOf(b)]) || (b.wishes?.updatedAt ?? "").localeCompare(a.wishes?.updatedAt ?? "") || byName(a, b);
+    }
+    if (sort.key === "answer") {
+      // No answer has nothing to compare: it stays at the bottom, whichever way.
+      if (!a.wishes || !b.wishes) return Number(!a.wishes) - Number(!b.wishes) || byName(a, b);
+      const [left, right] = [answer(a), answer(b)];
+      return way * (left[0] - right[0] || left[1] - right[1] || left[2] - right[2]) || byName(a, b);
+    }
+    return way * (STAGE_RANK[invitationStage(a)] - STAGE_RANK[invitationStage(b)]) || invited(b).localeCompare(invited(a)) || byName(a, b);
+  };
+  return [...rows].sort(compare);
+}
 
 /**
  * The list's columns, shared by its heading and every row so they line up — the department's
@@ -364,6 +404,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const [shown, setShown] = usePageState<Shown>("teacher-preferences:shown", "all");
   const [query, setQuery] = usePageState("teacher-preferences:search", "");
   const [filters, setFilters] = usePageState<FilterModel[]>("teacher-preferences:filters", []);
+  const [sort, setSort] = usePageState<RecordSort<SortKey> | null>("teacher-preferences:sort", null);
   // The form differs from what it opened with: closing it then asks first.
   const dirty = useRef(false);
   const [discarding, setDiscarding] = useState<"close" | "back" | null>(null);
@@ -427,7 +468,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
   const counted = (which: Shown) => (which === "all" ? teachers.length : teachers.filter((row) => statusOf(row) === which).length);
   const byStatus = shown === "all" ? teachers : teachers.filter((row) => statusOf(row) === shown);
   const inView = byStatus.filter((row) => `${row.name} ${row.email}`.toLowerCase().includes(query.toLowerCase()));
-  const visible = applyFilters(inView, WISH_COLUMNS, filters);
+  const visible = sortedRows(applyFilters(inView, WISH_COLUMNS, filters), sort);
   const semesterName = semester?.name ?? "this semester";
   // Past the deadline, a teacher answering for themselves needs reopening; coordinators never do.
   const today = isoToday();
@@ -566,15 +607,16 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
             </RecordToolbar>
             <RecordList
               label="Teachers"
+              sortable
               columns={ROW_GRID}
               isEmpty={!visible.length}
               empty={teachers.length ? "No teacher matches." : `No teacher is active in ${semesterName} yet. Add them on Active teachers.`}
               head={
                 <>
-                  <span>Teacher</span>
-                  <span>Status</span>
-                  <span>Answer</span>
-                  <span>Invitation</span>
+                  <SortHead label="Teacher" column="name" sort={sort} onSort={setSort} />
+                  <SortHead label="Status" column="status" sort={sort} onSort={setSort} />
+                  <SortHead label="Answer" column="answer" sort={sort} onSort={setSort} firstDescending />
+                  <SortHead label="Invitation" column="invitation" sort={sort} onSort={setSort} />
                   <span />
                 </>
               }
