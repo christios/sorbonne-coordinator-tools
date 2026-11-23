@@ -191,8 +191,8 @@ export function CourseRecord({
           className="lg:col-span-2"
         >
           <div className="space-y-4">
-            {/* The course's facts and its lead first, side by side. */}
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+            {/* The course's facts and its lead first, side by side, as wide as each other. */}
+            <div className="grid gap-4 lg:grid-cols-2">
               <div>
                 <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-[#667085]">The course</p>
                 {course ? (
