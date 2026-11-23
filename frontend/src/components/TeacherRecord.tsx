@@ -388,12 +388,23 @@ export function TeacherRecord({
           </p>
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours <SourceMark source="planning" /></p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Planned hours <SourceMark source="planning" />{" "}
+            <InfoTip label="What planned hours are">
+              What they are planned to teach this semester: the hours of the sections assigned to them in Groups &amp; CRNs.
+              The line under it gives the year.
+            </InfoTip>
+          </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Planned hours">{hours || "—"}</p>
           {semester && yearHours !== hours ? <p className="mt-0.5 text-xs text-[#98a2b3]">{yearHours} h over the year</p> : null}
         </div>
         <div className="rounded-lg border border-[#d9dee7] bg-white px-4 py-3 max-sm:col-span-2">
-          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Actual teaching hours <SourceMark source="planning" /></p>
+          <p className="text-xs font-semibold uppercase tracking-wide text-[#8a94a4]">Actual teaching hours <SourceMark source="planning" />{" "}
+            <InfoTip label="What actual teaching hours are">
+              What they really teach this semester, class by class, as the timetable runs: a cover counts for whoever took it,
+              and a cancelled class drops out. It is their Total on Teacher hours; the line under it says how far it is from
+              the planned hours.
+            </InfoTip>
+          </p>
           <p className="mt-1 text-2xl font-semibold tabular-nums text-[#171717]" aria-label="Actual teaching hours">
             {went && !readingSemester ? round(went.total) : "—"}
           </p>
