@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, Pencil } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { useState } from "react";
 
 import { CourseScheduleGrid, type ScheduleDraft } from "@/components/CourseScheduleGrid";
@@ -40,6 +40,9 @@ function withComponent<T>(whole: Partial<Record<Component, T>>, component: Compo
  * the component's weeks: as the lead laid them out in their Timetable preferences request, or
  * filled in for them from here. One plan per course and semester, shared by every cohort that
  * takes it: the same weeks show under each of the course's cards.
+ *
+ * Folded, it is one line — the hours, the lead, where the weeks stand — and the diagram shows
+ * only once it is opened (user, 23 Nov 2026), so a card's sections stay in view.
  */
 export function CourseWeekByWeek({
   term,
@@ -58,6 +61,7 @@ export function CourseWeekByWeek({
   onSaved: () => void;
 }) {
   const component = componentOf({ component: said });
+  const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<ScheduleDraft>({ weeks: {}, lengths: {} });
   const save = useMutation({
@@ -106,7 +110,15 @@ export function CourseWeekByWeek({
     >
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <span className="inline-flex items-center gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-[#475467]">Week by week</span>
+          <button
+            type="button"
+            onClick={() => setOpen((was) => !was)}
+            aria-expanded={open}
+            className="inline-flex items-center gap-1 rounded text-[11px] font-semibold uppercase tracking-wide text-[#475467] hover:text-[#1f4e79] focus-visible:outline-2 focus-visible:outline-[#1f4e79]"
+          >
+            {open ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronRight size={14} aria-hidden="true" />}
+            Week by week
+          </button>
           <InfoTip label="What the week by week is" title="Week by week">
             <TipDo>Set everything for the course&rsquo;s plan here: hours and session length on the course row and its sections, the lead, and the weeks.</TipDo>
             <TipPoint>One plan per course and semester, shared by every cohort that takes it: the same weeks show under each of its cards.</TipPoint>
@@ -144,7 +156,19 @@ export function CourseWeekByWeek({
       </div>
       {pickLead.error ? <p role="alert" className="mt-1 text-xs text-[#a6292f]">{(pickLead.error as Error).message}</p> : null}
 
-      {!held.hours ? (
+      {!open ? (
+        // Folded: where the weeks stand in a line, the diagram one press away.
+        held.hours ? (
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="mt-1 block text-left text-xs text-[#475467] hover:text-[#1f4e79] hover:underline"
+          >
+            {answeredWords(plan)}
+            {uneven ? <span className="ml-1 font-semibold text-[#8a6116]">· Uneven</span> : null}
+          </button>
+        ) : null
+      ) : !held.hours ? (
         <p className="mt-1.5 text-xs text-[#667085]">
           {held.issue ? "Make the course row and its sections agree" : `No ${component} hours on this card yet`}: the plan takes its hours
           from them.

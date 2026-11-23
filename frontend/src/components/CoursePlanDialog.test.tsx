@@ -109,6 +109,10 @@ describe("a Groups & CRNs card's week by week (23 Nov 2026)", () => {
     const lay = vi.spyOn(plans, "layOutCourse").mockResolvedValue(PLANNED);
     const saved = card(PLANNED);
 
+    // Folded at first: where the weeks stand in a line, and no diagram until it is opened.
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByRole("button", { name: /Week by week/ }).getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(screen.getByRole("button", { name: /Week by week/ }));
     // Only the card's TD row: the CM is another card's.
     const grid = screen.getByRole("table", { name: "MATH-002 TD sessions week by week" });
     expect(within(grid).queryByText("CM")).toBeNull();
@@ -128,6 +132,7 @@ describe("a Groups & CRNs card's week by week (23 Nov 2026)", () => {
 
   it("can't be laid out without a session length, and says where it is missing", () => {
     card({ ...PLANNED, components: { ...PLANNED.components, TD: { hours: 3, length: null, issue: "No session length in Groups & CRNs yet" } } });
+    fireEvent.click(screen.getByRole("button", { name: /Week by week/ }));
 
     expect(screen.getByRole("region", { name: "MATH-002 TD week by week" }).textContent).toContain("No session length in Groups & CRNs yet");
     expect(screen.queryByRole("button", { name: "Fill in for the lead" })).toBeNull();
