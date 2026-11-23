@@ -155,12 +155,14 @@ def _hours_words(values: list[float]) -> str:
 
 def groups_figures(connection: Connection, term: str) -> dict[str, dict[str, dict[str, Any]]]:
     """What Groups & CRNs says of each course's CM, TD and TP in a portal term: its hours and
-    one session's length, or why there is none to take.
+    one session's length, where they come from, the sections that say otherwise, or why there
+    is no figure to take.
 
-    Read from the course's rows in the semester's sets — what a set asks of the course — and
-    from each live section under them, a section taught in two parts counting its parts'
-    hours together. They must agree: a figure said two ways (12 h for one TD group, 7.5 h for
-    another) is no figure, and says so, as does one that isn't a plain number ("2, 3").
+    Set at the course's level by default, and overridden on a section's card (user, 23 Nov
+    2026): what the set asks of the course is the figure, and a section whose own figure
+    differs is an exception — said, never blocking. A set that asks nothing falls back on its
+    sections when they agree; when they don't, the course is asked to say. A section taught in
+    two parts counts its parts' hours together.
     """
     rows = (
         connection.execute(
@@ -178,25 +180,22 @@ def groups_figures(connection: Connection, term: str) -> dict[str, dict[str, dic
     courses = {row["id"]: row for row in rows if row["component"] in COMPONENTS}
     if not courses:
         return {}
-    said: dict[tuple[str, str], dict[str, list[Any]]] = defaultdict(lambda: {"hours": [], "lengths": [], "odd": []})
-
-    def take(entry: dict[str, list[Any]], kind: str, value: object) -> None:
-        words, number = _said(value)
-        if not words:
-            return
-        if number is None:
-            entry["odd"].append((kind, words))
-        else:
-            entry[kind].append(number)
-
+    said: dict[tuple[str, str], dict[str, list[Any]]] = defaultdict(
+        lambda: {"asks": [], "ask_lengths": [], "odd_hours": [], "odd_lengths": [], "sections": []}
+    )
     for row in courses.values():
         entry = said[(row["code"], row["component"])]
-        take(entry, "hours", row["hours"])
-        take(entry, "lengths", row["duration"])
+        for kind, odd, value in (("asks", "odd_hours", row["hours"]), ("ask_lengths", "odd_lengths", row["duration"])):
+            words, number = _said(value)
+            if words and number is None:
+                entry[odd].append(words)
+            elif words:
+                entry[kind].append(number)
     sections: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for cell in connection.execute(
-        text("""SELECT course_id, group_id, hours, duration, retired, not_taught
-                FROM group_crns WHERE course_id = ANY(:ids)"""),
+        text("""SELECT c.course_id, c.group_id, g.label, c.hours, c.duration, c.retired, c.not_taught
+                FROM group_crns c JOIN scope_groups g ON g.id = c.group_id
+                WHERE c.course_id = ANY(:ids)"""),
         {"ids": list(courses)},
     ).mappings():
         sections[(cell["course_id"], cell["group_id"])].append(cell)
@@ -205,15 +204,7 @@ def groups_figures(connection: Connection, term: str) -> dict[str, dict[str, dic
         if not live or any(part["not_taught"] for part in parts):
             continue
         course = courses[course_id]
-        entry = said[(course["code"], course["component"])]
-        readings = [_said(part["hours"]) for part in live]
-        if any(words and number is None for words, number in readings):
-            entry["odd"].extend(("hours", words) for words, number in readings if words and number is None)
-        elif any(words for words, _ in readings):
-            entry["hours"].append(sum(number or 0.0 for _, number in readings))
-        for part in live:
-            take(entry, "lengths", part["duration"])
-
+        said[(course["code"], course["component"])]["sections"].append(_section_said(course["component"], live))
     figures: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
     for (code, component), entry in said.items():
         figure = _figure_of(entry)
@@ -222,30 +213,82 @@ def groups_figures(connection: Connection, term: str) -> dict[str, dict[str, dic
     return figures
 
 
+def _section_said(component: str, live: list[Any]) -> dict[str, Any]:
+    """A section's own word, its parts together: its hours (None where it says none, "?" where
+    they aren't a number), and the session lengths it says."""
+    hours = [_said(part["hours"]) for part in live]
+    lengths = [_said(part["duration"]) for part in live]
+    own: float | str | None = None
+    if any(words and number is None for words, number in hours):
+        own = "?"
+    elif any(words for words, _ in hours):
+        own = sum(number or 0.0 for _, number in hours)
+    label = str(live[0]["label"] or "").strip()
+    return {
+        # "TD 3", whether the group is called "3" or "TD 3".
+        "label": label if label.upper().startswith(component) else f"{component} {label}".strip(),
+        "hours": own,
+        "lengths": {number for words, number in lengths if words and number is not None},
+        "odd_length": any(words and number is None for words, number in lengths),
+    }
+
+
+def _one_of(values: list[float]) -> tuple[float | None, list[float]]:
+    """The one figure a list says, or None and the figures it says instead."""
+    distinct = sorted({round(value, 3) for value in values if value})
+    return (distinct[0] if len(distinct) == 1 else None), distinct
+
+
+def _hours_of(entry: dict[str, list[Any]]) -> tuple[float | None, str, str]:
+    """The hours: what the course asks, else what its sections agree on — with where they came
+    from, or why there are none."""
+    if entry["odd_hours"]:
+        return None, "", f"What the course asks isn't one number: {', '.join(sorted(entry['odd_hours']))}"
+    asked, asks = _one_of(entry["asks"])
+    if len(asks) > 1:
+        return None, "", f"The sets ask {_hours_words(asks)}: they must agree"
+    if asked is not None:
+        return asked, "asks", ""
+    if any(section["hours"] == "?" for section in entry["sections"]):
+        return None, "", "A section's hours aren't one number: set them on what the course asks"
+    agreed, said = _one_of([section["hours"] for section in entry["sections"] if isinstance(section["hours"], float)])
+    if agreed is None and said:
+        return None, "", f"Its sections say {_hours_words(said)}: set the hours on what the course asks"
+    return agreed, ("sections" if agreed else ""), ""
+
+
+def _length_of(entry: dict[str, list[Any]]) -> tuple[float | None, str]:
+    """One session's length, the same way: the course's, else the sections' when they agree."""
+    if entry["odd_lengths"]:
+        odd = ", ".join(sorted(entry["odd_lengths"]))
+        return None, f"A session length that isn't one number in what the course asks: {odd}"
+    length, lengths = _one_of(entry["ask_lengths"])
+    if len(lengths) > 1:
+        return None, f"The sets ask sessions of {_hours_words(lengths)}: they must agree"
+    if length is not None:
+        return length, ""
+    length, lengths = _one_of([value for section in entry["sections"] for value in section["lengths"]])
+    if length is None and lengths:
+        return None, f"Its sections say sessions of {_hours_words(lengths)}: set the length on what the course asks"
+    return length, ("" if length else "No session length in Groups & CRNs yet")
+
+
 def _figure_of(entry: dict[str, list[Any]]) -> dict[str, Any]:
-    """One component's hours and session length from all Groups & CRNs says of it, or why not."""
-    hours = sorted({round(value, 3) for value in entry["hours"]})
-    lengths = sorted({round(value, 3) for value in entry["lengths"]})
-    odd_hours = sorted({words for kind, words in entry["odd"] if kind == "hours"})
-    odd_lengths = sorted({words for kind, words in entry["odd"] if kind == "lengths"})
-    if odd_hours:
-        issue = f"Hours that aren't one number in Groups & CRNs: {', '.join(odd_hours)}"
-        return {"hours": None, "length": None, "issue": issue}
-    if len(hours) > 1:
-        issue = f"Groups & CRNs says {_hours_words(hours)}: the groups must agree"
-        return {"hours": None, "length": None, "issue": issue}
-    if not hours or hours[0] <= 0:
-        return {"hours": None, "length": None, "issue": ""}
-    figure: dict[str, Any] = {"hours": hours[0], "length": None, "issue": ""}
-    if odd_lengths:
-        figure["issue"] = f"A session length that isn't one number in Groups & CRNs: {', '.join(odd_lengths)}"
-    elif len(lengths) > 1:
-        figure["issue"] = f"Groups & CRNs says sessions of {_hours_words(lengths)}: they must agree"
-    elif lengths and lengths[0] > 0:
-        figure["length"] = lengths[0]
-    else:
-        figure["issue"] = "No session length in Groups & CRNs yet"
-    return figure
+    """One component's figure: hours and length, where they come from, the sections that say
+    otherwise (exceptions, never blocking), or why there is none."""
+    hours, source, issue = _hours_of(entry)
+    if not hours:
+        return {"hours": None, "length": None, "issue": issue, "source": "", "exceptions": []}
+    length, length_issue = _length_of(entry)
+    exceptions = []
+    for section in entry["sections"]:
+        if section["hours"] == "?":
+            exceptions.append(f"{section['label']}: hours that aren't one number")
+        elif isinstance(section["hours"], float) and abs(section["hours"] - hours) > SAME_LENGTH:
+            exceptions.append(f"{section['label']} says {section['hours']:g} h")
+        if length and (section["odd_length"] or any(abs(value - length) > SAME_LENGTH for value in section["lengths"])):
+            exceptions.append(f"{section['label']} has sessions of another length")
+    return {"hours": hours, "length": length, "issue": length_issue, "source": source, "exceptions": sorted(exceptions)}
 
 
 def _ordinal(day: object) -> int:
@@ -303,6 +346,10 @@ def _components(code: str, figures: dict[str, dict[str, dict[str, Any]]]) -> dic
             "hours": held.get(component, {}).get("hours"),
             "length": held.get(component, {}).get("length"),
             "issue": held.get(component, {}).get("issue", ""),
+            # Where the figure comes from: "asks" (the course's row) or "sections" (they agree).
+            "source": held.get(component, {}).get("source", ""),
+            # The sections whose own figure differs from it: "TD 3 says 45 h".
+            "exceptions": held.get(component, {}).get("exceptions", []),
         }
         for component in COMPONENTS
     }

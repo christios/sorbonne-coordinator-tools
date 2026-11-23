@@ -96,7 +96,7 @@ describe("a course's plan, set from its record opened in Groups & CRNs (23 Nov 2
     const lay = vi.spyOn(plans, "layOutCourse").mockResolvedValue(PLANNED);
     editor(PLANNED);
 
-    expect(screen.getByText("Hours, from what each set asks")).toBeTruthy();
+    expect(screen.getByText("Hours, from Groups & CRNs")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Fill in for the lead" }));
     const grid = screen.getByRole("table", { name: "MATH-002 sessions week by week" });
     fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 1" }), { target: { value: "1" } });

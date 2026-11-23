@@ -10,7 +10,8 @@ import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseReque
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
 import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
-import { componentOf, type CoursePlan } from "@/services/coursePlans";
+import { componentOf, figure, hoursIn, type CoursePlan } from "@/services/coursePlans";
+import type { Request } from "@/services/studentDatabase";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import type { MissingFrom } from "@/services/publicationView";
@@ -55,24 +56,43 @@ const FIGURES = {
   },
 } as const;
 
-function Figure({ label, value, dim }: { label: keyof typeof FIGURES; value: string; dim: boolean }) {
+function Figure({
+  label,
+  value,
+  dim,
+  inherited = false,
+  compact = false,
+}: {
+  label: keyof typeof FIGURES;
+  value: string;
+  dim: boolean;
+  inherited?: boolean;
+  /** On a card's title line: smaller, and smaller still on a narrow card rather than wrapping. */
+  compact?: boolean;
+}) {
   const said = Boolean(value);
   const skin = FIGURES[label];
   const Icon = skin.icon;
   return (
     <span
-      title={said ? `${value} ${label}` : `No ${label} set yet`}
-      className={`inline-flex items-center gap-1 border px-2 py-1 ${skin.shape} ${
+      title={said ? `${value} ${label}${inherited ? ", from what the course asks: the section says none of its own" : ""}` : `No ${label} set yet`}
+      className={`inline-flex shrink-0 items-center gap-1 border ${compact ? "px-1.5 py-0.5 @xs:px-2" : "px-2 py-1"} ${skin.shape} ${
         dim ? "border-[#f2f5f9] bg-white" : said ? skin.said : "border-dashed border-[#d9dee7] bg-white"
       }`}
     >
       <Icon size={11} aria-hidden="true" className={dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"} />
-      <span className={`text-[13px] font-semibold leading-none tabular-nums ${dim ? "text-[#d5dce4]" : said ? skin.number : "text-[#b7bec8]"}`}>
+      <span
+        className={`${compact ? "text-[11px] @xs:text-[13px]" : "text-[13px]"} font-semibold leading-none tabular-nums ${dim ? "text-[#d5dce4]" : said ? skin.number : "text-[#b7bec8]"}`}
+      >
         {value || "—"}
       </span>
-      <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"}`}>
+      {/* On a narrow card the word goes and the figure stays: the clock says what it counts. */}
+      <span
+        className={`${compact ? "hidden text-[10px] @xs:inline" : "text-[10px]"} font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"}`}
+      >
         {label}
       </span>
+      {inherited && said ? <span className="hidden text-[10px] leading-none text-[#98a2b3] @xs:inline">· course</span> : null}
     </span>
   );
 }
@@ -107,17 +127,18 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
 function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
   const skin = SEATS[verdict];
+  // On the teacher's line (23 Nov 2026): smaller on a narrow card rather than wrapping.
   return (
     <span
       title={seats ? `${placed} of ${seats} seats taken` : `${placed} placed, no capacity set`}
-      className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 ${dim ? "border-[#f2f5f9] bg-white" : skin.skin}`}
+      className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 @xs:px-2 ${dim ? "border-[#f2f5f9] bg-white" : skin.skin}`}
     >
       <Armchair size={11} aria-hidden="true" className={dim ? "text-[#e4e9ef]" : skin.word} />
-      <span className={`text-[13px] font-semibold leading-none tabular-nums ${dim ? "text-[#d5dce4]" : skin.number}`}>
+      <span className={`text-[11px] font-semibold leading-none tabular-nums @xs:text-[13px] ${dim ? "text-[#d5dce4]" : skin.number}`}>
         {placed}
         <span className="opacity-45">/{seats || "—"}</span>
       </span>
-      <span className={`text-[10px] font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : skin.word}`}>
+      <span className={`hidden text-[10px] font-semibold uppercase leading-none tracking-wide @xs:inline ${dim ? "text-[#e4e9ef]" : skin.word}`}>
         seats
       </span>
     </span>
@@ -172,6 +193,62 @@ function asks(section: SectionPart): string {
 }
 
 /**
+ * A section's hours and session length as its card shows them: its own, else the course's —
+ * an undivided section only, since a part of a divided one carries its own share — and where
+ * its own differ from what the course asks.
+ */
+function shownOf(part: SectionPart, course: Request | undefined) {
+  return {
+    hours: part.hours || course?.hours || "",
+    hoursInherited: !part.hours && Boolean(course?.hours),
+    duration: part.duration || course?.duration || "",
+    durationInherited: !part.duration && Boolean(course?.duration),
+    overrides: course ? differences(part.hours, part.duration, course) : [],
+  };
+}
+
+/**
+ * The hours and, smaller, one session's length, as tags on the line with the CRN (user, 23 Nov
+ * 2026): left of it, never wrapping — a narrow card makes them smaller instead.
+ */
+function SessionTags({ shown, dim }: { shown: ReturnType<typeof shownOf>; dim: boolean }) {
+  return (
+    <>
+      <Figure label="hours" value={shown.hours} dim={dim} inherited={shown.hoursInherited} compact />
+      {shown.duration ? (
+        <span
+          title={`Sessions of ${shown.duration} h${shown.durationInherited ? ", from what the course asks: the section says none of its own" : ""}`}
+          className={`inline-flex shrink-0 items-center rounded border px-1 py-0.5 text-[9px] font-semibold leading-none tabular-nums @xs:text-[10px] ${
+            dim ? "border-[#f2f5f9] text-[#d5dce4]" : shown.durationInherited ? "border-[#e4ecf5] text-[#6d8fb4]" : "border-[#cfe0ee] bg-[#f5f9fd] text-[#1f4e79]"
+          }`}
+        >
+          {shown.duration} h<span className="hidden @xs:inline">&nbsp;each</span>
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * Where a section's own hours or session length differ from what the course asks: "Its own
+ * 45 h — the course asks 50 h". Figures that read the same ("50", "50 h") are not a difference.
+ */
+function differences(hours: string, duration: string, course: Request): string[] {
+  const said: string[] = [];
+  const own = hoursIn(hours);
+  const asked = hoursIn(course.hours);
+  if (hours && course.hours && (own === null || asked === null ? hours.trim() !== course.hours.trim() : Math.abs(own - asked) > 0.001)) {
+    said.push(`Its own ${own === null ? hours : `${figure(own)} h`} — the course asks ${asked === null ? course.hours : `${figure(asked)} h`}`);
+  }
+  const length = hoursIn(duration);
+  const usual = hoursIn(course.duration);
+  if (duration && course.duration && (length === null || usual === null ? duration.trim() !== course.duration.trim() : Math.abs(length - usual) > 0.001)) {
+    said.push(`sessions of ${duration} h — the course's are ${course.duration} h`);
+  }
+  return said;
+}
+
+/**
  * One stretch of a section's teaching, inside the section's own card.
  *
  * For the ordinary section — one professor, first week to last — this is the whole body of
@@ -189,8 +266,17 @@ function PartLine({
   teacherDrift,
   onEdit,
   label,
+  course,
+  aside,
 }: {
   part: SectionPart;
+  /** On the right of the teacher's line: the group's seats, on its first part. */
+  aside?: ReactNode;
+  /**
+   * What the set asks of the course (23 Nov 2026): hours and session length are the course's
+   * by default, and a section's own override them — said in amber when they differ.
+   */
+  course?: Request;
   /** True when the section has no other part, in which case nothing divides it. */
   only: boolean;
   first: boolean;
@@ -203,6 +289,10 @@ function PartLine({
 }) {
   const portalRow = portal && part.crn ? (portal.crns[part.crn] ?? null) : undefined;
   const chosen = part.teacherId ? teacherName(part.teacherId) : "";
+  // The course's hours and session length unless the section says its own; a part of a divided
+  // section carries its own share, so only an undivided one takes the course's.
+  const shown = shownOf(part, only ? course : undefined);
+  const overrides = shown.overrides;
   const drifted = Boolean(part.crn) && teacherDrift.has(part.crn);
   const asked = asks(part);
 
@@ -211,7 +301,8 @@ function PartLine({
       {/* The CRN sits with its own half rather than on the card's title line, which can
           only ever carry one of them. */}
       {only ? null : (
-        <p className="flex items-baseline gap-2">
+        <p className="flex items-center gap-1.5 whitespace-nowrap">
+          <SessionTags shown={shown} dim={part.retired} />
           {part.crn ? (
             <span className={`text-sm tabular-nums ${part.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{part.crn}</span>
           ) : (
@@ -221,29 +312,33 @@ function PartLine({
         </p>
       )}
 
-      <p className={`mt-1 truncate text-sm ${part.retired ? "text-[#c8d0da]" : ""}`}>
-        {chosen ? (
-          <span className={part.retired ? "" : "text-[#344054]"}>{chosen}</span>
-        ) : part.teacher ? (
-          <span className="text-[#667085]" title="Named on the row, but not chosen from Active teachers yet">
-            {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
-          </span>
-        ) : (
-          <span className="text-[#c8d0da]">nobody yet</span>
-        )}
-      </p>
-
-      {/* Hours only. How many are expected sits with the seats on the card's row. */}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        <Figure label="hours" value={part.hours} dim={part.retired} />
+      <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap">
+        <p className={`min-w-0 flex-1 truncate text-[12px] @xs:text-sm ${part.retired ? "text-[#c8d0da]" : ""}`}>
+          {chosen ? (
+            <span className={part.retired ? "" : "text-[#344054]"}>{chosen}</span>
+          ) : part.teacher ? (
+            <span className="text-[#667085]" title="Named on the row, but not chosen from Active teachers yet">
+              {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
+            </span>
+          ) : (
+            <span className="text-[#c8d0da]">nobody yet</span>
+          )}
+        </p>
+        {aside}
       </div>
 
-      {part.sessionsPerWeek || part.duration || part.weeks ? (
-        /* How the hours are spread. Detail, under the figures they add up to. */
+      {part.sessionsPerWeek || part.weeks ? (
+        /* How the hours are spread. Detail: the hours and a session's length sit by the CRN. */
         <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${part.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
           {part.sessionsPerWeek ? <span>{part.sessionsPerWeek}/week</span> : null}
-          {part.duration ? <span>{part.duration} h each</span> : null}
           {part.weeks ? <span>weeks {part.weeks}</span> : null}
+        </p>
+      ) : null}
+      {overrides.length && !part.retired ? (
+        // Its own figure, where the course says another: kept, and said, as a warning.
+        <p className="mt-1 flex items-start gap-1 text-[11px] font-semibold text-[#8a6116]">
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{overrides.join(" · ")}</span>
         </p>
       ) : null}
 
@@ -306,6 +401,16 @@ function SectionBlock({
   const parts = partsOf(row.section);
   const held = parts[0] ?? EMPTY_PART;
   const split = parts.length > 1;
+  // Its parts' hours together, against what the course asks, when every live part says some.
+  const live = parts.filter((part) => !part.retired);
+  const together = live.length && live.every((part) => hoursIn(part.hours) !== null)
+    ? live.reduce((sum, part) => sum + (hoursIn(part.hours) ?? 0), 0)
+    : null;
+  const asked = hoursIn(row.course.request.hours);
+  const splitDiffers =
+    split && together !== null && asked !== null && Math.abs(together - asked) > 0.001
+      ? `Its parts make ${figure(together)} h — the course asks ${figure(asked)} h`
+      : "";
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
   // Dim the whole card only when NOTHING it teaches is still running.
   const dim = parts.length > 0 && parts.every((part) => part.retired);
@@ -365,12 +470,12 @@ function SectionBlock({
        * height difference — visible on every card except the tallest in each row, which
        * is why it read as "some cards".
        */
-      className={`group flex cursor-pointer flex-col overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
+      className={`@container group flex cursor-pointer flex-col overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
         dim ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
       }`}
     >
-      <header className="flex items-baseline gap-2">
-        <h4 className={`text-sm font-semibold ${dim ? "text-[#c8d0da]" : "text-[#171717]"}`}>
+      <header className="flex items-center gap-1.5 whitespace-nowrap @xs:gap-2">
+        <h4 className={`shrink-0 text-[12px] font-semibold @xs:text-sm ${dim ? "text-[#c8d0da]" : "text-[#171717]"}`}>
           {row.scope.code} {row.group.label}
         </h4>
         {/*
@@ -393,9 +498,10 @@ function SectionBlock({
           */}
         {/* One CRN belongs on the title line; several belong beside the parts that own
             them, where each sits with the name and the weeks it goes with. */}
-        <span className="ml-auto inline-flex items-center gap-1 tabular-nums">
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 tabular-nums @xs:gap-1.5">
+          {split ? null : <SessionTags shown={shownOf(held, row.course.request)} dim={dim} />}
           {split ? null : held.crn ? (
-            <span className={`text-sm ${held.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{held.crn}</span>
+            <span className={`text-[12px] @xs:text-sm ${held.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{held.crn}</span>
           ) : held.retired ? null : (
             <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
           )}
@@ -446,17 +552,26 @@ function SectionBlock({
           teacherDrift={teacherDrift}
           onEdit={split ? () => onEdit(part) : undefined}
           label={`${label}, part ${part.part}`}
+          course={row.course.request}
+          aside={
+            index === 0 ? (
+              // The group's own facts, once however many parts: the same people sit in each.
+              <span className="ml-auto inline-flex shrink-0 items-center gap-1">
+                {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} compact /> : null}
+                <Seats placed={placed} seats={seats} dim={dim} />
+              </span>
+            ) : null
+          }
         />
       ))}
+      {split && splitDiffers ? (
+        // A divided section's parts together, against what the course asks.
+        <p className="mt-1 flex items-start gap-1 text-[11px] font-semibold text-[#8a6116]">
+          <AlertTriangle size={11} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>{splitDiffers}</span>
+        </p>
+      ) : null}
 
-      {/*
-        * The group's own facts, said once however many stretches it is taught in: the same
-        * people sit in every part, so a seat count per part would read as twice the class.
-        */}
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} /> : null}
-        <Seats placed={placed} seats={seats} dim={dim} />
-      </div>
 
       {/*
         * Absorbs whatever height the grid row hands this card over its own content.
@@ -478,7 +593,10 @@ function SectionBlock({
  */
 function PlanIssue({ plan, component: said, onOpen }: { plan: CoursePlan | null | undefined; component: string; onOpen: () => void }) {
   const component = componentOf({ component: said });
-  const issue = plan && component ? plan.components[component].issue : "";
+  const held = plan && component ? plan.components[component] : null;
+  const differing = held?.exceptions?.length ?? 0;
+  // A problem first; else how many sections carry a figure of their own.
+  const issue = held?.issue || (differing ? `${differing} section${differing === 1 ? "" : "s"} differ${differing === 1 ? "s" : ""} from the course` : "");
   if (!issue) return null;
   return (
     <button

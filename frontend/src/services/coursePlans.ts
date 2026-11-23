@@ -25,7 +25,15 @@ export type Component = (typeof COMPONENTS)[number];
  * as Groups & CRNs has them (23 Nov 2026), and what stands in the way where it can't say:
  * "No session length in Groups & CRNs yet", "Groups & CRNs says 7.5 h and 12 h".
  */
-export type ComponentHours = { hours: number | null; length: number | null; issue?: string };
+export type ComponentHours = {
+  hours: number | null;
+  length: number | null;
+  issue?: string;
+  /** Where the figure comes from: what the course asks, or its sections, which agree. */
+  source?: "" | "asks" | "sections";
+  /** The sections whose own figure differs from it, as exceptions: "TD 3 says 45 h". */
+  exceptions?: string[];
+};
 
 /** Sessions per teaching week, by component: `{ TD: { "2": 1, "3": 1 } }`; weeks with none left out. */
 export type Layout = Partial<Record<Component, Record<string, number>>>;

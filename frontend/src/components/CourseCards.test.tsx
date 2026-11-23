@@ -488,3 +488,22 @@ describe("the languages, on All cohorts", () => {
     window.localStorage.clear();
   });
 });
+
+describe("hours set for the course, and a card's own (23 Nov 2026)", () => {
+  it("shows the course's hours on a card with none of its own, and warns on a card whose own differ", async () => {
+    const asked = structuredClone(CATALOGUES);
+    asked[0].scopes[0].courses[0].request = { ...EMPTY_REQUEST, hours: "45", duration: "1.5" };
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(asked);
+    show();
+
+    // TD 1 says 50 h of its own, against the course's 45 h: kept, and warned about.
+    const own = (await screen.findByRole("button", { name: /^Edit TD 1 MATH001$/ })) as HTMLElement;
+    expect(within(own).getByTitle("50 hours").textContent).toContain("50");
+    expect(own.textContent).toContain("Its own 50 h — the course asks 45 h");
+    // TD 2 says nothing: the course's 45 h, in sessions of 1.5 h, marked as the course's.
+    const follows = screen.getByRole("button", { name: /^Edit TD 2 MATH001$/ }) as HTMLElement;
+    expect(within(follows).getByTitle(/^45 hours, from what the course asks/)).toBeTruthy();
+    expect(within(follows).getByTitle(/^Sessions of 1.5 h, from what the course asks/)).toBeTruthy();
+    expect(follows.textContent).not.toContain("the course asks 45 h");
+  });
+});

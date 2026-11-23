@@ -255,7 +255,16 @@ export function PlanHours({ plan }: { plan: CoursePlan }) {
             <dd className="text-right tabular-nums">
               {held.hours ? <b className="font-semibold text-[#171717]">{figure(held.hours)} h</b> : <span className="text-[#98a2b3]">—</span>}
               {held.length ? <span className="text-[#667085]"> · sessions of {figure(held.length)} h</span> : null}
+              {held.hours && held.source ? (
+                <span className="block text-[11px] text-[#98a2b3]">
+                  {held.source === "asks" ? "from what the course asks" : "from its sections, which agree"}
+                </span>
+              ) : null}
               {held.issue ? <span className="block text-xs font-semibold text-[#8a6116]">{held.issue}</span> : null}
+              {held.exceptions?.length ? (
+                // Sections with their own figure: kept, and said, never blocking.
+                <span className="block text-xs font-semibold text-[#8a6116]">{held.exceptions.join(" · ")}</span>
+              ) : null}
             </dd>
           </div>
         );
@@ -300,7 +309,7 @@ export function CoursePlanEditor({
     <div className="space-y-3">
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
-          <p className="mb-1.5 text-xs font-semibold text-[#344054]">Hours, from what each set asks</p>
+          <p className="mb-1.5 text-xs font-semibold text-[#344054]">Hours, from Groups &amp; CRNs</p>
           <PlanHours plan={plan} />
         </div>
         <div>

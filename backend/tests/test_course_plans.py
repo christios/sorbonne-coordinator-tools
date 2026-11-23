@@ -188,7 +188,7 @@ def test_every_active_course_is_listed_with_an_empty_plan_until_somebody_plans_i
 
     assert [course["courseCode"] for course in semester["courses"]] == [MATH, PHYS]
     math = _course(semester, MATH)
-    assert math["components"]["CM"] == {"hours": None, "length": None, "issue": ""}
+    assert math["components"]["CM"] == {"hours": None, "length": None, "issue": "", "source": "", "exceptions": []}
     assert (math["leadId"], math["weeks"], math["coefficient"], math["active"]) == ("", {}, "4", True)
 
 
@@ -199,9 +199,11 @@ def test_the_hours_and_session_lengths_are_groups_and_crns(client: TestClient):
     _groups(MATH, "CM", "24", "1.5")
     _groups(MATH, "td", "", "", sections=[[("21", "1,5")], [("12", "1.5"), ("9 h", "")]])
     plan = _course(client.get(f"{AT}/{TERM}").json(), MATH)
-    assert plan["components"]["CM"] == {"hours": 24, "length": 1.5, "issue": ""}
-    assert plan["components"]["TD"] == {"hours": 21, "length": 1.5, "issue": ""}
-    assert plan["components"]["TP"] == {"hours": None, "length": None, "issue": ""}
+    plain = {"issue": "", "exceptions": []}
+    assert plan["components"]["CM"] == {"hours": 24, "length": 1.5, "source": "asks", **plain}
+    # The TD's set asks nothing: its sections, which agree, give the figure.
+    assert plan["components"]["TD"] == {"hours": 21, "length": 1.5, "source": "sections", **plain}
+    assert plan["components"]["TP"] == {"hours": None, "length": None, "source": "", **plain}
 
     # Groups that disagree give no figure, and say so; so does a length that isn't one number,
     # and hours with no length at all.
@@ -209,17 +211,25 @@ def test_the_hours_and_session_lengths_are_groups_and_crns(client: TestClient):
     _groups(PHYS, "TD", "30", "2, 3")
     _groups(PHYS, "CM", "20")
     phys = _course(client.get(f"{AT}/{TERM}").json(), PHYS)["components"]
-    disagree = "Groups & CRNs says 7.5 h and 12 h: the groups must agree"
-    assert phys["TP"] == {"hours": None, "length": None, "issue": disagree}
+    disagree = "Its sections say 7.5 h and 12 h: set the hours on what the course asks"
+    assert phys["TP"] == {"hours": None, "length": None, "issue": disagree, "source": "", "exceptions": []}
     assert phys["TD"]["hours"] == 30 and "isn't one number" in phys["TD"]["issue"]
-    assert phys["CM"] == {"hours": 20, "length": None, "issue": "No session length in Groups & CRNs yet"}
+    assert phys["CM"]["issue"] == "No session length in Groups & CRNs yet"
+    assert (phys["CM"]["hours"], phys["CM"]["length"], phys["CM"]["source"]) == (20, None, "asks")
     no_length = client.put(f"{AT}/{TERM}/{PHYS}/weeks", json={"weeks": {"CM": {"1": 1}}})
     assert no_length.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "no session length in Groups & CRNs" in no_length.json()["detail"]
 
+    # Set at the course's level, a section's own figure is an exception: said, not blocking.
+    _groups(AUTUMN, "TP", "12", "3", sections=[[("12", "")], [("7.5", "")], [("", "2")]])
+    _groups(MATH, "TP", "12", "3", sections=[[("12", "")], [("7.5", "")], [("", "2")]])
+    tp = _course(client.get(f"{AT}/{TERM}").json(), MATH)["components"]["TP"]
+    assert (tp["hours"], tp["length"], tp["source"], tp["issue"]) == (12, 3, "asks", "")
+    assert tp["exceptions"] == ["TP 2 says 7.5 h", "TP 3 has sessions of another length"]
+
     # Another semester's sets are not this one's.
-    _groups(MATH, "TP", "10", "2", term="262798")
-    assert _course(client.get(f"{AT}/{TERM}").json(), MATH)["components"]["TP"]["hours"] is None
+    _groups(PHYS, "TP", "10", "2", term="262798")
+    assert _course(client.get(f"{AT}/{TERM}").json(), PHYS)["components"]["TP"]["hours"] is None
 
     # Nothing is set here any more: the hours are changed in Groups & CRNs.
     refused = client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"CM": {"hours": 30, "length": 1.5}}})
