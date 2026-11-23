@@ -21,11 +21,12 @@ import {
 } from "@/services/weekSchedule";
 
 /**
- * A phone: the week shown one day at a time behind a row of day buttons. Asked of the screen,
+ * A phone: the week shown one day at a time behind a row of day buttons. Asked of the device,
  * never of the calendar's own box (user, 23 Nov 2026): a record's card on a computer is narrow
- * and still wants its whole week, which a box's width took for a phone's.
+ * and still wants its whole week, which a box's width took for a phone's — and so does a
+ * computer's narrow window, hence a touch screen as well as a small one.
  */
-const PHONE = "(max-width: 639px)";
+const PHONE = "(max-width: 767px) and (pointer: coarse)";
 
 function usePhone(): boolean {
   const asks = () => typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(PHONE).matches;
