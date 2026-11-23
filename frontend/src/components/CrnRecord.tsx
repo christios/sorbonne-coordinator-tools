@@ -197,7 +197,7 @@ export function CrnRecord({
   return (
     <Modal
       open={open}
-      size="wide"
+      size="record"
       title={`CRN ${row.crn}`}
       description={`${row.courseCode}${row.portalTitle ? ` · ${row.portalTitle}` : ""}`}
       onClose={onClose}

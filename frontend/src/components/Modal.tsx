@@ -28,8 +28,12 @@ export function Modal({
   footer?: ReactNode;
   onClose: () => void;
   children: ReactNode;
-  /** "wide" for a screen that lays things side by side, like a student's record. */
-  size?: "default" | "wide";
+  /**
+   * "wide" for a screen that lays things side by side; "record" wider still, for a student's,
+   * a teacher's, a course's or a CRN's record, whose two equal columns each hold a calendar
+   * or a table (user, 23 Nov 2026).
+   */
+  size?: "default" | "wide" | "record";
   /** Something to sit under the title — pills, a summary line. */
   header?: ReactNode;
   /** A button or two at the top right, beside the X: a guided tour, say. */
@@ -67,7 +71,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby={titleId}
         className={`flex h-[100dvh] w-full min-w-0 flex-col bg-white shadow-xl sm:h-auto sm:max-h-[85vh] sm:rounded-lg sm:border sm:border-[#d9dee7] ${
-          size === "wide" ? "max-w-5xl" : "max-w-3xl"
+          size === "record" ? "max-w-7xl" : size === "wide" ? "max-w-5xl" : "max-w-3xl"
         }`}
         onMouseDown={(event) => event.stopPropagation()}
       >

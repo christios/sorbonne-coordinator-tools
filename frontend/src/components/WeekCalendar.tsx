@@ -45,9 +45,10 @@ function usePhone(): boolean {
 /**
  * The small calendar on a record is always this tall, its whole day in view without
  * scrolling (user, 23 Nov 2026): the hours share the height rather than each box growing
- * until it says everything, which made some records' weeks a screen and more high.
+ * until it says everything, which made some records' weeks a screen and more high. 400 px
+ * was still too tall beside the facts: two thirds of it.
  */
-const RECORD_HEIGHT = 400;
+const RECORD_HEIGHT = 270;
 const TOP_PADDING = 10;
 /**
  * How narrow a class drawn beside others at its hour may be. Every box says everything

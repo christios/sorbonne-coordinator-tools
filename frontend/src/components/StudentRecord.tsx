@@ -602,7 +602,7 @@ export function StudentRecord({
   return (
     <Modal
       open={open}
-      size="wide"
+      size="record"
       title={row.name || row.studentId}
       onClose={onClose}
       header={
@@ -691,9 +691,10 @@ export function StudentRecord({
       {/*
         * Two rows of two, then the history across the foot. The portal's facts and the
         * timetable set the rows' heights; what sits beside each takes that height and
-        * scrolls inside, so the two columns end level rather than one running on.
+        * scrolls inside, so the two columns end level rather than one running on. The two
+        * columns are as wide as each other, as on every record (user, 23 Nov 2026).
         */}
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.5fr)]">
+      <div className="grid gap-5 lg:grid-cols-2">
         {/* ------------------------------------------------------------ the portal */}
         <Card title="From the portal" note="As this browser last saw it. Nothing here is on the server.">
           {Object.keys(portal).length === 0 ? (

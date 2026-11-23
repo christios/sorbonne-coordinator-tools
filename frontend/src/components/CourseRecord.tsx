@@ -166,7 +166,7 @@ export function CourseRecord({
   return (
     <Modal
       open={open}
-      size="wide"
+      size="record"
       title={code}
       description={course?.title || undefined}
       onClose={onClose}

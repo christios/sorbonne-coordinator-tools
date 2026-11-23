@@ -142,6 +142,6 @@ describe("a record's week (23 Nov 2026)", () => {
       unmount();
       return height;
     });
-    expect(heights).toEqual(["400px", "400px"]);
+    expect(heights).toEqual(["270px", "270px"]);
   });
 });

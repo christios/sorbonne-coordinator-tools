@@ -347,7 +347,7 @@ export function TeacherRecord({
   return (
     <Modal
       open={open}
-      size="wide"
+      size="record"
       title={teacher.fullName || "This teacher"}
       description={[facts.type, facts.department, facts.institution].filter(Boolean).join(" · ") || undefined}
       onClose={onClose}
