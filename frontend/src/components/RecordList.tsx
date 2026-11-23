@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import type { CSSProperties, ReactNode } from "react";
 
 /**
@@ -39,12 +40,15 @@ export function RecordList({
   empty,
   isEmpty,
   scrollX = false,
+  sortable = false,
   children,
 }: {
   label: string;
   columns: string;
   grid?: CSSProperties;
   head: ReactNode;
+  /** The heading holds `SortHead` buttons: kept for screen readers, which a plain heading isn't. */
+  sortable?: boolean;
   loading?: boolean;
   loadingText?: string;
   empty: ReactNode;
@@ -61,7 +65,7 @@ export function RecordList({
   return (
     <div role="list" aria-label={label} className={`min-h-0 flex-1 lg:overflow-y-auto ${scrollX ? "overflow-x-auto" : ""}`}>
       <div
-        aria-hidden="true"
+        aria-hidden={sortable ? undefined : "true"}
         style={grid}
         className={`${columns} sticky top-0 z-20 hidden border-b-2 border-[#98a2b3] bg-[#eef2f7] py-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#344054] sm:grid`}
       >
@@ -69,6 +73,49 @@ export function RecordList({
       </div>
       {children}
     </div>
+  );
+}
+
+/** How a list is sorted: on which column, and which way. */
+export type RecordSort<K extends string> = { key: K; ascending: boolean };
+
+/**
+ * A column's heading that sorts the list on it (23 Nov 2026): pressed, the list goes by that
+ * column; pressed again, the other way. The arrow says which column and which way, and a faint
+ * pair of arrows on hover says the others can be pressed too.
+ */
+export function SortHead<K extends string>({
+  label,
+  column,
+  sort,
+  onSort,
+  firstDescending = false,
+}: {
+  label: string;
+  column: K;
+  sort: RecordSort<K> | null;
+  onSort: (sort: RecordSort<K>) => void;
+  /** Most first on the first press, as for a count: who has the most hours blocked. */
+  firstDescending?: boolean;
+}) {
+  const active = sort?.key === column;
+  const Arrow = !active ? ArrowUpDown : sort.ascending ? ArrowUp : ArrowDown;
+  return (
+    <button
+      type="button"
+      onClick={() => onSort({ key: column, ascending: active ? !sort.ascending : !firstDescending })}
+      aria-label={`Sort by ${label}${active ? `, ${sort.ascending ? "ascending" : "descending"} now` : ""}`}
+      className={`group/sort inline-flex min-w-0 items-center gap-1 text-left uppercase tracking-wide hover:text-[#1f4e79] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1f4e79] ${
+        active ? "text-[#1f4e79]" : ""
+      }`}
+    >
+      <span className="truncate">{label}</span>
+      <Arrow
+        size={12}
+        aria-hidden="true"
+        className={`shrink-0 ${active ? "" : "opacity-0 transition-opacity group-hover/sort:opacity-60 group-focus-visible/sort:opacity-60"}`}
+      />
+    </button>
   );
 }
 

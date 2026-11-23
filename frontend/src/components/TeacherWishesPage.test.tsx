@@ -149,3 +149,32 @@ describe("the list, on the department's Record list as Part-time Teachers", () =
     fireEvent.change(screen.getByRole("searchbox", { name: "Search teachers" }), { target: { value: "" } });
   });
 });
+
+describe("sorting the list by a column's heading (23 Nov 2026)", () => {
+  const names = () =>
+    screen.getAllByRole("button", { name: /^(Open|Fill in) .*'s preferences$/ }).map((button) => (button.textContent ?? "").replace(/No email$/, ""));
+
+  it("sorts by name, status and answer, and back the other way on a second press", async () => {
+    window.localStorage.removeItem("scen-page:teacher-preferences:sort");
+    page();
+    await screen.findByRole("button", { name: "Open Valerie Le Guyon's preferences" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Teacher" }));
+    expect(names()).toEqual(["Jad Tarsissi", "Valerie Le Guyon"]);
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Teacher, ascending now" }));
+    expect(names()).toEqual(["Valerie Le Guyon", "Jad Tarsissi"]);
+
+    // Submitted before not started.
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Status" }));
+    expect(names()).toEqual(["Valerie Le Guyon", "Jad Tarsissi"]);
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Status, ascending now" }));
+    expect(names()).toEqual(["Jad Tarsissi", "Valerie Le Guyon"]);
+
+    // The most hours blocked first; a teacher with no answer stays last either way.
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Answer" }));
+    expect(screen.getByRole("button", { name: "Sort by Answer, descending now" })).toBeTruthy();
+    expect(names()).toEqual(["Valerie Le Guyon", "Jad Tarsissi"]);
+    fireEvent.click(screen.getByRole("button", { name: "Sort by Answer, descending now" }));
+    expect(names()).toEqual(["Valerie Le Guyon", "Jad Tarsissi"]);
+  });
+});
