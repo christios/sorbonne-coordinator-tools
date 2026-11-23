@@ -42,6 +42,8 @@ def plans() -> CoursePlans:
         connection.execute(text("DELETE FROM active_courses WHERE course_code LIKE 'CPTEST-%'"))
         connection.execute(text("DELETE FROM active_teachers WHERE id LIKE 'plan-test-%'"))
         connection.execute(text("DELETE FROM plan_terms WHERE term_code = :t"), {"t": TERM})
+        # The test's Groups & CRNs sets go with their cohort.
+        connection.execute(text("DELETE FROM student_cohorts WHERE id LIKE 'cptest-%'"))
         for code, title, terms in (
             (MATH, "Elements of Calculus", [TERM]),
             (PHYS, "Mechanics", [TERM]),
@@ -117,6 +119,60 @@ def _course(semester: dict, code: str) -> dict:
     return next(course for course in semester["courses"] if course["courseCode"] == code)
 
 
+def _groups(  # noqa: PLR0913 - a course row of a set, and the sections under it
+    code: str,
+    component: str,
+    hours: str = "",
+    length: str = "",
+    sections: list[list[tuple[str, str]]] | None = None,
+    term: str = TERM,
+) -> None:
+    """A set in Groups & CRNs asking `hours` of the course's `component`, sessions of `length`,
+    with a section for each entry of `sections` — its parts' (hours, length)."""
+    engine = engine_for(TEST_DATABASE_URL)
+    ident = f"{code}-{component}-{term}-{len(sections or [])}-{hours}-{length}".lower()
+    with engine.begin() as connection:
+        connection.execute(
+            text("""INSERT INTO student_cohorts (id, name, created_at, updated_at)
+                    VALUES ('cptest-cohort', 'Test cohort', 'x', 'x') ON CONFLICT DO NOTHING""")
+        )
+        connection.execute(
+            text("""INSERT INTO cohort_scopes (id, cohort_id, code, name, term_id)
+                    VALUES (:id, 'cptest-cohort', :code, :code, :term)"""),
+            {"id": f"scope-{ident}", "code": f"S-{ident}"[:40], "term": f"plan:{term}"},
+        )
+        connection.execute(
+            text("""INSERT INTO scope_courses (id, scope_id, code, component, hours, duration)
+                    VALUES (:id, :scope, :code, :component, :hours, :length)"""),
+            {
+                "id": f"course-{ident}",
+                "scope": f"scope-{ident}",
+                "code": code,
+                "component": component,
+                "hours": hours,
+                "length": length,
+            },
+        )
+        for index, parts in enumerate(sections or []):
+            group = f"group-{ident}-{index}"
+            connection.execute(
+                text("INSERT INTO scope_groups (id, scope_id, label) VALUES (:id, :scope, :label)"),
+                {"id": group, "scope": f"scope-{ident}", "label": f"{component} {index + 1}"},
+            )
+            for part, (part_hours, part_length) in enumerate(parts, start=1):
+                connection.execute(
+                    text("""INSERT INTO group_crns (group_id, course_id, crn, hours, duration, part)
+                            VALUES (:group, :course, '', :hours, :length, :part)"""),
+                    {
+                        "group": group,
+                        "course": f"course-{ident}",
+                        "hours": part_hours,
+                        "length": part_length,
+                        "part": part,
+                    },
+                )
+
+
 def test_the_teaching_weeks_are_the_semester_plans(plans: CoursePlans):
     weeks = plans.semester(TERM)["weeks"]
 
@@ -132,36 +188,43 @@ def test_every_active_course_is_listed_with_an_empty_plan_until_somebody_plans_i
 
     assert [course["courseCode"] for course in semester["courses"]] == [MATH, PHYS]
     math = _course(semester, MATH)
-    assert math["components"]["CM"] == {"hours": None, "length": None}
+    assert math["components"]["CM"] == {"hours": None, "length": None, "issue": ""}
     assert (math["leadId"], math["weeks"], math["coefficient"], math["active"]) == ("", {}, "4", True)
 
 
-def test_coordinators_set_the_hours_and_a_session_length_with_them(client: TestClient):
-    set_ = client.patch(
-        f"{AT}/{TERM}/{MATH.lower()}",
-        json={"hours": {"CM": {"hours": 24, "length": 1.5}, "TD": {"hours": "21", "length": "1,5"}}},
-    )
-    assert set_.status_code == status.HTTP_200_OK, set_.text
-    plan = set_.json()
-    assert plan["components"]["CM"] == {"hours": 24, "length": 1.5}
-    assert plan["components"]["TD"] == {"hours": 21, "length": 1.5}
-    assert plan["components"]["TP"] == {"hours": None, "length": None}
-    assert plan["hoursUpdatedAt"]
+def test_the_hours_and_session_lengths_are_groups_and_crns(client: TestClient):
+    """Read from the course's rows and sections in Groups & CRNs (23 Nov 2026), never set here."""
+    # A set asking 24 h of lectures in 1.5 h sessions; a TD whose two sections say it too, one
+    # of them taught in two parts that add up to it.
+    _groups(MATH, "CM", "24", "1.5")
+    _groups(MATH, "td", "", "", sections=[[("21", "1,5")], [("12", "1.5"), ("9 h", "")]])
+    plan = _course(client.get(f"{AT}/{TERM}").json(), MATH)
+    assert plan["components"]["CM"] == {"hours": 24, "length": 1.5, "issue": ""}
+    assert plan["components"]["TD"] == {"hours": 21, "length": 1.5, "issue": ""}
+    assert plan["components"]["TP"] == {"hours": None, "length": None, "issue": ""}
 
-    # A component left out stays; one sent with no hours is cleared.
-    cleared = client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"TD": {"hours": None}}}).json()
-    assert cleared["components"]["CM"]["hours"] == 24
-    assert cleared["components"]["TD"] == {"hours": None, "length": None}
-
-    no_length = client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"TP": {"hours": 12}}})
+    # Groups that disagree give no figure, and say so; so does a length that isn't one number,
+    # and hours with no length at all.
+    _groups(PHYS, "TP", "", "2", sections=[[("12", "")], [("7.5", "")]])
+    _groups(PHYS, "TD", "30", "2, 3")
+    _groups(PHYS, "CM", "20")
+    phys = _course(client.get(f"{AT}/{TERM}").json(), PHYS)["components"]
+    disagree = "Groups & CRNs says 7.5 h and 12 h: the groups must agree"
+    assert phys["TP"] == {"hours": None, "length": None, "issue": disagree}
+    assert phys["TD"]["hours"] == 30 and "isn't one number" in phys["TD"]["issue"]
+    assert phys["CM"] == {"hours": 20, "length": None, "issue": "No session length in Groups & CRNs yet"}
+    no_length = client.put(f"{AT}/{TERM}/{PHYS}/weeks", json={"weeks": {"CM": {"1": 1}}})
     assert no_length.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
-    assert "how long one TP session lasts" in no_length.json()["detail"]
-    words = client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"TP": {"hours": "twelve", "length": 2}}})
-    assert words.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "no session length in Groups & CRNs" in no_length.json()["detail"]
 
-    # A course not active in the semester has no plan in it.
-    autumn = client.patch(f"{AT}/{TERM}/{AUTUMN}", json={"hours": {"CM": {"hours": 10, "length": 2}}})
-    assert autumn.status_code == status.HTTP_404_NOT_FOUND
+    # Another semester's sets are not this one's.
+    _groups(MATH, "TP", "10", "2", term="262798")
+    assert _course(client.get(f"{AT}/{TERM}").json(), MATH)["components"]["TP"]["hours"] is None
+
+    # Nothing is set here any more: the hours are changed in Groups & CRNs.
+    refused = client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"CM": {"hours": 30, "length": 1.5}}})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "set in Groups & CRNs" in refused.json()["detail"]
 
 
 def test_a_lead_is_picked_by_hand_and_is_one_of_the_departments_teachers(client: TestClient):
@@ -177,7 +240,7 @@ def test_a_lead_is_picked_by_hand_and_is_one_of_the_departments_teachers(client:
 
 
 def test_a_coordinator_lays_out_the_weeks_within_the_hours_set(client: TestClient):
-    client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"CM": {"hours": 3, "length": 1.5}}})
+    _groups(MATH, "CM", "3", "1.5")
 
     laid = client.put(
         f"{AT}/{TERM}/{MATH}/weeks",
@@ -198,7 +261,7 @@ def test_a_coordinator_lays_out_the_weeks_within_the_hours_set(client: TestClien
 
 def test_a_lead_lays_out_the_courses_they_lead_in_their_preferences_request(client: TestClient):
     for code in (MATH, PHYS):
-        client.patch(f"{AT}/{TERM}/{code}", json={"hours": {"TD": {"hours": 3, "length": 1.5}}})
+        _groups(code, "TD", "3", "1.5")
     client.patch(f"{AT}/{TERM}/{MATH}", json={"leadId": LEAD})
     client.patch(f"{AT}/{TERM}/{PHYS}", json={"leadId": OTHER})
     code = _invitee(client, LEAD, "valerie@gmail.com")
@@ -236,7 +299,7 @@ def test_a_lead_lays_out_the_courses_they_lead_in_their_preferences_request(clie
 
 def test_a_lead_says_why_their_weeks_run_unevenly(client: TestClient):
     """The step asks why when a layout strays from an even pace (23 Nov 2026); coordinators read it."""
-    client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"TD": {"hours": 3, "length": 1.5}}})
+    _groups(MATH, "TD", "3", "1.5")
     client.patch(f"{AT}/{TERM}/{MATH}", json={"leadId": LEAD})
     code = _invitee(client, LEAD, "valerie@gmail.com")
 
@@ -270,18 +333,19 @@ def test_after_the_deadline_the_lead_can_no_longer_change_the_weeks(client: Test
 
 def test_the_store_says_what_is_wrong_in_words(plans: CoursePlans):
     with pytest.raises(UnknownCourse):
-        plans.set_hours(TERM, AUTUMN, {"CM": {"hours": 10, "length": 2}})
+        plans.set_hours(TERM, AUTUMN, {})
     with pytest.raises(InvalidCoursePlan):
         plans.set_hours("2627", MATH, {})
-    with pytest.raises(InvalidCoursePlan, match="between 0 and 8"):
-        plans.set_hours(TERM, MATH, {"CM": {"hours": 10, "length": 12}})
+    with pytest.raises(InvalidCoursePlan, match="set in Groups & CRNs"):
+        plans.set_hours(TERM, MATH, {"CM": {"hours": 10, "length": 2}})
     plans.set_lead(TERM, MATH, LEAD)
     with pytest.raises(NotTheLead):
         plans.lay_out(TERM, MATH, {}, source="lead", lead_id=OTHER)
 
 
 def test_a_plan_outlives_its_course_leaving_the_semesters_list(plans: CoursePlans):
-    plans.set_hours(TERM, PHYS, {"CM": {"hours": 20, "length": 2}})
+    _groups(PHYS, "CM", "20", "2")
+    plans.set_lead(TERM, PHYS, LEAD)
     with plans.engine.begin() as connection:
         connection.execute(
             text("DELETE FROM active_course_terms WHERE course_code = :c AND term_code = :t"), {"c": PHYS, "t": TERM}
@@ -292,7 +356,8 @@ def test_a_plan_outlives_its_course_leaving_the_semesters_list(plans: CoursePlan
 
 
 def test_a_weeks_sessions_may_last_longer_or_shorter_than_usual(client: TestClient):
-    client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"CM": {"hours": 6, "length": 1.5}}, "leadId": LEAD})
+    _groups(MATH, "CM", "6", "1.5")
+    client.patch(f"{AT}/{TERM}/{MATH}", json={"leadId": LEAD})
 
     laid = client.put(
         f"{AT}/{TERM}/{MATH}/weeks",

@@ -168,6 +168,8 @@ export function CourseCards({
   const refresh = () => {
     // What this page's own edits change — a CRN, a course joining the register, a card.
     client.invalidateQueries({ queryKey: ["course-cards"] });
+    // The course plans read their hours from these rows, and their lead and weeks are set here.
+    client.invalidateQueries({ queryKey: ["course-plans"] });
     client.invalidateQueries({ queryKey: ["active-courses"] });
     client.invalidateQueries({ queryKey: ["active-crns"] });
     // And everything a change of placement changes, since Fill places students. The
@@ -582,6 +584,8 @@ export function CourseCards({
               clashes={clashes}
               onPlaceStudents={onPlaceStudents}
               coursePlan={(chosenPlans.data?.courses ?? []).find((plan) => plan.courseCode.toUpperCase() === chosenCard.code.toUpperCase()) ?? null}
+              coursePlanTerm={portalTerm}
+              teachingWeeks={chosenPlans.data?.weeks ?? []}
               onChanged={refresh}
               onFilled={(reportOfFill) => {
                 setFilled(reportOfFill);

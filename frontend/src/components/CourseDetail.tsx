@@ -5,12 +5,12 @@ import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { InfoTip, TipButton, TipDo, TipPage, TipPill, TipPoint, TipUsage } from "@/components/InfoTip";
 import { GroupRoster } from "@/components/GroupRoster";
 import { SectionDialog } from "@/components/CourseCard";
-import { CoursePlanLine } from "@/components/CoursePlanLine";
+import { CourseWeekByWeek } from "@/components/CourseWeekByWeek";
 import { CourseRequestDialog, CourseRequestLine } from "@/components/CourseRequest";
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
 import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
-import type { CoursePlan } from "@/services/coursePlans";
+import type { CoursePlan, TeachingWeek } from "@/services/coursePlans";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
 import type { GroupClash } from "@/services/publication";
 import type { MissingFrom } from "@/services/publicationView";
@@ -493,10 +493,16 @@ export function CourseDetail({
   onFilled,
   onPlaceStudents,
   coursePlan,
+  coursePlanTerm = "",
+  teachingWeeks = [],
 }: {
   card: Card;
   /** The course's plan in the card's semester — its hours, lead and weeks — when it has one. */
   coursePlan?: CoursePlan | null;
+  /** The card's semester as the portal numbers it, which the plan is kept by. */
+  coursePlanTerm?: string;
+  /** The semester's teaching weeks, which the plan lays the sessions out over. */
+  teachingWeeks?: TeachingWeek[];
   cohort: Cohort | null;
   /** Something the whole semester's request needs, shown where the semester is named. */
   action?: ReactNode;
@@ -711,13 +717,13 @@ export function CourseDetail({
                 * not one request with an exception.
                 */}
               <CourseRequestLine request={set.course.request} scopeCode={set.scope.code} onEdit={() => setAsking(set)} />
-              <CoursePlanLine
+              <CourseWeekByWeek
+                term={coursePlanTerm}
                 plan={coursePlan}
+                weeks={teachingWeeks}
                 component={set.course.component || set.scope.code}
-                request={set.course.request}
-                sections={live.flatMap((row) =>
-                  partsOf(row.section).map((part) => ({ label: `${set.scope.code} ${row.group.label}`, hours: part.hours, duration: part.duration })),
-                )}
+                teachers={teachers}
+                onSaved={onChanged}
               />
 
               <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">

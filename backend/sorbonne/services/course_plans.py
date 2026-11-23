@@ -3,7 +3,10 @@
 One plan per course per semester, shared by every cohort that takes it (user, 18 Nov 2026):
 
   - **hours** — CM, TD and TP hours (TD and TP per group) and the length of one session of
-    each. Coordinators set them; they are the targets, locked for the lead.
+    each, read from Groups & CRNs (user, 23 Nov 2026: "whatever is in Groups & CRNs reflects
+    in active courses", and everything is set from there) — the course's rows in the
+    semester's sets and the sections under them, which must agree. They are the targets,
+    locked for the lead.
   - **lead** — the teacher who leads the course that semester, picked by hand by coordinators.
     Nothing suggests one, not even the CM teacher.
   - **weeks** — how many sessions of each fall in each teaching week, and the weeks whose
@@ -17,7 +20,7 @@ week without classes takes no number (`semester_plans.teaching_mondays`). A holi
 inside a teaching week, shown with it.
 
 Groups & CRNs rows keep their own hours, which Teaching loads and requisitions go on reading;
-the course plan is compared with them, never written into them. The Semester plan reads the
+the course plan reads them, and is never written into them. The Semester plan reads the
 weeks to propose where a series goes and to flag one that does not match. Nothing here blocks
 a placement.
 """
@@ -26,6 +29,7 @@ from __future__ import annotations
 
 import json
 import re
+from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
@@ -134,6 +138,116 @@ def teaching_weeks(connection: Connection, term: str) -> list[dict[str, Any]]:
     return weeks
 
 
+_PLAIN = re.compile(r"^\s*(\d+(?:[.,]\d+)?)\s*h?\s*$", re.IGNORECASE)
+
+
+def _said(value: object) -> tuple[str, float | None]:
+    """A Groups & CRNs figure as typed: the words, and their number — None when they are not
+    one plain number ("2, 3")."""
+    words = " ".join(str(value or "").split())
+    match = _PLAIN.match(words)
+    return words, (float(match.group(1).replace(",", ".")) if match else None)
+
+
+def _hours_words(values: list[float]) -> str:
+    return " and ".join(f"{value:g} h" for value in values)
+
+
+def groups_figures(connection: Connection, term: str) -> dict[str, dict[str, dict[str, Any]]]:
+    """What Groups & CRNs says of each course's CM, TD and TP in a portal term: its hours and
+    one session's length, or why there is none to take.
+
+    Read from the course's rows in the semester's sets — what a set asks of the course — and
+    from each live section under them, a section taught in two parts counting its parts'
+    hours together. They must agree: a figure said two ways (12 h for one TD group, 7.5 h for
+    another) is no figure, and says so, as does one that isn't a plain number ("2, 3").
+    """
+    rows = (
+        connection.execute(
+            text("""SELECT sc.id, upper(trim(sc.code)) AS code,
+                           upper(trim(coalesce(nullif(trim(sc.component), ''), cs.code))) AS component,
+                           sc.hours, sc.duration
+                    FROM scope_courses sc JOIN cohort_scopes cs ON cs.id = sc.scope_id
+                    WHERE cs.term_id = :plan
+                       OR cs.term_id IN (SELECT term_id FROM term_links WHERE portal_term_code = :term)"""),
+            {"plan": f"plan:{term}", "term": term},
+        )
+        .mappings()
+        .all()
+    )
+    courses = {row["id"]: row for row in rows if row["component"] in COMPONENTS}
+    if not courses:
+        return {}
+    said: dict[tuple[str, str], dict[str, list[Any]]] = defaultdict(lambda: {"hours": [], "lengths": [], "odd": []})
+
+    def take(entry: dict[str, list[Any]], kind: str, value: object) -> None:
+        words, number = _said(value)
+        if not words:
+            return
+        if number is None:
+            entry["odd"].append((kind, words))
+        else:
+            entry[kind].append(number)
+
+    for row in courses.values():
+        entry = said[(row["code"], row["component"])]
+        take(entry, "hours", row["hours"])
+        take(entry, "lengths", row["duration"])
+    sections: dict[tuple[str, str], list[Any]] = defaultdict(list)
+    for cell in connection.execute(
+        text("""SELECT course_id, group_id, hours, duration, retired, not_taught
+                FROM group_crns WHERE course_id = ANY(:ids)"""),
+        {"ids": list(courses)},
+    ).mappings():
+        sections[(cell["course_id"], cell["group_id"])].append(cell)
+    for (course_id, _group), parts in sections.items():
+        live = [part for part in parts if not part["retired"]]
+        if not live or any(part["not_taught"] for part in parts):
+            continue
+        course = courses[course_id]
+        entry = said[(course["code"], course["component"])]
+        readings = [_said(part["hours"]) for part in live]
+        if any(words and number is None for words, number in readings):
+            entry["odd"].extend(("hours", words) for words, number in readings if words and number is None)
+        elif any(words for words, _ in readings):
+            entry["hours"].append(sum(number or 0.0 for _, number in readings))
+        for part in live:
+            take(entry, "lengths", part["duration"])
+
+    figures: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
+    for (code, component), entry in said.items():
+        figure = _figure_of(entry)
+        if figure["hours"] or figure["issue"]:
+            figures[code][component] = figure
+    return figures
+
+
+def _figure_of(entry: dict[str, list[Any]]) -> dict[str, Any]:
+    """One component's hours and session length from all Groups & CRNs says of it, or why not."""
+    hours = sorted({round(value, 3) for value in entry["hours"]})
+    lengths = sorted({round(value, 3) for value in entry["lengths"]})
+    odd_hours = sorted({words for kind, words in entry["odd"] if kind == "hours"})
+    odd_lengths = sorted({words for kind, words in entry["odd"] if kind == "lengths"})
+    if odd_hours:
+        issue = f"Hours that aren't one number in Groups & CRNs: {', '.join(odd_hours)}"
+        return {"hours": None, "length": None, "issue": issue}
+    if len(hours) > 1:
+        issue = f"Groups & CRNs says {_hours_words(hours)}: the groups must agree"
+        return {"hours": None, "length": None, "issue": issue}
+    if not hours or hours[0] <= 0:
+        return {"hours": None, "length": None, "issue": ""}
+    figure: dict[str, Any] = {"hours": hours[0], "length": None, "issue": ""}
+    if odd_lengths:
+        figure["issue"] = f"A session length that isn't one number in Groups & CRNs: {', '.join(odd_lengths)}"
+    elif len(lengths) > 1:
+        figure["issue"] = f"Groups & CRNs says sessions of {_hours_words(lengths)}: they must agree"
+    elif lengths and lengths[0] > 0:
+        figure["length"] = lengths[0]
+    else:
+        figure["issue"] = "No session length in Groups & CRNs yet"
+    return figure
+
+
 def _ordinal(day: object) -> int:
     try:
         return datetime.fromisoformat(str(day)).date().toordinal()
@@ -180,21 +294,29 @@ def _lengths(raw: object) -> dict[str, dict[str, list[float]]]:
     }
 
 
-def _plan(row: Any, names: dict[str, str]) -> dict[str, Any]:
-    """A course's plan for a semester, as every page reads it."""
+def _components(code: str, figures: dict[str, dict[str, dict[str, Any]]]) -> dict[str, dict[str, Any]]:
+    """A course's CM, TD and TP as Groups & CRNs has them: hours and a session's length, and
+    what stands in the way where it can't say ("No session length in Groups & CRNs yet")."""
+    held = figures.get(code.upper(), {})
+    return {
+        component: {
+            "hours": held.get(component, {}).get("hours"),
+            "length": held.get(component, {}).get("length"),
+            "issue": held.get(component, {}).get("issue", ""),
+        }
+        for component in COMPONENTS
+    }
+
+
+def _plan(row: Any, names: dict[str, str], figures: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
+    """A course's plan for a semester, as every page reads it: its hours from Groups & CRNs."""
     return {
         "courseCode": row["course_code"],
         "title": row["title"] or "",
         "coefficient": row["coefficient"] or "",
         # Still on the semester's list of active courses; a plan outlives being taken off it.
         "active": bool(row["active"]),
-        "components": {
-            component: {
-                "hours": row[f"{component.lower()}_hours"],
-                "length": row[f"{component.lower()}_length"],
-            }
-            for component in COMPONENTS
-        },
+        "components": _components(row["course_code"], figures),
         "hoursUpdatedAt": row["hours_updated_at"] or "",
         "hoursUpdatedBy": name_for(row["hours_updated_by"]) if row["hours_updated_by"] else "",
         "leadId": row["lead_id"] or "",
@@ -262,7 +384,8 @@ class CoursePlans:
             names = self._names(connection)
             rows = connection.execute(text(_PLANS + " ORDER BY a.course_code"), {"term": term}).mappings().all()
             weeks = teaching_weeks(connection, term)
-        return {"termCode": term, "weeks": weeks, "courses": [_plan(row, names) for row in rows]}
+            figures = groups_figures(connection, term)
+        return {"termCode": term, "weeks": weeks, "courses": [_plan(row, names, figures) for row in rows]}
 
     def course(self, term_code: str, course_code: str, connection: Connection | None = None) -> dict[str, Any]:
         term, code = _term(term_code), _code(course_code)
@@ -276,7 +399,7 @@ class CoursePlans:
         )
         if row is None:
             raise UnknownCourse(code)
-        return _plan(row, self._names(connection))
+        return _plan(row, self._names(connection), groups_figures(connection, term))
 
     def led_by(self, term_code: str, teacher_id: str) -> dict[str, Any] | None:
         """What a lead's step shows: the courses they lead in the semester and its teaching
@@ -296,7 +419,8 @@ class CoursePlans:
             if not rows:
                 return None
             weeks = teaching_weeks(connection, term)
-        return {"termCode": term, "weeks": weeks, "courses": [_plan(row, names) for row in rows]}
+            figures = groups_figures(connection, term)
+        return {"termCode": term, "weeks": weeks, "courses": [_plan(row, names, figures) for row in rows]}
 
     # ------------------------------------------------------------------ writing
 
@@ -318,10 +442,12 @@ class CoursePlans:
         )
 
     def set_hours(self, term_code: str, course_code: str, given: dict[str, Any], actor: str = "") -> dict[str, Any]:
-        """A course's CM, TD and TP hours and the length of a session of each: the coordinators'.
-
-        A component left out is kept as it is; one sent with no hours is cleared. Hours need a
-        session length, since the lead lays them out in sessions."""
+        """Kept for an older page: hours and session lengths are Groups & CRNs' now (23 Nov
+        2026), set on the course's rows and sections there, and nothing is taken here."""
+        if any(given.get(component) is not None for component in COMPONENTS):
+            raise InvalidCoursePlan(
+                "A course's hours and session lengths are set in Groups & CRNs: change them on its rows there."
+            )
         term, code = _term(term_code), _code(course_code)
         values: dict[str, float | None] = {}
         for component in COMPONENTS:
@@ -461,7 +587,7 @@ class CoursePlans:
             if component not in COMPONENTS:
                 raise InvalidCoursePlan(f"A course's sessions are CM, TD or TP, not {component}.")
             if not current["components"][component]["hours"]:
-                # Not the course's: the coordinators set no hours for it.
+                # Not the course's: Groups & CRNs gives it no hours.
                 continue
             kept: dict[str, int] = {}
             for week, sessions in (by_week or {}).items():
@@ -478,6 +604,10 @@ class CoursePlans:
                 if not 0 < many <= MOST_SESSIONS:
                     raise InvalidCoursePlan(f"A week holds between 0 and {MOST_SESSIONS} {component} sessions.")
                 kept[str(number)] = many
+            if kept and not current["components"][component]["length"]:
+                raise InvalidCoursePlan(
+                    f"The {component} has no session length in Groups & CRNs yet, so it can't be laid out."
+                )
             if kept:
                 layout[component] = dict(sorted(kept.items(), key=lambda item: int(item[0])))
         return layout

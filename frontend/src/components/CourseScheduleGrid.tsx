@@ -51,6 +51,7 @@ export function CourseScheduleGrid({
   onChange,
   label,
   hint = true,
+  only,
 }: {
   plan: Pick<CoursePlan, "courseCode" | "components">;
   weeks: TeachingWeek[];
@@ -61,8 +62,10 @@ export function CourseScheduleGrid({
   label?: string;
   /** The line under the grid on pressing the hours: off where the page says it already, as the lead's step does. */
   hint?: boolean;
+  /** One component's rows alone, as a Groups & CRNs card shows its own: its CM, its TD. */
+  only?: Component;
 }) {
-  const components = componentsOf(plan);
+  const components = componentsOf(plan).filter((component) => !only || component === only);
   const editable = Boolean(onChange);
   const numbers = weeks.map((week) => week.week);
   const { weeks: layout, lengths } = value;
@@ -138,6 +141,23 @@ export function CourseScheduleGrid({
               const sessions = sessionsOf(layout[component]);
               const met = Math.abs(done - (target.hours ?? 0)) < 0.01;
               const pace = paceOf(plan, layout, lengths, component, numbers);
+              if (!usual) {
+                // Hours but no session length: nothing to lay out in sessions until Groups & CRNs says one.
+                return (
+                  <tr key={component}>
+                    <th scope="row" className="sticky left-0 z-10 border-b border-r border-[#d0d5dd] bg-white px-3 py-2 text-left align-top font-normal">
+                      <span className="flex items-baseline gap-2">
+                        <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
+                        <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
+                      </span>
+                      <span className="mt-1 block text-sm font-semibold tabular-nums text-[#8a6116]">{figure(target.hours ?? 0)} h</span>
+                    </th>
+                    <td colSpan={weeks.length} className="border-b border-[#d0d5dd] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+                      {target.issue || "No session length in Groups & CRNs yet"}, so its weeks can&rsquo;t be laid out.
+                    </td>
+                  </tr>
+                );
+              }
               return (
                 <Fragment key={component}>
                 <tr>

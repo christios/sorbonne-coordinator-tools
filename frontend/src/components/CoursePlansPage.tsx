@@ -22,7 +22,8 @@ import type { GridColumn } from "@/services/studentColumns";
 /** "21 h · 1.5": a component's hours and one session's length, as a cell says them. */
 const hoursCell = (plan: CoursePlan, component: Component) => {
   const held = plan.components[component];
-  return held.hours ? `${figure(held.hours)} h · ${figure(held.length ?? 0)}` : "";
+  if (!held.hours) return held.issue ?? "";
+  return held.length ? `${figure(held.hours)} h · ${figure(held.length)}` : `${figure(held.hours)} h · no session length`;
 };
 
 const STANDING_WORDS = { "no-lead": "No lead yet", waiting: "Waiting for the lead", answered: "Laid out" } as const;
@@ -116,11 +117,24 @@ export function CoursePlansPage() {
     if (column.id.startsWith("hours-")) {
       const component = column.id.slice(6) as Component;
       const held = row.components[component];
-      if (!held.hours) return <span className="text-[#c8d0da]">—</span>;
+      // As Groups & CRNs has them; amber where it can't say: groups that disagree, no session length.
+      if (!held.hours) {
+        return held.issue ? (
+          <span title={held.issue} className="truncate text-xs font-semibold text-[#8a6116]">
+            {held.issue}
+          </span>
+        ) : (
+          <span className="text-[#c8d0da]">—</span>
+        );
+      }
       return (
-        <span className="tabular-nums">
+        <span className="tabular-nums" title={held.issue || undefined}>
           <b className="font-semibold text-[#171717]">{figure(held.hours)} h</b>
-          <span className="text-[#667085]"> · sessions of {figure(held.length ?? 0)} h</span>
+          {held.length ? (
+            <span className="text-[#667085]"> · sessions of {figure(held.length)} h</span>
+          ) : (
+            <span className="font-semibold text-[#8a6116]"> · no session length</span>
+          )}
         </span>
       );
     }
@@ -158,11 +172,14 @@ export function CoursePlansPage() {
         toolbar={
           <span className="flex items-center gap-2 text-sm text-[#475467]">
             <InfoTip label="How course plans work" title="Active courses">
-              <TipDo>Set each course&rsquo;s hours and pick its lead; the lead lays the weeks out.</TipDo>
-              <TipPoint step={1}>Open a course: its CM, TD and TP hours, how long a session lasts, and its lead.</TipPoint>
+              <TipDo>Read each course&rsquo;s plan here; set it on <TipPage name="Groups & CRNs" />.</TipDo>
+              <TipPoint step={1}>
+                Its CM, TD and TP hours and session lengths come from the course&rsquo;s rows and sections on{" "}
+                <TipPage name="Groups & CRNs" />, where each card also picks the lead.
+              </TipPoint>
               <TipPoint step={2}>
                 The lead lays the sessions out week by week in their request on <TipPage name="Timetable preferences" />, or you
-                fill them in from the course.
+                fill them in under the course&rsquo;s card.
               </TipPoint>
               <TipPoint step={3}>
                 On <TipPage name="Semester plan" />, placing a class proposes its weeks, and a class that doesn&rsquo;t keep to them is

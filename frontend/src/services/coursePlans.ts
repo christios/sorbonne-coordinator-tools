@@ -20,8 +20,12 @@ const BASE = `${API_BASE_URL}/api/v1/course-plans`;
 export const COMPONENTS = ["CM", "TD", "TP"] as const;
 export type Component = (typeof COMPONENTS)[number];
 
-/** A component's hours in the semester — per group for TD and TP — and one session's length. */
-export type ComponentHours = { hours: number | null; length: number | null };
+/**
+ * A component's hours in the semester — per group for TD and TP — and one session's length,
+ * as Groups & CRNs has them (23 Nov 2026), and what stands in the way where it can't say:
+ * "No session length in Groups & CRNs yet", "Groups & CRNs says 7.5 h and 12 h".
+ */
+export type ComponentHours = { hours: number | null; length: number | null; issue?: string };
 
 /** Sessions per teaching week, by component: `{ TD: { "2": 1, "3": 1 } }`; weeks with none left out. */
 export type Layout = Partial<Record<Component, Record<string, number>>>;
@@ -113,7 +117,7 @@ export async function changeCoursePlan(term: string, courseCode: string, change:
 export async function layOutCourse(
   term: string,
   courseCode: string,
-  layout: { weeks: Layout; lengths: Lengths; note: string },
+  layout: { weeks: Layout; lengths: Lengths; note?: string },
 ): Promise<CoursePlan> {
   return answer(
     await apiFetch(`${BASE}/${encodeURIComponent(term)}/${encodeURIComponent(courseCode)}/weeks`, json("PUT", layout)),
