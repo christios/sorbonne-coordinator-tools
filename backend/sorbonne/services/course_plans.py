@@ -205,6 +205,8 @@ def _plan(row: Any, names: dict[str, str]) -> dict[str, Any]:
         # Only the weeks whose sessions last other than the component's usual length.
         "lengths": _lengths(row["lengths"]),
         "note": row["note"] or "",
+        # Why the weeks run unevenly over the semester, when the lead's step asked.
+        "paceReason": row["pace_reason"] or "",
         "answeredAt": row["answered_at"] or "",
         "answeredBy": (
             names.get(row["lead_id"] or "", "")
@@ -225,7 +227,8 @@ _PLANS = """
            coalesce(p.lead_id, '') AS lead_id, coalesce(p.lead_set_at, '') AS lead_set_at,
            coalesce(p.lead_set_by, '') AS lead_set_by, coalesce(p.weeks, '{}') AS weeks,
            coalesce(p.lengths, '{}') AS lengths,
-           coalesce(p.note, '') AS note, coalesce(p.answered_at, '') AS answered_at,
+           coalesce(p.note, '') AS note, coalesce(p.pace_reason, '') AS pace_reason,
+           coalesce(p.answered_at, '') AS answered_at,
            coalesce(p.answered_by, '') AS answered_by, coalesce(p.answer_source, '') AS answer_source
     FROM active_courses a
     LEFT JOIN course_plans p ON p.course_code = a.course_code AND p.term_code = :term
@@ -374,6 +377,7 @@ class CoursePlans:
         source: str = COORDINATOR,
         lead_id: str = "",
         lengths: dict[str, Any] | None = None,
+        pace_reason: str | None = None,
     ) -> dict[str, Any]:
         """How many sessions of each component fall in each teaching week, and the lead's note.
 
@@ -384,7 +388,15 @@ class CoursePlans:
         """
         return self.lay_out_all(
             term_code,
-            [{"courseCode": course_code, "weeks": weeks, "note": note, "lengths": lengths or {}}],
+            [
+                {
+                    "courseCode": course_code,
+                    "weeks": weeks,
+                    "note": note,
+                    "lengths": lengths or {},
+                    "paceReason": pace_reason,
+                }
+            ],
             actor=actor,
             source=source,
             lead_id=lead_id,
@@ -419,15 +431,19 @@ class CoursePlans:
                         raise InvalidCoursePlan(f"{code}: {exc}") from exc
                     raise
                 note = given.get("note")
+                # Why the weeks run unevenly: the lead's step asks for it then, and sends "" once
+                # they are even again. Left out, it stays as it was.
+                reason = given.get("paceReason")
                 self._ensure(connection, term, code)
                 connection.execute(
-                    text("""UPDATE course_plans SET weeks = :weeks, lengths = :lengths, note = :note, answered_at = :at,
-                                answered_by = :by, answer_source = :source
+                    text("""UPDATE course_plans SET weeks = :weeks, lengths = :lengths, note = :note,
+                                pace_reason = :reason, answered_at = :at, answered_by = :by, answer_source = :source
                             WHERE term_code = :term AND course_code = :code"""),
                     {
                         "weeks": json.dumps(layout),
                         "lengths": json.dumps(lengths),
                         "note": current["note"] if note is None else _words(note, NOTE_LENGTH),
+                        "reason": current["paceReason"] if reason is None else _words(reason, NOTE_LENGTH),
                         "at": _now(),
                         "by": actor,
                         "source": source,

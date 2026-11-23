@@ -14,6 +14,7 @@ import {
   type CoursePlan,
   type CoursePlanSemester,
   type TeachingWeek,
+  unevenComponents,
 } from "@/services/coursePlans";
 import { Tip } from "@/components/InfoTip";
 import { heldWords, yearWords, type ReductionSheet } from "@/services/hourReductions";
@@ -318,6 +319,13 @@ export function CourseScheduleSummaryBody({ step }: { step: CoursePlanSemester }
           ) : (
             <p className="text-sm text-[#667085]">Its weeks are not laid out yet.</p>
           )}
+          {course.paceReason && unevenComponents(course, step.weeks.map((week) => week.week)).length ? (
+            // Why the weeks run unevenly, as the lead said when the step asked.
+            <p className="mt-2 rounded-md border-l-[3px] border-[#e5b454] bg-[#fdf9ee] px-3 py-2 text-sm text-[#344054]">
+              <span className="mr-1.5 text-[11px] font-semibold uppercase tracking-wide text-[#8a6116]">Why uneven</span>
+              {course.paceReason}
+            </p>
+          ) : null}
           {course.note ? (
             <div className="mt-2">
               <Note>{course.note}</Note>

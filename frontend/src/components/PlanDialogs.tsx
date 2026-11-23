@@ -54,7 +54,13 @@ function CoursePlanNote({
   weeks,
   minutes,
 }: {
-  plan: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number[]> };
+  plan: {
+    words: string;
+    weeks: number[] | null;
+    length: number;
+    lengths?: Record<string, number[]>;
+    uneven?: { words: string; reason: string } | null;
+  };
   weeks: number[];
   minutes: number;
 }) {
@@ -65,6 +71,16 @@ function CoursePlanNote({
   return (
     <span className="text-xs text-[#475467]">
       Course plan: {plan.words}
+      {plan.uneven ? (
+        // The weeks proposed are the lead's, and they run unevenly: said, with why, before they are taken.
+        <span className="block font-semibold text-[#8a6116]">
+          Laid out unevenly by the lead — {plan.uneven.words.charAt(0).toLowerCase()}
+          {plan.uneven.words.slice(1)}.
+          <span className="block font-normal italic">
+            {plan.uneven.reason ? `Why: “${plan.uneven.reason}”` : "No reason given."}
+          </span>
+        </span>
+      ) : null}
       {extra.length ? <span className="block font-semibold text-[#8a6116]">{weeksSaid(extra)} {extra.length === 1 ? "is" : "are"} not among them.</span> : null}
       {longer ? (
         <span className="block font-semibold text-[#8a6116]">
@@ -311,7 +327,13 @@ export function PlanClassDialog({
    * The class's share of its course's plan: what it says in words, the weeks it still has
    * sessions for, and one session's length. Offered and compared, never enforced.
    */
-  coursePlan?: { words: string; weeks: number[] | null; length: number; lengths?: Record<string, number[]> } | null;
+  coursePlan?: {
+    words: string;
+    weeks: number[] | null;
+    length: number;
+    lengths?: Record<string, number[]>;
+    uneven?: { words: string; reason: string } | null;
+  } | null;
   rooms: string[];
   initial: ClassDraft;
   /** The semester's teachers and their wishes, when wishes are being collected for it. */

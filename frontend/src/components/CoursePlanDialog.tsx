@@ -14,6 +14,7 @@ import {
   changeCoursePlan,
   componentsOf,
   layOutCourse,
+  unevenComponents,
   type Component,
   type CoursePlan,
   type TeachingWeek,
@@ -127,6 +128,12 @@ export function CourseScheduleEditor({
       ) : plan.note ? (
         <p className="text-sm text-[#344054]">
           <span className="font-semibold">The lead&rsquo;s note:</span> <span className="italic">&ldquo;{plan.note}&rdquo;</span>
+        </p>
+      ) : null}
+      {!editing && plan.paceReason && unevenComponents(plan, weeks.map((week) => week.week)).length ? (
+        <p className="text-sm text-[#344054]">
+          <span className="font-semibold text-[#8a6116]">Why it&rsquo;s uneven:</span>{" "}
+          <span className="italic">&ldquo;{plan.paceReason}&rdquo;</span>
         </p>
       ) : null}
     </div>

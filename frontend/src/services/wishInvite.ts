@@ -121,7 +121,7 @@ export async function saveInviteeReductions(
 /** A course lead's courses, laid out week by week, each with a note for the coordinators. */
 export async function saveInviteeCoursePlans(
   code: string,
-  courses: { courseCode: string; weeks: Layout; lengths: Lengths; note: string }[],
+  courses: { courseCode: string; weeks: Layout; lengths: Lengths; note: string; paceReason?: string }[],
 ): Promise<InviteeForm> {
   return answer(
     await apiFetch(at(code, "/course-plans"), {

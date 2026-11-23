@@ -275,6 +275,8 @@ export function SemesterPlan({
     [coursePlans.data],
   );
   const drift = useMemo(() => (data ? coursePlanDrift(data, coursePlanOf) : new Map<string, PlanDrift>()), [data, coursePlanOf]);
+  // The teaching weeks the leads laid their courses out over, to say which run unevenly.
+  const teachingWeeks = useMemo(() => (coursePlans.data?.weeks ?? []).map((week) => week.week), [coursePlans.data]);
   // Whose wishes are shaded: the class being moved, else the class last opened, else the teacher filtered to.
   const [held, setHeld] = useState("");
   const [picked, setPicked] = useState("");
@@ -1142,7 +1144,12 @@ export function SemesterPlan({
                       <p className="truncate text-xs text-[#667085]">
                         {(section.places.length ? facts.slice(1) : facts).filter(Boolean).join(" · ")}
                       </p>
-                      <TrayCoursePlan section={section} coursePlanOf={coursePlanOf} off={drift.get(section.id)?.lines ?? null} />
+                      <TrayCoursePlan
+                        section={section}
+                        coursePlanOf={coursePlanOf}
+                        teachingWeeks={teachingWeeks}
+                        off={drift.get(section.id)?.lines ?? null}
+                      />
                       {wishSemester.data?.collection && section.teacherId && !answeredIds.has(section.teacherId) ? (
                         <span className="mt-0.5 inline-block rounded-full bg-[#f2f4f7] px-1.5 text-[11px] text-[#667085]">
                           no preferences
@@ -1212,7 +1219,7 @@ export function SemesterPlan({
           wishTeachers={wishSemester.data?.collection ? wishTeachers : undefined}
           coursePlan={(() => {
             const section = sectionsById.get(dialog.draft.sectionId);
-            const classPlan = section ? classPlanOf(section, coursePlanOf) : null;
+            const classPlan = section ? classPlanOf(section, coursePlanOf, teachingWeeks) : null;
             if (!section || !classPlan) return null;
             const laid = sessionsOf(classPlan.weeks) > 0;
             const own = Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : "";
@@ -1221,6 +1228,7 @@ export function SemesterPlan({
               weeks: laid ? proposedWeeks(data, section, classPlan, dialog.series?.id ?? "") : null,
               length: classPlan.length,
               lengths: classPlan.lengths,
+              uneven: classPlan.uneven ?? null,
             };
           })()}
           editing={
@@ -1307,13 +1315,15 @@ export function SemesterPlan({
 function TrayCoursePlan({
   section,
   coursePlanOf,
+  teachingWeeks,
   off,
 }: {
   section: PlanSection;
   coursePlanOf: Map<string, CoursePlan>;
+  teachingWeeks: number[];
   off: string[] | null;
 }) {
-  const classPlan = classPlanOf(section, coursePlanOf);
+  const classPlan = classPlanOf(section, coursePlanOf, teachingWeeks);
   if (!classPlan) return null;
   const laid = sessionsOf(classPlan.weeks) > 0;
   return (
@@ -1325,6 +1335,15 @@ function TrayCoursePlan({
       {off ? (
         <span title={off.join("\n")} className="rounded-full bg-[#fdf6e3] px-1.5 font-semibold text-[#8a6116]">
           off the plan
+        </span>
+      ) : null}
+      {classPlan.uneven ? (
+        // The lead's weeks run unevenly: the weeks proposed for it are bunched up, on purpose or not.
+        <span
+          title={`${classPlan.uneven.words}.\n${classPlan.uneven.reason ? `The lead's reason: ${classPlan.uneven.reason}` : "No reason given."}`}
+          className="rounded-full border border-[#e5b454] px-1.5 font-semibold text-[#8a6116]"
+        >
+          uneven
         </span>
       ) : null}
     </p>

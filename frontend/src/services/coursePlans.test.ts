@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classPlanOf,
+  paceOf,
+  paceWords,
+  unevenComponents,
   coursePlanDrift,
   hoursIn,
   hoursLaidOut,
@@ -203,5 +207,79 @@ describe("the Semester plan and the course plan", () => {
     const tp = planOf([series({ id: "s1", weeks: [1] })]);
     tp.sections = [section({ component: "TP" })];
     expect(coursePlanDrift(tp, laid).size).toBe(0);
+  });
+});
+
+describe("an even pace over the semester (23 Nov 2026)", () => {
+  const plan = (hours: number, length = 1.5) => ({
+    components: { CM: { hours, length }, TD: { hours: null, length: null }, TP: { hours: null, length: null } },
+  });
+  const weeksOf = (count: number) => Array.from({ length: count }, (_, index) => index + 1);
+  const layout = (byWeek: Record<string, number>) => ({ CM: byWeek });
+  const run = (from: number, to: number, each: number) =>
+    Object.fromEntries(weeksOf(to).filter((week) => week >= from).map((week) => [String(week), each]));
+
+  it("never calls an even spread uneven, however few or many sessions", () => {
+    for (const count of [4, 14, 15, 17]) {
+      for (let sessions = 1; sessions <= 60; sessions += 1) {
+        const weeks = weeksOf(count);
+        const even = spreadEvenly(sessions * 1.5, 1.5, weeks);
+        expect(paceOf(plan(sessions * 1.5), layout(even), {}, "CM", weeks)?.state, `${sessions} over ${count}`).toBe("even");
+      }
+    }
+  });
+
+  it("calls lectures bunched up front ahead, and says by how much", () => {
+    // MATH-002: 60 h of 1.5 h lectures over 17 weeks, four a week from week 1 until done.
+    const weeks = weeksOf(17);
+    const pace = paceOf(plan(60), layout(run(1, 10, 4)), {}, "CM", weeks);
+    expect(pace?.state).toBe("ahead");
+    // Widest at week 10, when all 60 h are done and an even pace has done 35.3 h.
+    expect(paceWords(pace!)).toBe("Ahead of an even pace: 60 of 60 h by week 10 (even: 35.5 h)");
+    expect(pace?.usual).toBe("2–3 sessions a week");
+    // Off pace from week 3, more than two even weeks (7.1 h) ahead, until week 15 catches up.
+    expect(pace?.weeks.filter((week) => week.off).map((week) => week.week)).toEqual([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+  });
+
+  it("lets a course start or end a couple of weeks late or early, but not four", () => {
+    const weeks = weeksOf(17);
+    // TD from week 3, evenly over the fifteen weeks left: 30 sessions, two a week.
+    expect(paceOf(plan(45), layout(run(3, 17, 2)), {}, "CM", weeks)?.state).toBe("even");
+    // Done by week 15, two weeks early.
+    expect(paceOf(plan(45), layout(run(1, 15, 2)), {}, "CM", weeks)?.state).toBe("even");
+    // Done by week 13: four weeks early.
+    expect(paceOf(plan(39), layout(run(1, 13, 2)), {}, "CM", weeks)?.state).toBe("ahead");
+    // Nothing until week 6: behind.
+    expect(paceOf(plan(36), layout(run(6, 17, 2)), {}, "CM", weeks)?.state).toBe("behind");
+  });
+
+  it("guides an empty row with an even pace in sessions", () => {
+    expect(paceWords(paceOf(plan(60), {}, {}, "CM", weeksOf(17))!)).toBe("An even pace: 2–3 sessions a week");
+    expect(paceOf(plan(7.5, 1.5), {}, {}, "CM", weeksOf(17))?.usual).toBe("1 session every 3–4 weeks");
+    expect(paceOf(plan(15, 1.5), {}, {}, "CM", weeksOf(14))?.usual).toBe("1 session in 10 of the 14 weeks");
+    expect(paceOf(plan(42, 1.5), {}, {}, "CM", weeksOf(14))?.usual).toBe("2 sessions a week");
+  });
+
+  it("names a course's uneven components", () => {
+    const course = { ...plan(6), weeks: { CM: { "1": 4 } }, lengths: {} };
+    expect(unevenComponents(course, weeksOf(4))).toEqual(["CM"]);
+    expect(unevenComponents({ ...course, weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 } } }, weeksOf(4))).toEqual([]);
+  });
+});
+
+describe("a class placed on the Semester plan, from an unevenly laid-out course", () => {
+  it("carries how far off an even pace its lead's weeks are, and why", () => {
+    // 14 TD sessions crammed into the first seven of fourteen weeks, two a week.
+    const crammed = { ...PLAN, weeks: { TD: weeks(1, 7, 2) }, paceReason: "Labs before the mid-term" };
+    const byCode = new Map([["MATH-002", crammed]]);
+    const placed = classPlanOf(section(), byCode, Array.from({ length: 14 }, (_, index) => index + 1));
+    expect(placed?.uneven).toEqual({
+      words: "Ahead of an even pace: 21 of 21 h by week 7 (even: 10.5 h)",
+      reason: "Labs before the mid-term",
+    });
+    // Without the teaching weeks, nothing is said; spread evenly, nothing either.
+    expect(classPlanOf(section(), byCode)?.uneven).toBeUndefined();
+    const even = new Map([["MATH-002", { ...PLAN, weeks: { TD: weeks(1, 14, 1) } }]]);
+    expect(classPlanOf(section(), even, Array.from({ length: 14 }, (_, index) => index + 1))?.uneven).toBeNull();
   });
 });

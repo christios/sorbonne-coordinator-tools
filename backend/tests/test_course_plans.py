@@ -234,6 +234,24 @@ def test_a_lead_lays_out_the_courses_they_lead_in_their_preferences_request(clie
     assert (listed["note"], listed["answerSource"]) == ("TD from week 2", "lead")
 
 
+def test_a_lead_says_why_their_weeks_run_unevenly(client: TestClient):
+    """The step asks why when a layout strays from an even pace (23 Nov 2026); coordinators read it."""
+    client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"TD": {"hours": 3, "length": 1.5}}})
+    client.patch(f"{AT}/{TERM}/{MATH}", json={"leadId": LEAD})
+    code = _invitee(client, LEAD, "valerie@gmail.com")
+
+    put = lambda course: client.put(f"{DOOR}/{code}/course-plans", json={"courses": [course]})  # noqa: E731
+    uneven = put({"courseCode": MATH, "weeks": {"TD": {"1": 2}}, "paceReason": "Both before the mid-term."})
+    assert uneven.status_code == status.HTTP_200_OK, uneven.text
+    assert _course(client.get(f"{AT}/{TERM}").json(), MATH)["paceReason"] == "Both before the mid-term."
+
+    # Left out, the reason stays; sent empty once the weeks are even, it goes.
+    put({"courseCode": MATH, "weeks": {"TD": {"1": 2}}})
+    assert _course(client.get(f"{AT}/{TERM}").json(), MATH)["paceReason"] == "Both before the mid-term."
+    put({"courseCode": MATH, "weeks": {"TD": {"4": 1, "11": 1}}, "paceReason": ""})
+    assert _course(client.get(f"{AT}/{TERM}").json(), MATH)["paceReason"] == ""
+
+
 def test_a_teacher_who_leads_nothing_is_not_asked(client: TestClient):
     code = _invitee(client, OTHER, "bilal@gmail.com")
 

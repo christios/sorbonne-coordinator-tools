@@ -56,6 +56,8 @@ export type CoursePlan = {
   /** Absent from a server older than week lengths: every session then lasts the usual length. */
   lengths?: Lengths;
   note: string;
+  /** Why the weeks run unevenly over the semester, as the lead said; absent from an older server. */
+  paceReason?: string;
   /** When the weeks were last laid out, by whom, and how: by the lead, or a coordinator for them. */
   answeredAt: string;
   answeredBy: string;
@@ -203,6 +205,101 @@ export function spreadEvenly(target: number, length: number, weeks: number[]): R
 }
 
 /**
+ * How far a component's sessions stray from an even pace over the semester (23 Nov 2026).
+ *
+ * Its hours, added up week by week, against the same hours spread evenly over every teaching
+ * week. A layout is uneven once the two are more than two weeks' worth of hours apart at the
+ * end of some week — or a session's worth, where a session is longer than that, so a
+ * component of a few sessions spread as evenly as whole sessions allow is never called
+ * uneven. A course starting a week or two late, or ending a week or two early for exams, is
+ * still even; four weeks of everything up front is not.
+ *
+ * Measured against the hours laid out, not the coordinators' target: whether those add up is
+ * said already, and the shape is all this says.
+ */
+export type Pace = {
+  state: "unset" | "even" | "ahead" | "behind";
+  /** Where the gap is widest: the week, the hours done by its end, and what an even pace would have done. */
+  week: number;
+  done: number;
+  even: number;
+  /** The hours laid out, and an even week's share of them. */
+  total: number;
+  perWeek: number;
+  /** Each teaching week: its hours, and whether the hours done by its end are off an even pace. */
+  weeks: { week: number; hours: number; off: boolean }[];
+  /** An even pace in sessions: "2–3 sessions a week", "1 session every 3–4 weeks". */
+  usual: string;
+};
+
+/** Weeks' worth of hours an even layout may run ahead or behind. */
+export const PACE_WEEKS = 2;
+
+export function paceOf(
+  plan: Pick<CoursePlan, "components">,
+  layout: Layout,
+  lengths: Lengths,
+  component: Component,
+  weeks: number[],
+): Pace | null {
+  const length = plan.components[component]?.length ?? 0;
+  const target = plan.components[component]?.hours ?? 0;
+  if (!weeks.length || !(length > 0)) return null;
+  const byWeek = weeks.map((week) => weekHours(plan, lengths, component, week, layout[component]?.[String(week)] ?? 0));
+  const total = byWeek.reduce((sum, hours) => sum + hours, 0);
+  const usual = evenWords((total || target) / length, weeks.length);
+  if (!(total > 0)) {
+    return { state: "unset", week: 0, done: 0, even: 0, total: 0, perWeek: 0, usual, weeks: weeks.map((week) => ({ week, hours: 0, off: false })) };
+  }
+  const perWeek = total / weeks.length;
+  const allowed = Math.max(PACE_WEEKS * perWeek, length) + 0.01;
+  let done = 0;
+  let widest = { gap: 0, week: weeks[0], done: 0, even: 0 };
+  const each = weeks.map((week, index) => {
+    done += byWeek[index];
+    const even = (total * (index + 1)) / weeks.length;
+    const gap = done - even;
+    if (Math.abs(gap) > Math.abs(widest.gap)) widest = { gap, week, done, even };
+    return { week, hours: byWeek[index], off: Math.abs(gap) > allowed };
+  });
+  const state = Math.abs(widest.gap) > allowed ? (widest.gap > 0 ? "ahead" : "behind") : "even";
+  return { state, week: widest.week, done: widest.done, even: widest.even, total, perWeek, usual, weeks: each };
+}
+
+/** An even pace, in sessions: "2 sessions a week", "2–3 sessions a week", "1 session every 3–4 weeks". */
+function evenWords(sessions: number, weeks: number): string {
+  const count = Math.round(sessions);
+  if (!(count > 0) || !(weeks > 0)) return "";
+  if (count >= weeks) {
+    const low = Math.floor(count / weeks);
+    const high = Math.ceil(count / weeks);
+    const said = low === high ? String(low) : `${low}–${high}`;
+    return `${said} session${high === 1 ? "" : "s"} a week`;
+  }
+  const low = Math.floor(weeks / count);
+  const high = Math.ceil(weeks / count);
+  if (low === high) return `1 session every ${low} weeks`;
+  return low === 1 ? `1 session in ${count} of the ${weeks} weeks` : `1 session every ${low}–${high} weeks`;
+}
+
+/** Where a pace stands, in a line: "Ahead of an even pace: 45 of 60 h by week 9 (even: 32 h)". */
+export function paceWords(pace: Pace): string {
+  if (pace.state === "unset") return pace.usual ? `An even pace: ${pace.usual}` : "";
+  if (pace.state === "even") return "Even over the semester";
+  // The even figure to the half hour, as sessions are counted: 31.8 is said 32, 1.5 stays.
+  const even = figure(Math.round(pace.even * 2) / 2);
+  return `${pace.state === "ahead" ? "Ahead of" : "Behind"} an even pace: ${figure(pace.done)} of ${figure(pace.total)} h by week ${pace.week} (even: ${even} h)`;
+}
+
+/** The components whose weeks run unevenly, for a course as it stands. */
+export function unevenComponents(plan: Pick<CoursePlan, "components" | "weeks" | "lengths">, weeks: number[]): Component[] {
+  return componentsOf(plan).filter((component) => {
+    const state = paceOf(plan, plan.weeks, plan.lengths ?? {}, component, weeks)?.state;
+    return state === "ahead" || state === "behind";
+  });
+}
+
+/**
  * The weeks a layout uses, said as a timetable says them: "Weeks 2–14", with the weeks holding
  * more than one session after it — "Weeks 1–14 · 2 in weeks 5, 9".
  */
@@ -262,6 +359,11 @@ export type ClassPlan = {
   weeks: Record<string, number>;
   /** The weeks whose sessions last other than `length`, each session's hours. */
   lengths: Record<string, number[]>;
+  /**
+   * Laid out unevenly over the semester: how far off an even pace, and why, as the lead said —
+   * so whoever places the class knows the weeks proposed are bunched up on purpose, or not.
+   */
+  uneven?: { words: string; reason: string } | null;
 };
 
 /** The class's component, when it is one of the three a course plan has. */
@@ -270,8 +372,11 @@ export function componentOf(section: Pick<PlanSection, "component">): Component 
   return (COMPONENTS as readonly string[]).includes(said) ? (said as Component) : null;
 }
 
-/** A class's share of its course's plan, when the course has hours for the class's component. */
-export function classPlanOf(section: PlanSection, byCode: Map<string, CoursePlan>): ClassPlan | null {
+/**
+ * A class's share of its course's plan, when the course has hours for the class's component;
+ * given the semester's teaching weeks, whether its weeks run unevenly too.
+ */
+export function classPlanOf(section: PlanSection, byCode: Map<string, CoursePlan>, teachingWeeks?: number[]): ClassPlan | null {
   const component = componentOf(section);
   const plan = byCode.get(section.courseCode.toUpperCase());
   if (!component || !plan) return null;
@@ -283,7 +388,19 @@ export function classPlanOf(section: PlanSection, byCode: Map<string, CoursePlan
     length: held.length,
     weeks: plan.weeks[component] ?? {},
     lengths: plan.lengths?.[component] ?? {},
+    ...(teachingWeeks ? { uneven: unevenOf(plan, component, teachingWeeks) } : {}),
   };
+}
+
+/** A component its lead laid out unevenly: how far off an even pace, and why, as they said. */
+export function unevenOf(
+  plan: Pick<CoursePlan, "components" | "weeks" | "lengths" | "paceReason">,
+  component: Component,
+  weeks: number[],
+): { words: string; reason: string } | null {
+  const pace = paceOf(plan, plan.weeks, plan.lengths ?? {}, component, weeks);
+  if (!pace || (pace.state !== "ahead" && pace.state !== "behind")) return null;
+  return { words: paceWords(pace), reason: plan.paceReason ?? "" };
 }
 
 /**

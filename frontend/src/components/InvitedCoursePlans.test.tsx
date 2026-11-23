@@ -92,15 +92,17 @@ describe("a course lead's step: their courses, week by week", () => {
     const grid = screen.getByRole("table", { name: "MATH-002 sessions week by week" });
     expect(within(grid).queryByText("TP")).toBeNull();
     expect(within(grid).queryByRole("textbox", { name: /hours/ })).toBeNull();
-    expect(total("CM")).toBe("0 of 6 h");
+    // Never laid out, it opens spread evenly (23 Nov 2026): 6 h of 1.5 h sessions over four weeks
+    // is one a week; the TD's two sessions fall in weeks 2 and 4.
+    expect(screen.getByText(/Spread evenly over the semester to start with/)).toBeTruthy();
+    expect(total("CM")).toBe("6 of 6 h");
+    expect(total("TD")).toBe("3 of 3 h");
+    expect(document.querySelector('[data-pace="CM"]')?.textContent).toContain("Even over the semester");
     // The week a holiday falls in says so.
     expect(within(grid).getByLabelText("A holiday falls in this week")).toBeTruthy();
 
-    // Spread evenly: 6 h of 1.5 h sessions over four weeks is one a week.
-    fireEvent.click(within(grid).getAllByRole("button", { name: "Spread evenly" })[0]);
-    expect(total("CM")).toBe("6 of 6 h");
     // Typed by hand, and with the arrow keys.
-    fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 2" }), { target: { value: "1" } });
+    fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 4" }), { target: { value: "" } });
     expect(total("TD")).toBe("1.5 of 3 h");
     fireEvent.keyDown(within(grid).getByRole("textbox", { name: "TD sessions in week 3" }), { key: "ArrowUp" });
     expect(total("TD")).toBe("3 of 3 h");
@@ -118,6 +120,7 @@ describe("a course lead's step: their courses, week by week", () => {
           weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1 } },
           lengths: {},
           note: "TD needs 4.5 h",
+          paceReason: "",
         },
       ]),
     );
@@ -184,8 +187,9 @@ describe("a course lead's step: their courses, week by week", () => {
     page();
 
     const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
-    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "1" } });
-    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 2" }), { target: { value: "1" } });
+    // Opened spread evenly, one a week: weeks 3 and 4 emptied.
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 3" }), { target: { value: "" } });
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 4" }), { target: { value: "" } });
     expect(total("CM")).toBe("3 of 6 h");
 
     // The hours under week 2's box: its session is a three-hour exam.
@@ -210,7 +214,13 @@ describe("a course lead's step: their courses, week by week", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith("the-code", [
-        { courseCode: "MATH-002", weeks: { CM: { "1": 1, "2": 1 } }, lengths: { CM: { "2": [3] } }, note: "" },
+        {
+          courseCode: "MATH-002",
+          weeks: { CM: { "1": 1, "2": 1 }, TD: { "2": 1, "4": 1 } },
+          lengths: { CM: { "2": [3] } },
+          note: "",
+          paceReason: "",
+        },
       ]),
     );
   });
@@ -221,6 +231,9 @@ describe("a course lead's step: their courses, week by week", () => {
     page();
 
     const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    for (const week of [1, 2, 4]) {
+      fireEvent.change(within(grid).getByRole("textbox", { name: `CM sessions in week ${week}` }), { target: { value: "" } });
+    }
     fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 3" }), { target: { value: "2" } });
     expect(total("CM")).toBe("3 of 6 h");
     fireEvent.click(within(grid).getByRole("button", { name: "Length of the CM sessions in week 3: 1.5 h" }));
@@ -240,7 +253,64 @@ describe("a course lead's step: their courses, week by week", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith("the-code", [
-        { courseCode: "MATH-002", weeks: { CM: { "3": 2 } }, lengths: { CM: { "3": [1.5, 3] } }, note: "" },
+        {
+          courseCode: "MATH-002",
+          weeks: { CM: { "3": 2 }, TD: { "2": 1, "4": 1 } },
+          lengths: { CM: { "3": [1.5, 3] } },
+          note: "",
+          paceReason: "",
+        },
+      ]),
+    );
+  });
+  it("asks why when the sessions bunch up, and keeps nothing back once they are even again", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    // All four lectures in week 1: 6 h done where an even pace has done 1.5 h.
+    for (const week of [2, 3, 4]) {
+      fireEvent.change(within(grid).getByRole("textbox", { name: `CM sessions in week ${week}` }), { target: { value: "" } });
+    }
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "4" } });
+    expect(total("CM")).toBe("6 of 6 h");
+    expect(document.querySelector('[data-pace="CM"]')?.textContent).toContain("Ahead of an even pace: 6 of 6 h by week 1 (even: 1.5 h)");
+
+    // Saved without a reason, it is asked for, and nothing is sent.
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    expect(screen.getByRole("alert").textContent).toBe("Say why MATH-002 is spread unevenly, or press Spread evenly.");
+    expect(save).not.toHaveBeenCalled();
+    fireEvent.change(screen.getByRole("textbox", { name: "Why MATH-002 is spread unevenly" }), {
+      target: { value: "An intensive first week" },
+    });
+    expect(screen.queryByRole("alert")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("the-code", [
+        expect.objectContaining({ weeks: { CM: { "1": 4 }, TD: { "2": 1, "4": 1 } }, paceReason: "An intensive first week" }),
+      ]),
+    );
+  });
+
+  it("sends no reason once the sessions are spread evenly again", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    for (const week of [2, 3, 4]) {
+      fireEvent.change(within(grid).getByRole("textbox", { name: `CM sessions in week ${week}` }), { target: { value: "" } });
+    }
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "4" } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Why MATH-002 is spread unevenly" }), { target: { value: "Front-loaded" } });
+
+    fireEvent.click(within(grid).getAllByRole("button", { name: "Spread evenly" })[0]);
+    expect(screen.queryByRole("textbox", { name: "Why MATH-002 is spread unevenly" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("the-code", [
+        expect.objectContaining({ weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1, "4": 1 } }, paceReason: "" }),
       ]),
     );
   });

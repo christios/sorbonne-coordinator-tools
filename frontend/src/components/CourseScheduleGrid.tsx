@@ -1,12 +1,14 @@
-import { Check, Wand2 } from "lucide-react";
+import { AlertTriangle, Check, Wand2 } from "lucide-react";
 import { Popover } from "radix-ui";
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { Fragment, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   COMPONENT_WORDS,
   componentsOf,
   figure,
   hoursLaidOut,
+  paceOf,
+  paceWords,
   sessionLengths,
   sessionsWords,
   sessionsOf,
@@ -15,6 +17,7 @@ import {
   type CoursePlan,
   type Layout,
   type Lengths,
+  type Pace,
   type TeachingWeek,
 } from "@/services/coursePlans";
 import { formatDayAndMonth } from "@/services/weekSchedule";
@@ -35,6 +38,11 @@ export type ScheduleDraft = { weeks: Layout; lengths: Lengths };
  * amber. Each row says how its hours add up against the target the coordinators set — "24 of
  * 24 h", green once it does — and, while editable, spreads the target evenly over the weeks at a
  * press. The targets are not the lead's to change: a lead who disagrees says so in the note.
+ *
+ * Under each row, its pace (23 Nov 2026): a bar for each week's hours against the dashed line
+ * of an even week, the weeks where the hours done so far run well ahead of or behind an even
+ * pace in amber, and a line saying how it stands — so a lead sees at once whether the
+ * sessions are spread over the semester or bunched up.
  */
 export function CourseScheduleGrid({
   plan,
@@ -129,9 +137,14 @@ export function CourseScheduleGrid({
               const done = hoursLaidOut(plan, layout, component, lengths);
               const sessions = sessionsOf(layout[component]);
               const met = Math.abs(done - (target.hours ?? 0)) < 0.01;
+              const pace = paceOf(plan, layout, lengths, component, numbers);
               return (
-                <tr key={component}>
-                  <th scope="row" className="sticky left-0 z-10 border-b border-r border-[#d0d5dd] bg-white px-3 py-2 text-left align-top font-normal">
+                <Fragment key={component}>
+                <tr>
+                  <th
+                    scope="row"
+                    className={`sticky left-0 z-10 border-r border-[#d0d5dd] bg-white px-3 py-2 text-left align-top font-normal ${pace ? "" : "border-b"}`}
+                  >
                     <span className="flex items-baseline gap-2">
                       <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
                       <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
@@ -219,6 +232,8 @@ export function CourseScheduleGrid({
                     );
                   })}
                 </tr>
+                {pace ? <PaceRow component={component} pace={pace} /> : null}
+                </Fragment>
               );
             })}
           </tbody>
@@ -230,6 +245,57 @@ export function CourseScheduleGrid({
         </p>
       ) : null}
     </div>
+  );
+}
+
+/**
+ * A row's pace: how it stands, in words, beside a bar for each week's hours — the dashed line
+ * an even week, the weeks off an even pace in amber.
+ */
+function PaceRow({ component, pace }: { component: Component; pace: Pace }) {
+  const off = pace.state === "ahead" || pace.state === "behind";
+  // Tall enough for the busiest week and for twice an even one, so the line sits inside.
+  const top = Math.max(...pace.weeks.map((week) => week.hours), pace.perWeek * 2, 0.01);
+  const line = pace.perWeek ? `${(pace.perWeek / top) * 100}%` : "";
+  return (
+    <tr data-pace={component}>
+      <th scope="row" className="sticky left-0 z-10 border-b border-r border-[#d0d5dd] bg-white px-3 pb-2 text-left align-top font-normal">
+        <span className="sr-only">{component} pace: </span>
+        {pace.state === "unset" ? (
+          <span className="block text-[11px] leading-snug text-[#667085]">{paceWords(pace)}</span>
+        ) : pace.state === "even" ? (
+          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#2e7d55]">
+            <Check size={12} aria-hidden="true" /> {paceWords(pace)}
+          </span>
+        ) : (
+          <span className="block text-[11px] leading-snug text-[#8a6116]">
+            <span className="flex gap-1 font-semibold">
+              <AlertTriangle size={12} className="mt-px shrink-0" aria-hidden="true" /> {paceWords(pace)}
+            </span>
+            {pace.usual ? <span className="block pl-4">Even: {pace.usual}</span> : null}
+          </span>
+        )}
+      </th>
+      {pace.weeks.map((week) => (
+        <td
+          key={week.week}
+          aria-hidden="true"
+          className={`border-b border-[#d0d5dd] px-0.5 pb-1.5 align-bottom ${week.off ? "bg-[#fdf3dc]" : ""}`}
+        >
+          {pace.state === "unset" ? null : (
+            <span className="relative mx-auto block h-6 w-full">
+              {week.hours ? (
+                <span
+                  className={`absolute bottom-0 left-1/2 w-3 -translate-x-1/2 rounded-t-sm ${off && week.off ? "bg-[#d99b1c]" : "bg-[#9fb6cf]"}`}
+                  style={{ height: `${Math.max(8, (week.hours / top) * 100)}%` }}
+                />
+              ) : null}
+              {line ? <span className="absolute inset-x-0 border-t border-dashed border-[#667085]" style={{ bottom: line }} /> : null}
+            </span>
+          )}
+        </td>
+      ))}
+    </tr>
   );
 }
 

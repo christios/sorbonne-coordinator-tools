@@ -1,15 +1,45 @@
-import { Clock3, Hash, Loader2, MessageSquareText, Target } from "lucide-react";
+import { AlertTriangle, Clock3, Hash, Loader2, MessageSquareText, Target } from "lucide-react";
 import { useState } from "react";
 
 import { CourseScheduleGrid } from "@/components/CourseScheduleGrid";
 import { HowTo } from "@/components/HowTo";
-import { componentsOf, hoursWords, type CoursePlan, type CoursePlanSemester, type Layout, type Lengths } from "@/services/coursePlans";
+import {
+  componentsOf,
+  hoursWords,
+  laidOut,
+  spreadEvenly,
+  unevenComponents,
+  type CoursePlan,
+  type CoursePlanSemester,
+  type Layout,
+  type Lengths,
+} from "@/services/coursePlans";
 
-/** What the step sends: each course the teacher leads, its weeks, the weeks of another length, and its note. */
-export type CourseLayouts = { courseCode: string; weeks: Layout; lengths: Lengths; note: string }[];
+/**
+ * What the step sends: each course the teacher leads, its weeks, the weeks of another length,
+ * its note, and why its weeks run unevenly — "" when they don't.
+ */
+export type CourseLayouts = { courseCode: string; weeks: Layout; lengths: Lengths; note: string; paceReason: string }[];
 
-type Draft = { weeks: Layout; lengths: Lengths; note: string };
-const EMPTY: Draft = { weeks: {}, lengths: {}, note: "" };
+type Draft = { weeks: Layout; lengths: Lengths; note: string; paceReason: string };
+const EMPTY: Draft = { weeks: {}, lengths: {}, note: "", paceReason: "" };
+
+/**
+ * A course as the step opens it: as the lead left it, or — never laid out — already spread
+ * evenly over the semester (23 Nov 2026), so the even layout is the one to change rather than
+ * one to build. Nothing is saved until the lead saves the step.
+ */
+function opening(course: CoursePlan, weeks: number[]): Draft & { spread: boolean } {
+  const kept = { weeks: course.weeks, lengths: course.lengths ?? {}, note: course.note, paceReason: course.paceReason ?? "" };
+  if (laidOut(course.weeks) || !weeks.length) return { ...kept, spread: false };
+  const spread: Layout = {};
+  for (const component of componentsOf(course)) {
+    const held = course.components[component];
+    const even = spreadEvenly(held.hours ?? 0, held.length ?? 0, weeks);
+    if (Object.keys(even).length) spread[component] = even;
+  }
+  return Object.keys(spread).length ? { ...kept, weeks: spread, lengths: {}, spread: true } : { ...kept, spread: false };
+}
 
 /** "Elements of Calculus" after the code, when the course has a title. */
 const named = (course: Pick<CoursePlan, "courseCode" | "title">) => (course.title ? `${course.courseCode} · ${course.title}` : course.courseCode);
@@ -38,14 +68,45 @@ export function CourseScheduleStep({
   /** On to the preferences without saving: the coordinators see the course as not laid out yet. */
   onSkip?: () => void;
 }) {
+  const numbers = step.weeks.map((week) => week.week);
+  const [opened] = useState(() => Object.fromEntries(step.courses.map((course) => [course.courseCode, opening(course, numbers)])));
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
     Object.fromEntries(
-      step.courses.map((course) => [course.courseCode, { weeks: course.weeks, lengths: course.lengths ?? {}, note: course.note }]),
+      Object.entries(opened).map(([code, { weeks, lengths, note, paceReason }]) => [code, { weeks, lengths, note, paceReason }]),
     ),
   );
+  /** Asked to say why, and hasn't: the courses whose reason box is ringed. */
+  const [unsaid, setUnsaid] = useState<string[]>([]);
   const change = (code: string, patch: Partial<Draft>) =>
     setDrafts((current) => ({ ...current, [code]: { ...current[code], ...patch } }));
   const many = step.courses.length > 1;
+  /** A course's components whose weeks run unevenly, as its draft stands. */
+  const unevenIn = (course: CoursePlan) => {
+    const draft = drafts[course.courseCode] ?? EMPTY;
+    return unevenComponents({ components: course.components, weeks: draft.weeks, lengths: draft.lengths }, numbers);
+  };
+  // Once said, or even again, a course is no longer asked about.
+  const stillUnsaid = unsaid.filter((code) => {
+    const course = step.courses.find((each) => each.courseCode === code);
+    return course && unevenIn(course).length && !(drafts[code]?.paceReason ?? "").trim();
+  });
+  const save = () => {
+    // An uneven course says why before the step is saved; an even one keeps no reason.
+    const missing = step.courses
+      .filter((course) => unevenIn(course).length && !(drafts[course.courseCode]?.paceReason ?? "").trim())
+      .map((course) => course.courseCode);
+    setUnsaid(missing);
+    if (missing.length) {
+      document.getElementById(`pace-reason-${missing[0]}`)?.focus();
+      return;
+    }
+    onSave(
+      step.courses.map((course) => {
+        const draft = drafts[course.courseCode] ?? EMPTY;
+        return { courseCode: course.courseCode, ...draft, paceReason: unevenIn(course).length ? draft.paceReason.trim() : "" };
+      }),
+    );
+  };
 
   return (
     <div className="space-y-5">
@@ -81,6 +142,8 @@ export function CourseScheduleStep({
       {step.courses.map((course) => {
         const draft = drafts[course.courseCode] ?? EMPTY;
         const components = componentsOf(course);
+        const uneven = step.weeks.length ? unevenIn(course) : [];
+        const asked = unsaid.includes(course.courseCode) && !draft.paceReason.trim();
         return (
           <section key={course.courseCode} aria-label={course.courseCode} className="space-y-3 rounded-lg border border-[#d0d5dd] px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -97,14 +160,50 @@ export function CourseScheduleStep({
                 leave them a note.
               </p>
             ) : step.weeks.length ? (
-              <CourseScheduleGrid
-                plan={course}
-                weeks={step.weeks}
-                value={draft}
-                label={`${course.courseCode} sessions week by week`}
-                hint={false}
-                onChange={(next) => change(course.courseCode, next)}
-              />
+              <>
+                {opened[course.courseCode]?.spread ? (
+                  <p className="text-xs text-[#475467]">
+                    Spread evenly over the semester to start with: change the weeks that differ, like an exam week or a
+                    late start.
+                  </p>
+                ) : null}
+                <CourseScheduleGrid
+                  plan={course}
+                  weeks={step.weeks}
+                  value={draft}
+                  label={`${course.courseCode} sessions week by week`}
+                  hint={false}
+                  onChange={(next) => change(course.courseCode, next)}
+                />
+              </>
+            ) : null}
+            {uneven.length ? (
+              // Uneven stays possible: it costs a sentence, which the coordinators read.
+              <label
+                className={`block rounded-lg border px-3 py-2.5 text-sm font-semibold text-[#7a5410] ${
+                  asked ? "border-[#b54708] bg-[#fef0c7]" : "border-[#e5b454] bg-[#fdf9ee]"
+                }`}
+              >
+                <span className="flex items-center gap-1.5">
+                  <AlertTriangle size={14} aria-hidden="true" />
+                  Why are the {uneven.join(" and ")} sessions spread this way?
+                  <span className="font-normal text-[#8a6116]">(needed)</span>
+                </span>
+                <span className="mt-0.5 block text-xs font-normal text-[#8a6116]">
+                  An even spread is easier for students and rooms. Say why yours isn&rsquo;t, or press Spread evenly.
+                </span>
+                <textarea
+                  id={`pace-reason-${course.courseCode}`}
+                  aria-label={`Why ${course.courseCode} is spread unevenly`}
+                  aria-invalid={asked || undefined}
+                  value={draft.paceReason}
+                  onChange={(event) => change(course.courseCode, { paceReason: event.target.value })}
+                  rows={2}
+                  maxLength={2000}
+                  placeholder="For example: the lectures end in week 12, before the project weeks."
+                  className="mt-1.5 block w-full rounded-md border border-[#d9b36a] bg-white px-3 py-2 text-sm font-normal text-[#171717]"
+                />
+              </label>
             ) : null}
             <label className="block text-sm font-semibold text-[#344054]">
               Note for the coordinators <span className="font-normal text-[#667085]">(optional)</span>
@@ -122,6 +221,11 @@ export function CourseScheduleStep({
         );
       })}
 
+      {stillUnsaid.length ? (
+        <p role="alert" className="text-sm text-[#a6292f]">
+          Say why {stillUnsaid.join(" and ")} {stillUnsaid.length === 1 ? "is" : "are"} spread unevenly, or press Spread evenly.
+        </p>
+      ) : null}
       {error ? (
         <p role="alert" className="text-sm text-[#a6292f]">
           {error}
@@ -136,9 +240,7 @@ export function CourseScheduleStep({
         <button
           type="button"
           disabled={busy}
-          onClick={() =>
-            onSave(step.courses.map((course) => ({ courseCode: course.courseCode, ...(drafts[course.courseCode] ?? EMPTY) })))
-          }
+          onClick={save}
           className="inline-flex items-center gap-2 rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
         >
           {busy ? <Loader2 size={15} className="animate-spin" aria-hidden="true" /> : null}

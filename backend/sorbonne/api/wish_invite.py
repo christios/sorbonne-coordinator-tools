@@ -85,6 +85,8 @@ class CourseLayout(BaseModel):
     # The weeks whose sessions last other than usual, each session's hours: {"CM": {"8": [1.5, 3]}}.
     lengths: dict[str, dict[str, float | list[float]]] = Field(default_factory=dict, max_length=3)
     note: str | None = Field(default=None, max_length=2000)
+    # Why the weeks run unevenly over the semester, which the step asks for; "" once they are even.
+    paceReason: str | None = Field(default=None, max_length=2000)
 
 
 class LayoutsInput(BaseModel):

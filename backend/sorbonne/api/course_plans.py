@@ -52,6 +52,8 @@ class LayoutInput(BaseModel):
     # one number stands for every session of the week.
     lengths: dict[str, dict[str, float | list[float]]] = Field(default_factory=dict, max_length=3)
     note: str | None = Field(default=None, max_length=2000)
+    # Why the weeks run unevenly over the semester; "" once they are even. Left out, kept.
+    paceReason: str | None = Field(default=None, max_length=2000)
 
 
 def _refused(exc: Exception) -> HTTPException:
@@ -108,6 +110,7 @@ def lay_out(
             actor=_actor(request),
             source=COORDINATOR,
             lengths=body.lengths,
+            pace_reason=body.paceReason,
         )
     except (InvalidCoursePlan, UnknownCourse) as exc:
         raise _refused(exc) from exc

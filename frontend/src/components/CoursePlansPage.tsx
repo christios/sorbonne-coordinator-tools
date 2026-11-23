@@ -8,7 +8,15 @@ import { usePortalSemester } from "@/components/PortalSemesterMenu";
 import { ScreenLoading } from "@/components/ScreenLoading";
 import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { withProgrammeColumn } from "@/services/coursePrograms";
-import { COMPONENTS, fetchCoursePlans, figure, planStanding, type Component, type CoursePlan } from "@/services/coursePlans";
+import {
+  COMPONENTS,
+  fetchCoursePlans,
+  figure,
+  planStanding,
+  unevenComponents,
+  type Component,
+  type CoursePlan,
+} from "@/services/coursePlans";
 import type { GridColumn } from "@/services/studentColumns";
 
 /** "21 h · 1.5": a component's hours and one session's length, as a cell says them. */
@@ -19,12 +27,28 @@ const hoursCell = (plan: CoursePlan, component: Component) => {
 
 const STANDING_WORDS = { "no-lead": "No lead yet", waiting: "Waiting for the lead", answered: "Laid out" } as const;
 
-const standingWords = (plan: CoursePlan) => {
+/** Where a course's weeks stand, as the filter lists it: "Laid out, uneven" among them (23 Nov 2026). */
+const standingWords = (plan: CoursePlan, weeks: number[]) => {
   const { state, offTarget } = planStanding(plan);
-  return offTarget.length ? `Laid out, ${offTarget.join(", ")} off the hours` : STANDING_WORDS[state];
+  const said = offTarget.length ? `Laid out, ${offTarget.join(", ")} off the hours` : STANDING_WORDS[state];
+  return state === "answered" && unevenComponents(plan, weeks).length ? `${said}, uneven` : said;
 };
 
-const COLUMNS: GridColumn<CoursePlan>[] = [
+/** The pill beside "Laid out" for weeks that run unevenly, with the lead's reason on hover. */
+function UnevenPill({ plan, weeks }: { plan: CoursePlan; weeks: number[] }) {
+  const uneven = unevenComponents(plan, weeks);
+  if (!uneven.length) return null;
+  return (
+    <span
+      title={plan.paceReason ? `Why the ${uneven.join(" and ")} weeks are uneven: ${plan.paceReason}` : "Uneven, with no reason given"}
+      className="inline-flex shrink-0 items-center rounded-full border border-[#e5b454] bg-[#fdf6e3] px-2 py-0.5 text-[11px] font-semibold text-[#8a6116]"
+    >
+      Uneven
+    </span>
+  );
+}
+
+const columnsFor = (weeks: number[]): GridColumn<CoursePlan>[] => [
   { id: "courseCode", displayName: "Course", type: "text", accessor: (row) => row.courseCode, required: true, defaultWidth: 110 },
   { id: "title", displayName: "Title", type: "text", accessor: (row) => row.title, defaultWidth: 200 },
   { id: "coefficient", displayName: "Coefficient", type: "text", accessor: (row) => row.coefficient, defaultWidth: 95 },
@@ -38,8 +62,9 @@ const COLUMNS: GridColumn<CoursePlan>[] = [
     }),
   ),
   { id: "lead", displayName: "Course lead", type: "option", accessor: (row) => row.leadName, defaultWidth: 170 },
-  { id: "standing", displayName: "Week by week", type: "option", accessor: standingWords, defaultWidth: 190 },
+  { id: "standing", displayName: "Week by week", type: "option", accessor: (row) => standingWords(row, weeks), defaultWidth: 190 },
   { id: "note", displayName: "Lead's note", type: "text", accessor: (row) => row.note, defaultWidth: 240 },
+  { id: "paceReason", displayName: "Why uneven", type: "text", accessor: (row) => row.paceReason ?? "", defaultWidth: 240 },
 ];
 const SHOWN = ["courseCode", "title", "coefficient", "hours-CM", "hours-TD", "hours-TP", "lead", "standing"];
 
@@ -54,7 +79,11 @@ export function CoursePlansPage() {
   const { semester, term } = usePortalSemester();
   const plans = useQuery({ queryKey: ["course-plans", term], queryFn: () => fetchCoursePlans(term), enabled: Boolean(term) });
   const coursePrograms = useCoursePrograms();
-  const columns = useMemo(() => withProgrammeColumn(COLUMNS, coursePrograms, (row) => row.courseCode, "courseCode"), [coursePrograms]);
+  const numbers = useMemo(() => (plans.data?.weeks ?? []).map((week) => week.week), [plans.data]);
+  const columns = useMemo(
+    () => withProgrammeColumn(columnsFor(numbers), coursePrograms, (row) => row.courseCode, "courseCode"),
+    [coursePrograms, numbers],
+  );
   const [openCode, setOpenCode] = useState("");
   const semesterName = semester?.name ?? "this semester";
 
@@ -66,15 +95,20 @@ export function CoursePlansPage() {
       const { state, offTarget } = planStanding(row);
       if (state === "answered") {
         // Amber, not red: a lead who disagrees with a total says so in the note, and may be right.
-        return offTarget.length ? (
-          <span
-            title={row.note ? `The lead's note: ${row.note}` : undefined}
-            className="inline-flex max-w-full items-center truncate rounded-full bg-[#fdf6e3] px-2 py-0.5 text-[11px] font-semibold text-[#8a6116]"
-          >
-            Laid out · {offTarget.join(", ")} off the hours
+        return (
+          <span className="inline-flex max-w-full items-center gap-1">
+            {offTarget.length ? (
+              <span
+                title={row.note ? `The lead's note: ${row.note}` : undefined}
+                className="inline-flex min-w-0 items-center truncate rounded-full bg-[#fdf6e3] px-2 py-0.5 text-[11px] font-semibold text-[#8a6116]"
+              >
+                Laid out · {offTarget.join(", ")} off the hours
+              </span>
+            ) : (
+              <StatePill tone="good">Laid out</StatePill>
+            )}
+            <UnevenPill plan={row} weeks={numbers} />
           </span>
-        ) : (
-          <StatePill tone="good">Laid out</StatePill>
         );
       }
       return <StatePill tone={state === "waiting" ? "accent" : "muted"}>{STANDING_WORDS[state]}</StatePill>;
@@ -91,7 +125,9 @@ export function CoursePlansPage() {
       );
     }
     if (column.id === "lead" && !row.leadId) return <span className="text-[#98a2b3]">Nobody yet</span>;
-    if ((column.id === "coefficient" || column.id === "note") && !row[column.id]) return <span className="text-[#c8d0da]">—</span>;
+    if ((column.id === "coefficient" || column.id === "note" || column.id === "paceReason") && !row[column.id]) {
+      return <span className="text-[#c8d0da]">—</span>;
+    }
     return undefined;
   };
 
