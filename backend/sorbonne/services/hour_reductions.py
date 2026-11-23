@@ -507,7 +507,8 @@ class HourReductions:
                 rule = by_kind[kind]
                 validated = bool(value.get("validated")) if isinstance(value, dict) and rule["group"] == SAFIR else None
                 self._write(
-                    connection, year, teacher_id, rule, value, held.get(kind), actor, validated=validated, keep_zero=True
+                    connection, year, teacher_id, rule, value, held.get(kind), actor,
+                    validated=validated, keep_zero=True,
                 )
         return self.for_teacher(year, teacher_id)
 
