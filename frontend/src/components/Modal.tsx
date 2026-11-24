@@ -2,6 +2,8 @@ import { X } from "lucide-react";
 import { useEffect, useId, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
+import { closeOnBackdrop } from "@/components/closeOnBackdrop";
+
 /** The dialogs open right now, bottom to top. */
 const OPEN: string[] = [];
 
@@ -64,7 +66,7 @@ export function Modal({
       // The whole screen on a phone: a record in a box with a margin round it left a
       // letterbox to read through. A floating panel from `sm` up.
       className="fixed inset-0 z-[90] grid place-items-center bg-[#101828]/35 sm:p-4"
-      onMouseDown={onClose}
+      onMouseDown={closeOnBackdrop(onClose)}
     >
       <section
         role="dialog"
@@ -73,7 +75,6 @@ export function Modal({
         className={`flex h-[100dvh] w-full min-w-0 flex-col bg-white shadow-xl sm:h-auto sm:max-h-[85vh] sm:rounded-lg sm:border sm:border-[#d9dee7] ${
           size === "record" ? "max-w-7xl" : size === "wide" ? "max-w-5xl" : "max-w-3xl"
         }`}
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="border-b border-[#e4e8ef] px-4 py-3 sm:px-5 sm:py-4">
           {/*

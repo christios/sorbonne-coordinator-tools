@@ -2,6 +2,8 @@ import { useEffect, useId } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
+import { closeOnBackdrop } from "@/components/closeOnBackdrop";
+
 type ModalDialogProps = {
   open: boolean;
   title: string;
@@ -41,7 +43,7 @@ export function ModalDialog({
   return createPortal(
     <div
       className="fixed inset-0 z-[100] grid place-items-center overflow-y-auto bg-[#101828]/35 p-4"
-      onMouseDown={onClose}
+      onMouseDown={closeOnBackdrop(onClose)}
     >
       <section
         role="dialog"
@@ -49,7 +51,6 @@ export function ModalDialog({
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
         className={`w-full ${widthClassName} rounded-lg border border-[#d9dee7] bg-white shadow-xl`}
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-4 border-b border-[#eaecf0] px-5 py-4">
           <div>

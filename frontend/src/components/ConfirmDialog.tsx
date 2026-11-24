@@ -1,6 +1,8 @@
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 
+import { closeOnBackdrop } from "@/components/closeOnBackdrop";
+
 type ConfirmDialogProps = {
   open: boolean;
   title: string;
@@ -57,8 +59,8 @@ export function ConfirmDialog({ open, title, description, confirmLabel, cancelLa
 
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0 z-[110] grid place-items-center bg-[#101828]/35 p-4" onMouseDown={onClose}>
-      <section role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} className="w-full max-w-md rounded-lg border border-[#d9dee7] bg-white p-5 shadow-xl" onMouseDown={(event) => event.stopPropagation()}>
+    <div className="fixed inset-0 z-[110] grid place-items-center bg-[#101828]/35 p-4" onMouseDown={closeOnBackdrop(onClose)}>
+      <section role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} className="w-full max-w-md rounded-lg border border-[#d9dee7] bg-white p-5 shadow-xl">
         <h2 id={titleId} className="text-lg font-semibold text-[#171717]">{title}</h2>
         <p id={descriptionId} className="mt-2 text-sm leading-6 text-[#667085]">{description}</p>
         {confirmPhrase ? (

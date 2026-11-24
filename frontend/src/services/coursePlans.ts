@@ -13,6 +13,7 @@
 
 import { apiFetch } from "@/services/http";
 import { hoursOf, weeksSaid, type Plan, type PlanSection } from "@/services/semesterPlans";
+import { DAY_NAMES, formatDayAndMonth, parseIsoDate, toIsoDate } from "@/services/weekSchedule";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
 const BASE = `${API_BASE_URL}/api/v1/course-plans`;
@@ -317,6 +318,45 @@ export function paceWords(pace: Pace): string {
   // Word joiners keep "1–2" whole when the line wraps.
   const span = pace.week === pace.from ? `week ${pace.week}` : `weeks ${pace.from}\u2060–\u2060${pace.week}`;
   return `${pace.state === "ahead" ? "Too many" : "Too few"} sessions in ${span}`;
+}
+
+/**
+ * "Week 7 has a holiday (Wed 10 Mar, Eid al-Fitr): no class that day." — said under the grid
+ * for a week that holds sessions (24 Nov 2026), since a class that falls on a holiday is not
+ * held and the lead would not otherwise know.
+ */
+export function holidayWords(week: TeachingWeek): string {
+  const days = week.holidays.map((day) => `${DAY_NAMES[parseIsoDate(day.date).getDay()]} ${formatDayAndMonth(day.date)}`);
+  const names = [...new Set(week.holidays.map((day) => day.label.trim()).filter(Boolean))];
+  const listed = days.length > 1 ? `${days.slice(0, -1).join(", ")} and ${days[days.length - 1]}` : days.join("");
+  const one = days.length === 1;
+  return `Week ${week.week} has ${one ? "a holiday" : "holidays"} (${listed}${names.length ? `, ${names.join(", ")}` : ""}): no class ${one ? "that day" : "those days"}.`;
+}
+
+/** A column of a week-by-week view: a teaching week, or a week off between two of them, by its Monday. */
+export type WeekColumn = { week: TeachingWeek; off?: undefined } | { off: string; week?: undefined };
+
+/**
+ * The teaching weeks with the weeks off between them (24 Nov 2026). A week without classes
+ * takes no number, so it shows only as two teaching weeks' Mondays more than a week apart;
+ * each Monday between them is a week off, shown as an empty dashed column so nobody counts on
+ * a class there. Nothing is shown before Week 1 or after the last week, nor while Week 1 is
+ * not set.
+ */
+export function withWeeksOff(weeks: TeachingWeek[]): WeekColumn[] {
+  const columns: WeekColumn[] = [];
+  weeks.forEach((week, index) => {
+    const before = weeks[index - 1];
+    if (before?.monday && week.monday) {
+      const next = (iso: string) => {
+        const day = parseIsoDate(iso);
+        return toIsoDate(new Date(day.getFullYear(), day.getMonth(), day.getDate() + 7));
+      };
+      for (let monday = next(before.monday); monday < week.monday; monday = next(monday)) columns.push({ off: monday });
+    }
+    columns.push({ week });
+  });
+  return columns;
 }
 
 /** The components whose weeks run unevenly, for a course as it stands. */

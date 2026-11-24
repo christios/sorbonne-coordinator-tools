@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Wand2 } from "lucide-react";
+import { AlertTriangle, CalendarX, Check, Wand2 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { Fragment, useState, type FormEvent, type KeyboardEvent } from "react";
 
@@ -6,6 +6,7 @@ import {
   COMPONENT_WORDS,
   componentsOf,
   figure,
+  holidayWords,
   hoursLaidOut,
   paceOf,
   paceWords,
@@ -13,12 +14,14 @@ import {
   sessionsWords,
   sessionsOf,
   spreadEvenly,
+  withWeeksOff,
   type Component,
   type CoursePlan,
   type Layout,
   type Lengths,
   type Pace,
   type TeachingWeek,
+  type WeekColumn,
 } from "@/services/coursePlans";
 import { formatDayAndMonth } from "@/services/weekSchedule";
 
@@ -45,6 +48,10 @@ export type ScheduleDraft = { weeks: Layout; lengths: Lengths };
  * of an even week, the weeks off an even pace in amber, and a few words on how it stands —
  * "Evenly spread", "Too many sessions in weeks 1–3" — so a lead sees at once whether the
  * sessions are spread over the semester or bunched up.
+ *
+ * A week off between two teaching weeks shows as a grey column with an empty dashed box, so
+ * nobody counts on a class there; a week holding sessions and a holiday says so under the grid
+ * — "Week 9 has a holiday (Wed 10 Mar, Eid al-Fitr): no class that day." (24 Nov 2026).
  */
 export function CourseScheduleGrid({
   plan,
@@ -79,6 +86,12 @@ export function CourseScheduleGrid({
     .filter((component) => plan.components[component].length)
     .map((component) => ({ component, done: hoursLaidOut(plan, layout, component, lengths), set: plan.components[component].hours ?? 0 }))
     .filter(({ done, set }) => done - set > 0.01);
+  // The weeks off between teaching weeks, as dashed columns: nothing can be put in them.
+  const columns = withWeeksOff(weeks);
+  // The weeks with a holiday that hold sessions: a class falling on that day is not held.
+  const holidayWeeks = weeks.filter(
+    (week) => week.holidays.length && components.some((component) => (layout[component]?.[String(week.week)] ?? 0) > 0),
+  );
 
   /**
    * A week's own session lengths for a component, one per session, or back to the usual length
@@ -124,7 +137,21 @@ export function CourseScheduleGrid({
               <th scope="col" className="sticky left-0 z-10 min-w-[13.5rem] border-b border-r border-[#d0d5dd] bg-[#f5f7fa] px-3 py-1.5 text-left font-semibold uppercase tracking-wide">
                 Teaching week
               </th>
-              {weeks.map((week) => {
+              {columns.map((column) => {
+                if (column.off !== undefined) {
+                  return (
+                    <th
+                      key={`off-${column.off}`}
+                      scope="col"
+                      title={`Week of ${formatDayAndMonth(column.off)}: no classes`}
+                      className="min-w-[2.6rem] border-b border-[#d0d5dd] bg-[#f2f4f7] px-0.5 py-1.5 text-center font-normal"
+                    >
+                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">Off</span>
+                      <span className="block whitespace-nowrap text-[10px] text-[#98a2b3]">{formatDayAndMonth(column.off)}</span>
+                    </th>
+                  );
+                }
+                const { week } = column;
                 const holiday = week.holidays.map((day) => `${formatDayAndMonth(day.date)}${day.label ? `: ${day.label}` : ""}`).join("\n");
                 return (
                   <th
@@ -163,7 +190,7 @@ export function CourseScheduleGrid({
                       </span>
                       <span className="mt-1 block text-sm font-semibold tabular-nums text-[#8a6116]">{figure(target.hours ?? 0)} h</span>
                     </th>
-                    <td colSpan={weeks.length} className="border-b border-[#d0d5dd] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+                    <td colSpan={columns.length} className="border-b border-[#d0d5dd] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
                       {target.issue || "No session length in Groups & CRNs yet"}, so its weeks can&rsquo;t be laid out.
                     </td>
                   </tr>
@@ -206,7 +233,9 @@ export function CourseScheduleGrid({
                       </button>
                     ) : null}
                   </th>
-                  {weeks.map((week) => {
+                  {columns.map((column) => {
+                    if (column.off !== undefined) return <WeekOff key={`off-${column.off}`} monday={column.off} editable={editable} />;
+                    const { week } = column;
                     const count = layout[component]?.[String(week.week)] ?? 0;
                     const each = sessionLengths(usual, lengths[component]?.[String(week.week)], count);
                     const hours = each.reduce((sum, one) => sum + one, 0);
@@ -265,7 +294,7 @@ export function CourseScheduleGrid({
                     );
                   })}
                 </tr>
-                {pace ? <PaceRow component={component} pace={pace} /> : null}
+                {pace ? <PaceRow component={component} pace={pace} columns={columns} /> : null}
                 </Fragment>
               );
             })}
@@ -286,6 +315,17 @@ export function CourseScheduleGrid({
           </div>
         </div>
       ) : null}
+      {holidayWeeks.length ? (
+        // A class planned on a holiday is not held: said, never refused — the day may not be the class's.
+        <div role="status" data-holidays="" className="mt-1.5 flex gap-2 rounded-md border border-[#e5c27a] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+          <CalendarX size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div>
+            {holidayWeeks.map((week) => (
+              <p key={week.week}>{holidayWords(week)}</p>
+            ))}
+          </div>
+        </div>
+      ) : null}
       {editable && hint && components.length ? (
         <p className="mt-1.5 text-xs text-[#667085]">
           A week&rsquo;s sessions longer or shorter than usual, like an exam? Press the hours under its box.
@@ -299,7 +339,7 @@ export function CourseScheduleGrid({
  * A row's pace: how it stands, in words, beside a bar for each week's hours — the dashed line
  * an even week, the weeks off an even pace in amber.
  */
-function PaceRow({ component, pace }: { component: Component; pace: Pace }) {
+function PaceRow({ component, pace, columns }: { component: Component; pace: Pace; columns: WeekColumn[] }) {
   const off = pace.state === "ahead" || pace.state === "behind";
   // Tall enough for the busiest week and for twice an even one, so the line sits inside.
   const top = Math.max(...pace.weeks.map((week) => week.hours), pace.perWeek * 2, 0.01);
@@ -323,7 +363,10 @@ function PaceRow({ component, pace }: { component: Component; pace: Pace }) {
           </span>
         )}
       </th>
-      {pace.weeks.map((week) => (
+      {columns.map((column) => {
+        const week = column.week && pace.weeks.find((each) => each.week === column.week.week);
+        if (!week) return <td key={`off-${column.off}`} aria-hidden="true" className="border-b border-[#d0d5dd] bg-[#f2f4f7]" />;
+        return (
         <td
           key={week.week}
           aria-hidden="true"
@@ -341,8 +384,24 @@ function PaceRow({ component, pace }: { component: Component; pace: Pace }) {
             </span>
           )}
         </td>
-      ))}
+        );
+      })}
     </tr>
+  );
+}
+
+/** A week off between two teaching weeks: an empty dashed box where the sessions would go, nothing to fill in. */
+function WeekOff({ monday, editable }: { monday: string; editable: boolean }) {
+  return (
+    <td className="border-b border-[#eef1f5] bg-[#f2f4f7] px-0.5 py-1 text-center align-middle">
+      <span
+        role="img"
+        aria-label={`Week of ${formatDayAndMonth(monday)}: no classes`}
+        title="Week off: no classes"
+        className={`mx-auto block rounded border-[1.5px] border-dashed border-[#98a2b3] ${editable ? "h-8 w-9" : "h-5 w-7"}`}
+      />
+      <span aria-hidden="true" className="mt-0.5 block h-3.5" />
+    </td>
   );
 }
 

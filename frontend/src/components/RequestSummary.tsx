@@ -15,6 +15,7 @@ import {
   type CoursePlanSemester,
   type TeachingWeek,
   unevenComponents,
+  withWeeksOff,
 } from "@/services/coursePlans";
 import { Tip } from "@/components/InfoTip";
 import { heldWords, yearWords, type ReductionSheet } from "@/services/hourReductions";
@@ -160,6 +161,8 @@ function StandingPill({ course }: { course: CoursePlan }) {
 export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: TeachingWeek[] }) {
   const components = componentsOf(course);
   const lengths = course.lengths ?? {};
+  // The weeks off between teaching weeks: a dashed block, as in the grid the lead filled in.
+  const columns = withWeeksOff(weeks);
   if (!components.length) return <p className="text-sm text-[#667085]">No hours set yet.</p>;
   return (
     <div>
@@ -169,14 +172,21 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
       <span aria-hidden="true" className="text-[9px] font-semibold uppercase tracking-wide text-[#98a2b3]">Week</span>
       {/* Each week's number, and the date it starts, as the grid the lead filled in heads them. */}
       <div aria-hidden="true" className="flex gap-[3px]">
-        {weeks.map((week) => (
-          <span key={week.week} className="min-w-0 flex-1 text-center tabular-nums leading-none">
-            <span className="block text-[10px] font-semibold text-[#475467]">{week.week}</span>
-            {week.monday ? (
-              <span className="mt-0.5 block whitespace-nowrap text-[8.5px] text-[#98a2b3]">{formatDayAndMonth(week.monday)}</span>
-            ) : null}
-          </span>
-        ))}
+        {columns.map(({ week, off }) =>
+          week ? (
+            <span key={week.week} className="min-w-0 flex-1 text-center tabular-nums leading-none">
+              <span className="block text-[10px] font-semibold text-[#475467]">{week.week}</span>
+              {week.monday ? (
+                <span className="mt-0.5 block whitespace-nowrap text-[8.5px] text-[#98a2b3]">{formatDayAndMonth(week.monday)}</span>
+              ) : null}
+            </span>
+          ) : (
+            <span key={`off-${off}`} className="min-w-0 flex-1 text-center leading-none">
+              <span className="block text-[9px] font-semibold uppercase text-[#98a2b3]">Off</span>
+              <span className="mt-0.5 block whitespace-nowrap text-[8.5px] text-[#98a2b3]">{formatDayAndMonth(off)}</span>
+            </span>
+          ),
+        )}
       </div>
       <span aria-hidden="true" className="text-[9px] font-semibold uppercase tracking-wide text-[#98a2b3]">Total</span>
       {components.map((component) => {
@@ -192,7 +202,15 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
               aria-label={`${component}: ${layoutWords(course.weeks[component])}${Object.keys(own).length ? `, ${lengthWords(own)}` : ""}`}
               className="flex gap-[3px]"
             >
-              {weeks.map((week) => {
+              {columns.map(({ week, off }) => {
+                if (!week) {
+                  return (
+                    <span key={`off-${off}`} role="img" aria-label={`Week of ${formatDayAndMonth(off)}: no classes`} className="flex min-w-0 flex-1 flex-col">
+                      <span className="h-6 rounded-[3px] border-[1.5px] border-dashed border-[#98a2b3]" />
+                      <span className="mt-0.5 h-3" />
+                    </span>
+                  );
+                }
                 const count = course.weeks[component]?.[String(week.week)] ?? 0;
                 const each = sessionLengths(course.components[component].length ?? 0, own[String(week.week)], count);
                 const hours = each.reduce((sum, one) => sum + one, 0);

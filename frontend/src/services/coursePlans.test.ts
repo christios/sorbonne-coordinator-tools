@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   classPlanOf,
+  holidayWords,
+  withWeeksOff,
   paceOf,
   paceWords,
   unevenComponents,
@@ -283,5 +285,31 @@ describe("a class placed on the Semester plan, from an unevenly laid-out course"
     expect(classPlanOf(section(), byCode)?.uneven).toBeUndefined();
     const even = new Map([["MATH-002", { ...PLAN, weeks: { TD: weeks(1, 14, 1) } }]]);
     expect(classPlanOf(section(), even, Array.from({ length: 14 }, (_, index) => index + 1))?.uneven).toBeNull();
+  });
+});
+
+describe("holidays and weeks off in a week-by-week view (24 Nov 2026)", () => {
+  it("says a week's holiday, and that there is no class that day", () => {
+    expect(holidayWords({ week: 7, monday: "2027-03-08", holidays: [{ date: "2027-03-10", label: "Eid al-Fitr" }] })).toBe(
+      "Week 7 has a holiday (Wed 10 Mar, Eid al-Fitr): no class that day.",
+    );
+    expect(
+      holidayWords({
+        week: 7,
+        monday: "2027-03-08",
+        holidays: [
+          { date: "2027-03-09", label: "Eid al-Fitr" },
+          { date: "2027-03-10", label: "Eid al-Fitr" },
+          { date: "2027-03-11", label: "" },
+        ],
+      }),
+    ).toBe("Week 7 has holidays (Tue 9 Mar, Wed 10 Mar and Thu 11 Mar, Eid al-Fitr): no class those days.");
+  });
+
+  it("puts each week off between two teaching weeks, by its Monday, and none where Week 1 is not set", () => {
+    const week = (number: number, monday: string) => ({ week: number, monday, holidays: [] });
+    const columns = withWeeksOff([week(1, "2027-03-22"), week(2, "2027-03-29"), week(3, "2027-04-19")]);
+    expect(columns.map((column) => (column.week ? column.week.week : column.off))).toEqual([1, 2, "2027-04-05", "2027-04-12", 3]);
+    expect(withWeeksOff([week(1, ""), week(2, "")]).map((column) => column.week?.week)).toEqual([1, 2]);
   });
 });
