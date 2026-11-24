@@ -931,9 +931,10 @@ export async function fetchLastSweeps(): Promise<Record<string, LastSweep>> {
 }
 
 /** Sections this term whose classes the registrar has deleted or added. */
-export async function fetchChangedClasses(termCode: string): Promise<ChangedClasses[]> {
+/** Each section from its last approval; with `whole`, every section from when it was first seen. */
+export async function fetchChangedClasses(termCode: string, whole = false): Promise<ChangedClasses[]> {
   const answer = await request<{ sections: ChangedClasses[] }>(
-    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes`,
+    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes${whole ? "?whole=true" : ""}`,
   );
   return answer.sections;
 }

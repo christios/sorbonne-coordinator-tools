@@ -349,3 +349,38 @@ describe("records from the changes", () => {
     expect(dialogs[dialogs.length - 1].textContent).toContain("23638");
   });
 });
+
+/*
+ * The whole term beside what waits (24 Nov 2026): every section the portal changed, from when
+ * it was first seen, the approved ones too, tagged and read-only.
+ */
+describe("the whole term", () => {
+  const APPROVED_ONE: lists.ChangedClasses = { ...PHYSICS, crn: "24100", courseCode: "MATH-001", teacherName: "Bilal Maaz", key: "registrar-classes-changed:262710:24100:def456" };
+
+  it("lists every changed section, tagged, with approving left to the waiting list", async () => {
+    const read = vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [PHYSICS, APPROVED_ONE] : [PHYSICS]));
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    expect(await screen.findByRole("button", { name: "Approve" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Whole term" }));
+
+    expect(await screen.findByText("MATH-001")).toBeTruthy();
+    expect(read).toHaveBeenCalledWith("262710", true);
+    expect(screen.getByText("Waiting for approval")).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+  });
+
+  it("stays one press away when nothing is waiting", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [APPROVED_ONE] : []));
+    vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([]);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /All changes this term/ }));
+
+    expect(await screen.findByText("MATH-001")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Whole term" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByText("Approved")).toBeTruthy();
+  });
+});

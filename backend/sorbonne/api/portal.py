@@ -931,7 +931,7 @@ def read_facility_hours(
 
 @router.get("/facility-timetable/{term_code}/changed-classes")
 def read_changed_classes(
-    term_code: str, facilities: FacilityTimetableStore = Depends(get_facilities)
+    term_code: str, whole: bool = False, facilities: FacilityTimetableStore = Depends(get_facilities)
 ) -> dict[str, Any]:
     """Sections the registrar has taken dated classes out of, or put new ones into.
 
@@ -939,8 +939,11 @@ def read_changed_classes(
     is already protected; a section still answered, with its classes quietly deleted from
     inside it, read as a section that never had them — and a class quietly added to one
     read as a class that had always been there.
+
+    Each section from its last approval, which is what the banner asks about; `whole` reads
+    every section from when it was first seen instead, approved or not (24 Nov 2026).
     """
-    return {"termCode": term_code, "sections": facilities.classes_changed(term_code, since_approval=True)}
+    return {"termCode": term_code, "sections": facilities.classes_changed(term_code, since_approval=not whole)}
 
 
 @router.get("/facility-timetable/{term_code}/changed-classes/history")

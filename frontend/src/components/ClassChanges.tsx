@@ -33,7 +33,7 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, CheckCircle2, History, RotateCcw } from "lucide-react";
+import { AlertTriangle, CalendarDays, Check, CheckCircle2, History, RotateCcw } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { useMemo, useState, type ReactNode } from "react";
 
@@ -191,6 +191,11 @@ function saidIn(lost: number, gained: number): string {
 export function ClassChangesBanner({ className = "", term = "" }: { className?: string; term?: string }) {
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
+  /*
+   * Every change this term rather than only what waits for approval (user, 24 Nov 2026): each
+   * section from when it was first seen, the approved ones too, read-only and tagged.
+   */
+  const [whole, setWhole] = useState(false);
   // The history, for every section or for the one whose History was asked for.
   const [history, setHistory] = useState<{ crn?: string } | null>(null);
   // The record opened from a section's course code, CRN or teacher, over whichever window is open.
@@ -212,6 +217,21 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
     () => stillToLookAt(changed.data ?? [], approved),
     [changed.data, approved],
   );
+  const everything = useQuery({
+    queryKey: ["changed-classes", termCode, "whole"],
+    queryFn: () => fetchChangedClasses(termCode, true),
+    enabled: open && whole && Boolean(termCode),
+    retry: false,
+  });
+  const waitingCrns = useMemo(() => new Set(waiting.map((section) => section.crn)), [waiting]);
+  // In the whole term, what still waits comes first, so it is not lost among the approved.
+  const shown = useMemo(
+    () =>
+      whole
+        ? [...(everything.data ?? [])].sort((a, b) => Number(waitingCrns.has(b.crn)) - Number(waitingCrns.has(a.crn)))
+        : waiting,
+    [whole, everything.data, waiting, waitingCrns],
+  );
   /*
    * The semester the months are drawn across: from the first class any listed section
    * has to the last. Every section is laid against the same months, the empty ones
@@ -219,9 +239,9 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
    * — 24 August — and it drew an August nobody taught in.
    */
   const span = useMemo(() => {
-    const dates = waiting.flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn)).sort();
+    const dates = shown.flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn)).sort();
     return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : undefined;
-  }, [waiting]);
+  }, [shown]);
   const approve = useMutation({
     mutationFn: (key: string) => setDismissal(key, true),
     onSuccess: () => {
@@ -241,6 +261,62 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
       />
       <ChangeRecords asked={record} termCode={termCode} onRecord={setRecord} onClose={() => setRecord(null)} />
     </>
+  );
+
+  const changesModal = (
+    <Modal
+      open={open}
+      onClose={() => setOpen(false)}
+      title="Classes the portal has changed"
+      description={
+        whole
+          ? "Every change the portal has made to our classes this term, from when each section was first seen, whether or not it has been approved: what still meets, what has gone and what has arrived."
+          : "What has changed since each section was last approved, across the months of the semester: what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes, and then only that new change is shown."
+      }
+      size="wide"
+    >
+      <div role="group" aria-label="Which changes" className="mb-4 inline-flex rounded-md border border-[#d9dee7] bg-[#f8fafc] p-0.5 text-sm">
+        {([
+          [false, `Waiting for approval${waiting.length ? ` (${waiting.length})` : ""}`],
+          [true, "Whole term"],
+        ] as const).map(([value, label]) => (
+          <button
+            key={label}
+            type="button"
+            aria-pressed={whole === value}
+            onClick={() => setWhole(value)}
+            className={`rounded px-3 py-1 font-medium ${whole === value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {whole && everything.isLoading ? (
+        <p className="text-sm text-[#667085]">Loading every change this term…</p>
+      ) : whole && everything.isError ? (
+        <p className="text-sm text-[#842029]">The term&apos;s changes could not be read.</p>
+      ) : shown.length === 0 ? (
+        <p className="text-sm text-[#667085]">
+          {whole ? "The portal has not changed any of our classes this term." : "Nothing is waiting for approval."}
+        </p>
+      ) : (
+        <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
+          {shown.map((section) => (
+            <SectionDiff
+              key={section.key}
+              section={section}
+              span={span}
+              onApprove={() => approve.mutate(section.key)}
+              approving={approve.isPending && approve.variables === section.key}
+              onHistory={() => setHistory({ crn: section.crn })}
+              known={known}
+              onRecord={setRecord}
+              standing={whole ? (waitingCrns.has(section.crn) ? "waiting" : "approved") : undefined}
+            />
+          ))}
+        </div>
+      )}
+    </Modal>
   );
 
   /*
@@ -269,14 +345,28 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
               </>
             )}
           </p>
-          <button
-            type="button"
-            onClick={() => setHistory({})}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
-          >
-            <History size={15} /> Class change history
-          </button>
+          <span className="flex shrink-0 flex-wrap items-center gap-2">
+            {/* Nothing waiting is not nothing changed: the whole term stays one press away. */}
+            <button
+              type="button"
+              onClick={() => {
+                setWhole(true);
+                setOpen(true);
+              }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+            >
+              <CalendarDays size={15} /> All changes this term
+            </button>
+            <button
+              type="button"
+              onClick={() => setHistory({})}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
+            >
+              <History size={15} /> Class change history
+            </button>
+          </span>
         </div>
+        {changesModal}
         {historyDialog}
       </>
     );
@@ -311,35 +401,17 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
           </button>
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => {
+              setWhole(false);
+              setOpen(true);
+            }}
             className="rounded-md border border-[#c9a227] bg-white px-3 py-1.5 text-sm font-semibold text-[#7a5d00] hover:bg-[#fffaf0]"
           >
             Show what changed
           </button>
         </div>
       </div>
-      <Modal
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Classes the portal has changed"
-        description="What has changed since each section was last approved, across the months of the semester: what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes, and then only that new change is shown."
-        size="wide"
-      >
-        <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
-          {waiting.map((section) => (
-            <SectionDiff
-              key={section.key}
-              section={section}
-              span={span}
-              onApprove={() => approve.mutate(section.key)}
-              approving={approve.isPending && approve.variables === section.key}
-              onHistory={() => setHistory({ crn: section.crn })}
-              known={known}
-              onRecord={setRecord}
-            />
-          ))}
-        </div>
-      </Modal>
+      {changesModal}
       {historyDialog}
     </>
   );
@@ -353,8 +425,11 @@ function SectionDiff({
   onHistory,
   known: registered,
   onRecord,
+  standing,
 }: {
   section: ChangedClasses;
+  /** In the whole term: whether it still waits for approval. Approving is done from the waiting list. */
+  standing?: "waiting" | "approved";
   /** The CRNs the register holds: only those open a record. */
   known: Set<string>;
   onRecord: (asked: RecordAsked) => void;
@@ -403,14 +478,22 @@ function SectionDiff({
           >
             <History size={15} /> History
           </button>
-          <button
-            type="button"
-            onClick={onApprove}
-            disabled={approving}
-            className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
-          >
-            <Check size={16} /> Approve
-          </button>
+          {standing === "waiting" ? (
+            <span className="rounded-full bg-[#fdf6e3] px-2.5 py-1 text-xs font-semibold text-[#8a6116]">Waiting for approval</span>
+          ) : standing === "approved" ? (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#eef7f1] px-2.5 py-1 text-xs font-semibold text-[#2f6b3d]">
+              <Check size={13} /> Approved
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onApprove}
+              disabled={approving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
+            >
+              <Check size={16} /> Approve
+            </button>
+          )}
         </div>
       </div>
       {/*
