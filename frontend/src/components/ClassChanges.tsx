@@ -35,14 +35,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Check, CheckCircle2, History, RotateCcw } from "lucide-react";
 import { Tooltip } from "radix-ui";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
+import { CourseRecord } from "@/components/CourseRecord";
+import { CrnRecord } from "@/components/CrnRecord";
 import { Modal } from "@/components/Modal";
+import { TeacherRecord } from "@/components/TeacherRecord";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
 import { useRooms } from "@/services/rooms";
 import {
+  fetchActiveCrns,
+  fetchActiveTeachers,
   fetchChangeHistory,
   fetchChangedClasses,
   fetchSweptTerms,
@@ -50,9 +55,122 @@ import {
   type ChangeHistoryEntry,
   type ChangedClasses,
 } from "@/services/portalLists";
+import { sameTeacher } from "@/services/teacherLoad";
 import { dismissalsByKey, fetchDismissals, setDismissal } from "@/services/warningDismissals";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** A record to open over the changes: a course's, a CRN's or a teacher's (user, 24 Nov 2026). */
+type RecordAsked = { kind: "course"; code: string } | { kind: "crn"; crn: string } | { kind: "teacher"; name: string };
+
+/**
+ * A course code, CRN or teacher's name in a section's header, pressed to open its record.
+ *
+ * Dotted rather than blue, so the header still reads as a header; it turns to a link under the
+ * pointer. Inside a history entry's summary it must not also fold the entry open or shut.
+ */
+function RecordLink({ children, title, onOpen }: { children: ReactNode; title: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOpen();
+      }}
+      className="rounded-sm underline decoration-[#c8d0da] decoration-dotted underline-offset-[3px] hover:text-[#1f4e79] hover:decoration-[#1f4e79] hover:decoration-solid focus-visible:outline-2 focus-visible:outline-[#1f4e79]"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** "MATH-001 · CRN 22151", each half opening its record; the CRN only when the register holds it. */
+function SectionName({
+  courseCode,
+  crn,
+  known,
+  onRecord,
+}: {
+  courseCode: string;
+  crn: string;
+  known: Set<string>;
+  onRecord: (asked: RecordAsked) => void;
+}) {
+  return (
+    <>
+      {courseCode ? (
+        <RecordLink title={`Open ${courseCode}'s record`} onOpen={() => onRecord({ kind: "course", code: courseCode })}>
+          {courseCode}
+        </RecordLink>
+      ) : (
+        crn
+      )}{" "}
+      · CRN{" "}
+      {known.has(crn) ? (
+        <RecordLink title={`Open CRN ${crn}'s record`} onOpen={() => onRecord({ kind: "crn", crn })}>
+          {crn}
+        </RecordLink>
+      ) : (
+        crn
+      )}
+    </>
+  );
+}
+
+/** The teacher the portal names, opening their record; "Nobody named" when it names none. */
+function TeacherName({ name, onRecord, nobody = "Nobody named" }: { name: string; onRecord: (asked: RecordAsked) => void; nobody?: string }) {
+  if (!name) return <>{nobody}</>;
+  return (
+    <RecordLink title={`Open ${name}'s record`} onOpen={() => onRecord({ kind: "teacher", name })}>
+      {name}
+    </RecordLink>
+  );
+}
+
+/**
+ * The record asked for, over the changes and the history.
+ *
+ * A CRN's record needs the register's own row, so a CRN the register does not hold is not
+ * offered. A teacher is found on Active teachers by the portal's spelling of their name, and
+ * opened by that name when they are not there, the way the portal's teacher list opens one.
+ */
+function ChangeRecords({
+  asked,
+  termCode,
+  onRecord,
+  onClose,
+}: {
+  asked: RecordAsked | null;
+  termCode: string;
+  onRecord: (asked: RecordAsked) => void;
+  onClose: () => void;
+}) {
+  const client = useQueryClient();
+  const crns = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns(), enabled: asked?.kind === "crn" });
+  const teachers = useQuery({ queryKey: ["active-teachers"], queryFn: () => fetchActiveTeachers(), enabled: asked?.kind === "teacher" });
+  if (!asked) return null;
+  if (asked.kind === "course") return <CourseRecord open courseCode={asked.code} onClose={onClose} />;
+  if (asked.kind === "teacher") {
+    if (teachers.isLoading) return null;
+    const held = (teachers.data ?? []).find((teacher) => sameTeacher(teacher.fullName, asked.name));
+    return <TeacherRecord open teacher={held ?? { id: "", fullName: asked.name }} onClose={onClose} />;
+  }
+  const all = crns.data ?? [];
+  const row = all.find((entry) => entry.crn === asked.crn && entry.termCode === termCode) ?? all.find((entry) => entry.crn === asked.crn);
+  if (!row) return null;
+  return (
+    <CrnRecord
+      open
+      row={row}
+      siblings={all.filter((entry) => entry.courseCode === row.courseCode && entry.termCode === row.termCode)}
+      onClose={onClose}
+      onSaved={() => void client.invalidateQueries({ queryKey: ["active-crns"] })}
+      onShowCourse={(code) => onRecord({ kind: "course", code })}
+    />
+  );
+}
 
 /** "8 h removed, 2 h added", leaving out the half that did not happen. */
 function saidIn(lost: number, gained: number): string {
@@ -75,6 +193,8 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
   const [open, setOpen] = useState(false);
   // The history, for every section or for the one whose History was asked for.
   const [history, setHistory] = useState<{ crn?: string } | null>(null);
+  // The record opened from a section's course code, CRN or teacher, over whichever window is open.
+  const [record, setRecord] = useState<RecordAsked | null>(null);
   const terms = useQuery({ queryKey: ["swept-terms"], queryFn: fetchSweptTerms, retry: false });
   const termCode = term || (terms.data?.[0] ?? "");
   const changed = useQuery({
@@ -84,6 +204,9 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
     retry: false,
   });
   const dismissals = useQuery({ queryKey: ["warning-dismissals"], queryFn: fetchDismissals, retry: false });
+  // Which CRNs the register holds, so only those offer a record: read once a window is open.
+  const register = useQuery({ queryKey: ["active-crns"], queryFn: () => fetchActiveCrns(), enabled: open || history !== null });
+  const known = useMemo(() => new Set((register.data ?? []).map((entry) => entry.crn)), [register.data]);
   const approved = useMemo(() => dismissalsByKey(dismissals.data ?? []), [dismissals.data]);
   const waiting = useMemo(
     () => stillToLookAt(changed.data ?? [], approved),
@@ -107,12 +230,17 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
     },
   });
   const historyDialog = (
-    <ChangeHistoryDialog
-      termCode={termCode}
-      crn={history?.crn}
-      open={history !== null}
-      onClose={() => setHistory(null)}
-    />
+    <>
+      <ChangeHistoryDialog
+        termCode={termCode}
+        crn={history?.crn}
+        open={history !== null}
+        onClose={() => setHistory(null)}
+        known={known}
+        onRecord={setRecord}
+      />
+      <ChangeRecords asked={record} termCode={termCode} onRecord={setRecord} onClose={() => setRecord(null)} />
+    </>
   );
 
   /*
@@ -206,6 +334,8 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
               onApprove={() => approve.mutate(section.key)}
               approving={approve.isPending && approve.variables === section.key}
               onHistory={() => setHistory({ crn: section.crn })}
+              known={known}
+              onRecord={setRecord}
             />
           ))}
         </div>
@@ -221,8 +351,13 @@ function SectionDiff({
   onApprove,
   approving,
   onHistory,
+  known: registered,
+  onRecord,
 }: {
   section: ChangedClasses;
+  /** The CRNs the register holds: only those open a record. */
+  known: Set<string>;
+  onRecord: (asked: RecordAsked) => void;
   /** The semester's months, so a section with nothing in September still shows September. */
   span?: { from: string; to: string };
   onApprove: () => void;
@@ -254,10 +389,10 @@ function SectionDiff({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h4 className="text-base font-semibold text-[#344054]">
-            {section.courseCode || section.crn} · CRN {section.crn}
+            <SectionName courseCode={section.courseCode} crn={section.crn} known={registered} onRecord={onRecord} />
           </h4>
           <p className="mt-0.5 text-sm text-[#667085]">
-            {section.teacherName || "Nobody named"} · {said.join(", ")}
+            <TeacherName name={section.teacherName} onRecord={onRecord} /> · {said.join(", ")}
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-3">
@@ -498,12 +633,16 @@ function ChangeHistoryDialog({
   crn,
   open,
   onClose,
+  known,
+  onRecord,
 }: {
   termCode: string;
   /** One section's history, opened from its card; every section's when left out. */
   crn?: string;
   open: boolean;
   onClose: () => void;
+  known: Set<string>;
+  onRecord: (asked: RecordAsked) => void;
 }) {
   const history = useQuery({
     queryKey: ["changed-classes-history", termCode],
@@ -529,7 +668,7 @@ function ChangeHistoryDialog({
       ) : (
         <div className="grid gap-3">
           {shown.map((section) => (
-            <SectionHistory key={section.crn} section={section} opened={Boolean(crn)} />
+            <SectionHistory key={section.crn} section={section} opened={Boolean(crn)} known={known} onRecord={onRecord} />
           ))}
         </div>
       )}
@@ -537,16 +676,26 @@ function ChangeHistoryDialog({
   );
 }
 
-function SectionHistory({ section, opened }: { section: ChangeHistory; opened: boolean }) {
+function SectionHistory({
+  section,
+  opened,
+  known,
+  onRecord,
+}: {
+  section: ChangeHistory;
+  opened: boolean;
+  known: Set<string>;
+  onRecord: (asked: RecordAsked) => void;
+}) {
   return (
     <details open={opened} className="group rounded-lg border border-[#d9dee7] bg-white px-4 py-3">
       <summary className="cursor-pointer list-none">
         <span className="font-semibold text-[#344054]">
-          {section.courseCode || section.crn} · CRN {section.crn}
+          <SectionName courseCode={section.courseCode} crn={section.crn} known={known} onRecord={onRecord} />
         </span>
         <span className="text-sm text-[#667085]">
           {" "}
-          · {section.teacherName || "Nobody named"} · last {moment(section.lastAt)}
+          · <TeacherName name={section.teacherName} onRecord={onRecord} /> · last {moment(section.lastAt)}
         </span>
       </summary>
       <ChangeHistoryEntries entries={section.entries} className="mt-3" />

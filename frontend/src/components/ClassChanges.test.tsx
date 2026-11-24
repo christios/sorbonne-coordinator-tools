@@ -32,10 +32,16 @@ function show() {
   );
 }
 
+/** A section's header, course code, CRN and teacher, however its links break the text up. */
+const header = (text: RegExp) => (_: string, element: Element | null) =>
+  element?.tagName === "SUMMARY" && text.test(element.textContent ?? "");
+
 beforeEach(() => {
   vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
   vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([PHYSICS]);
   vi.spyOn(dismissals, "fetchDismissals").mockResolvedValue([]);
+  // The register, read to know which CRNs open a record: empty unless a test says.
+  vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([]);
 });
 
 describe("the banner", () => {
@@ -162,7 +168,7 @@ describe("the history", () => {
     expect(await screen.findByText(/No class changes waiting for approval/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
 
-    expect(await screen.findByText(/PHYS-125 · CRN 23638/)).toBeTruthy();
+    expect(await screen.findByText(header(/PHYS-125 · CRN 23638/))).toBeTruthy();
     expect(lists.fetchChangeHistory).toHaveBeenCalledWith("262710");
   });
 
@@ -184,7 +190,7 @@ describe("the history", () => {
     show();
 
     fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
-    fireEvent.click(await screen.findByText(/PHYS-125 · CRN 23638/));
+    fireEvent.click(await screen.findByText(header(/PHYS-125 · CRN 23638/)));
 
     // Beside the newest approval only: an older one under it would bring nothing back.
     const [unapprove, ...more] = await screen.findAllByRole("button", { name: "Unapprove" });
@@ -309,5 +315,37 @@ describe("a class the department had already cancelled", () => {
     expect(screen.getByText(/1 class gone \(2 h\), 1 you had cancelled/)).toBeTruthy();
     expect(screen.getByLabelText("2026-09-14: 1 class removed, which you had cancelled")).toBeTruthy();
     expect(screen.getByText("you had cancelled it")).toBeTruthy();
+  });
+});
+
+/*
+ * The course, the CRN and the teacher in a section's header each open their record over the
+ * changes (24 Nov 2026), the CRN only when the register holds it.
+ */
+describe("records from the changes", () => {
+  it("offers each one, and the CRN only when the register holds it", async () => {
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+
+    expect(await screen.findByRole("button", { name: "PHYS-125" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sara Khaled" })).toBeTruthy();
+    // Not in the register: no record to open, so the CRN is plain text.
+    expect(screen.queryByRole("button", { name: "23638" })).toBeNull();
+  });
+
+  it("opens the CRN's record over the changes", async () => {
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([
+      { id: "r1", termCode: "262710", crn: "23638", courseCode: "PHYS-125" } as unknown as lists.ActiveCrn,
+    ]);
+    vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "23638" }));
+
+    // Two windows now: the changes, and the CRN's record on top of them.
+    await waitFor(() => expect(screen.getAllByRole("dialog").length).toBeGreaterThan(1));
+    const dialogs = screen.getAllByRole("dialog");
+    expect(dialogs[dialogs.length - 1].textContent).toContain("23638");
   });
 });
