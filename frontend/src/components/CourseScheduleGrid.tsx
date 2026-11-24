@@ -36,12 +36,14 @@ export type ScheduleDraft = { weeks: Layout; lengths: Lengths };
  * Under a box, the hours its sessions make. A week whose sessions last longer or shorter than
  * usual — a three-hour exam — is said by pressing those hours (18 Nov 2026), and shows them in
  * amber. Each row says how its hours add up against the target the coordinators set — "24 of
- * 24 h", green once it does — and, while editable, spreads the target evenly over the weeks at a
- * press. The targets are not the lead's to change: a lead who disagrees says so in the note.
+ * 24 h", green once it does, red with a warning under the grid once it goes over (24 Nov 2026).
+ * The targets are not the lead's to change: a lead who disagrees says so in the note. Where a
+ * coordinator lays a course out, a row can also be spread evenly at a press; the lead's own
+ * step has no such button (24 Nov 2026).
  *
  * Under each row, its pace (23 Nov 2026): a bar for each week's hours against the dashed line
- * of an even week, the weeks where the hours done so far run well ahead of or behind an even
- * pace in amber, and a line saying how it stands — so a lead sees at once whether the
+ * of an even week, the weeks off an even pace in amber, and a few words on how it stands —
+ * "Evenly spread", "Too many sessions in weeks 1–3" — so a lead sees at once whether the
  * sessions are spread over the semester or bunched up.
  */
 export function CourseScheduleGrid({
@@ -52,6 +54,7 @@ export function CourseScheduleGrid({
   label,
   hint = true,
   only,
+  spreadable = false,
 }: {
   plan: Pick<CoursePlan, "courseCode" | "components">;
   weeks: TeachingWeek[];
@@ -64,11 +67,18 @@ export function CourseScheduleGrid({
   hint?: boolean;
   /** One component's rows alone, as a Groups & CRNs card shows its own: its CM, its TD. */
   only?: Component;
+  /** A "Spread evenly" button on each row, for a coordinator laying the course out; never in the lead's step. */
+  spreadable?: boolean;
 }) {
   const components = componentsOf(plan).filter((component) => !only || component === only);
   const editable = Boolean(onChange);
   const numbers = weeks.map((week) => week.week);
   const { weeks: layout, lengths } = value;
+  // The rows whose sessions make more hours than the coordinators set: said under the grid.
+  const over = components
+    .filter((component) => plan.components[component].length)
+    .map((component) => ({ component, done: hoursLaidOut(plan, layout, component, lengths), set: plan.components[component].hours ?? 0 }))
+    .filter(({ done, set }) => done - set > 0.01);
 
   /**
    * A week's own session lengths for a component, one per session, or back to the usual length
@@ -140,6 +150,7 @@ export function CourseScheduleGrid({
               const done = hoursLaidOut(plan, layout, component, lengths);
               const sessions = sessionsOf(layout[component]);
               const met = Math.abs(done - (target.hours ?? 0)) < 0.01;
+              const tooMany = done - (target.hours ?? 0) > 0.01;
               const pace = paceOf(plan, layout, lengths, component, numbers);
               if (!usual) {
                 // Hours but no session length: nothing to lay out in sessions until Groups & CRNs says one.
@@ -169,16 +180,18 @@ export function CourseScheduleGrid({
                       <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
                       <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
                     </span>
-                    {/* The running total against the locked target: green once they meet. */}
+                    {/* The running total against the locked target: green once they meet, red past it. */}
                     <span
                       data-total={component}
-                      className={`mt-1 flex items-center gap-1 text-sm font-semibold tabular-nums ${met ? "text-[#2e7d55]" : "text-[#8a6116]"}`}
+                      className={`mt-1 flex items-center gap-1 text-sm font-semibold tabular-nums ${
+                        met ? "text-[#2e7d55]" : tooMany ? "text-[#a6292f]" : "text-[#8a6116]"
+                      }`}
                       title={`${sessions} session${sessions === 1 ? "" : "s"}`}
                     >
-                      {met ? <Check size={14} aria-hidden="true" /> : null}
+                      {met ? <Check size={14} aria-hidden="true" /> : tooMany ? <AlertTriangle size={14} aria-hidden="true" /> : null}
                       {figure(done)} of {figure(target.hours ?? 0)} h
                     </span>
-                    {editable ? (
+                    {editable && spreadable ? (
                       <button
                         type="button"
                         // A fresh even spread, every session at the usual length.
@@ -259,6 +272,20 @@ export function CourseScheduleGrid({
           </tbody>
         </table>
       </div>
+      {over.length ? (
+        // More hours than set: a warning, never a refusal — the lead may mean it, and says why in the note.
+        <div role="status" data-over="" className="mt-1.5 flex gap-2 rounded-md border border-[#f4c7c3] bg-[#fef3f2] px-3 py-2 text-sm text-[#a6292f]">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <div>
+            {over.map(({ component, done, set }) => (
+              <p key={component} className="font-semibold">
+                {component}: {figure(done)} h, {figure(done - set)} h more than the {figure(set)} h set.
+              </p>
+            ))}
+            <p className="text-xs text-[#8f2a2f]">Take some sessions out, or say why in the note.</p>
+          </div>
+        </div>
+      ) : null}
       {editable && hint && components.length ? (
         <p className="mt-1.5 text-xs text-[#667085]">
           A week&rsquo;s sessions longer or shorter than usual, like an exam? Press the hours under its box.
@@ -292,7 +319,7 @@ function PaceRow({ component, pace }: { component: Component; pace: Pace }) {
             <span className="flex gap-1 font-semibold">
               <AlertTriangle size={12} className="mt-px shrink-0" aria-hidden="true" /> {paceWords(pace)}
             </span>
-            {pace.usual ? <span className="block pl-4">Even: {pace.usual}</span> : null}
+            {pace.usual ? <span className="block pl-4">Aim for {pace.usual}</span> : null}
           </span>
         )}
       </th>

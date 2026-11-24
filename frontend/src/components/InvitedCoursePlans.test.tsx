@@ -94,10 +94,12 @@ describe("a course lead's step: their courses, week by week", () => {
     expect(within(grid).queryByRole("textbox", { name: /hours/ })).toBeNull();
     // Never laid out, it opens spread evenly (23 Nov 2026): 6 h of 1.5 h sessions over four weeks
     // is one a week; the TD's two sessions fall in weeks 2 and 4.
-    expect(screen.getByText(/Spread evenly over the semester to start with/)).toBeTruthy();
+    expect(screen.getByText(/Filled in evenly to start with/)).toBeTruthy();
+    // The lead spreads the sessions by hand: no button does it for them (24 Nov 2026).
+    expect(within(grid).queryByRole("button", { name: "Spread evenly" })).toBeNull();
     expect(total("CM")).toBe("6 of 6 h");
     expect(total("TD")).toBe("3 of 3 h");
-    expect(document.querySelector('[data-pace="CM"]')?.textContent).toContain("Even over the semester");
+    expect(document.querySelector('[data-pace="CM"]')?.textContent).toContain("Evenly spread");
     // The week a holiday falls in says so.
     expect(within(grid).getByLabelText("A holiday falls in this week")).toBeTruthy();
 
@@ -275,11 +277,11 @@ describe("a course lead's step: their courses, week by week", () => {
     }
     fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "4" } });
     expect(total("CM")).toBe("6 of 6 h");
-    expect(document.querySelector('[data-pace="CM"]')?.textContent).toContain("Ahead of an even pace: 6 of 6 h by week 1 (even: 1.5 h)");
+    expect(document.querySelector('[data-pace="CM"]')?.textContent).toBe("CM pace:  Too many sessions in week 1Aim for 1 session a week");
 
     // Saved without a reason, it is asked for, and nothing is sent.
     fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
-    expect(screen.getByRole("alert").textContent).toBe("Say why MATH-002 is spread unevenly, or press Spread evenly.");
+    expect(screen.getByRole("alert").textContent).toBe("Say why MATH-002 is bunched up, or even it out.");
     expect(save).not.toHaveBeenCalled();
     fireEvent.change(screen.getByRole("textbox", { name: "Why MATH-002 is spread unevenly" }), {
       target: { value: "An intensive first week" },
@@ -305,7 +307,10 @@ describe("a course lead's step: their courses, week by week", () => {
     fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "4" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Why MATH-002 is spread unevenly" }), { target: { value: "Front-loaded" } });
 
-    fireEvent.click(within(grid).getAllByRole("button", { name: "Spread evenly" })[0]);
+    // Evened out by hand again: one lecture a week.
+    for (const week of [1, 2, 3, 4]) {
+      fireEvent.change(within(grid).getByRole("textbox", { name: `CM sessions in week ${week}` }), { target: { value: "1" } });
+    }
     expect(screen.queryByRole("textbox", { name: "Why MATH-002 is spread unevenly" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
     await waitFor(() =>
@@ -313,5 +318,26 @@ describe("a course lead's step: their courses, week by week", () => {
         expect.objectContaining({ weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1, "4": 1 } }, paceReason: "" }),
       ]),
     );
+  });
+
+  it("warns, without refusing, when the sessions make more hours than set", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    expect(document.querySelector("[data-over]")).toBeNull();
+    // Two lectures in week 2: 7.5 h of the 6 h set.
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 2" }), { target: { value: "2" } });
+    expect(total("CM")).toBe("7.5 of 6 h");
+    expect(document.querySelector('[data-total="CM"]')?.className).toContain("text-[#a6292f]");
+    expect(document.querySelector("[data-over]")?.textContent).toBe(
+      "CM: 7.5 h, 1.5 h more than the 6 h set.Take some sessions out, or say why in the note.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    // Back to the hours set, the warning goes.
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 2" }), { target: { value: "1" } });
+    expect(document.querySelector("[data-over]")).toBeNull();
   });
 });

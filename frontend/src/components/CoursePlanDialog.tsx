@@ -88,6 +88,7 @@ export function CourseScheduleEditor({
         value={editing ? draft : { weeks: plan.weeks, lengths: plan.lengths ?? {} }}
         onChange={editing ? setDraft : undefined}
         label={`${plan.courseCode} sessions week by week`}
+        spreadable
       />
       {editing ? (
         <>

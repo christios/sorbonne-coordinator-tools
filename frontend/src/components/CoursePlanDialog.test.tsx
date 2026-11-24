@@ -64,6 +64,8 @@ describe("a course's plan, set from its record opened in Groups & CRNs (23 Nov 2
     expect(screen.getByText("Hours, from Groups & CRNs")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Fill in for the lead" }));
     const grid = screen.getByRole("table", { name: "MATH-002 sessions week by week" });
+    // A coordinator keeps Spread evenly, which the lead's own step no longer has (24 Nov 2026).
+    expect(within(grid).getAllByRole("button", { name: "Spread evenly" }).length).toBe(2);
     fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 1" }), { target: { value: "1" } });
     fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 3" }), { target: { value: "1" } });
     fireEvent.click(screen.getByRole("button", { name: "Save the weeks" }));

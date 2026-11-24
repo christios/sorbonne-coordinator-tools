@@ -231,7 +231,8 @@ export function spreadEvenly(target: number, length: number, weeks: number[]): R
  */
 export type Pace = {
   state: "unset" | "even" | "ahead" | "behind";
-  /** Where the gap is widest: the week, the hours done by its end, and what an even pace would have done. */
+  /** The semester's first teaching week, and where the gap is widest: the week, the hours done by its end, and what an even pace would have done. */
+  from: number;
   week: number;
   done: number;
   even: number;
@@ -240,7 +241,7 @@ export type Pace = {
   perWeek: number;
   /** Each teaching week: its hours, and whether the hours done by its end are off an even pace. */
   weeks: { week: number; hours: number; off: boolean }[];
-  /** An even pace in sessions: "2–3 sessions a week", "1 session every 3–4 weeks". */
+  /** An even pace in sessions: "2–3 sessions a week", "1 session most weeks", "1 session every 3–4 weeks". */
   usual: string;
 };
 
@@ -259,9 +260,20 @@ export function paceOf(
   if (!weeks.length || !(length > 0)) return null;
   const byWeek = weeks.map((week) => weekHours(plan, lengths, component, week, layout[component]?.[String(week)] ?? 0));
   const total = byWeek.reduce((sum, hours) => sum + hours, 0);
-  const usual = evenWords((total || target) / length, weeks.length);
+  // The aim is the hours the coordinators set, so a lead past them isn't told to keep going.
+  const usual = evenWords((target || total) / length, weeks.length);
   if (!(total > 0)) {
-    return { state: "unset", week: 0, done: 0, even: 0, total: 0, perWeek: 0, usual, weeks: weeks.map((week) => ({ week, hours: 0, off: false })) };
+    return {
+      state: "unset",
+      from: weeks[0],
+      week: 0,
+      done: 0,
+      even: 0,
+      total: 0,
+      perWeek: 0,
+      usual,
+      weeks: weeks.map((week) => ({ week, hours: 0, off: false })),
+    };
   }
   const perWeek = total / weeks.length;
   const allowed = Math.max(PACE_WEEKS * perWeek, length) + 0.01;
@@ -275,10 +287,10 @@ export function paceOf(
     return { week, hours: byWeek[index], off: Math.abs(gap) > allowed };
   });
   const state = Math.abs(widest.gap) > allowed ? (widest.gap > 0 ? "ahead" : "behind") : "even";
-  return { state, week: widest.week, done: widest.done, even: widest.even, total, perWeek, usual, weeks: each };
+  return { state, from: weeks[0], week: widest.week, done: widest.done, even: widest.even, total, perWeek, usual, weeks: each };
 }
 
-/** An even pace, in sessions: "2 sessions a week", "2–3 sessions a week", "1 session every 3–4 weeks". */
+/** An even pace, in sessions: "2 sessions a week", "2–3 sessions a week", "1 session most weeks", "1 session every 3–4 weeks". */
 function evenWords(sessions: number, weeks: number): string {
   const count = Math.round(sessions);
   if (!(count > 0) || !(weeks > 0)) return "";
@@ -291,16 +303,20 @@ function evenWords(sessions: number, weeks: number): string {
   const low = Math.floor(weeks / count);
   const high = Math.ceil(weeks / count);
   if (low === high) return `1 session every ${low} weeks`;
-  return low === 1 ? `1 session in ${count} of the ${weeks} weeks` : `1 session every ${low}–${high} weeks`;
+  return low === 1 ? "1 session most weeks" : `1 session every ${low}–${high} weeks`;
 }
 
-/** Where a pace stands, in a line: "Ahead of an even pace: 45 of 60 h by week 9 (even: 32 h)". */
+/**
+ * Where a pace stands, in a few plain words (24 Nov 2026): "Aim for 2 sessions a week" before
+ * anything is laid out, "Evenly spread", or which weeks hold too many or too few sessions —
+ * "Too many sessions in weeks 1–3", from the first teaching week to where the gap is widest.
+ */
 export function paceWords(pace: Pace): string {
-  if (pace.state === "unset") return pace.usual ? `An even pace: ${pace.usual}` : "";
-  if (pace.state === "even") return "Even over the semester";
-  // The even figure to the half hour, as sessions are counted: 31.8 is said 32, 1.5 stays.
-  const even = figure(Math.round(pace.even * 2) / 2);
-  return `${pace.state === "ahead" ? "Ahead of" : "Behind"} an even pace: ${figure(pace.done)} of ${figure(pace.total)} h by week ${pace.week} (even: ${even} h)`;
+  if (pace.state === "unset") return pace.usual ? `Aim for ${pace.usual}` : "";
+  if (pace.state === "even") return "Evenly spread";
+  // Word joiners keep "1–2" whole when the line wraps.
+  const span = pace.week === pace.from ? `week ${pace.week}` : `weeks ${pace.from}\u2060–\u2060${pace.week}`;
+  return `${pace.state === "ahead" ? "Too many" : "Too few"} sessions in ${span}`;
 }
 
 /** The components whose weeks run unevenly, for a course as it stands. */

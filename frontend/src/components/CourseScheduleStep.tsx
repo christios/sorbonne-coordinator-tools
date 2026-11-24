@@ -120,7 +120,7 @@ export function CourseScheduleStep({
           steps={[
             { icon: Hash, title: "Sessions in each week", hint: "Not hours: the hours show under each box" },
             { icon: Clock3, title: "A longer or shorter session?", hint: "Press the hours under its box to change it" },
-            { icon: Target, title: "Reach each total", hint: "Green once they make the hours set · or Spread evenly" },
+            { icon: Target, title: "Reach each total", hint: "It turns green once the hours add up" },
           ]}
         >
           <div className="flex flex-col justify-center gap-0.5 rounded-lg border border-dashed border-[#e5c27a] bg-[#fdf9ee] px-3 py-2">
@@ -163,8 +163,7 @@ export function CourseScheduleStep({
               <>
                 {opened[course.courseCode]?.spread ? (
                   <p className="text-xs text-[#475467]">
-                    Spread evenly over the semester to start with: change the weeks that differ, like an exam week or a
-                    late start.
+                    Filled in evenly to start with. Change the weeks that differ, like an exam week.
                   </p>
                 ) : null}
                 <CourseScheduleGrid
@@ -186,11 +185,11 @@ export function CourseScheduleStep({
               >
                 <span className="flex items-center gap-1.5">
                   <AlertTriangle size={14} aria-hidden="true" />
-                  Why are the {uneven.join(" and ")} sessions spread this way?
+                  Why are the {uneven.join(" and ")} sessions bunched up?
                   <span className="font-normal text-[#8a6116]">(needed)</span>
                 </span>
                 <span className="mt-0.5 block text-xs font-normal text-[#8a6116]">
-                  An even spread is easier for students and rooms. Say why yours isn&rsquo;t, or press Spread evenly.
+                  An even spread is easier for students and rooms. Say why, or even it out.
                 </span>
                 <textarea
                   id={`pace-reason-${course.courseCode}`}
@@ -223,7 +222,7 @@ export function CourseScheduleStep({
 
       {stillUnsaid.length ? (
         <p role="alert" className="text-sm text-[#a6292f]">
-          Say why {stillUnsaid.join(" and ")} {stillUnsaid.length === 1 ? "is" : "are"} spread unevenly, or press Spread evenly.
+          Say why {stillUnsaid.join(" and ")} {stillUnsaid.length === 1 ? "is" : "are"} bunched up, or even {stillUnsaid.length === 1 ? "it" : "them"} out.
         </p>
       ) : null}
       {error ? (
