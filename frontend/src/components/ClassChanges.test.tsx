@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClassChangesBanner } from "@/components/ClassChanges";
@@ -158,10 +158,45 @@ describe("the history", () => {
     vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([]);
     show();
 
+    // A line where the warning would be, saying so, with the history on a button of its own.
+    expect(await screen.findByText(/No class changes waiting for approval/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
 
     expect(await screen.findByText(/PHYS-125 · CRN 23638/)).toBeTruthy();
     expect(lists.fetchChangeHistory).toHaveBeenCalledWith("262710");
+  });
+
+  it("withdraws the latest approval, and only after asking", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([]);
+    const withdraw = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(null);
+    const keyed = (at: string, key: string): lists.ChangeHistoryEntry => ({ kind: "approved", at, by: "Patricia", key });
+    vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([
+      {
+        ...HISTORY,
+        entries: [
+          HISTORY.entries[0],
+          keyed("2026-09-16T08:00:00+00:00", "older"),
+          HISTORY.entries[2],
+          keyed("2026-09-23T08:00:00+00:00", "newest"),
+        ],
+      },
+    ]);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
+    fireEvent.click(await screen.findByText(/PHYS-125 · CRN 23638/));
+
+    // Beside the newest approval only: an older one under it would bring nothing back.
+    const [unapprove, ...more] = await screen.findAllByRole("button", { name: "Unapprove" });
+    expect(more).toHaveLength(0);
+    expect(unapprove.closest("li")?.textContent).toMatch(/23 Sep 2026/);
+    fireEvent.click(unapprove);
+
+    const asked = await screen.findByRole("dialog", { name: "Unapprove this change?" });
+    expect(withdraw).not.toHaveBeenCalled();
+    fireEvent.click(within(asked).getByRole("button", { name: "Unapprove" }));
+
+    await waitFor(() => expect(withdraw).toHaveBeenCalledWith("newest", false));
   });
 
   it("opens on one section from its card, newest first, with who approved what", async () => {

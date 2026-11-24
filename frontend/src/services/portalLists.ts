@@ -947,7 +947,13 @@ export type ChangeHistoryEntry =
       removed: { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean }[];
       added: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
     }
-  | { kind: "approved"; at: string; by: string };
+  | {
+      kind: "approved";
+      at: string;
+      by: string;
+      /** What the approval was given against, so it can be withdrawn. Missing from an older answer. */
+      key?: string;
+    };
 
 /**
  * Everything the registrar has changed in one section this term, and every approval, oldest

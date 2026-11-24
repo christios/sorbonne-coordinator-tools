@@ -753,6 +753,8 @@ def test_the_history_keeps_every_sweep_and_every_approval_in_order(store: Facili
     removal, approval, arrival = record["entries"]
     assert [(m["meetsOn"], m["weCancelled"]) for m in removal["removed"]] == [("2026-09-08", False)]
     assert approval["by"] == "Christian"
+    # What it was given against, so it can be withdrawn from the history.
+    assert approval["key"].startswith(f"registrar-classes-changed:{TERM}:23425:")
     assert [m["meetsOn"] for m in arrival["added"]] == ["2026-09-08", "2026-09-09"]
     assert record["lastAt"] == "2026-11-03T08:00:00+00:00"
 

@@ -730,7 +730,10 @@ class FacilityTimetableStore:
         for key, name, email, at in approvals:
             parts = str(key).split(":")
             if len(parts) == 4 and parts[2] in entries:
-                entries[parts[2]].append({"kind": "approved", "at": str(at), "by": str(name or email or "")})
+                # Its key, so the approval can be withdrawn from where it is read.
+                entries[parts[2]].append(
+                    {"kind": "approved", "at": str(at), "by": str(name or email or ""), "key": str(key)}
+                )
 
         found = []
         for crn, said in entries.items():

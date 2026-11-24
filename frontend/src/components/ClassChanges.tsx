@@ -25,7 +25,7 @@
  * What comes back after an approval is only what has changed since it: the section is
  * measured from the approval, not from the start of term again. What was answered stays
  * readable in the history, which is always one click away, banner or not, and on each
- * CRN's own record.
+ * CRN's own record — and the latest approval of a section can be withdrawn from either.
  *
  * Opening it draws the months. A count cannot show this and a calendar can — three
  * squares left across three months is not a course being taught, and it reads at a glance
@@ -33,10 +33,11 @@
  */
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, History } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, History, RotateCcw } from "lucide-react";
 import { Tooltip } from "radix-ui";
 import { useMemo, useState } from "react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Modal } from "@/components/Modal";
 import { hoursIn, minutesOf, monthsOfDiff, stillToLookAt, unexpected, type DiffDay, type Meeting } from "@/services/classDiff";
 import { formatRoom } from "@/services/weekSchedule";
@@ -114,16 +115,36 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
     />
   );
 
-  // Nothing waiting: no banner, but what was answered is still there to read.
+  /*
+   * Nothing waiting: no warning, but a plain line where it would be, with the history on a
+   * button of its own. It was a small link at the far end of the row, and read as not there
+   * at all — and the history is where an approval is read, and withdrawn, once the warning
+   * has gone. Nothing until both answers are in, so a page with changes waiting does not
+   * first say there are none.
+   */
   if (waiting.length === 0) {
-    if (!termCode) return null;
+    if (!termCode || changed.isLoading || dismissals.isLoading) return null;
     return (
       <>
-        <div className={`${className} flex justify-end`}>
+        <div
+          className={`${className} flex flex-wrap items-center justify-between gap-3 rounded-lg border border-[#d9dee7] bg-white px-4 py-2`}
+        >
+          <p className="flex items-center gap-2 text-sm text-[#667085]">
+            {changed.isError ? (
+              <>
+                <AlertTriangle size={16} className="shrink-0 text-[#a6292f]" /> The portal's class changes could not be
+                read.
+              </>
+            ) : (
+              <>
+                <CheckCircle2 size={16} className="shrink-0 text-[#2f6b3d]" /> No class changes waiting for approval.
+              </>
+            )}
+          </p>
           <button
             type="button"
             onClick={() => setHistory({})}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-[#1f4e79] hover:underline"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
           >
             <History size={15} /> Class change history
           </button>
@@ -534,34 +555,93 @@ function SectionHistory({ section, opened }: { section: ChangeHistory; opened: b
 }
 
 /**
+ * Withdraw an approval, for everybody.
+ *
+ * The approval goes and the section is measured from the one before it again, so what it
+ * approved is back in the banner on Active CRNs and Active teachers until somebody
+ * approves it again. Everything that reads approvals is refreshed: the banner, the
+ * history and the CRN record.
+ */
+function useUnapprove() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (key: string) => setDismissal(key, false),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["warning-dismissals"] });
+      void client.invalidateQueries({ queryKey: ["changed-classes"] });
+      void client.invalidateQueries({ queryKey: ["changed-classes-history"] });
+    },
+  });
+}
+
+/**
  * One section's history, newest first: each sweep that changed its classes, and each
  * approval. The CRN record shows it too, since the banner is gone once nothing waits.
+ *
+ * The section's latest approval can be withdrawn here. Only the latest: it is the one the
+ * banner measures from, so withdrawing it brings back exactly what it approved. An older
+ * one withdrawn under a newer would change nothing anybody could see, which is worse than
+ * not offering it. Once the latest has gone, the one before it is the latest and can go
+ * in its turn.
  */
 export function ChangeHistoryEntries({ entries, className = "" }: { entries: ChangeHistoryEntry[]; className?: string }) {
   const newest = [...entries].reverse();
+  const latest = newest.find((entry) => entry.kind === "approved");
+  const unapprove = useUnapprove();
+  const [asking, setAsking] = useState<string | null>(null);
   return (
-    <ol className={`space-y-3 border-l-2 border-[#e4e7ec] pl-4 ${className}`}>
-      {newest.map((entry, index) =>
-        entry.kind === "approved" ? (
-          <li key={`a${index}`} className="text-sm text-[#0f5132]">
-            <span className="font-semibold">{moment(entry.at)}</span> · approved
-            {entry.by ? ` by ${entry.by}` : ""}
-          </li>
-        ) : (
-          <li key={`c${index}`} className="text-sm">
-            <p className="font-semibold text-[#344054]">{moment(entry.at)} · the portal changed</p>
-            <ul className="mt-1 space-y-0.5">
-              {entry.removed.map((meeting) => (
-                <HistoryLine key={`r${meeting.meetsOn}${meeting.startsAt}`} gone meeting={meeting} />
-              ))}
-              {entry.added.map((meeting) => (
-                <HistoryLine key={`a${meeting.meetsOn}${meeting.startsAt}`} gone={false} meeting={meeting} />
-              ))}
-            </ul>
-          </li>
-        ),
-      )}
-    </ol>
+    <>
+      <ol className={`space-y-3 border-l-2 border-[#e4e7ec] pl-4 ${className}`}>
+        {newest.map((entry, index) =>
+          entry.kind === "approved" ? (
+            <li key={`a${index}`} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[#0f5132]">
+              <span>
+                <span className="font-semibold">{moment(entry.at)}</span> · approved
+                {entry.by ? ` by ${entry.by}` : ""}
+              </span>
+              {entry === latest && entry.key ? (
+                <button
+                  type="button"
+                  onClick={() => setAsking(entry.key ?? null)}
+                  disabled={unapprove.isPending}
+                  className="inline-flex items-center gap-1 rounded-md border border-[#b7bec8] bg-white px-2 py-0.5 text-xs font-semibold text-[#344054] hover:bg-[#f8fafc] disabled:opacity-60"
+                >
+                  <RotateCcw size={12} /> Unapprove
+                </button>
+              ) : null}
+            </li>
+          ) : (
+            <li key={`c${index}`} className="text-sm">
+              <p className="font-semibold text-[#344054]">{moment(entry.at)} · the portal changed</p>
+              <ul className="mt-1 space-y-0.5">
+                {entry.removed.map((meeting) => (
+                  <HistoryLine key={`r${meeting.meetsOn}${meeting.startsAt}`} gone meeting={meeting} />
+                ))}
+                {entry.added.map((meeting) => (
+                  <HistoryLine key={`a${meeting.meetsOn}${meeting.startsAt}`} gone={false} meeting={meeting} />
+                ))}
+              </ul>
+            </li>
+          ),
+        )}
+      </ol>
+      {unapprove.isError ? (
+        <p role="alert" className="mt-2 text-sm text-[#a6292f]">{unapprove.error.message}</p>
+      ) : null}
+      <ConfirmDialog
+        open={asking !== null}
+        title="Unapprove this change?"
+        description="What it approved goes back in the warning on Active CRNs and Active teachers, for everybody, until somebody approves it again."
+        confirmLabel="Unapprove"
+        cancelLabel="Keep it approved"
+        tone="primary"
+        busy={unapprove.isPending}
+        onConfirm={() => {
+          if (asking) unapprove.mutate(asking, { onSettled: () => setAsking(null) });
+        }}
+        onClose={() => setAsking(null)}
+      />
+    </>
   );
 }
 
