@@ -184,8 +184,8 @@ describe("the course cards", () => {
     expect(within(two).getByTitle("31 of 33 seats taken")).toBeTruthy();
   });
 
-  it("says once, on the set's line, what its sections share (24 Nov 2026)", async () => {
-    // Every card used to repeat the set's hours and note; the row that differed was lost.
+  it("says every row's own figures and note in the row, even where the set shares them (24 Nov 2026)", async () => {
+    // Lifted to the set's line for a while when most agreed; the user wanted them in every row.
     const same = { hours: "50", duration: "1.5", comments: "Mutualized with Maths" };
     const shared = structuredClone(CATALOGUES);
     for (const group of shared[0].scopes[0].groups) {
@@ -194,12 +194,11 @@ describe("the course cards", () => {
     vi.spyOn(database, "fetchCourseCards").mockResolvedValue(shared);
     show();
 
-    const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
-    expect(screen.getAllByText("50 h · 1.5 h sessions")).toHaveLength(1);
-    expect(screen.getAllByText("Mutualized with Maths")).toHaveLength(1);
-    // The rows say none of it again.
-    expect(one.textContent).not.toContain("50 h");
-    expect(one.textContent).not.toContain("Mutualized");
+    for (const name of ["Edit TD 1 MATH001", "Edit TD 2 MATH001"]) {
+      const row = (await screen.findByLabelText(name)) as HTMLElement;
+      expect(row.textContent).toContain("50 h · 1.5 h sessions");
+      expect(within(row).getByTitle("Mutualized with Maths")).toBeTruthy();
+    }
   });
 
   it("sends the students a set has not placed to the page where placing happens", async () => {
@@ -499,7 +498,8 @@ describe("hours set for the course, and a card's own (23 Nov 2026)", () => {
     expect(follows.textContent).toContain("45 h");
     expect(within(follows).getByTitle(/45 h, from what the course asks/)).toBeTruthy();
     expect(follows.textContent).not.toContain("the course asks 45 h");
-    // Both sessions are the course's 1.5 h: said once, on the set's line.
-    expect(screen.getByText("1.5 h sessions")).toBeTruthy();
+    // Each row says its sessions, the course's 1.5 h.
+    expect(own.textContent).toContain("1.5 h sessions");
+    expect(follows.textContent).toContain("1.5 h sessions");
   });
 });

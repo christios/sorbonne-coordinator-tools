@@ -118,67 +118,16 @@ function differences(hours: string, duration: string, course: Request): string[]
  * shows (the course's where it says none), how often and in which weeks, and its note.
  */
 type Asked = { hours: string; duration: string; perWeek: string; weeks: string; note: string };
-const ASKED: (keyof Asked)[] = ["hours", "duration", "perWeek", "weeks", "note"];
 
 function askedOf(part: SectionPart, course: Request | undefined): Asked {
   const shown = shownOf(part, course);
   return { hours: shown.hours, duration: shown.duration, perWeek: part.sessionsPerWeek, weeks: part.weeks, note: asks(part) };
 }
 
-/** "50" and "50 h" are one figure; anything else is compared as typed. */
-function sameAs(key: keyof Asked, value: string): string {
-  if (key === "hours" || key === "duration") {
-    const read = hoursIn(value);
-    if (read !== null) return String(read);
-  }
-  return value.trim();
-}
-
-/**
- * What a set's sections have in common, said once on the set's line (user, 24 Nov 2026).
- *
- * Every card used to repeat it: the eight sections of MATH-001 each said "50 HOURS, 1.5 h
- * each" and carried the same three-line note, so the one row that differed was the hardest
- * thing on the page to find. Each figure here is the one more than half of the set's live
- * stretches of teaching hold; a row then says only where it is different. Null where no
- * figure has a majority, and every row says its own.
- */
-type Shared = Record<keyof Asked, string | null>;
-
-function sharedOf(rows: SectionRow[]): Shared {
-  const stretches = rows.flatMap((row) => {
-    const parts = partsOf(row.section);
-    const only = parts.length < 2;
-    return parts.filter((part) => !part.retired).map((part) => askedOf(part, only ? row.course.request : undefined));
-  });
-  const shared = { hours: null, duration: null, perWeek: null, weeks: null, note: null } as Shared;
-  for (const key of ASKED) {
-    const tally = new Map<string, { value: string; count: number }>();
-    for (const each of stretches) {
-      const held = tally.get(sameAs(key, each[key]));
-      if (held) held.count += 1;
-      else tally.set(sameAs(key, each[key]), { value: each[key], count: 1 });
-    }
-    const most = [...tally.values()].sort((a, b) => b.count - a.count)[0];
-    if (most && most.count * 2 > stretches.length) shared[key] = most.value;
-  }
-  return shared;
-}
-
-/**
- * True when a row has to say this figure itself: it differs from the set's, or the set has
- * none — and then a row without hours says so, as hours are what a load is counted from.
- */
-function ownFigure(key: keyof Asked, value: string, shared: Shared): boolean {
-  const common = shared[key];
-  if (common === null) return Boolean(value) || key === "hours";
-  return sameAs(key, value) !== sameAs(key, common);
-}
-
-/** The words for one figure, on a set's line or a row. */
+/** The words for one figure on a row; a row without hours says so, as a load is counted from them. */
 function said(key: keyof Asked, value: string): string {
   if (key === "hours") return value ? `${hoursIn(value) === null ? value : figure(hoursIn(value) ?? 0)} h` : "no hours";
-  if (key === "duration") return value ? `${value} h sessions` : "no session length";
+  if (key === "duration") return value ? `${value} h sessions` : "";
   // "2" reads "2/week"; "1 session a week" is said as typed.
   if (key === "perWeek") return value ? (/week/i.test(value) ? value.trim() : `${value.trim()}/week`) : "";
   if (key === "weeks") return value ? (/week/i.test(value) ? value.trim() : `weeks ${value.trim()}`) : "";
@@ -186,30 +135,12 @@ function said(key: keyof Asked, value: string): string {
 }
 
 /**
- * The set's shared figures, on its line: "50 h · 1.5 h sessions · 2/week". Amber where the
- * set's own differ from what the course asks, with the course's figure in the tooltip.
- */
-function SharedFigures({ shared, course }: { shared: Shared; course: Request }) {
-  const figures = (["hours", "duration", "perWeek", "weeks"] as const)
-    .map((key) => ({ key, words: shared[key] === null ? "" : said(key, shared[key] ?? "") }))
-    .filter((each) => each.words);
-  if (!figures.length) return null;
-  const off = differences(shared.hours ?? "", shared.duration ?? "", course);
-  const words = figures.map((each) => each.words).join(" · ");
-  // One line, whole on hover: a set's weeks can be a sentence.
-  return (
-    <span
-      className={`inline-flex min-w-0 max-w-full items-center gap-1 text-xs tabular-nums lg:max-w-md ${off.length ? "font-semibold text-[#8a6116]" : "text-[#475467]"}`}
-      title={[words, ...(off.length ? off : ["What most of this set's sections share. A row says only what it does differently."])].join("\n")}
-    >
-      {off.length ? <AlertTriangle size={11} aria-hidden="true" className="shrink-0" /> : <Clock3 size={12} aria-hidden="true" className="shrink-0 text-[#98a2b3]" />}
-      <span className="truncate">{words}</span>
-    </span>
-  );
-}
-
-/**
- * The columns a set's rows share: group, CRN, teacher, what is its own, seats, the eye.
+ * The columns a set's rows share: group, CRN, teacher, its figures, seats, the eye.
+ *
+ * Every row says its own hours, session length, weeks and note, even where the whole set
+ * shares them (user, 24 Nov 2026). They were lifted to the set's line for a while when most
+ * sections agreed, which put the same figure on the set's line in one set and in the rows
+ * of the next; the columns line up, so a row that differs is still found by reading down.
  *
  * Free text never wraps a row (user, 24 Nov 2026): a teacher's name, a section's own weeks
  * and its note each take one line, cut short with an ellipsis, and say the whole on hover.
@@ -236,7 +167,6 @@ function PartRow({
   index,
   split,
   dim,
-  shared,
   teacherName,
   portal,
   teacherDrift,
@@ -248,7 +178,6 @@ function PartRow({
   index: number;
   split: boolean;
   dim: boolean;
-  shared: Shared;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
   teacherDrift: Set<string>;
@@ -269,12 +198,11 @@ function PartRow({
   const drifted = Boolean(part.crn) && teacherDrift.has(part.crn);
   const { seats, placed } = cardSeats(row);
 
-  // Only what this stretch does differently from its set, amber where the course asks otherwise.
+  // Its figures, amber where the course asks otherwise.
   const own = (["hours", "duration", "perWeek", "weeks"] as const)
-    .filter((key) => ownFigure(key, asked[key], shared))
     .map((key) => ({ key, words: said(key, asked[key]) }))
     .filter((each) => each.words);
-  const ownNote = ownFigure("note", asked.note, shared) ? asked.note || "No note" : "";
+  const ownNote = asked.note;
   const warn = shown.overrides.length && !gone;
 
   return (
@@ -396,7 +324,7 @@ function PartRow({
       {ownNote || (part.crn && portalRow === null) || (portalRow?.teacherName && drifted) ? (
         <span className="mt-0.5 min-w-0 basis-full space-y-0.5 text-xs leading-5 @lg:col-start-2 @lg:col-end-[-1] @lg:basis-auto">
           {ownNote ? (
-            <span title={asked.note || undefined} className={`block truncate ${asked.note ? (gone ? "text-[#d5dce4]" : "text-[#667085]") : "italic text-[#b7bec8]"}`}>
+            <span title={ownNote} className={`block truncate ${gone ? "text-[#d5dce4]" : "text-[#667085]"}`}>
               {ownNote}
             </span>
           ) : null}
@@ -420,7 +348,6 @@ function PartRow({
  */
 function SectionRows({
   row,
-  shared,
   teacherName,
   portal,
   teacherDrift,
@@ -428,7 +355,6 @@ function SectionRows({
   onShowGroup,
 }: {
   row: SectionRow;
-  shared: Shared;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
   teacherDrift: Set<string>;
@@ -491,7 +417,6 @@ function SectionRows({
           index={index}
           split={split}
           dim={dim}
-          shared={shared}
           teacherName={teacherName}
           portal={portal}
           teacherDrift={teacherDrift}
@@ -687,8 +612,6 @@ export function CourseDetail({
           const spare = set.rows.filter((row) => !row.section && teaches(row));
           // Said not to be taught the course: no row, but pressable, so it can be taught again.
           const untaught = set.rows.filter((row) => row.notTaught);
-          // What its sections share, said once here rather than on every row.
-          const shared = sharedOf(live);
           return (
             <div key={set.scope.id}>
               <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
@@ -701,13 +624,12 @@ export function CourseDetail({
                   {/* A component named after its set — "CM · CM" — says it twice. */}
                   {set.course.component && set.course.component !== set.scope.code ? ` · ${set.course.component}` : ""}
                 </span>
-                <SharedFigures shared={shared} course={set.course.request} />
                 <PlanIssue plan={coursePlan} component={set.course.component || set.scope.code} onOpen={() => setRecordOpen(true)} />
                 <InfoTip label="How to read a section row" title="Reading a section row">
                   <TipDo>Press a row to edit its CRN, teacher, hours and what it asks.</TipDo>
                   <TipPoint>
-                    <TipButton icon={Clock3}>50 h · 1.5 h sessions</TipButton> beside the set&apos;s name: what most of its sections
-                    share, with the note they share under it. A row says only what it does differently.
+                    <TipButton icon={Clock3}>50 h · 1.5 h sessions</TipButton> the section&apos;s hours, session length and weeks, with its
+                    note under the row. Long ones end in &hellip;; hover for the whole.
                   </TipPoint>
                   <TipPoint tone="caution">
                     <TipButton look="warn" icon={AlertTriangle}>45 h</TipButton> differs from what the course asks; the course&apos;s figure
@@ -804,13 +726,10 @@ export function CourseDetail({
               </div>
 
 
-              {/* The note the sections share, under the set's line: said once, read once. */}
-              {shared.note ? <p title={shared.note} className="-mt-1 mb-2 truncate text-xs leading-5 text-[#667085]">{shared.note}</p> : null}
-
               {live.length ? (
                 <SectionList>
                   {live.map((row) => (
-                    <SectionRows key={rowKey(row)} row={row} shared={shared} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                   ))}
                 </SectionList>
               ) : null}
@@ -830,7 +749,7 @@ export function CourseDetail({
                     <div className="mt-2">
                       <SectionList faded>
                         {retired.map((row) => (
-                          <SectionRows key={rowKey(row)} row={row} shared={shared} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                          <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                         ))}
                       </SectionList>
                     </div>
