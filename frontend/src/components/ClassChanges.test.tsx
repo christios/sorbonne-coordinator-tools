@@ -351,36 +351,86 @@ describe("records from the changes", () => {
 });
 
 /*
- * The whole term beside what waits (24 Nov 2026): every section the portal changed, from when
- * it was first seen, the approved ones too, tagged and read-only.
+ * Each entry of the window switches between what waits and its whole term; approved entries
+ * can be listed too; and a course's or a teacher's CRNs can be read on one calendar
+ * (24 Nov 2026).
  */
-describe("the whole term", () => {
-  const APPROVED_ONE: lists.ChangedClasses = { ...PHYSICS, crn: "24100", courseCode: "MATH-001", teacherName: "Bilal Maaz", key: "registrar-classes-changed:262710:24100:def456" };
+describe("the changes window, entry by entry", () => {
+  const WHOLE_PHYSICS: lists.ChangedClasses = {
+    ...PHYSICS,
+    removed: [...PHYSICS.removed, { meetsOn: "2026-09-28", startsAt: "10:30", endsAt: "12:30", room: "4.128" }],
+    key: "registrar-classes-changed:262710:23638:whole",
+  };
+  const APPROVED_ONE: lists.ChangedClasses = {
+    ...PHYSICS,
+    crn: "24100",
+    courseCode: "MATH-001",
+    teacherName: "Bilal Maaz",
+    key: "registrar-classes-changed:262710:24100:def456",
+  };
+  const card = (name: RegExp) => screen.getByRole("group", { name }).closest("section") as HTMLElement;
 
-  it("lists every changed section, tagged, with approving left to the waiting list", async () => {
-    const read = vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [PHYSICS, APPROVED_ONE] : [PHYSICS]));
+  it("switches one CRN between since its approval and its whole term", async () => {
+    const read = vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [WHOLE_PHYSICS] : [PHYSICS]));
     show();
     fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
-    expect(await screen.findByRole("button", { name: "Approve" })).toBeTruthy();
+    await screen.findByRole("group", { name: /Changes shown for CRN 23638/ });
+    expect(card(/CRN 23638/).textContent).toContain("2 classes gone");
 
-    fireEvent.click(screen.getByRole("button", { name: "Whole term" }));
+    fireEvent.click(within(card(/CRN 23638/)).getByRole("button", { name: "Whole term" }));
 
-    expect(await screen.findByText("MATH-001")).toBeTruthy();
+    await waitFor(() => expect(card(/CRN 23638/).textContent).toContain("3 classes gone"));
     expect(read).toHaveBeenCalledWith("262710", true);
-    expect(screen.getByText("Waiting for approval")).toBeTruthy();
-    expect(screen.getByText("Approved")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
   });
 
-  it("stays one press away when nothing is waiting", async () => {
+  it("lists the all-approved ones too when asked, on their whole term", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [WHOLE_PHYSICS, APPROVED_ONE] : [PHYSICS]));
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    await screen.findByRole("button", { name: "Approve" });
+    expect(screen.queryByRole("button", { name: "MATH-001" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show approved too" }));
+
+    expect(await screen.findByRole("button", { name: "MATH-001" })).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(1);
+  });
+
+  it("opens on the whole term, approved ones listed, when nothing is waiting", async () => {
     vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [APPROVED_ONE] : []));
     vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([]);
     show();
 
     fireEvent.click(await screen.findByRole("button", { name: /All changes this term/ }));
 
-    expect(await screen.findByText("MATH-001")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Whole term" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "MATH-001" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Show approved too" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("reads a teacher's CRNs on one calendar, where a class that only moved between them is not news", async () => {
+    // Miklos's 25 Nov class: gone from his lecture CRN, arrived in his tutorial CRN, same hour.
+    const slot = { meetsOn: "2026-11-25", startsAt: "10:30", endsAt: "12:30", room: "4.128" };
+    const lecture: lists.ChangedClasses = { ...PHYSICS, crn: "24092", courseCode: "PHYS-208", teacherName: "Miklos Example", removed: [slot], added: [], kept: [], key: "k-lecture" };
+    const tutorial: lists.ChangedClasses = { ...PHYSICS, crn: "24233", courseCode: "PHYS-208", teacherName: "Miklos Example", removed: [], added: [slot], kept: [], key: "k-tutorial" };
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([lecture, tutorial]);
+    const approveOne = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(null);
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    expect(await screen.findAllByRole("button", { name: "Approve" })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "By teacher" }));
+
+    const one = card(/Changes shown for Miklos Example/);
+    expect(one.textContent).toContain("1 moved between their CRNs");
+    expect(one.textContent).not.toMatch(/gone|arrived/);
+    fireEvent.click(within(one).getByRole("button", { name: "Approve all 2" }));
+    await waitFor(() => expect(approveOne).toHaveBeenCalledTimes(2));
+    expect(approveOne).toHaveBeenCalledWith("k-lecture", true);
+    expect(approveOne).toHaveBeenCalledWith("k-tutorial", true);
+
+    // By course, the same two CRNs are one entry too.
+    fireEvent.click(screen.getByRole("button", { name: "By course" }));
+    expect(card(/Changes shown for PHYS-208/).textContent).toContain("24092, 24233");
   });
 });

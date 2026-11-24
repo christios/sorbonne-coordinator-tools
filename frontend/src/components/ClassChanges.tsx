@@ -192,12 +192,19 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
   const client = useQueryClient();
   const [open, setOpen] = useState(false);
   /*
-   * Every change this term rather than only what waits for approval (user, 24 Nov 2026): each
-   * section from when it was first seen, the approved ones too, read-only and tagged.
+   * How the window lists the changes (user, 24 Nov 2026): a CRN at a time, or a course's or a
+   * teacher's CRNs on one calendar — where a class that only moved from one of their CRNs to
+   * another at the same date and time is not news. Miklos's class went from his lecture CRN
+   * to his tutorial CRN on 25 Nov: removed on one card, added on another, and there all along
+   * in his timetable.
    */
-  const [whole, setWhole] = useState(false);
-  // The history, for every section or for the one whose History was asked for.
-  const [history, setHistory] = useState<{ crn?: string } | null>(null);
+  const [viewBy, setViewBy] = useState<ViewBy>("crn");
+  // The entries whose changes are all approved, listed too: each opens on its whole term.
+  const [withApproved, setWithApproved] = useState(false);
+  // Each entry's own choice: since its last approval, or its whole term.
+  const [modes, setModes] = useState<Record<string, Mode>>({});
+  // The history, for every section or for the ones whose History was asked for.
+  const [history, setHistory] = useState<{ crns?: string[] } | null>(null);
   // The record opened from a section's course code, CRN or teacher, over whichever window is open.
   const [record, setRecord] = useState<RecordAsked | null>(null);
   const terms = useQuery({ queryKey: ["swept-terms"], queryFn: fetchSweptTerms, retry: false });
@@ -217,20 +224,16 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
     () => stillToLookAt(changed.data ?? [], approved),
     [changed.data, approved],
   );
+  // Every section from when it was first seen: each entry's whole term, and the approved ones.
   const everything = useQuery({
     queryKey: ["changed-classes", termCode, "whole"],
     queryFn: () => fetchChangedClasses(termCode, true),
-    enabled: open && whole && Boolean(termCode),
+    enabled: open && Boolean(termCode),
     retry: false,
   });
-  const waitingCrns = useMemo(() => new Set(waiting.map((section) => section.crn)), [waiting]);
-  // In the whole term, what still waits comes first, so it is not lost among the approved.
-  const shown = useMemo(
-    () =>
-      whole
-        ? [...(everything.data ?? [])].sort((a, b) => Number(waitingCrns.has(b.crn)) - Number(waitingCrns.has(a.crn)))
-        : waiting,
-    [whole, everything.data, waiting, waitingCrns],
+  const groups = useMemo(
+    () => groupsOf(waiting, everything.data ?? [], viewBy, withApproved),
+    [waiting, everything.data, viewBy, withApproved],
   );
   /*
    * The semester the months are drawn across: from the first class any listed section
@@ -239,11 +242,16 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
    * — 24 August — and it drew an August nobody taught in.
    */
   const span = useMemo(() => {
-    const dates = shown.flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn)).sort();
+    const dates = [...waiting, ...(everything.data ?? [])]
+      .flatMap((section) => [...section.kept, ...section.removed, ...section.added].map((meeting) => meeting.meetsOn))
+      .sort();
     return dates.length ? { from: dates[0], to: dates[dates.length - 1] } : undefined;
-  }, [shown]);
+  }, [waiting, everything.data]);
   const approve = useMutation({
-    mutationFn: (key: string) => setDismissal(key, true),
+    // A course's or a teacher's entry approves each of its sections that waits.
+    mutationFn: async (keys: string[]) => {
+      for (const key of keys) await setDismissal(key, true);
+    },
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: ["warning-dismissals"] });
       void client.invalidateQueries({ queryKey: ["changed-classes-history"] });
@@ -253,7 +261,7 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
     <>
       <ChangeHistoryDialog
         termCode={termCode}
-        crn={history?.crn}
+        crns={history?.crns}
         open={history !== null}
         onClose={() => setHistory(null)}
         known={known}
@@ -268,52 +276,65 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
       open={open}
       onClose={() => setOpen(false)}
       title="Classes the portal has changed"
-      description={
-        whole
-          ? "Every change the portal has made to our classes this term, from when each section was first seen, whether or not it has been approved: what still meets, what has gone and what has arrived."
-          : "What has changed since each section was last approved, across the months of the semester: what still meets, what has gone and what has arrived. Approving one keeps it out of the banner until something else about it changes, and then only that new change is shown."
-      }
+      description="What has changed since each section was last approved, across the months of the semester: what still meets, what has gone and what has arrived. Each one can show its whole term instead. Approving one keeps it out of the banner until something else about it changes, and then only that new change is shown."
       size="wide"
     >
-      <div role="group" aria-label="Which changes" className="mb-4 inline-flex rounded-md border border-[#d9dee7] bg-[#f8fafc] p-0.5 text-sm">
-        {([
-          [false, `Waiting for approval${waiting.length ? ` (${waiting.length})` : ""}`],
-          [true, "Whole term"],
-        ] as const).map(([value, label]) => (
-          <button
-            key={label}
-            type="button"
-            aria-pressed={whole === value}
-            onClick={() => setWhole(value)}
-            className={`rounded px-3 py-1 font-medium ${whole === value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
-          >
-            {label}
-          </button>
-        ))}
+      <div className="mb-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+        <div role="group" aria-label="View by" className="inline-flex rounded-md border border-[#d9dee7] bg-[#f8fafc] p-0.5">
+          {(
+            [
+              ["crn", "By CRN"],
+              ["course", "By course"],
+              ["teacher", "By teacher"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              aria-pressed={viewBy === value}
+              onClick={() => setViewBy(value)}
+              className={`rounded px-3 py-1 font-medium ${viewBy === value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="inline-flex items-center gap-2 text-[#344054]">
+          <input type="checkbox" checked={withApproved} onChange={(event) => setWithApproved(event.target.checked)} />
+          Show approved too
+        </label>
       </div>
-      {whole && everything.isLoading ? (
-        <p className="text-sm text-[#667085]">Loading every change this term…</p>
-      ) : whole && everything.isError ? (
-        <p className="text-sm text-[#842029]">The term&apos;s changes could not be read.</p>
-      ) : shown.length === 0 ? (
+      {groups.length === 0 ? (
         <p className="text-sm text-[#667085]">
-          {whole ? "The portal has not changed any of our classes this term." : "Nothing is waiting for approval."}
+          {withApproved && everything.isLoading
+            ? "Loading every change this term…"
+            : withApproved && everything.isError
+              ? "The term's changes could not be read."
+              : withApproved
+                ? "The portal has not changed any of our classes this term."
+                : "Nothing is waiting for approval."}
         </p>
       ) : (
         <div className="grid grid-cols-[minmax(0,1fr)] gap-6">
-          {shown.map((section) => (
-            <SectionDiff
-              key={section.key}
-              section={section}
-              span={span}
-              onApprove={() => approve.mutate(section.key)}
-              approving={approve.isPending && approve.variables === section.key}
-              onHistory={() => setHistory({ crn: section.crn })}
-              known={known}
-              onRecord={setRecord}
-              standing={whole ? (waitingCrns.has(section.crn) ? "waiting" : "approved") : undefined}
-            />
-          ))}
+          {groups.map((group) => {
+            const keys = group.since.map((section) => section.key);
+            return (
+              <GroupDiff
+                key={group.id}
+                group={group}
+                by={viewBy}
+                mode={group.since.length ? (modes[group.id] ?? "since") : "whole"}
+                onMode={(mode) => setModes((current) => ({ ...current, [group.id]: mode }))}
+                wholeLoading={everything.isLoading}
+                span={span}
+                onApprove={() => approve.mutate(keys)}
+                approving={approve.isPending && (approve.variables ?? []).some((key) => keys.includes(key))}
+                onHistory={() => setHistory({ crns: membersOf(group).map((section) => section.crn) })}
+                known={known}
+                onRecord={setRecord}
+              />
+            );
+          })}
         </div>
       )}
     </Modal>
@@ -350,7 +371,7 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
             <button
               type="button"
               onClick={() => {
-                setWhole(true);
+                setWithApproved(true);
                 setOpen(true);
               }}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb]"
@@ -402,7 +423,7 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
           <button
             type="button"
             onClick={() => {
-              setWhole(false);
+              setWithApproved(false);
               setOpen(true);
             }}
             className="rounded-md border border-[#c9a227] bg-white px-3 py-1.5 text-sm font-semibold text-[#7a5d00] hover:bg-[#fffaf0]"
@@ -417,19 +438,167 @@ export function ClassChangesBanner({ className = "", term = "" }: { className?: 
   );
 }
 
-function SectionDiff({
-  section,
+type ViewBy = "crn" | "course" | "teacher";
+type Mode = "since" | "whole";
+
+/** One entry of the changes window: a CRN, or one course's or one teacher's changed CRNs. */
+type ChangeGroup = {
+  id: string;
+  /** Its sections with something waiting, each measured from its last approval. */
+  since: ChangedClasses[];
+  /** Its sections from when each was first seen, approved or not. */
+  whole: ChangedClasses[];
+};
+
+/** What an entry draws: one section, or a course's or a teacher's sections on one calendar. */
+type ShownSection = {
+  courseCode: string;
+  title: string;
+  crn: string;
+  teacherName: string;
+  kept: Meeting[];
+  removed: Meeting[];
+  added: Meeting[];
+  /** Classes that only moved from one of its CRNs to another, at the same date and time. */
+  moved: number;
+};
+
+const nameKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+
+function groupKey(section: ChangedClasses, by: ViewBy): string {
+  if (by === "course") return `course:${section.courseCode || section.crn}`;
+  if (by === "teacher") return `teacher:${nameKey(section.teacherName)}`;
+  return `crn:${section.crn}`;
+}
+
+/** Its sections, once each, whichever of the two readings they came from. */
+function membersOf(group: ChangeGroup): ChangedClasses[] {
+  const seen = new Map<string, ChangedClasses>();
+  for (const section of [...group.since, ...group.whole]) if (!seen.has(section.crn)) seen.set(section.crn, section);
+  return [...seen.values()];
+}
+
+/** The window's entries: what waits first, then — when asked — the ones all approved. */
+function groupsOf(waiting: ChangedClasses[], whole: ChangedClasses[], by: ViewBy, withApproved: boolean): ChangeGroup[] {
+  const held = new Map<string, ChangeGroup>();
+  const take = (section: ChangedClasses, into: "since" | "whole") => {
+    const id = groupKey(section, by);
+    const group = held.get(id) ?? { id, since: [], whole: [] };
+    group[into].push(section);
+    held.set(id, group);
+  };
+  for (const section of waiting) take(section, "since");
+  for (const section of whole) take(section, "whole");
+  return [...held.values()]
+    .filter((group) => group.since.length || (withApproved && group.whole.length))
+    .sort((a, b) => Number(b.since.length > 0) - Number(a.since.length > 0) || a.id.localeCompare(b.id));
+}
+
+const bySlot = (a: Meeting, b: Meeting) => `${a.meetsOn}${a.startsAt}`.localeCompare(`${b.meetsOn}${b.startsAt}`);
+
+/**
+ * Sections laid on one calendar, each class carrying its CRN.
+ *
+ * A class removed from one of them and added to another at the same date and time only moved
+ * between them: for the course or the teacher it is still there, so it is drawn as unchanged
+ * and counted as moved. One the department had cancelled is not netted: the registrar putting
+ * it back elsewhere is news.
+ */
+function shownOf(sections: ChangedClasses[]): ShownSection {
+  const many = sections.length > 1;
+  const tag = (meeting: Meeting, crn: string): Meeting => (many ? { ...meeting, crn } : meeting);
+  const kept: Meeting[] = sections.flatMap((section) => section.kept.map((meeting) => tag(meeting, section.crn)));
+  let removed: Meeting[] = sections.flatMap((section) => section.removed.map((meeting) => tag(meeting, section.crn)));
+  let added: Meeting[] = sections.flatMap((section) => section.added.map((meeting) => tag(meeting, section.crn)));
+  let moved = 0;
+  if (many) {
+    const slot = (meeting: Meeting) => `${meeting.meetsOn}|${meeting.startsAt}|${meeting.endsAt}`;
+    const arrivals = [...added];
+    const losses: Meeting[] = [];
+    for (const gone of removed) {
+      const at = gone.weCancelled ? -1 : arrivals.findIndex((came) => slot(came) === slot(gone) && came.crn !== gone.crn);
+      if (at < 0) {
+        losses.push(gone);
+        continue;
+      }
+      const [came] = arrivals.splice(at, 1);
+      kept.push({ ...came, moved: { from: gone.crn ?? "", to: came.crn ?? "" } });
+      moved += 1;
+    }
+    removed = losses;
+    added = arrivals;
+  }
+  const once = (values: string[]) => [...new Set(values.filter(Boolean))];
+  const titles = once(sections.map((section) => section.title));
+  return {
+    courseCode: once(sections.map((section) => section.courseCode)).join(", "),
+    title: titles.length === 1 ? titles[0] : "",
+    crn: sections.map((section) => section.crn).join(", "),
+    teacherName: once(sections.map((section) => section.teacherName)).join(", "),
+    kept: kept.sort(bySlot),
+    removed: removed.sort(bySlot),
+    added: added.sort(bySlot),
+    moved,
+  };
+}
+
+/** "Since approval" or "Whole term", for one entry. */
+function ModeSwitch({ mode, onMode, label }: { mode: Mode; onMode: (mode: Mode) => void; label: string }) {
+  return (
+    <div role="group" aria-label={`Changes shown for ${label}`} className="inline-flex rounded-md border border-[#d9dee7] bg-[#f8fafc] p-0.5 text-xs">
+      {(
+        [
+          ["since", "Since approval"],
+          ["whole", "Whole term"],
+        ] as const
+      ).map(([value, text]) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={mode === value}
+          onClick={() => onMode(value)}
+          className={`rounded px-2 py-0.5 font-medium ${mode === value ? "bg-white text-[#1f4e79] shadow-sm" : "text-[#667085] hover:text-[#344054]"}`}
+        >
+          {text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** "PHYS-208 · CRN 24092; PHYS-210 · CRN 24233", each part opening its record. */
+function SectionNames({ sections, known, onRecord }: { sections: ChangedClasses[]; known: Set<string>; onRecord: (asked: RecordAsked) => void }) {
+  return (
+    <>
+      {sections.map((section, index) => (
+        <span key={section.crn}>
+          {index ? "; " : ""}
+          <SectionName courseCode={section.courseCode} crn={section.crn} known={known} onRecord={onRecord} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function GroupDiff({
+  group,
+  by,
+  mode,
+  onMode,
+  wholeLoading,
   span,
   onApprove,
   approving,
   onHistory,
   known: registered,
   onRecord,
-  standing,
 }: {
-  section: ChangedClasses;
-  /** In the whole term: whether it still waits for approval. Approving is done from the waiting list. */
-  standing?: "waiting" | "approved";
+  group: ChangeGroup;
+  by: ViewBy;
+  mode: Mode;
+  onMode: (mode: Mode) => void;
+  /** The whole term is still being read, so an entry showing it has nothing to draw yet. */
+  wholeLoading: boolean;
   /** The CRNs the register holds: only those open a record. */
   known: Set<string>;
   onRecord: (asked: RecordAsked) => void;
@@ -437,9 +606,12 @@ function SectionDiff({
   span?: { from: string; to: string };
   onApprove: () => void;
   approving: boolean;
-  /** Everything that ever changed in this section, and who approved what. */
+  /** Everything that ever changed in its sections, and who approved what. */
   onHistory: () => void;
 }) {
+  const sections = mode === "since" ? group.since : group.whole;
+  const section = useMemo(() => shownOf(sections), [sections]);
+  const members = membersOf(group);
   const months = useMemo(
     () => monthsOfDiff(section.kept, section.removed, section.added, span),
     [section.kept, section.removed, section.added, span],
@@ -457,20 +629,62 @@ function SectionDiff({
     news.length ? `${news.length} class${news.length === 1 ? "" : "es"} gone (${lost} h)` : "",
     known ? `${known} you had cancelled` : "",
     section.added.length ? `${section.added.length} arrived (${gained} h)` : "",
+    section.moved ? `${section.moved} moved between ${by === "teacher" ? "their" : "its"} CRNs` : "",
     `${section.kept.length} unchanged (${left} h)`,
   ].filter(Boolean);
+  const teachers = [...new Set(members.map((each) => each.teacherName).filter(Boolean))];
+  const label = by === "teacher" ? members[0]?.teacherName || "Nobody named" : by === "course" ? members[0]?.courseCode || members[0]?.crn : `CRN ${members[0]?.crn}`;
+  const waits = group.since.length;
   return (
     <section className="rounded-lg border border-[#d9dee7] bg-white p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h4 className="text-base font-semibold text-[#344054]">
-            <SectionName courseCode={section.courseCode} crn={section.crn} known={registered} onRecord={onRecord} />
+            {by === "teacher" ? (
+              <TeacherName name={members[0]?.teacherName ?? ""} onRecord={onRecord} />
+            ) : by === "course" && members.length > 1 ? (
+              <>
+                {members[0].courseCode ? (
+                  <RecordLink title={`Open ${members[0].courseCode}'s record`} onOpen={() => onRecord({ kind: "course", code: members[0].courseCode })}>
+                    {members[0].courseCode}
+                  </RecordLink>
+                ) : null}{" "}
+                · CRN{" "}
+                {members.map((each, index) => (
+                  <span key={each.crn}>
+                    {index ? ", " : ""}
+                    {registered.has(each.crn) ? (
+                      <RecordLink title={`Open CRN ${each.crn}'s record`} onOpen={() => onRecord({ kind: "crn", crn: each.crn })}>
+                        {each.crn}
+                      </RecordLink>
+                    ) : (
+                      each.crn
+                    )}
+                  </span>
+                ))}
+              </>
+            ) : (
+              <SectionName courseCode={members[0]?.courseCode ?? ""} crn={members[0]?.crn ?? ""} known={registered} onRecord={onRecord} />
+            )}
           </h4>
           <p className="mt-0.5 text-sm text-[#667085]">
-            <TeacherName name={section.teacherName} onRecord={onRecord} /> · {said.join(", ")}
+            {by === "teacher" ? (
+              <SectionNames sections={members} known={registered} onRecord={onRecord} />
+            ) : teachers.length ? (
+              teachers.map((name, index) => (
+                <span key={name}>
+                  {index ? ", " : ""}
+                  <TeacherName name={name} onRecord={onRecord} />
+                </span>
+              ))
+            ) : (
+              "Nobody named"
+            )}
+            {sections.length ? ` · ${said.join(", ")}` : ""}
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3">
+          {waits ? <ModeSwitch mode={mode} onMode={onMode} label={label} /> : null}
           <button
             type="button"
             onClick={onHistory}
@@ -478,75 +692,80 @@ function SectionDiff({
           >
             <History size={15} /> History
           </button>
-          {standing === "waiting" ? (
-            <span className="rounded-full bg-[#fdf6e3] px-2.5 py-1 text-xs font-semibold text-[#8a6116]">Waiting for approval</span>
-          ) : standing === "approved" ? (
-            <span className="inline-flex items-center gap-1 rounded-full bg-[#eef7f1] px-2.5 py-1 text-xs font-semibold text-[#2f6b3d]">
-              <Check size={13} /> Approved
-            </span>
-          ) : (
+          {waits ? (
             <button
               type="button"
               onClick={onApprove}
               disabled={approving}
               className="inline-flex items-center gap-1.5 rounded-md border border-[#b7bec8] bg-white px-3 py-1.5 text-sm font-semibold text-[#1f4e79] hover:bg-[#f2f7fb] disabled:opacity-60"
             >
-              <Check size={16} /> Approve
+              <Check size={16} /> {waits === 1 ? "Approve" : `Approve all ${waits}`}
             </button>
+          ) : (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#eef7f1] px-2.5 py-1 text-xs font-semibold text-[#2f6b3d]">
+              <Check size={13} /> Approved
+            </span>
           )}
         </div>
       </div>
-      {/*
-        * Every month the section touches on one row, however many there are. A semester
-        * read as a strip is the whole point of drawing it — three squares left across
-        * September, October and November is a course that stopped, and that only shows
-        * when the months are side by side. Wrapped, the last month dropped under the
-        * first and the shape went with it. So the columns share the width and the days
-        * shrink to fit rather than the row breaking.
-        *
-        * A month is never wider than a quarter of the row, though: a section that touches
-        * one month drew it the whole width across, squares the size of buttons, and two
-        * sections one under the other stopped looking like the same kind of thing.
-        */}
-      <div className="mt-4 grid auto-cols-[minmax(9rem,calc((100%-3rem)/4))] grid-flow-col gap-4 overflow-x-auto pb-1">
-        {months.map((month) => (
-          <div key={month.label} className="min-w-0">
-            <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
-            <div className="mt-2 grid grid-cols-7 gap-[3px]">
-              {WEEKDAYS.map((day) => (
-                <span key={day} className="truncate text-center text-[10px] font-medium text-[#98a2b3]">
-                  {day}
-                </span>
-              ))}
-              {month.days.map((day, index) => (
-                <Square key={day?.day ?? `blank-${index}`} day={day} section={section} />
-              ))}
-            </div>
+      {!sections.length ? (
+        <p className="mt-4 text-sm text-[#667085]">{wholeLoading ? "Loading the whole term…" : "Nothing to show."}</p>
+      ) : (
+        <>
+          {/*
+            * Every month the section touches on one row, however many there are. A semester
+            * read as a strip is the whole point of drawing it — three squares left across
+            * September, October and November is a course that stopped, and that only shows
+            * when the months are side by side. Wrapped, the last month dropped under the
+            * first and the shape went with it. So the columns share the width and the days
+            * shrink to fit rather than the row breaking.
+            *
+            * A month is never wider than a quarter of the row, though: a section that touches
+            * one month drew it the whole width across, squares the size of buttons, and two
+            * sections one under the other stopped looking like the same kind of thing.
+            */}
+          <div className="mt-4 grid auto-cols-[minmax(9rem,calc((100%-3rem)/4))] grid-flow-col gap-4 overflow-x-auto pb-1">
+            {months.map((month) => (
+              <div key={month.label} className="min-w-0">
+                <p className="text-sm font-semibold text-[#344054]">{month.label}</p>
+                <div className="mt-2 grid grid-cols-7 gap-[3px]">
+                  {WEEKDAYS.map((day) => (
+                    <span key={day} className="truncate text-center text-[10px] font-medium text-[#98a2b3]">
+                      {day}
+                    </span>
+                  ))}
+                  {month.days.map((day, index) => (
+                    <Square key={day?.day ?? `blank-${index}`} day={day} section={section} />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#667085]">
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> unchanged
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#f8d7da]" /> removed
-        </span>
-        <span className="inline-flex items-center gap-1.5">
-          <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> added
-        </span>
-        {both ? (
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd] ring-2 ring-inset ring-[#e07c84]" /> arrived
-            where one was removed the same day
-          </span>
-        ) : null}
-        {known ? (
-          <span className="inline-flex items-center gap-1.5">
-            <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
-          </span>
-        ) : null}
-      </p>
+          <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[#667085]">
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-sm bg-[#cfe2ff]" /> unchanged
+              {section.moved ? ", or only moved between these CRNs" : ""}
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-sm bg-[#f8d7da]" /> removed
+            </span>
+            <span className="inline-flex items-center gap-1.5">
+              <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd]" /> added
+            </span>
+            {both ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-3 w-3 rounded-sm bg-[#d1e7dd] ring-2 ring-inset ring-[#e07c84]" /> arrived
+                where one was removed the same day
+              </span>
+            ) : null}
+            {known ? (
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-block h-3 w-3 rounded-sm bg-[#e9ecef]" /> you had cancelled it
+              </span>
+            ) : null}
+          </p>
+        </>
+      )}
     </section>
   );
 }
@@ -589,7 +808,7 @@ function ClassLine({ meeting, tone, note }: { meeting: Meeting; tone: string; no
  * meets, went or arrived — its hours, length and room. The square's colour says what
  * happened; this says to what.
  */
-function DayCard({ day, section }: { day: DiffDay; section: ChangedClasses }) {
+function DayCard({ day, section }: { day: DiffDay; section: ShownSection }) {
   const groups: { title: string; tone: string; meetings: Meeting[] }[] = [
     { title: "Removed", tone: "text-[#842029]", meetings: day.removed },
     { title: "Added", tone: "text-[#0f5132]", meetings: day.added },
@@ -613,10 +832,18 @@ function DayCard({ day, section }: { day: DiffDay; section: ChangedClasses }) {
             <ul className="mt-0.5 space-y-0.5">
               {group.meetings.map((meeting) => (
                 <ClassLine
-                  key={`${meeting.startsAt}|${meeting.room}`}
+                  key={`${meeting.startsAt}|${meeting.room}|${meeting.crn ?? ""}`}
                   meeting={meeting}
                   tone={group.tone}
-                  note={meeting.weCancelled ? "you had cancelled it" : undefined}
+                  note={
+                    meeting.weCancelled
+                      ? "you had cancelled it"
+                      : meeting.moved
+                        ? `moved from CRN ${meeting.moved.from} to ${meeting.moved.to}`
+                        : meeting.crn
+                          ? `CRN ${meeting.crn}`
+                          : undefined
+                  }
                 />
               ))}
             </ul>
@@ -629,7 +856,7 @@ function DayCard({ day, section }: { day: DiffDay; section: ChangedClasses }) {
   );
 }
 
-function Square({ day, section }: { day: DiffDay | null; section: ChangedClasses }) {
+function Square({ day, section }: { day: DiffDay | null; section: ShownSection }) {
   if (!day) return <span className="aspect-square w-full" />;
   const gone = day.removed.length > 0;
   const arrived = day.added.length > 0;
@@ -713,15 +940,15 @@ function moment(iso: string): string {
  */
 function ChangeHistoryDialog({
   termCode,
-  crn,
+  crns,
   open,
   onClose,
   known,
   onRecord,
 }: {
   termCode: string;
-  /** One section's history, opened from its card; every section's when left out. */
-  crn?: string;
+  /** The history of these sections, opened from an entry; every section's when left out. */
+  crns?: string[];
   open: boolean;
   onClose: () => void;
   known: Set<string>;
@@ -733,12 +960,12 @@ function ChangeHistoryDialog({
     enabled: open && Boolean(termCode),
     retry: false,
   });
-  const shown = (history.data ?? []).filter((section) => !crn || section.crn === crn);
+  const shown = (history.data ?? []).filter((section) => !crns || crns.includes(section.crn));
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={crn ? `Change history · CRN ${crn}` : "Class change history"}
+      title={crns?.length ? `Change history · CRN ${crns.join(", ")}` : "Class change history"}
       description="Every change the portal has made to these classes this term, newest first, with who approved it and when."
       size="wide"
     >
@@ -751,7 +978,7 @@ function ChangeHistoryDialog({
       ) : (
         <div className="grid gap-3">
           {shown.map((section) => (
-            <SectionHistory key={section.crn} section={section} opened={Boolean(crn)} known={known} onRecord={onRecord} />
+            <SectionHistory key={section.crn} section={section} opened={Boolean(crns?.length)} known={known} onRecord={onRecord} />
           ))}
         </div>
       )}

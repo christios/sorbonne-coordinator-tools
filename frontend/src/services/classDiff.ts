@@ -16,7 +16,17 @@
  * Pure. The dates come from the registrar and the grid is the part that has to be right.
  */
 
-export type Meeting = { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean };
+export type Meeting = {
+  meetsOn: string;
+  startsAt: string;
+  endsAt: string;
+  room: string;
+  weCancelled?: boolean;
+  /** Its section, when several are drawn on one calendar: a course's or a teacher's. */
+  crn?: string;
+  /** Removed from one of them and added to another at the same date and time. */
+  moved?: { from: string; to: string };
+};
 
 /**
  * The changes nobody has approved yet, which is what the banner counts.
