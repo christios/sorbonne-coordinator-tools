@@ -168,44 +168,38 @@ describe("the course cards", () => {
     expect(screen.queryByText(/Mutualized|One degree only/)).toBeNull();
   });
 
-  it("says the hours and the seats as figures rather than prose", async () => {
+  it("says what a row does differently, and its seats", async () => {
     show();
 
+    // TD 1 says 50 h, TD 2 none: no figure the set shares, so each row says its own —
+    // and a row without hours says so, rather than saying nothing.
     const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
-    // The two the timetable is built from, each with its own reading.
-    expect(within(one).getByTitle("50 hours")).toBeTruthy();
+    expect(one.textContent).toContain("50 h");
     // No "expected" beside the seats: the class's seats are what the timetabler expects.
     expect(within(one).queryByLabelText(/expected$/)).toBeNull();
     expect(within(one).getByTitle("30 of 33 seats taken")).toBeTruthy();
 
-    // A section nobody has given hours to says so, rather than saying nothing.
     const two = screen.getByLabelText("Edit TD 2 MATH001") as HTMLElement;
-    expect(within(two).getByTitle("No hours set yet")).toBeTruthy();
+    expect(two.textContent).toContain("no hours");
     expect(within(two).getByTitle("31 of 33 seats taken")).toBeTruthy();
   });
 
-  it("keeps the fullness bar on the card's bottom edge whatever else the card carries", async () => {
+  it("says once, on the set's line, what its sections share (24 Nov 2026)", async () => {
+    // Every card used to repeat the set's hours and note; the row that differed was lost.
+    const same = { hours: "50", duration: "1.5", comments: "Mutualized with Maths" };
+    const shared = structuredClone(CATALOGUES);
+    for (const group of shared[0].scopes[0].groups) {
+      group.crns["td-math"] = { ...group.crns["td-math"], ...same } as database.Section;
+    }
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(shared);
     show();
 
-    // A STRUCTURAL PROXY, and it is one on purpose: jsdom performs no layout, so it
-    // cannot see the gap this pins. The cards sit in a grid whose default align-items
-    // is stretch, so every card in a row is as tall as the tallest; a plain block box
-    // then leaves the surplus BELOW its last child, and the bar floats by exactly the
-    // height difference. That is why it reads as "some cards" — the tallest one in each
-    // row sets the height and is always flush.
-    //
-    // Two things hold it down and both must stay: the card is a column, and something
-    // above the bar absorbs the surplus. Verify live at a width where sm:grid-cols-2 is
-    // active and again at 2xl:grid-cols-3, with one short and one tall card in a row.
-    const card = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
-    expect(card.classList.contains("flex")).toBe(true);
-    expect(card.classList.contains("flex-col")).toBe(true);
-
-    // The bar is aria-hidden and carries no accessible name, so it is reached
-    // structurally: it is the card's last child, and the spacer sits right before it.
-    const bar = card.lastElementChild as HTMLElement;
-    expect(bar.className).toContain("rounded-b-lg");
-    expect((bar.previousElementSibling as HTMLElement | null)?.className ?? "").toContain("flex-1");
+    const one = (await screen.findByLabelText("Edit TD 1 MATH001")) as HTMLElement;
+    expect(screen.getAllByText("50 h · 1.5 h sessions")).toHaveLength(1);
+    expect(screen.getAllByText("Mutualized with Maths")).toHaveLength(1);
+    // The rows say none of it again.
+    expect(one.textContent).not.toContain("50 h");
+    expect(one.textContent).not.toContain("Mutualized");
   });
 
   it("sends the students a set has not placed to the page where placing happens", async () => {
@@ -316,13 +310,13 @@ describe("a section taught in more than one stretch", () => {
 
     show();
 
-    const card = (await screen.findByLabelText(/Edit TD 1 MATH001, first part/)).closest("article") as HTMLElement;
+    const card = (await screen.findByRole("article", { name: "TD 1 MATH001" })) as HTMLElement;
     expect(within(card).getByText("23436")).toBeTruthy();
     expect(within(card).getByText("24311")).toBeTruthy();
     expect(within(card).getByText("Grace Younes")).toBeTruthy();
     expect(within(card).getByText("Sudarshan Shinde")).toBeTruthy();
     // The group's own facts, once — not once per stretch.
-    expect(within(card).getAllByText(/SEATS/i)).toHaveLength(1);
+    expect(within(card).getAllByTitle(/seats taken/)).toHaveLength(1);
   });
 
   it("opens the half that was pressed, not whichever came first", async () => {
@@ -498,12 +492,14 @@ describe("hours set for the course, and a card's own (23 Nov 2026)", () => {
 
     // TD 1 says 50 h of its own, against the course's 45 h: kept, and warned about.
     const own = (await screen.findByRole("button", { name: /^Edit TD 1 MATH001$/ })) as HTMLElement;
-    expect(within(own).getByTitle("50 hours").textContent).toContain("50");
-    expect(own.textContent).toContain("Its own 50 h — the course asks 45 h");
-    // TD 2 says nothing: the course's 45 h, in sessions of 1.5 h, marked as the course's.
+    expect(own.textContent).toContain("50 h");
+    expect(within(own).getByTitle(/Its own 50 h — the course asks 45 h/)).toBeTruthy();
+    // TD 2 says nothing: the course's 45 h, marked as the course's.
     const follows = screen.getByRole("button", { name: /^Edit TD 2 MATH001$/ }) as HTMLElement;
-    expect(within(follows).getByTitle(/^45 hours, from what the course asks/)).toBeTruthy();
-    expect(within(follows).getByTitle(/^Sessions of 1.5 h, from what the course asks/)).toBeTruthy();
+    expect(follows.textContent).toContain("45 h");
+    expect(within(follows).getByTitle(/45 h, from what the course asks/)).toBeTruthy();
     expect(follows.textContent).not.toContain("the course asks 45 h");
+    // Both sessions are the course's 1.5 h: said once, on the set's line.
+    expect(screen.getByText("1.5 h sessions")).toBeTruthy();
   });
 });
