@@ -320,3 +320,72 @@ describe("the register of one semester", () => {
     );
   });
 });
+
+/*
+ * A course stays on a semester's list after its last CRN goes, and Active courses kept
+ * listing it — PHYS-007 and MATH-230 in Semester 2 (24 Nov 2026). Removing the last ones
+ * now offers to take the course off the semester too, ticked by default.
+ */
+describe("removing a course's last CRNs of the semester", () => {
+  const course = (over: Partial<lists.ActiveCourse>): lists.ActiveCourse =>
+    ({ id: "c", courseCode: "", title: "", ue: "", mutualized: "", coefficient: "", addedAt: "", addedBy: "", crnCount: 0, portalCrnCount: 0, termCount: 1, lastTerm: "262710", portalParentCrn: "", terms: ["262710"], ...over }) as lists.ActiveCourse;
+
+  beforeEach(() => {
+    vi.spyOn(lists, "fetchRegisterCheck").mockResolvedValue(EMPTY);
+    vi.spyOn(timetables, "fetchTimetableTerms").mockResolvedValue([{ id: "plan:262710", name: "Semester 1 2026-27" }] as timetables.TimetableTerm[]);
+    vi.spyOn(lists, "fetchTermLinks").mockResolvedValue({ "plan:262710": "262710" });
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([
+      crnRow({ crn: "22001", courseCode: "PHYS-007" }),
+      crnRow({ crn: "22002", courseCode: "PHYS-007" }),
+      crnRow({ crn: "22151", courseCode: "MATH-001" }),
+    ]);
+    vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([
+      course({ id: "c-phys", courseCode: "PHYS-007", crnCount: 2 }),
+      course({ id: "c-math", courseCode: "MATH-001", crnCount: 1 }),
+    ]);
+  });
+
+  const tick = async (crn: string) => fireEvent.click(await screen.findByRole("checkbox", { name: new RegExp(crn) }));
+
+  it("takes the course off the semester too, unless told not to", async () => {
+    const crns = vi.spyOn(lists, "removeActiveCrn").mockResolvedValue(undefined);
+    const off = vi.spyOn(lists, "removeActiveCourse").mockResolvedValue(undefined);
+    show();
+    await tick("22001");
+    await tick("22002");
+    fireEvent.click(screen.getByRole("button", { name: /Remove 2/ }));
+
+    const dialog = within(await screen.findByRole("dialog"));
+    const box = dialog.getByRole("checkbox", { name: /Also take PHYS-007 off Semester 1 2026-27's courses/ }) as HTMLInputElement;
+    expect(box.checked).toBe(true);
+    fireEvent.click(dialog.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(off).toHaveBeenCalledWith("c-phys", "262710"));
+    expect(crns).toHaveBeenCalledTimes(2);
+    expect(off).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the course when the box is unticked", async () => {
+    const crns = vi.spyOn(lists, "removeActiveCrn").mockResolvedValue(undefined);
+    const off = vi.spyOn(lists, "removeActiveCourse").mockResolvedValue(undefined);
+    show();
+    await tick("22001");
+    await tick("22002");
+    fireEvent.click(screen.getByRole("button", { name: /Remove 2/ }));
+    const dialog = within(await screen.findByRole("dialog"));
+    fireEvent.click(dialog.getByRole("checkbox", { name: /Also take PHYS-007/ }));
+    fireEvent.click(dialog.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(crns).toHaveBeenCalledTimes(2));
+    expect(off).not.toHaveBeenCalled();
+  });
+
+  it("does not ask while the course keeps a CRN in the semester", async () => {
+    show();
+    await tick("22001");
+    fireEvent.click(screen.getByRole("button", { name: /Remove 1/ }));
+    const dialog = within(await screen.findByRole("dialog"));
+    expect(dialog.queryByRole("checkbox")).toBeNull();
+    expect(dialog.getByText(/their course stays on the department's/)).toBeTruthy();
+  });
+});

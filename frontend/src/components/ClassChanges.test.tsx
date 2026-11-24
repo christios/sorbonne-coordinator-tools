@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ClassChangesBanner } from "@/components/ClassChanges";
@@ -32,10 +32,16 @@ function show() {
   );
 }
 
+/** A section's header, course code, CRN and teacher, however its links break the text up. */
+const header = (text: RegExp) => (_: string, element: Element | null) =>
+  element?.tagName === "SUMMARY" && text.test(element.textContent ?? "");
+
 beforeEach(() => {
   vi.spyOn(lists, "fetchSweptTerms").mockResolvedValue(["262710"]);
   vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([PHYSICS]);
   vi.spyOn(dismissals, "fetchDismissals").mockResolvedValue([]);
+  // The register, read to know which CRNs open a record: empty unless a test says.
+  vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([]);
 });
 
 describe("the banner", () => {
@@ -158,10 +164,45 @@ describe("the history", () => {
     vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([]);
     show();
 
+    // A line where the warning would be, saying so, with the history on a button of its own.
+    expect(await screen.findByText(/No class changes waiting for approval/)).toBeTruthy();
     fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
 
-    expect(await screen.findByText(/PHYS-125 · CRN 23638/)).toBeTruthy();
+    expect(await screen.findByText(header(/PHYS-125 · CRN 23638/))).toBeTruthy();
     expect(lists.fetchChangeHistory).toHaveBeenCalledWith("262710");
+  });
+
+  it("withdraws the latest approval, and only after asking", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([]);
+    const withdraw = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(null);
+    const keyed = (at: string, key: string): lists.ChangeHistoryEntry => ({ kind: "approved", at, by: "Patricia", key });
+    vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([
+      {
+        ...HISTORY,
+        entries: [
+          HISTORY.entries[0],
+          keyed("2026-09-16T08:00:00+00:00", "older"),
+          HISTORY.entries[2],
+          keyed("2026-09-23T08:00:00+00:00", "newest"),
+        ],
+      },
+    ]);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Class change history/ }));
+    fireEvent.click(await screen.findByText(header(/PHYS-125 · CRN 23638/)));
+
+    // Beside the newest approval only: an older one under it would bring nothing back.
+    const [unapprove, ...more] = await screen.findAllByRole("button", { name: "Unapprove" });
+    expect(more).toHaveLength(0);
+    expect(unapprove.closest("li")?.textContent).toMatch(/23 Sep 2026/);
+    fireEvent.click(unapprove);
+
+    const asked = await screen.findByRole("dialog", { name: "Unapprove this change?" });
+    expect(withdraw).not.toHaveBeenCalled();
+    fireEvent.click(within(asked).getByRole("button", { name: "Unapprove" }));
+
+    await waitFor(() => expect(withdraw).toHaveBeenCalledWith("newest", false));
   });
 
   it("opens on one section from its card, newest first, with who approved what", async () => {
@@ -274,5 +315,122 @@ describe("a class the department had already cancelled", () => {
     expect(screen.getByText(/1 class gone \(2 h\), 1 you had cancelled/)).toBeTruthy();
     expect(screen.getByLabelText("2026-09-14: 1 class removed, which you had cancelled")).toBeTruthy();
     expect(screen.getByText("you had cancelled it")).toBeTruthy();
+  });
+});
+
+/*
+ * The course, the CRN and the teacher in a section's header each open their record over the
+ * changes (24 Nov 2026), the CRN only when the register holds it.
+ */
+describe("records from the changes", () => {
+  it("offers each one, and the CRN only when the register holds it", async () => {
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+
+    expect(await screen.findByRole("button", { name: "PHYS-125" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Sara Khaled" })).toBeTruthy();
+    // Not in the register: no record to open, so the CRN is plain text.
+    expect(screen.queryByRole("button", { name: "23638" })).toBeNull();
+  });
+
+  it("opens the CRN's record over the changes", async () => {
+    vi.spyOn(lists, "fetchActiveCrns").mockResolvedValue([
+      { id: "r1", termCode: "262710", crn: "23638", courseCode: "PHYS-125" } as unknown as lists.ActiveCrn,
+    ]);
+    vi.spyOn(lists, "fetchActiveCourses").mockResolvedValue([]);
+    vi.spyOn(lists, "fetchActiveTeachers").mockResolvedValue([]);
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "23638" }));
+
+    // Two windows now: the changes, and the CRN's record on top of them.
+    await waitFor(() => expect(screen.getAllByRole("dialog").length).toBeGreaterThan(1));
+    const dialogs = screen.getAllByRole("dialog");
+    expect(dialogs[dialogs.length - 1].textContent).toContain("23638");
+  });
+});
+
+/*
+ * Each entry of the window switches between what waits and its whole term; approved entries
+ * can be listed too; and a course's or a teacher's CRNs can be read on one calendar
+ * (24 Nov 2026).
+ */
+describe("the changes window, entry by entry", () => {
+  const WHOLE_PHYSICS: lists.ChangedClasses = {
+    ...PHYSICS,
+    removed: [...PHYSICS.removed, { meetsOn: "2026-09-28", startsAt: "10:30", endsAt: "12:30", room: "4.128" }],
+    key: "registrar-classes-changed:262710:23638:whole",
+  };
+  const APPROVED_ONE: lists.ChangedClasses = {
+    ...PHYSICS,
+    crn: "24100",
+    courseCode: "MATH-001",
+    teacherName: "Bilal Maaz",
+    key: "registrar-classes-changed:262710:24100:def456",
+  };
+  const card = (name: RegExp) => screen.getByRole("group", { name }).closest("section") as HTMLElement;
+
+  it("switches one CRN between since its approval and its whole term", async () => {
+    const read = vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [WHOLE_PHYSICS] : [PHYSICS]));
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    await screen.findByRole("group", { name: /Changes shown for CRN 23638/ });
+    expect(card(/CRN 23638/).textContent).toContain("2 classes gone");
+
+    fireEvent.click(within(card(/CRN 23638/)).getByRole("button", { name: "Whole term" }));
+
+    await waitFor(() => expect(card(/CRN 23638/).textContent).toContain("3 classes gone"));
+    expect(read).toHaveBeenCalledWith("262710", true);
+  });
+
+  it("lists the all-approved ones too when asked, on their whole term", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [WHOLE_PHYSICS, APPROVED_ONE] : [PHYSICS]));
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    await screen.findByRole("button", { name: "Approve" });
+    expect(screen.queryByRole("button", { name: "MATH-001" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Show approved too" }));
+
+    expect(await screen.findByRole("button", { name: "MATH-001" })).toBeTruthy();
+    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Approve" })).toHaveLength(1);
+  });
+
+  it("opens on the whole term, approved ones listed, when nothing is waiting", async () => {
+    vi.spyOn(lists, "fetchChangedClasses").mockImplementation(async (_term, whole) => (whole ? [APPROVED_ONE] : []));
+    vi.spyOn(lists, "fetchChangeHistory").mockResolvedValue([]);
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /All changes this term/ }));
+
+    expect(await screen.findByRole("button", { name: "MATH-001" })).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Show approved too" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("reads a teacher's CRNs on one calendar, where a class that only moved between them is not news", async () => {
+    // Miklos's 25 Nov class: gone from his lecture CRN, arrived in his tutorial CRN, same hour.
+    const slot = { meetsOn: "2026-11-25", startsAt: "10:30", endsAt: "12:30", room: "4.128" };
+    const lecture: lists.ChangedClasses = { ...PHYSICS, crn: "24092", courseCode: "PHYS-208", teacherName: "Miklos Example", removed: [slot], added: [], kept: [], key: "k-lecture" };
+    const tutorial: lists.ChangedClasses = { ...PHYSICS, crn: "24233", courseCode: "PHYS-208", teacherName: "Miklos Example", removed: [], added: [slot], kept: [], key: "k-tutorial" };
+    vi.spyOn(lists, "fetchChangedClasses").mockResolvedValue([lecture, tutorial]);
+    const approveOne = vi.spyOn(dismissals, "setDismissal").mockResolvedValue(null);
+    show();
+    fireEvent.click(await screen.findByRole("button", { name: "Show what changed" }));
+    expect(await screen.findAllByRole("button", { name: "Approve" })).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "By teacher" }));
+
+    const one = card(/Changes shown for Miklos Example/);
+    expect(one.textContent).toContain("1 moved between their CRNs");
+    expect(one.textContent).not.toMatch(/gone|arrived/);
+    fireEvent.click(within(one).getByRole("button", { name: "Approve all 2" }));
+    await waitFor(() => expect(approveOne).toHaveBeenCalledTimes(2));
+    expect(approveOne).toHaveBeenCalledWith("k-lecture", true);
+    expect(approveOne).toHaveBeenCalledWith("k-tutorial", true);
+
+    // By course, the same two CRNs are one entry too.
+    fireEvent.click(screen.getByRole("button", { name: "By course" }));
+    expect(card(/Changes shown for PHYS-208/).textContent).toContain("24092, 24233");
   });
 });

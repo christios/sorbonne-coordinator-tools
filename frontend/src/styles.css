@@ -36,6 +36,11 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* The ✕ that empties a search box is a button too (user, 24 Nov 2026). */
+input[type="search"]::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
 button.inline-flex {
   white-space: nowrap;
 }

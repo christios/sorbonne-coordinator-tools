@@ -2681,6 +2681,45 @@ def test_the_swept_timetable_can_be_read_back_in_the_shape_it_was_written(client
     assert client.post(f"{BASE}/facility-timetable", json=read).status_code == status.HTTP_200_OK
 
 
+def test_the_whole_term_of_changes_is_read_with_the_approved_ones_in_it(client: TestClient):
+    """What the banner asks about is measured from each approval; `whole` reads the term from the start."""
+
+    def swept(days: list[str]) -> None:
+        client.post(
+            f"{BASE}/facility-timetable",
+            json={
+                "termCode": TERM,
+                "asked": ["23436"],
+                "sections": [
+                    {
+                        "crn": "23436",
+                        "courseCode": "MATH-001",
+                        "title": "Pre-Calculus 1",
+                        "teacherName": "Cecile Paillot",
+                        "rooms": ["5.101"],
+                        "ours": True,
+                        "headCount": 24,
+                        "meetings": [
+                            {"meetsOn": day, "startsAt": "08:30", "endsAt": "10:00", "room": "5.101"} for day in days
+                        ],
+                    }
+                ],
+                "silent": [],
+                "failed": [],
+                "complete": True,
+            },
+        )
+
+    swept(["2026-09-07", "2026-09-14"])
+    swept(["2026-09-07"])
+    [waiting] = client.get(f"{BASE}/facility-timetable/{TERM}/changed-classes").json()["sections"]
+    client.put("/api/v1/student-database/warning-dismissals", json={"key": waiting["key"], "dismissed": True})
+
+    assert client.get(f"{BASE}/facility-timetable/{TERM}/changed-classes").json()["sections"] == []
+    [whole] = client.get(f"{BASE}/facility-timetable/{TERM}/changed-classes?whole=true").json()["sections"]
+    assert [meeting["meetsOn"] for meeting in whole["removed"]] == ["2026-09-14"]
+
+
 def test_a_calendar_asks_for_its_sections_by_crn_and_is_told_which_are_unchecked(client: TestClient):
     """The route a student's, a teacher's or a course's calendar reads — see `read_facility_sections`."""
     client.post(

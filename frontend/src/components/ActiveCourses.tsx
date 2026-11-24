@@ -27,6 +27,7 @@ import {
   fetchActiveCourses,
   fetchActiveCrns,
   fetchRegisterCheck,
+  removeActiveCourse,
   removeActiveCrn,
   setParentCrn,
 } from "@/services/portalLists";
@@ -140,6 +141,8 @@ export function ActiveCourses({
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<ActiveCrn | null>(null);
   const [confirmRemove, setConfirmRemove] = useState(false);
+  // Whether removing a course's last CRN of the semester takes the course off it too (24 Nov 2026).
+  const [alsoTakeOff, setAlsoTakeOff] = useState(true);
   /** Which course's record is open over the list, if any. */
   const [showingCourse, setShowingCourse] = useState("");
 
@@ -165,7 +168,26 @@ export function ActiveCourses({
     onSuccess: refresh,
   });
   const remove = useMutation({
-    mutationFn: (ids: string[]) => removeEach(ids, removeActiveCrn),
+    /*
+     * The CRNs, then the courses left with none in the semester when the tick box says so.
+     *
+     * A course stays on a semester's list after its last CRN goes — Active courses kept
+     * listing PHYS-007 and MATH-230 for Semester 2 with nothing left under them. Only once
+     * every CRN went: a course whose CRN failed to go keeps its place.
+     */
+    mutationFn: async ({ ids, offCourses }: { ids: string[]; offCourses: ActiveCourse[] }) => {
+      const removed = await removeEach(ids, removeActiveCrn);
+      try {
+        await removeEach(
+          offCourses.map((course) => course.id),
+          (id) => removeActiveCourse(id, term),
+        );
+      } catch {
+        // Its own message, not RemovalFailed: those ids are courses, and must not come back ticked as CRNs.
+        throw new Error(`The CRNs went, but ${offCourses.map((course) => course.courseCode).join(", ")} could not all be taken off the semester. Remove them from Active courses.`);
+      }
+      return removed;
+    },
     // Settled, not success — see ActiveTeachers. Selections here run to three figures,
     // so a run that half-lands and leaves every id ticked is worse, not better.
     onSettled: (_removed, error) => {
@@ -177,6 +199,21 @@ export function ActiveCourses({
 
   const held = useMemo(() => crns.data ?? [], [crns.data]);
   const rows = useMemo(() => held.filter((row) => !term || row.termCode === term), [held, term]);
+  // The courses this removal leaves with no CRN in the semester: every one of their rows is ticked.
+  const emptied = useMemo(() => {
+    const codes = new Set(rows.filter((row) => selected.has(row.id)).map((row) => row.courseCode));
+    return (courses.data ?? []).filter(
+      (course) => codes.has(course.courseCode) && rows.every((row) => row.courseCode !== course.courseCode || selected.has(row.id)),
+    );
+  }, [rows, selected, courses.data]);
+  // Of those, the ones no other semester has: taking them off removes the course, its UE and coefficient with it.
+  const lastHome = emptied.filter(
+    (course) =>
+      (course.terms ?? []).every((each) => each === term) &&
+      course.crnCount <= rows.filter((row) => row.courseCode === course.courseCode).length &&
+      Boolean(course.ue || course.coefficient),
+  );
+  const semesterName = semester?.name || "this semester";
 
   const renderCell = (row: ActiveCrn, column: GridColumn<ActiveCrn>) => {
     if (column.id === "portalStatus") {
@@ -314,7 +351,10 @@ export function ActiveCourses({
                 <button
                   type="button"
                   disabled={selected.size === 0 || remove.isPending}
-                  onClick={() => setConfirmRemove(true)}
+                  onClick={() => {
+                    setAlsoTakeOff(true);
+                    setConfirmRemove(true);
+                  }}
                   className="inline-flex items-center gap-2 rounded-md border border-[#e5b7b9] bg-white px-3 py-2 text-sm font-semibold text-[#a6292f] hover:bg-[#fdf3f3] disabled:opacity-50"
                 >
                   <Trash2 size={15} aria-hidden="true" /> {selected.size ? `Remove ${selected.size}` : "Remove"}
@@ -373,12 +413,37 @@ export function ActiveCourses({
       <ConfirmDialog
         open={confirmRemove}
         title={`Remove ${selected.size} CRN(s) from Active CRNs?`}
-        description="They stay in the portal's list, and their course stays on the department's. A course card still teaching under one will be flagged as unregistered."
+        description={
+          emptied.length
+            ? "They stay in the portal's list. A course card still teaching under one will be flagged as unregistered."
+            : "They stay in the portal's list, and their course stays on the department's. A course card still teaching under one will be flagged as unregistered."
+        }
         confirmLabel="Remove"
         busy={remove.isPending}
-        onConfirm={() => remove.mutate([...selected])}
+        onConfirm={() => remove.mutate({ ids: [...selected], offCourses: alsoTakeOff ? emptied : [] })}
         onClose={() => setConfirmRemove(false)}
-      />
+      >
+        {emptied.length ? (
+          <label className="mt-3 flex items-start gap-2.5 rounded-md border border-[#e4e8ef] bg-[#f8fafc] p-3 text-sm text-[#344054]">
+            <input
+              type="checkbox"
+              checked={alsoTakeOff}
+              onChange={(event) => setAlsoTakeOff(event.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Also take {emptied.map((course) => course.courseCode).join(", ")} off {semesterName}&apos;s courses
+              <span className="mt-0.5 block text-xs leading-5 text-[#667085]">
+                This leaves {emptied.length === 1 ? "it" : "them"} with no CRN in {semesterName}. Untick to keep{" "}
+                {emptied.length === 1 ? "it" : "them"} on Active courses, e.g. while waiting for new CRNs.
+                {lastHome.length
+                  ? ` No other semester has ${lastHome.map((course) => course.courseCode).join(", ")}, so ${lastHome.length === 1 ? "its" : "their"} UE and coefficient go too.`
+                  : ""}
+              </span>
+            </span>
+          </label>
+        ) : null}
+      </ConfirmDialog>
     </section>
   );
 }

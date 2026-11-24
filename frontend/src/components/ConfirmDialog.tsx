@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { closeOnBackdrop } from "@/components/closeOnBackdrop";
@@ -32,12 +32,14 @@ type ConfirmDialogProps = {
    * as who writes the course learning outcomes) confirms in the primary blue instead.
    */
   tone?: "danger" | "primary";
+  /** A choice that goes with the confirmation, under the description: a tick box, say. */
+  children?: ReactNode;
   onConfirm: () => void;
   onClose: () => void;
 };
 
 /** Shared, accessible confirmation surface for destructive in-app actions. */
-export function ConfirmDialog({ open, title, description, confirmLabel, cancelLabel = "Cancel", confirmPhrase, busy, tone = "danger", onConfirm, onClose }: ConfirmDialogProps) {
+export function ConfirmDialog({ open, title, description, confirmLabel, cancelLabel = "Cancel", confirmPhrase, busy, tone = "danger", children, onConfirm, onClose }: ConfirmDialogProps) {
   const titleId = useId();
   const descriptionId = useId();
   const [typed, setTyped] = useState("");
@@ -63,6 +65,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, cancelLa
       <section role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={descriptionId} className="w-full max-w-md rounded-lg border border-[#d9dee7] bg-white p-5 shadow-xl">
         <h2 id={titleId} className="text-lg font-semibold text-[#171717]">{title}</h2>
         <p id={descriptionId} className="mt-2 text-sm leading-6 text-[#667085]">{description}</p>
+        {children}
         {confirmPhrase ? (
           <label className="mt-4 block text-sm font-semibold text-[#344054]">
             Type <span className="rounded bg-[#f2f4f7] px-1.5 py-0.5 font-mono text-[13px] text-[#a6292f]">{confirmPhrase}</span> to confirm

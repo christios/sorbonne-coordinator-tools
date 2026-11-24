@@ -931,9 +931,10 @@ export async function fetchLastSweeps(): Promise<Record<string, LastSweep>> {
 }
 
 /** Sections this term whose classes the registrar has deleted or added. */
-export async function fetchChangedClasses(termCode: string): Promise<ChangedClasses[]> {
+/** Each section from its last approval; with `whole`, every section from when it was first seen. */
+export async function fetchChangedClasses(termCode: string, whole = false): Promise<ChangedClasses[]> {
   const answer = await request<{ sections: ChangedClasses[] }>(
-    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes`,
+    `/facility-timetable/${encodeURIComponent(termCode)}/changed-classes${whole ? "?whole=true" : ""}`,
   );
   return answer.sections;
 }
@@ -947,7 +948,13 @@ export type ChangeHistoryEntry =
       removed: { meetsOn: string; startsAt: string; endsAt: string; room: string; weCancelled?: boolean }[];
       added: { meetsOn: string; startsAt: string; endsAt: string; room: string }[];
     }
-  | { kind: "approved"; at: string; by: string };
+  | {
+      kind: "approved";
+      at: string;
+      by: string;
+      /** What the approval was given against, so it can be withdrawn. Missing from an older answer. */
+      key?: string;
+    };
 
 /**
  * Everything the registrar has changed in one section this term, and every approval, oldest

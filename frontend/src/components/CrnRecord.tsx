@@ -343,7 +343,7 @@ export function CrnRecord({
           <Card
             className="flex-1"
             title="What the portal changed"
-            note="Every class the portal has removed from it or added to it this term, newest first, and who approved each change and when. Approved changes leave the banner but stay here."
+            note="Every class the portal has removed from it or added to it this term, newest first, and who approved each change and when. Approved changes leave the banner but stay here. Unapprove, beside the latest approval, puts what it approved back in the banner."
           >
             {!row.termCode ? (
               <Empty>No portal term, so the portal cannot be asked.</Empty>

@@ -1,4 +1,4 @@
-import { AlertTriangle, Armchair, ChevronDown, ChevronRight, Clock3, Eye, Pencil, UserRound, Wand2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronRight, Clock3, Eye, Pencil, Wand2 } from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
@@ -19,100 +19,14 @@ import { ALL_COHORTS, EMPTY_PART, partsOf, type Cohort, type SectionPart } from 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 
 /**
- * One figure the timetabler works from, said loudly enough to be read at a glance.
- *
- * Total hours and the class's seats are not two more numbers among six: they are what
- * a teacher's load is computed from and what a room is chosen by, and everything else on
- * this line — sessions a week, hours each, which weeks — follows from them. They spent a
- * long time in the same eleven-pixel grey run-on as the rest, where the eye slid over
- * them, so they are lifted out of it.
- *
- * The two do not look alike. They are different quantities — a span of teaching and a
- * count of people — and a card carries them side by side, so an eye running down a column
- * of sections should be able to find the one it is after without reading either. Hence a
- * clock against a person, a square corner against a round one, and two hues rather than
- * one; the difference is small enough that they stay a pair.
- *
- * Missing is a reading too. An empty box says the timetabler has not been told yet, which
- * is worth seeing without opening the section to find out.
- */
-const FIGURES = {
-  hours: {
-    icon: Clock3,
-    shape: "rounded-md",
-    said: "border-[#cfe0ee] bg-[#eef4fa]",
-    number: "text-[#1f4e79]",
-    word: "text-[#6d8fb4]",
-  },
-  // Amber and round, a count of people rather than a span of time: the ones this class
-  // will not have in it.
-  exempt: {
-    icon: UserRound,
-    shape: "rounded-full",
-    said: "border-[#e8d9ac] bg-[#fdf9ee]",
-    number: "text-[#8a6116]",
-    word: "text-[#b99a52]",
-  },
-} as const;
-
-function Figure({
-  label,
-  value,
-  dim,
-  inherited = false,
-  compact = false,
-}: {
-  label: keyof typeof FIGURES;
-  value: string;
-  dim: boolean;
-  inherited?: boolean;
-  /** On a card's title line: smaller, and smaller still on a narrow card rather than wrapping. */
-  compact?: boolean;
-}) {
-  const said = Boolean(value);
-  const skin = FIGURES[label];
-  const Icon = skin.icon;
-  return (
-    <span
-      title={said ? `${value} ${label}${inherited ? ", from what the course asks: the section says none of its own" : ""}` : `No ${label} set yet`}
-      className={`inline-flex shrink-0 items-center gap-1 border ${compact ? "px-1.5 py-0.5 @xs:px-2" : "px-2 py-1"} ${skin.shape} ${
-        dim ? "border-[#f2f5f9] bg-white" : said ? skin.said : "border-dashed border-[#d9dee7] bg-white"
-      }`}
-    >
-      <Icon size={11} aria-hidden="true" className={dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"} />
-      <span
-        className={`${compact ? "text-[11px] @xs:text-[13px]" : "text-[13px]"} font-semibold leading-none tabular-nums ${dim ? "text-[#d5dce4]" : said ? skin.number : "text-[#b7bec8]"}`}
-      >
-        {value || "—"}
-      </span>
-      {/* On a narrow card the word goes and the figure stays: the clock says what it counts. */}
-      <span
-        className={`${compact ? "hidden text-[10px] @xs:inline" : "text-[10px]"} font-semibold uppercase leading-none tracking-wide ${dim ? "text-[#e4e9ef]" : said ? skin.word : "text-[#c2c9d3]"}`}
-      >
-        {label}
-      </span>
-      {inherited && said ? <span className="hidden text-[10px] leading-none text-[#98a2b3] @xs:inline">· course</span> : null}
-    </span>
-  );
-}
-
-/**
- * How full the group is, as a figure beside the other two.
- *
- * "30/33 seats taken" spent its life as grey prose at the foot of the card, which is the
- * one place a number goes to not be read. It is the third of the three facts a timetable
- * is built from — hours, expected, seats — so it is said the way the other two are.
- *
- * It differs from them in taking its colour from its own answer: full is a finished thing,
- * over is a room that will not hold the class, and neither should have to be worked out
- * from the digits. The edge on the left carries that verdict at the size of a glance, and
- * the bar along the card's foot says the same in proportion.
+ * How full a group is, in the colours Capacity uses: blue room left, green exactly full,
+ * red over — a room that will not hold the class.
  */
 const SEATS = {
-  over: { skin: "border-[#e5b7b9] border-l-[3px] border-l-[#a6292f] bg-[#fdf3f3]", number: "text-[#a6292f]", word: "text-[#c98d90]" },
-  full: { skin: "border-[#cfe6d8] border-l-[3px] border-l-[#2e7d55] bg-[#f2f9f4]", number: "text-[#2e7d55]", word: "text-[#8ab7a0]" },
-  room: { skin: "border-[#d9e0e8] border-l-[3px] border-l-[#1f4e79] bg-[#f8fafc]", number: "text-[#344054]", word: "text-[#98a2b3]" },
-  unset: { skin: "border-dashed border-[#d9dee7] bg-white", number: "text-[#b7bec8]", word: "text-[#c2c9d3]" },
+  over: { bar: "#a6292f", number: "text-[#a6292f]" },
+  full: { bar: "#2e7d55", number: "text-[#2e7d55]" },
+  room: { bar: "#1f4e79", number: "text-[#344054]" },
+  unset: { bar: "#e4e8ef", number: "text-[#b7bec8]" },
 } as const;
 
 /** Which of the four readings this group is: the same words Capacity uses. */
@@ -123,63 +37,37 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
   return "room";
 }
 
-function Seats({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
+/**
+ * The group's seats at the end of its row: students placed over seats, and a bar beside
+ * them, so the rows of a set read as a column of how full each class is (user, 24 Nov 2026).
+ * The bar goes on a narrow screen; the figures stay.
+ */
+function Seats({ placed, seats, exempt, dim }: { placed: number; seats: number; exempt: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
-  const skin = SEATS[verdict];
-  // On the teacher's line (23 Nov 2026): smaller on a narrow card rather than wrapping.
+  const share = seats ? Math.min(1, placed / seats) : 0;
   return (
-    <span
-      title={seats ? `${placed} of ${seats} seats taken` : `${placed} placed, no capacity set`}
-      className={`inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 @xs:px-2 ${dim ? "border-[#f2f5f9] bg-white" : skin.skin}`}
-    >
-      <Armchair size={11} aria-hidden="true" className={dim ? "text-[#e4e9ef]" : skin.word} />
-      <span className={`text-[11px] font-semibold leading-none tabular-nums @xs:text-[13px] ${dim ? "text-[#d5dce4]" : skin.number}`}>
+    <span className="flex items-center justify-end gap-2 whitespace-nowrap">
+      {exempt ? (
+        <span
+          title={`${exempt} of the group's students don't take this course`}
+          className={`text-[11px] font-semibold ${dim ? "text-[#d5dce4]" : "text-[#8a6116]"}`}
+        >
+          {exempt} exempt
+        </span>
+      ) : null}
+      <span aria-hidden="true" className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-[#eef1f5] @lg:block">
+        <span
+          className="block h-full rounded-full"
+          style={{ width: `${share * 100}%`, backgroundColor: dim || placed === 0 ? "#e4e8ef" : SEATS[verdict].bar }}
+        />
+      </span>
+      <span
+        title={seats ? `${placed} of ${seats} seats taken` : `${placed} placed, no capacity set`}
+        className={`min-w-[3.25rem] text-right text-[13px] font-semibold tabular-nums ${dim ? "text-[#d5dce4]" : SEATS[verdict].number}`}
+      >
         {placed}
         <span className="opacity-45">/{seats || "—"}</span>
       </span>
-      <span className={`hidden text-[10px] font-semibold uppercase leading-none tracking-wide @xs:inline ${dim ? "text-[#e4e9ef]" : skin.word}`}>
-        seats
-      </span>
-    </span>
-  );
-}
-
-/**
- * How full the group is, drawn along the foot of its card.
- *
- * The numbers were already there — "30/40 placed" — and were read by nobody, because
- * reading fifteen cards means reading thirty numbers and doing thirty divisions. A room
- * that is nearly full and a room that is over are the same sentence at a glance and
- * completely different problems. The bar is the answer to "which of these needs a bigger
- * room" without asking anything of the reader.
- *
- * The track is the group's seats, so a full bar is a full class and anything red is a
- * class that has outgrown the room it was given — the same reading as the bars on
- * Capacity, so the two pages do not have to be reconciled in the head.
- *
- * It says nothing of its own: the seats figure above states the numbers, and a second
- * voice repeating them is one more thing for a screen reader to read out.
- */
-function Fullness({ placed, seats, dim }: { placed: number; seats: number; dim: boolean }) {
-  const share = seats ? Math.min(1, placed / seats) : 0;
-  const tone = !seats
-    ? "#e4e8ef"
-    : placed > seats
-      ? "#a6292f"
-      : placed === seats
-        ? "#2e7d55"
-        : placed === 0
-          ? "#e4e8ef"
-          : "#1f4e79";
-  return (
-    <span
-      aria-hidden="true"
-      className={`-mx-3.5 -mb-3 mt-3 block h-1 overflow-hidden rounded-b-lg ${dim || !seats ? "bg-[#f7f9fb]" : "bg-[#eef1f5]"}`}
-    >
-      <span
-        className="block h-full"
-        style={{ width: `${share * 100}%`, backgroundColor: dim ? "#eef1f5" : tone, opacity: dim ? 0.6 : 1 }}
-      />
     </span>
   );
 }
@@ -192,7 +80,7 @@ function asks(section: SectionPart): string {
 }
 
 /**
- * A section's hours and session length as its card shows them: its own, else the course's —
+ * A section's hours and session length as its row shows them: its own, else the course's —
  * an undivided section only, since a part of a divided one carries its own share — and where
  * its own differ from what the course asks.
  */
@@ -204,28 +92,6 @@ function shownOf(part: SectionPart, course: Request | undefined) {
     durationInherited: !part.duration && Boolean(course?.duration),
     overrides: course ? differences(part.hours, part.duration, course) : [],
   };
-}
-
-/**
- * The hours and, smaller, one session's length, as tags on the line with the CRN (user, 23 Nov
- * 2026): left of it, never wrapping — a narrow card makes them smaller instead.
- */
-function SessionTags({ shown, dim }: { shown: ReturnType<typeof shownOf>; dim: boolean }) {
-  return (
-    <>
-      <Figure label="hours" value={shown.hours} dim={dim} inherited={shown.hoursInherited} compact />
-      {shown.duration ? (
-        <span
-          title={`Sessions of ${shown.duration} h${shown.durationInherited ? ", from what the course asks: the section says none of its own" : ""}`}
-          className={`inline-flex shrink-0 items-center rounded border px-1 py-0.5 text-[9px] font-semibold leading-none tabular-nums @xs:text-[10px] ${
-            dim ? "border-[#f2f5f9] text-[#d5dce4]" : shown.durationInherited ? "border-[#e4ecf5] text-[#6d8fb4]" : "border-[#cfe0ee] bg-[#f5f9fd] text-[#1f4e79]"
-          }`}
-        >
-          {shown.duration} h<span className="hidden @xs:inline">&nbsp;each</span>
-        </span>
-      ) : null}
-    </>
-  );
 }
 
 /**
@@ -248,140 +114,239 @@ function differences(hours: string, duration: string, course: Request): string[]
 }
 
 /**
- * One stretch of a section's teaching, inside the section's own card.
- *
- * For the ordinary section — one professor, first week to last — this is the whole body of
- * the card and reads exactly as the card did before parts existed. For a course handed
- * over at mid-semester it is one of two, told apart by a rule above it and by its own
- * press: each half is a different CRN, a different name and different weeks, so each is
- * opened and edited on its own.
+ * What one stretch of teaching asks, as its row reads it: the hours and session length it
+ * shows (the course's where it says none), how often and in which weeks, and its note.
  */
-function PartLine({
+type Asked = { hours: string; duration: string; perWeek: string; weeks: string; note: string };
+
+function askedOf(part: SectionPart, course: Request | undefined): Asked {
+  const shown = shownOf(part, course);
+  return { hours: shown.hours, duration: shown.duration, perWeek: part.sessionsPerWeek, weeks: part.weeks, note: asks(part) };
+}
+
+/** The words for one figure on a row; a row without hours says so, as a load is counted from them. */
+function said(key: keyof Asked, value: string): string {
+  if (key === "hours") return value ? `${hoursIn(value) === null ? value : figure(hoursIn(value) ?? 0)} h` : "no hours";
+  if (key === "duration") return value ? `${value} h sessions` : "";
+  // "2" reads "2/week"; "1 session a week" is said as typed.
+  if (key === "perWeek") return value ? (/week/i.test(value) ? value.trim() : `${value.trim()}/week`) : "";
+  if (key === "weeks") return value ? (/week/i.test(value) ? value.trim() : `weeks ${value.trim()}`) : "";
+  return value;
+}
+
+/**
+ * The columns a set's rows share: group, CRN, teacher, its figures, seats, the eye.
+ *
+ * Every row says its own hours, session length, weeks and note, even where the whole set
+ * shares them (user, 24 Nov 2026). They were lifted to the set's line for a while when most
+ * sections agreed, which put the same figure on the set's line in one set and in the rows
+ * of the next; the columns line up, so a row that differs is still found by reading down.
+ *
+ * Free text never wraps a row (user, 24 Nov 2026): a teacher's name, a section's own weeks
+ * and its note each take one line, cut short with an ellipsis, and say the whole on hover.
+ * "3 sessions (weeks 1, 2, 3, 6), 3 sessions (weeks 4, 5)…" otherwise took the teacher's
+ * column for itself.
+ *
+ * Aligned columns where the list is wide enough; on a phone each row wraps instead, its
+ * seats pushed to the right of the first line, so nothing is cut off.
+ */
+const ROW_COLUMNS =
+  "flex flex-col @lg:grid @lg:grid-cols-[max-content_max-content_minmax(6rem,1fr)_fit-content(14rem)_max-content_max-content] @lg:gap-x-3";
+
+/**
+ * One stretch of a section's teaching, as a row of its set's list.
+ *
+ * For the ordinary section — one professor, first week to last — this is the whole row.
+ * For a course handed over at mid-semester it is one of two lines, each with its own CRN,
+ * name and weeks, pressed and edited on its own; the group's seats and roster sit on the
+ * first line only, since the same people sit in each.
+ */
+function PartRow({
+  row,
   part,
-  only,
-  first,
+  index,
+  split,
+  dim,
   teacherName,
   portal,
   teacherDrift,
   onEdit,
-  label,
-  course,
-  aside,
+  onShowGroup,
 }: {
+  row: SectionRow;
   part: SectionPart;
-  /** On the right of the teacher's line: the group's seats, on its first part. */
-  aside?: ReactNode;
-  /**
-   * What the set asks of the course (23 Nov 2026): hours and session length are the course's
-   * by default, and a section's own override them — said in amber when they differ.
-   */
-  course?: Request;
-  /** True when the section has no other part, in which case nothing divides it. */
-  only: boolean;
-  first: boolean;
+  index: number;
+  split: boolean;
+  dim: boolean;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
   teacherDrift: Set<string>;
-  /** Absent for an undivided section: the card's own press already opens it. */
-  onEdit?: () => void;
-  label: string;
+  onEdit: () => void;
+  onShowGroup?: () => void;
 }) {
+  const parts = partsOf(row.section);
+  const first = index === 0;
+  const gone = dim || part.retired;
+  const name = `${row.scope.code} ${row.group.label}`;
+  const label = `${name} ${row.course.code}`;
   const portalRow = portal && part.crn ? (portal.crns[part.crn] ?? null) : undefined;
   const chosen = part.teacherId ? teacherName(part.teacherId) : "";
-  // The course's hours and session length unless the section says its own; a part of a divided
-  // section carries its own share, so only an undivided one takes the course's.
-  const shown = shownOf(part, only ? course : undefined);
-  const overrides = shown.overrides;
+  // The course's hours and session length unless the section says its own; a part of a
+  // divided section carries its own share, so only an undivided one takes the course's.
+  const shown = shownOf(part, split ? undefined : row.course.request);
+  const asked = askedOf(part, split ? undefined : row.course.request);
   const drifted = Boolean(part.crn) && teacherDrift.has(part.crn);
-  const asked = asks(part);
+  const { seats, placed } = cardSeats(row);
 
-  const body = (
-    <>
-      {/* The CRN sits with its own half rather than on the card's title line, which can
-          only ever carry one of them. */}
-      {only ? null : (
-        <p className="flex items-center gap-1.5 whitespace-nowrap">
-          <SessionTags shown={shown} dim={part.retired} />
-          {part.crn ? (
-            <span className={`text-sm tabular-nums ${part.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{part.crn}</span>
-          ) : (
-            <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
-          )}
-          {part.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
-        </p>
-      )}
+  // Its figures, amber where the course asks otherwise.
+  const own = (["hours", "duration", "perWeek", "weeks"] as const)
+    .map((key) => ({ key, words: said(key, asked[key]) }))
+    .filter((each) => each.words);
+  const ownNote = asked.note;
+  const warn = shown.overrides.length && !gone;
 
-      <div className="mt-1 flex items-center gap-1.5 whitespace-nowrap">
-        <p className={`min-w-0 flex-1 truncate text-[12px] @xs:text-sm ${part.retired ? "text-[#c8d0da]" : ""}`}>
-          {chosen ? (
-            <span className={part.retired ? "" : "text-[#344054]"}>{chosen}</span>
-          ) : part.teacher ? (
-            <span className="text-[#667085]" title="Named on the row, but not chosen from Active teachers yet">
-              {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
-            </span>
-          ) : (
-            <span className="text-[#c8d0da]">nobody yet</span>
-          )}
-        </p>
-        {aside}
-      </div>
-
-      {part.sessionsPerWeek || part.weeks ? (
-        /* How the hours are spread. Detail: the hours and a session's length sit by the CRN. */
-        <p className={`mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] tabular-nums ${part.retired ? "text-[#d5dce4]" : "text-[#98a2b3]"}`}>
-          {part.sessionsPerWeek ? <span>{part.sessionsPerWeek}/week</span> : null}
-          {part.weeks ? <span>weeks {part.weeks}</span> : null}
-        </p>
-      ) : null}
-      {overrides.length && !part.retired ? (
-        // Its own figure, where the course says another: kept, and said, as a warning.
-        <p className="mt-1 flex items-start gap-1 text-[11px] font-semibold text-[#8a6116]">
-          <AlertTriangle size={11} className="mt-0.5 shrink-0" aria-hidden="true" />
-          <span>{overrides.join(" · ")}</span>
-        </p>
-      ) : null}
-
-      {asked ? <p className="mt-1.5 text-xs leading-5 text-[#667085]">{asked}</p> : null}
-      {part.crn && portalRow === null ? (
-        <p className="mt-1 text-[11px] text-[#a6292f]">Not in the portal&apos;s list for this semester.</p>
-      ) : null}
-      {portalRow?.teacherName && drifted ? (
-        <p className="mt-1 text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</p>
-      ) : null}
-    </>
-  );
-
-  if (!onEdit) return body;
   return (
-    <button
-      type="button"
-      aria-label={`Edit ${label}`}
-      /*
-       * Its own press, and it stops the card's — the card opens the first part, and a
-       * click on the second half must not open the first professor's row instead.
-       */
-      onClick={(event) => {
-        event.stopPropagation();
-        onEdit();
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onEdit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onEdit();
+        }
       }}
-      className={`-mx-1 block w-full rounded px-1 py-1 text-left hover:bg-[#f6f8fb] ${
-        first ? "" : "mt-2 border-t border-[#eef1f5] pt-2"
+      // Numbered as they are read, top to bottom: the parts keep no order of their own.
+      aria-label={split ? `Edit ${label}, part ${index + 1}` : `Edit ${label}`}
+      className={`group flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-left text-sm hover:bg-[#f6f8fb] @lg:col-span-full @lg:grid @lg:grid-cols-subgrid @lg:gap-y-0 ${
+        first ? "" : "border-t border-dashed border-[#eef1f5]"
       }`}
     >
-      {body}
-    </button>
+      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+        {first ? (
+          <span className={`font-semibold ${gone ? "text-[#c8d0da]" : "text-[#171717]"}`}>{name}</span>
+        ) : (
+          <span className="pl-2 text-xs text-[#98a2b3]">part {index + 1}</span>
+        )}
+        {/* Said on the first line: one thing to know about the section before reading its parts. */}
+        {first && split ? (
+          <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="Taught in more than one stretch, by more than one person">
+            {parts.length} parts
+          </span>
+        ) : null}
+        {part.retired && !dim ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
+      </span>
+
+      <span className="whitespace-nowrap tabular-nums">
+        {part.crn ? (
+          <span className={gone ? "text-[#c8d0da]" : "text-[#667085]"}>{part.crn}</span>
+        ) : gone ? null : (
+          <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
+        )}
+      </span>
+
+      <span
+        className="min-w-0 max-w-full truncate"
+        title={chosen || (part.teacher ? `${part.teacher}, not confirmed: named on the row, but not chosen from Active teachers yet` : "Nobody teaches it yet")}
+      >
+        {chosen ? (
+          <span className={gone ? "text-[#c8d0da]" : "text-[#344054]"}>{chosen}</span>
+        ) : part.teacher ? (
+          <span className={gone ? "text-[#c8d0da]" : "text-[#667085]"}>
+            {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
+          </span>
+        ) : (
+          <span className={gone ? "text-[#d5dce4]" : "text-[#8a6116]"}>nobody yet</span>
+        )}
+      </span>
+
+      <span
+        className="min-w-0 max-w-full truncate text-[11px] tabular-nums"
+        title={
+          own.length
+            ? [
+                own.map((each) => each.words).join(" · "),
+                ...(warn ? shown.overrides : []),
+                ...own.flatMap((each) =>
+                  (each.key === "hours" && shown.hoursInherited) || (each.key === "duration" && shown.durationInherited)
+                    ? [`${each.words}, from what the course asks: the section says none of its own`]
+                    : [],
+                ),
+              ].join("\n")
+            : undefined
+        }
+      >
+        {own.map((each, index) => {
+          const amber = warn && (each.key === "hours" || each.key === "duration");
+          return (
+            <span key={each.key} className={gone ? "text-[#d5dce4]" : amber ? "font-semibold text-[#8a6116]" : "text-[#667085]"}>
+              {index ? " · " : ""}
+              {amber ? <AlertTriangle size={10} aria-hidden="true" className="mr-0.5 inline align-[-1px]" /> : null}
+              {each.words}
+            </span>
+          );
+        })}
+      </span>
+
+      {first ? (
+        <span className="ml-auto flex justify-end @lg:ml-0">
+          <Seats placed={placed} seats={seats} exempt={row.exempt ?? 0} dim={dim} />
+        </span>
+      ) : (
+        <span className="hidden @lg:block" />
+      )}
+
+      <span className="inline-flex items-center gap-0.5">
+        {/*
+          * Who is in this group — its own button rather than the row's press, which opens
+          * the editor: looking at a group is not editing it.
+          */}
+        {first && onShowGroup ? (
+          <button
+            type="button"
+            aria-label={`Who is in ${name}`}
+            title="Who is in this group"
+            onClick={(event) => {
+              event.stopPropagation();
+              onShowGroup();
+            }}
+            className="shrink-0 rounded p-0.5 text-[#c8d0da] hover:bg-[#eef1f5] hover:text-[#1f4e79]"
+          >
+            <Eye size={13} aria-hidden="true" />
+          </button>
+        ) : (
+          <span className="w-[17px]" />
+        )}
+        <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
+      </span>
+
+      {/* Under the row, from the CRN's column: its own note, and what the portal says otherwise. */}
+      {ownNote || (part.crn && portalRow === null) || (portalRow?.teacherName && drifted) ? (
+        <span className="mt-0.5 min-w-0 basis-full space-y-0.5 text-xs leading-5 @lg:col-start-2 @lg:col-end-[-1] @lg:basis-auto">
+          {ownNote ? (
+            <span title={ownNote} className={`block truncate ${gone ? "text-[#d5dce4]" : "text-[#667085]"}`}>
+              {ownNote}
+            </span>
+          ) : null}
+          {part.crn && portalRow === null ? (
+            <span className="block text-[11px] text-[#a6292f]">Not in the portal&apos;s list for this semester.</span>
+          ) : null}
+          {portalRow?.teacherName && drifted ? <span className="block text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</span> : null}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
 /**
- * One section, as a block rather than a row of a wide table.
+ * One section, as a row of its set's list (user, 24 Nov 2026).
  *
- * The table this replaces had ten columns and scrolled sideways inside a card, which put
- * the constraint — the sentence the timetabler most needs to read — in a squeezed column
- * off the right edge. Here the numbers sit on one line and the sentence has the width of
- * the block, which is what it needs.
+ * The cards before it sat two or three abreast, each repeating the set's hours, session length
+ * and note, with the CRN, the teacher and the seats in a different place on each. As rows the
+ * set reads down: every CRN under the one above, every teacher, every seat count, and the
+ * figures the set shares said once, on its line.
  */
-function SectionBlock({
+function SectionRows({
   row,
   teacherName,
   portal,
@@ -397,32 +362,12 @@ function SectionBlock({
   onEdit: (part: SectionPart | null) => void;
   onShowGroup?: () => void;
 }) {
-  const parts = partsOf(row.section);
-  const held = parts[0] ?? EMPTY_PART;
-  const split = parts.length > 1;
-  // Its parts' hours together, against what the course asks, when every live part says some.
-  const live = parts.filter((part) => !part.retired);
-  const together = live.length && live.every((part) => hoursIn(part.hours) !== null)
-    ? live.reduce((sum, part) => sum + (hoursIn(part.hours) ?? 0), 0)
-    : null;
-  const asked = hoursIn(row.course.request.hours);
-  const splitDiffers =
-    split && together !== null && asked !== null && Math.abs(together - asked) > 0.001
-      ? `Its parts make ${figure(together)} h — the course asks ${figure(asked)} h`
-      : "";
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
-  // Dim the whole card only when NOTHING it teaches is still running.
-  const dim = parts.length > 0 && parts.every((part) => part.retired);
-  // The class's seats are what the timetabler is told to expect, so there is one number, not two.
-  const { seats, placed } = cardSeats(row);
 
   if (row.notTaught) {
-    /*
-     * A sub-row's word that it is not taught this course: no class, no CRN wanted, and not
-     * a gap. Said quietly, and still a card so it can be pressed and changed.
-     */
+    // A sub-row's word that it is not taught this course: no class, no CRN wanted, not a gap.
     return (
-      <article
+      <div
         role="button"
         tabIndex={0}
         onClick={() => onEdit(null)}
@@ -433,156 +378,70 @@ function SectionBlock({
           }
         }}
         aria-label={`Edit ${label}`}
-        className="flex cursor-pointer flex-col rounded-lg border border-dashed border-[#e4e8ef] bg-[#fdfefe] px-3.5 py-3 text-left hover:border-[#b7c6d8]"
+        className="flex flex-wrap items-center gap-x-3 border-t border-[#eef1f5] px-3 py-2 text-sm first:border-t-0 hover:bg-[#f6f8fb] @lg:col-span-full @lg:grid @lg:grid-cols-subgrid"
       >
-        <h4 className="text-sm font-semibold text-[#c8d0da]">
+        <span className="font-semibold text-[#c8d0da]">
           {row.scope.code} {row.group.label}
-        </h4>
-        <p className="mt-1 text-xs text-[#98a2b3]">Not taught to this sub-row.</p>
-      </article>
+        </span>
+        <span className="text-xs text-[#98a2b3] @lg:col-span-3">Not taught to this sub-row.</span>
+      </div>
     );
   }
 
+  const parts = partsOf(row.section);
+  const held = parts.length ? parts : [EMPTY_PART];
+  const split = parts.length > 1;
+  // Dim the whole section only when NOTHING it teaches is still running.
+  const dim = parts.length > 0 && parts.every((part) => part.retired);
+  // Its parts' hours together, against what the course asks, when every live part says some.
+  const live = parts.filter((part) => !part.retired);
+  const together = live.length && live.every((part) => hoursIn(part.hours) !== null)
+    ? live.reduce((sum, part) => sum + (hoursIn(part.hours) ?? 0), 0)
+    : null;
+  const asked = hoursIn(row.course.request.hours);
+  const splitDiffers =
+    split && together !== null && asked !== null && Math.abs(together - asked) > 0.001
+      ? `Its parts make ${figure(together)} h — the course asks ${figure(asked)} h`
+      : "";
+
   return (
     <article
-      role="button"
-      tabIndex={0}
-      /*
-       * Pressing the card edits its FIRST part, which for a section taught by one person
-       * is the section. A split section's other stretches are pressed on their own rows
-       * below, because each is a different CRN with a different name and different weeks.
-       */
-      onClick={() => onEdit(row.section ? held : null)}
-      onKeyDown={(event) => {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          onEdit(row.section ? held : null);
-        }
-      }}
-      aria-label={split ? `Edit ${label}, first part` : `Edit ${label}`}
-      /*
-       * A column, so the fullness bar can be held to the bottom edge.
-       *
-       * The cards sit in a grid whose default align-items is stretch, so every card in a
-       * row is as tall as the tallest. A block box given a height larger than its content
-       * leaves the surplus BELOW its last child, which floated the bar by exactly the
-       * height difference — visible on every card except the tallest in each row, which
-       * is why it read as "some cards".
-       */
-      className={`@container group flex cursor-pointer flex-col overflow-hidden rounded-lg border px-3.5 py-3 text-left transition hover:border-[#b7c6d8] hover:shadow-sm ${
-        dim ? "border-dashed border-[#eef1f5] bg-[#fdfefe]" : "border-[#e4e8ef] bg-white"
-      }`}
+      aria-label={label}
+      className={`flex flex-col border-t border-[#eef1f5] first:border-t-0 @lg:col-span-full @lg:grid @lg:grid-cols-subgrid ${dim ? "bg-[#fdfefe]" : ""}`}
     >
-      <header className="flex items-center gap-1.5 whitespace-nowrap @xs:gap-2">
-        <h4 className={`shrink-0 text-[12px] font-semibold @xs:text-sm ${dim ? "text-[#c8d0da]" : "text-[#171717]"}`}>
-          {row.scope.code} {row.group.label}
-        </h4>
-        {/*
-          * Said on the card, not on each part: it is one thing to know about the section
-          * before reading down it, and the parts below carry their own weeks and names.
-          */}
-        {split ? (
-          <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="Taught in more than one stretch, by more than one person">
-            {parts.length} parts
-          </span>
-        ) : null}
-        {!split && held.retired ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
-        {/*
-          * The CRN, and nothing about it.
-          *
-          * A tick or a warning here answered a different question — whether the CRN turned
-          * up in the imported timetable — and read as a verdict on the CRN itself. Only the
-          * Foundation Year timetable has ever been imported, so most sections wore a red
-          * mark for a file that was never uploaded. That check belongs on a page of its own.
-          */}
-        {/* One CRN belongs on the title line; several belong beside the parts that own
-            them, where each sits with the name and the weeks it goes with. */}
-        <span className="ml-auto inline-flex shrink-0 items-center gap-1 tabular-nums @xs:gap-1.5">
-          {split ? null : <SessionTags shown={shownOf(held, row.course.request)} dim={dim} />}
-          {split ? null : held.crn ? (
-            <span className={`text-[12px] @xs:text-sm ${held.retired ? "text-[#c8d0da]" : "text-[#667085]"}`}>{held.crn}</span>
-          ) : held.retired ? null : (
-            <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
-          )}
-        </span>
-        {/*
-          * Who is in this group — the first question anybody asks about one, and until now
-          * the only one this card could not answer. It needed the Students page, a cohort
-          * filter and a group filter to read eighteen names off a table built for three
-          * thousand rows.
-          *
-          * Its own button rather than part of the card's own press, which opens the editor:
-          * looking at a group is not editing it, and a roster appearing over a form
-          * somebody had just opened would be worse than the walk to the other page.
-          */}
-        {onShowGroup ? (
-          <button
-            type="button"
-            aria-label={`Who is in ${row.scope.code} ${row.group.label}`}
-            title="Who is in this group"
-            onClick={(event) => {
-              event.stopPropagation();
-              onShowGroup();
-            }}
-            className="shrink-0 rounded p-0.5 text-[#c8d0da] hover:bg-[#eef1f5] hover:text-[#1f4e79]"
-          >
-            <Eye size={13} aria-hidden="true" />
-          </button>
-        ) : null}
-        <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
-      </header>
-
-      {/*
-        * One block per stretch of teaching.
-        *
-        * Undivided when there is one — the block IS the section and reads exactly as it
-        * did before parts existed. Divided by a rule when there are two, each with the CRN,
-        * the name and the weeks that go together, so the card answers "who teaches this,
-        * and when" without the eye travelling between two cards to do it.
-        */}
-      {parts.map((part, index) => (
-        <PartLine
+      {held.map((part, index) => (
+        <PartRow
           key={part.part}
+          row={row}
           part={part}
-          only={!split}
-          first={index === 0}
+          index={index}
+          split={split}
+          dim={dim}
           teacherName={teacherName}
           portal={portal}
           teacherDrift={teacherDrift}
-          onEdit={split ? () => onEdit(part) : undefined}
-          label={`${label}, part ${part.part}`}
-          course={row.course.request}
-          aside={
-            index === 0 ? (
-              // The group's own facts, once however many parts: the same people sit in each.
-              <span className="ml-auto inline-flex shrink-0 items-center gap-1">
-                {row.exempt ? <Figure label="exempt" value={String(row.exempt)} dim={dim} compact /> : null}
-                <Seats placed={placed} seats={seats} dim={dim} />
-              </span>
-            ) : null
-          }
+          onEdit={() => onEdit(row.section ? part : null)}
+          onShowGroup={onShowGroup}
         />
       ))}
-      {split && splitDiffers ? (
-        // A divided section's parts together, against what the course asks.
-        <p className="mt-1 flex items-start gap-1 text-[11px] font-semibold text-[#8a6116]">
+      {splitDiffers ? (
+        <p className="flex items-start gap-1 px-3 pb-2 text-[11px] font-semibold text-[#8a6116] @lg:col-start-2 @lg:col-end-[-1] @lg:px-0">
           <AlertTriangle size={11} className="mt-0.5 shrink-0" aria-hidden="true" />
           <span>{splitDiffers}</span>
         </p>
       ) : null}
-
-
-      {/*
-        * Absorbs whatever height the grid row hands this card over its own content.
-        *
-        * A spacer rather than mt-auto on the bar itself: on the card that SETS the row
-        * height the auto margin resolves to 0, so the bar would butt against the text
-        * with no gap — a subtler regression on exactly the cards that look right today.
-        * Keeping Fullness's mt-3 preserves the 12px gap on every card.
-        */}
-      <span aria-hidden="true" className="flex-1" />
-      <Fullness placed={placed} seats={seats} dim={dim} />
     </article>
+  );
+}
+
+/** A set's sections, one row each, in columns the rows share. */
+function SectionList({ children, faded = false }: { children: ReactNode; faded?: boolean }) {
+  return (
+    <div className="@container">
+      <div className={`${ROW_COLUMNS} overflow-hidden rounded-lg border ${faded ? "border-dashed border-[#eef1f5]" : "border-[#e4e8ef]"} bg-white`}>
+        {children}
+      </div>
+    </div>
   );
 }
 
@@ -751,7 +610,7 @@ export function CourseDetail({
           // Offering to add a section in a group the course is not taught to is how the
           // empty cell got there in the first place.
           const spare = set.rows.filter((row) => !row.section && teaches(row));
-          // Said not to be taught the course: no card, but pressable, so it can be taught again.
+          // Said not to be taught the course: no row, but pressable, so it can be taught again.
           const untaught = set.rows.filter((row) => row.notTaught);
           return (
             <div key={set.scope.id}>
@@ -766,29 +625,35 @@ export function CourseDetail({
                   {set.course.component && set.course.component !== set.scope.code ? ` · ${set.course.component}` : ""}
                 </span>
                 <PlanIssue plan={coursePlan} component={set.course.component || set.scope.code} onOpen={() => setRecordOpen(true)} />
-                <InfoTip label="How to read a section card" title="Reading a section card">
-                  <TipDo>Press a card to edit its CRN, teacher, hours and what it asks.</TipDo>
+                <InfoTip label="How to read a section row" title="Reading a section row">
+                  <TipDo>Press a row to edit its CRN, teacher, hours and what it asks.</TipDo>
+                  <TipPoint>
+                    <TipButton icon={Clock3}>50 h · 1.5 h sessions</TipButton> the section&apos;s hours, session length and weeks, with its
+                    note under the row. Long ones end in &hellip;; hover for the whole.
+                  </TipPoint>
+                  <TipPoint tone="caution">
+                    <TipButton look="warn" icon={AlertTriangle}>45 h</TipButton> differs from what the course asks; the course&apos;s figure
+                    is in the tooltip.
+                  </TipPoint>
                   <TipPoint tone="serious">
                     <TipButton look="danger">no CRN</TipButton> the portal&apos;s CRN isn&apos;t entered yet.
                   </TipPoint>
                   <TipPoint tone="caution">
-                    <b>not confirmed</b>: a teacher is named, but not chosen from <TipPage name="Active teachers" /> yet.
+                    <b>not confirmed</b>: a teacher is named, but not chosen from <TipPage name="Active teachers" /> yet.{" "}
+                    <b>nobody yet</b>: no teacher at all.
                   </TipPoint>
                   <TipPoint>
-                    <TipButton icon={Clock3}>50 hours</TipButton> the section&apos;s teaching hours in all.
+                    <b>30/33</b> at the end of a row: students placed over seats. The bar says how full: blue room left, green full, red
+                    over.
                   </TipPoint>
                   <TipPoint>
-                    <TipButton icon={Armchair}>56/98 seats</TipButton> students placed over seats. The edge says how full: blue room
-                    left, green full, red over.
-                  </TipPoint>
-                  <TipPoint>
-                    <TipButton icon={Eye}>who</TipButton> the eye, top right of a card, lists who is in the group.
+                    <TipButton icon={Eye}>who</TipButton> the eye, at the end of a row, lists who is in the group.
                   </TipPoint>
                   <TipUsage
-                    when={<><TipPill>TD 1</TipPill> shows 38/30 seats, edged in red.</>}
-                    todo={<>Press the eye to see who is in it. Then press the card and raise its seats, or place some students in another TD.</>}
-                    then={<>The edge turns green or blue, and the timetabler is told the real size.</>}
-                    other={<><TipPill>CM A</TipPill> at 56/98 has a blue edge: room left. A green edge is exactly full, with nothing to do.</>}
+                    when={<><TipPill>TD 1</TipPill> shows 38/30, in red.</>}
+                    todo={<>Press the eye to see who is in it. Then press the row and raise its seats, or place some students in another TD.</>}
+                    then={<>It turns green or blue, and the timetabler is told the real size.</>}
+                    other={<><TipPill>CM A</TipPill> at 56/98 is blue: room left. Green is exactly full, with nothing to do.</>}
                   />
                 </InfoTip>
                 {set.scope.openToAll ? (
@@ -861,11 +726,13 @@ export function CourseDetail({
               </div>
 
 
-              <div className="grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-                {live.map((row) => (
-                  <SectionBlock key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
-                ))}
-              </div>
+              {live.length ? (
+                <SectionList>
+                  {live.map((row) => (
+                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                  ))}
+                </SectionList>
+              ) : null}
 
               {retired.length ? (
                 <div className="mt-2">
@@ -879,10 +746,12 @@ export function CourseDetail({
                     {retired.length} retired
                   </button>
                   {showingRetired[set.scope.id] ? (
-                    <div className="mt-2 grid gap-2.5 sm:grid-cols-2 2xl:grid-cols-3">
-                      {retired.map((row) => (
-                        <SectionBlock key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
-                      ))}
+                    <div className="mt-2">
+                      <SectionList faded>
+                        {retired.map((row) => (
+                          <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                        ))}
+                      </SectionList>
                     </div>
                   ) : null}
                 </div>
@@ -897,7 +766,7 @@ export function CourseDetail({
                     <TipUsage
                       when={<>The physicists&apos; sub-row was marked not taught, and now takes the course after all.</>}
                       todo={<>Press it here, say it is taught, and give it its CRN.</>}
-                      then={<>It gets a section card like the others.</>}
+                      then={<>It gets a section row like the others.</>}
                     />
                   </InfoTip>
                   {untaught.map((row) => (
@@ -923,7 +792,7 @@ export function CourseDetail({
                     <TipUsage
                       when={<>A <TipPill>TD 4</TipPill> was added on <TipPage name="Group schema" />.</>}
                       todo={<>Press <TipPill>4</TipPill> here, then enter its CRN and teacher.</>}
-                      then={<>TD 4 gets its own card, with its seats and hours.</>}
+                      then={<>TD 4 gets its own row, with its seats and hours.</>}
                     />
                   </InfoTip>
                   {spare.map((row) => (
