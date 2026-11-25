@@ -196,7 +196,10 @@ describe("the course cards", () => {
 
     for (const name of ["Edit TD 1 MATH001", "Edit TD 2 MATH001"]) {
       const row = (await screen.findByLabelText(name)) as HTMLElement;
-      expect(row.textContent).toContain("50 h · 1.5 h sessions");
+      // Each figure in its own pill (25 Nov 2026), and all of them together on hover.
+      expect(within(row).getByText("50 h")).toBeTruthy();
+      expect(within(row).getByText("1.5 h sessions")).toBeTruthy();
+      expect(within(row).getByTitle("50 h · 1.5 h sessions")).toBeTruthy();
       expect(within(row).getByTitle("Mutualized with Maths")).toBeTruthy();
     }
   });

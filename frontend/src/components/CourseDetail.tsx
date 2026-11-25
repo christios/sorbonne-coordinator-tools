@@ -1,4 +1,18 @@
-import { AlertTriangle, ChevronDown, ChevronRight, Clock3, Eye, Pencil, Wand2 } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  Eye,
+  Pencil,
+  Plus,
+  Repeat,
+  StickyNote,
+  Timer,
+  UserRound,
+  Wand2,
+} from "lucide-react";
 import { useState, type ReactNode } from "react";
 
 import { FillBlock, type FillReport } from "@/components/FillBlock";
@@ -19,14 +33,27 @@ import { ALL_COHORTS, EMPTY_PART, partsOf, type Cohort, type SectionPart } from 
 const chip = "rounded-full px-2 py-0.5 text-xs font-semibold";
 
 /**
- * How full a group is, in the colours Capacity uses: blue room left, green exactly full,
- * red over — a room that will not hold the class.
+ * A row's facts as pills (user, 25 Nov 2026): its hours, session length, sessions a week and
+ * weeks each in their own, the seats and exempt count too, instead of one grey line of
+ * figures run together and cut off at the end.
+ */
+const PILL = "inline-flex min-w-0 max-w-full items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium";
+const TONE = {
+  plain: "bg-[#f2f4f7] text-[#475467]",
+  warn: "bg-[#fdf6e3] text-[#8a6116]",
+  danger: "bg-[#fdf3f3] text-[#a6292f]",
+  gone: "bg-[#f8fafc] text-[#c8d0da]",
+} as const;
+
+/**
+ * How full a group is: grey room left, green exactly full, red over — a room that will not
+ * hold the class. Only the two that ask something of you take a colour.
  */
 const SEATS = {
-  over: { bar: "#a6292f", number: "text-[#a6292f]" },
-  full: { bar: "#2e7d55", number: "text-[#2e7d55]" },
-  room: { bar: "#1f4e79", number: "text-[#344054]" },
-  unset: { bar: "#e4e8ef", number: "text-[#b7bec8]" },
+  over: "bg-[#fdf3f3] text-[#a6292f]",
+  full: "bg-[#eaf5ee] text-[#2e7d55]",
+  room: "bg-[#f2f4f7] text-[#344054]",
+  unset: "bg-[#f8fafc] text-[#b7bec8]",
 } as const;
 
 /** Which of the four readings this group is: the same words Capacity uses. */
@@ -38,35 +65,25 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
 }
 
 /**
- * The group's seats at the end of its row: students placed over seats, and a bar beside
- * them, so the rows of a set read as a column of how full each class is (user, 24 Nov 2026).
- * The bar goes on a narrow screen; the figures stay.
+ * The group's seats at the end of its row's first line: students placed over seats in a
+ * pill coloured by how full it is, and beside it how many of the group don't take the course.
  */
 function Seats({ placed, seats, exempt, dim }: { placed: number; seats: number; exempt: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
-  const share = seats ? Math.min(1, placed / seats) : 0;
   return (
-    <span className="flex items-center justify-end gap-2 whitespace-nowrap">
+    <span className="flex items-center justify-end gap-1.5 whitespace-nowrap">
       {exempt ? (
-        <span
-          title={`${exempt} of the group's students don't take this course`}
-          className={`text-[11px] font-semibold ${dim ? "text-[#d5dce4]" : "text-[#8a6116]"}`}
-        >
+        <span title={`${exempt} of the group's students don't take this course`} className={`${PILL} ${dim ? TONE.gone : TONE.plain}`}>
           {exempt} exempt
         </span>
       ) : null}
-      <span aria-hidden="true" className="hidden h-1.5 w-20 overflow-hidden rounded-full bg-[#eef1f5] @lg:block">
-        <span
-          className="block h-full rounded-full"
-          style={{ width: `${share * 100}%`, backgroundColor: dim || placed === 0 ? "#e4e8ef" : SEATS[verdict].bar }}
-        />
-      </span>
       <span
         title={seats ? `${placed} of ${seats} seats taken` : `${placed} placed, no capacity set`}
-        className={`min-w-[3.25rem] text-right text-[13px] font-semibold tabular-nums ${dim ? "text-[#d5dce4]" : SEATS[verdict].number}`}
+        className={`${PILL} min-w-[4.5rem] justify-center text-xs font-semibold tabular-nums ${dim ? TONE.gone : SEATS[verdict]}`}
       >
         {placed}
-        <span className="opacity-45">/{seats || "—"}</span>
+        <span className="px-0.5 opacity-50">/</span>
+        {seats || "—"}
       </span>
     </span>
   );
@@ -149,9 +166,13 @@ function said(key: keyof Asked, value: string): string {
  *
  * Aligned columns where the list is wide enough; on a phone each row wraps instead, its
  * seats pushed to the right of the first line, so nothing is cut off.
+ *
+ * Laid out as a card (user, 25 Nov 2026): the group, its CRN in a box, the teacher, and the
+ * seats on the first line; the figures as pills under the CRN; the note in a box of its own.
  */
-const ROW_COLUMNS =
-  "flex flex-col @lg:grid @lg:grid-cols-[max-content_max-content_minmax(6rem,1fr)_fit-content(14rem)_max-content_max-content] @lg:gap-x-3";
+const ROW_COLUMNS = "flex flex-col @lg:grid @lg:grid-cols-[max-content_max-content_minmax(6rem,1fr)_max-content_max-content] @lg:gap-x-3";
+
+const FIGURE_ICON = { hours: Clock3, duration: Timer, perWeek: Repeat, weeks: CalendarDays } as const;
 
 /**
  * One stretch of a section's teaching, as a row of its set's list.
@@ -204,6 +225,18 @@ function PartRow({
     .filter((each) => each.words);
   const ownNote = asked.note;
   const warn = shown.overrides.length && !gone;
+  // The whole of the figures on hover, with where they differ from the course and whose they are.
+  const figuresTitle = own.length
+    ? [
+        own.map((each) => each.words).join(" · "),
+        ...(warn ? shown.overrides : []),
+        ...own.flatMap((each) =>
+          (each.key === "hours" && shown.hoursInherited) || (each.key === "duration" && shown.durationInherited)
+            ? [`${each.words}, from what the course asks: the section says none of its own`]
+            : [],
+        ),
+      ].join("\n")
+    : undefined;
 
   return (
     <div
@@ -218,7 +251,7 @@ function PartRow({
       }}
       // Numbered as they are read, top to bottom: the parts keep no order of their own.
       aria-label={split ? `Edit ${label}, part ${index + 1}` : `Edit ${label}`}
-      className={`group flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-left text-sm hover:bg-[#f6f8fb] @lg:col-span-full @lg:grid @lg:grid-cols-subgrid @lg:gap-y-0 ${
+      className={`group flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-left text-sm hover:bg-[#f6f8fb] @lg:col-span-full @lg:grid @lg:grid-cols-subgrid @lg:gap-y-1.5 ${
         first ? "" : "border-t border-dashed border-[#eef1f5]"
       }`}
     >
@@ -239,53 +272,32 @@ function PartRow({
 
       <span className="whitespace-nowrap tabular-nums">
         {part.crn ? (
-          <span className={gone ? "text-[#c8d0da]" : "text-[#667085]"}>{part.crn}</span>
+          <span
+            className={`rounded-md border px-1.5 py-px text-xs ${gone ? "border-[#eef1f5] text-[#c8d0da]" : "border-[#d9dee7] bg-white text-[#475467]"}`}
+          >
+            {part.crn}
+          </span>
         ) : gone ? null : (
-          <span className={`${chip} bg-[#fdf3f3] text-[#a6292f]`}>no CRN</span>
+          <span className={`${PILL} ${TONE.danger} font-semibold`}>no CRN</span>
         )}
       </span>
 
       <span
-        className="min-w-0 max-w-full truncate"
+        className="inline-flex min-w-0 max-w-full items-center gap-1.5"
         title={chosen || (part.teacher ? `${part.teacher}, not confirmed: named on the row, but not chosen from Active teachers yet` : "Nobody teaches it yet")}
       >
-        {chosen ? (
-          <span className={gone ? "text-[#c8d0da]" : "text-[#344054]"}>{chosen}</span>
-        ) : part.teacher ? (
-          <span className={gone ? "text-[#c8d0da]" : "text-[#667085]"}>
-            {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
-          </span>
-        ) : (
-          <span className={gone ? "text-[#d5dce4]" : "text-[#8a6116]"}>nobody yet</span>
-        )}
-      </span>
-
-      <span
-        className="min-w-0 max-w-full truncate text-[11px] tabular-nums"
-        title={
-          own.length
-            ? [
-                own.map((each) => each.words).join(" · "),
-                ...(warn ? shown.overrides : []),
-                ...own.flatMap((each) =>
-                  (each.key === "hours" && shown.hoursInherited) || (each.key === "duration" && shown.durationInherited)
-                    ? [`${each.words}, from what the course asks: the section says none of its own`]
-                    : [],
-                ),
-              ].join("\n")
-            : undefined
-        }
-      >
-        {own.map((each, index) => {
-          const amber = warn && (each.key === "hours" || each.key === "duration");
-          return (
-            <span key={each.key} className={gone ? "text-[#d5dce4]" : amber ? "font-semibold text-[#8a6116]" : "text-[#667085]"}>
-              {index ? " · " : ""}
-              {amber ? <AlertTriangle size={10} aria-hidden="true" className="mr-0.5 inline align-[-1px]" /> : null}
-              {each.words}
+        <UserRound size={13} aria-hidden="true" className={`shrink-0 ${gone ? "text-[#e4e8ef]" : chosen || part.teacher ? "text-[#98a2b3]" : "text-[#c79a3a]"}`} />
+        <span className="min-w-0 truncate">
+          {chosen ? (
+            <span className={gone ? "text-[#c8d0da]" : "text-[#344054]"}>{chosen}</span>
+          ) : part.teacher ? (
+            <span className={gone ? "text-[#c8d0da]" : "text-[#667085]"}>
+              {part.teacher} <span className="text-[11px] text-[#98a2b3]">not confirmed</span>
             </span>
-          );
-        })}
+          ) : (
+            <span className={gone ? "text-[#d5dce4]" : "font-medium text-[#8a6116]"}>nobody yet</span>
+          )}
+        </span>
       </span>
 
       {first ? (
@@ -320,20 +332,45 @@ function PartRow({
         <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
       </span>
 
-      {/* Under the row, from the CRN's column: its own note, and what the portal says otherwise. */}
-      {ownNote || (part.crn && portalRow === null) || (portalRow?.teacherName && drifted) ? (
-        <span className="mt-0.5 min-w-0 basis-full space-y-0.5 text-xs leading-5 @lg:col-start-2 @lg:col-end-[-1] @lg:basis-auto">
-          {ownNote ? (
-            <span title={ownNote} className={`block truncate ${gone ? "text-[#d5dce4]" : "text-[#667085]"}`}>
-              {ownNote}
-            </span>
-          ) : null}
-          {part.crn && portalRow === null ? (
-            <span className="block text-[11px] text-[#a6292f]">Not in the portal&apos;s list for this semester.</span>
-          ) : null}
-          {portalRow?.teacherName && drifted ? <span className="block text-[11px] text-[#98a2b3]">Portal: {portalRow.teacherName}</span> : null}
-        </span>
-      ) : null}
+      {/*
+        * Under the first line, from the CRN's column: the figures as pills, what the portal
+        * says otherwise, and the note in a box of its own.
+        */}
+      <span className="flex min-w-0 basis-full flex-col items-start gap-1.5 @lg:col-start-2 @lg:col-end-[-1] @lg:basis-auto">
+        {own.length || (part.crn && portalRow === null) || (portalRow?.teacherName && drifted) ? (
+          <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 tabular-nums" title={figuresTitle}>
+            {own.map((each) => {
+              const amber = warn && (each.key === "hours" || each.key === "duration");
+              const Icon = amber ? AlertTriangle : FIGURE_ICON[each.key as keyof typeof FIGURE_ICON];
+              return (
+                <span key={each.key} className={`${PILL} ${gone ? TONE.gone : amber ? `${TONE.warn} font-semibold` : TONE.plain}`}>
+                  {Icon ? <Icon size={11} aria-hidden="true" className="shrink-0" /> : null}
+                  <span className="min-w-0 truncate">{each.words}</span>
+                </span>
+              );
+            })}
+            {part.crn && portalRow === null ? (
+              <span className={`${PILL} ${TONE.danger}`}>Not in the portal&apos;s list for this semester.</span>
+            ) : null}
+            {portalRow?.teacherName && drifted ? (
+              <span className={`${PILL} ${TONE.plain}`} title="The portal names another teacher for this CRN">
+                Portal: {portalRow.teacherName}
+              </span>
+            ) : null}
+          </span>
+        ) : null}
+        {ownNote ? (
+          <span
+            title={ownNote}
+            className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
+              gone ? "border-[#f2f4f7] text-[#d5dce4]" : "border-[#eef1f5] bg-[#f8fafc] text-[#667085]"
+            }`}
+          >
+            <StickyNote size={12} aria-hidden="true" className="shrink-0 text-[#98a2b3]" />
+            <span className="min-w-0 truncate">{ownNote}</span>
+          </span>
+        ) : null}
+      </span>
     </div>
   );
 }
@@ -434,13 +471,11 @@ function SectionRows({
   );
 }
 
-/** A set's sections, one row each, in columns the rows share. */
+/** A set's sections, one row each, in columns the rows share, inside the set's box. */
 function SectionList({ children, faded = false }: { children: ReactNode; faded?: boolean }) {
   return (
-    <div className="@container">
-      <div className={`${ROW_COLUMNS} overflow-hidden rounded-lg border ${faded ? "border-dashed border-[#eef1f5]" : "border-[#e4e8ef]"} bg-white`}>
-        {children}
-      </div>
+    <div className={`@container ${faded ? "border-t border-dashed border-[#e4e8ef] bg-[#fcfcfd]" : ""}`}>
+      <div className={ROW_COLUMNS}>{children}</div>
     </div>
   );
 }
@@ -578,7 +613,7 @@ export function CourseDetail({
         </span>
       </header>
 
-      <div className="relative space-y-6 px-5 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
+      <div className="relative space-y-4 px-5 py-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-none">
         {card.sets.map((set) => {
           const missingByCohort = (unassigned[set.scope.code] ?? []).filter((each) => each.ids.length);
           const left = missingByCohort.reduce((sum, each) => sum + each.ids.length, 0);
@@ -613,13 +648,19 @@ export function CourseDetail({
           // Said not to be taught the course: no row, but pressable, so it can be taught again.
           const untaught = set.rows.filter((row) => row.notTaught);
           return (
-            <div key={set.scope.id}>
-              <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                <span className="font-semibold text-[#1f4e79]">{set.scope.code}</span>
+            /*
+             * A set is one box (user, 25 Nov 2026): a heading strip with what the set is and
+             * its Fill, its sections, and a footer strip for the groups it has no section in.
+             * The "not taught to" and "add a section in" lines floated between one set and the
+             * next before, and read as belonging to either.
+             */
+            <div key={set.scope.id} className="overflow-hidden rounded-xl border border-[#d9dee7] bg-white">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-[#eef1f5] bg-[#f8fafc] px-3 py-2 text-sm">
+                <span className="rounded-md bg-[#e8eef6] px-2 py-0.5 font-semibold text-[#1f4e79]">{set.scope.code}</span>
                 {set.scope.name && set.scope.name !== set.scope.code ? (
-                  <span className="text-[#667085]">{set.scope.name}</span>
+                  <span className="font-medium text-[#475467]">{set.scope.name}</span>
                 ) : null}
-                <span className="text-xs text-[#98a2b3]">
+                <span className={`${PILL} border border-[#e4e8ef] bg-white text-[#667085]`}>
                   {live.length} section{live.length === 1 ? "" : "s"}
                   {/* A component named after its set — "CM · CM" — says it twice. */}
                   {set.course.component && set.course.component !== set.scope.code ? ` · ${set.course.component}` : ""}
@@ -628,8 +669,9 @@ export function CourseDetail({
                 <InfoTip label="How to read a section row" title="Reading a section row">
                   <TipDo>Press a row to edit its CRN, teacher, hours and what it asks.</TipDo>
                   <TipPoint>
-                    <TipButton icon={Clock3}>50 h · 1.5 h sessions</TipButton> the section&apos;s hours, session length and weeks, with its
-                    note under the row. Long ones end in &hellip;; hover for the whole.
+                    <TipButton icon={Clock3}>50 h</TipButton> <TipButton icon={Timer}>1.5 h sessions</TipButton> the section&apos;s hours,
+                    session length, sessions a week and weeks, each in its pill under the row&apos;s name, and its note in the box under
+                    them. Long ones end in &hellip;; hover for the whole.
                   </TipPoint>
                   <TipPoint tone="caution">
                     <TipButton look="warn" icon={AlertTriangle}>45 h</TipButton> differs from what the course asks; the course&apos;s figure
@@ -643,8 +685,8 @@ export function CourseDetail({
                     <b>nobody yet</b>: no teacher at all.
                   </TipPoint>
                   <TipPoint>
-                    <b>30/33</b> at the end of a row: students placed over seats. The bar says how full: blue room left, green full, red
-                    over.
+                    <b>30/33</b> at the end of a row&apos;s first line: students placed over seats. Grey is room left, green full, red
+                    over. <b>1 exempt</b> beside it: a student of the group who doesn&apos;t take this course.
                   </TipPoint>
                   <TipPoint>
                     <TipButton icon={Eye}>who</TipButton> the eye, at the end of a row, lists who is in the group.
@@ -725,86 +767,92 @@ export function CourseDetail({
                 ) : null}
               </div>
 
-
               {live.length ? (
                 <SectionList>
                   {live.map((row) => (
                     <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
                   ))}
                 </SectionList>
+              ) : (
+                <p className="px-3 py-2.5 text-xs text-[#98a2b3]">
+                  No section of {card.code} in {set.scope.code} yet{spare.length ? ": add one below." : "."}
+                </p>
+              )}
+
+              {retired.length && showingRetired[set.scope.id] ? (
+                <SectionList faded>
+                  {retired.map((row) => (
+                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                  ))}
+                </SectionList>
               ) : null}
 
-              {retired.length ? (
-                <div className="mt-2">
-                  <button
-                    type="button"
-                    onClick={() => setShowingRetired((current) => ({ ...current, [set.scope.id]: !current[set.scope.id] }))}
-                    aria-expanded={Boolean(showingRetired[set.scope.id])}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[#98a2b3] hover:text-[#667085]"
-                  >
-                    {showingRetired[set.scope.id] ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
-                    {retired.length} retired
-                  </button>
-                  {showingRetired[set.scope.id] ? (
-                    <div className="mt-2">
-                      <SectionList faded>
-                        {retired.map((row) => (
-                          <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
-                        ))}
-                      </SectionList>
-                    </div>
+              {/* The set's footer: its retired sections, folded away, and the groups it has no section in. */}
+              {retired.length || untaught.length || spare.length ? (
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-2 border-t border-[#eef1f5] bg-[#f8fafc] px-3 py-2 text-xs text-[#667085]">
+                  {retired.length ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowingRetired((current) => ({ ...current, [set.scope.id]: !current[set.scope.id] }))}
+                      aria-expanded={Boolean(showingRetired[set.scope.id])}
+                      className="inline-flex items-center gap-1 font-medium text-[#98a2b3] hover:text-[#475467]"
+                    >
+                      {showingRetired[set.scope.id] ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+                      {retired.length} retired
+                    </button>
                   ) : null}
-                </div>
-              ) : null}
 
-              {untaught.length ? (
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#98a2b3]">
-                  <span>Not taught to</span>
-                  <InfoTip label="What not taught to means" title="Not taught to">
-                    <TipDo>Press a group to teach it this course again.</TipDo>
-                    <TipPoint>These sub-rows are marked as not taking the course: no class, and no CRN expected.</TipPoint>
-                    <TipUsage
-                      when={<>The physicists&apos; sub-row was marked not taught, and now takes the course after all.</>}
-                      todo={<>Press it here, say it is taught, and give it its CRN.</>}
-                      then={<>It gets a section row like the others.</>}
-                    />
-                  </InfoTip>
-                  {untaught.map((row) => (
-                    <button
-                      key={rowKey(row)}
-                      type="button"
-                      onClick={() => setEditing(row)}
-                      title="Press to change it, or to teach the course to this group again"
-                      className="rounded-full border border-[#e4e8ef] bg-[#f8fafc] px-2 py-0.5 font-medium text-[#98a2b3] line-through decoration-[#c8d0da] hover:border-[#1f4e79] hover:text-[#1f4e79] hover:no-underline"
-                    >
-                      {row.group.label}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+                  {untaught.length ? (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <span>Not taught to</span>
+                      <InfoTip label="What not taught to means" title="Not taught to">
+                        <TipDo>Press a group to teach it this course again.</TipDo>
+                        <TipPoint>These sub-rows are marked as not taking the course: no class, and no CRN expected.</TipPoint>
+                        <TipUsage
+                          when={<>The physicists&apos; sub-row was marked not taught, and now takes the course after all.</>}
+                          todo={<>Press it here, say it is taught, and give it its CRN.</>}
+                          then={<>It gets a section row like the others.</>}
+                        />
+                      </InfoTip>
+                      {untaught.map((row) => (
+                        <button
+                          key={rowKey(row)}
+                          type="button"
+                          onClick={() => setEditing(row)}
+                          title="Press to change it, or to teach the course to this group again"
+                          className="rounded-full border border-[#e4e8ef] bg-white px-2 py-0.5 font-medium text-[#98a2b3] line-through decoration-[#c8d0da] hover:border-[#1f4e79] hover:text-[#1f4e79] hover:no-underline"
+                        >
+                          {row.group.label}
+                        </button>
+                      ))}
+                    </span>
+                  ) : null}
 
-              {spare.length ? (
-                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-[#98a2b3]">
-                  <span>Add a section in</span>
-                  <InfoTip label="What add a section in means" title="Add a section">
-                    <TipDo>Press a group to give it a section of this course.</TipDo>
-                    <TipPoint>Groups of this set that have no section of the course yet.</TipPoint>
-                    <TipUsage
-                      when={<>A <TipPill>TD 4</TipPill> was added on <TipPage name="Group schema" />.</>}
-                      todo={<>Press <TipPill>4</TipPill> here, then enter its CRN and teacher.</>}
-                      then={<>TD 4 gets its own row, with its seats and hours.</>}
-                    />
-                  </InfoTip>
-                  {spare.map((row) => (
-                    <button
-                      key={rowKey(row)}
-                      type="button"
-                      onClick={() => setEditing(row)}
-                      className="rounded-full border border-dashed border-[#c8d0da] px-2 py-0.5 font-medium text-[#667085] hover:border-[#1f4e79] hover:text-[#1f4e79]"
-                    >
-                      {row.group.label}
-                    </button>
-                  ))}
+                  {spare.length ? (
+                    <span className="inline-flex flex-wrap items-center gap-1.5">
+                      <span>Add a section in</span>
+                      <InfoTip label="What add a section in means" title="Add a section">
+                        <TipDo>Press a group to give it a section of this course.</TipDo>
+                        <TipPoint>Groups of this set that have no section of the course yet.</TipPoint>
+                        <TipUsage
+                          when={<>A <TipPill>TD 4</TipPill> was added on <TipPage name="Group schema" />.</>}
+                          todo={<>Press <TipPill>4</TipPill> here, then enter its CRN and teacher.</>}
+                          then={<>TD 4 gets its own row, with its seats and hours.</>}
+                        />
+                      </InfoTip>
+                      {spare.map((row) => (
+                        <button
+                          key={rowKey(row)}
+                          type="button"
+                          onClick={() => setEditing(row)}
+                          className="inline-flex items-center gap-1 rounded-full border border-dashed border-[#b7bec8] bg-white px-2 py-0.5 font-medium text-[#475467] hover:border-[#1f4e79] hover:text-[#1f4e79]"
+                        >
+                          <Plus size={11} aria-hidden="true" />
+                          {row.group.label}
+                        </button>
+                      ))}
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
             </div>
