@@ -33,7 +33,7 @@ const EMPTY: Draft = { weeks: {}, lengths: {}, note: "", paceReason: "" };
 function opening(course: CoursePlan, weeks: number[]): Draft & { spread: boolean } {
   const kept = { weeks: course.weeks, lengths: course.lengths ?? {}, note: course.note, paceReason: course.paceReason ?? "" };
   if (laidOut(course.weeks) || !weeks.length) return { ...kept, spread: false };
-  // Each part of a group taught in parts over its own stretch of the semester (25 Nov 2026).
+  // Each part of a group taught in parts too, interspersed over the whole semester (25 Nov 2026).
   const spread: Layout = spreadRows(course, weeks);
   return Object.keys(spread).length ? { ...kept, weeks: spread, lengths: {}, spread: true } : { ...kept, spread: false };
 }

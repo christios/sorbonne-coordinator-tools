@@ -338,15 +338,17 @@ describe("a group taught in parts, each part laid out on its own (25 Nov 2026)",
     expect(rowsOf(some).map((row) => row.key)).toEqual(["CM", "CM:1", "CM:2", "TD"]);
   });
 
-  it("spreads each part over its share of the semester, in turn", async () => {
-    const { rowWeeks, spreadRows } = await import("@/services/coursePlans");
-    // 30 h then 15 h: the first two thirds of fourteen weeks, then the rest.
-    expect(rowWeeks(SPLIT, "CM:1", FOURTEEN)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    expect(rowWeeks(SPLIT, "CM:2", FOURTEEN)).toEqual([10, 11, 12, 13, 14]);
+  it("spreads each part over the whole semester, interspersed with the others", async () => {
+    const { spreadRows } = await import("@/services/coursePlans");
     const spread = spreadRows(SPLIT, FOURTEEN);
     expect(hoursLaidOut(SPLIT, spread, "CM:1")).toBe(30);
     expect(hoursLaidOut(SPLIT, spread, "CM:2")).toBe(16);
-    expect(Object.keys(spread["CM:2"] ?? {}).map(Number).every((week) => week >= 10)).toBe(true);
+    // Both teachers through the term: each part's first week early on, its last near the end.
+    for (const key of ["CM:1", "CM:2"] as const) {
+      const used = Object.keys(spread[key] ?? {}).map(Number);
+      expect(Math.min(...used)).toBeLessThanOrEqual(2);
+      expect(Math.max(...used)).toBe(14);
+    }
   });
 
   it("measures a part's pace between its first and last week, so a second half is even", () => {

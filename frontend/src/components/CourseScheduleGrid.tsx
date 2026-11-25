@@ -11,7 +11,6 @@ import {
   paceOf,
   paceWords,
   rowsOf,
-  rowWeeks,
   rowWords,
   sessionLengths,
   sessionsWords,
@@ -249,8 +248,8 @@ export function CourseScheduleGrid({
                         onClick={() => {
                           const rest = { ...lengths };
                           delete rest[component];
-                          // A part over its own stretch of the semester, in turn with the others.
-                          onChange?.({ weeks: { ...layout, [component]: spreadEvenly(target.hours ?? 0, usual, rowWeeks(plan, component, numbers)) }, lengths: rest });
+                          // A part too over every week: the parts are interspersed through the term.
+                          onChange?.({ weeks: { ...layout, [component]: spreadEvenly(target.hours ?? 0, usual, numbers) }, lengths: rest });
                         }}
                         className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#1f4e79] hover:underline"
                       >

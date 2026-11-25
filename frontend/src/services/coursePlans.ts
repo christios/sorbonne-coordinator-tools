@@ -207,29 +207,14 @@ export function rowsOf(plan: Pick<CoursePlan, "components" | "parts">): PlanRow[
 }
 
 /**
- * The weeks a row is spread over: every teaching week for a component; for a part, its stretch
- * of them in turn, as long as its share of the parts' hours (25 Nov 2026) — 30 h then 15 h are
- * the first two thirds of the semester, then the last.
+ * Every row spread evenly over the semester, as a layout to start from. A part too (user, 25 Nov
+ * 2026): the parts of a group taught in parts are interspersed through the term, each teacher's
+ * sessions over every week, rather than one handing over to the next; changed freely after.
  */
-export function rowWeeks(plan: Pick<CoursePlan, "components" | "parts">, key: RowKey, weeks: number[]): number[] {
-  const part = partOfRow(key);
-  if (!part) return weeks;
-  const component = componentOfRow(key);
-  const parts = rowsOf(plan).filter((row) => row.component === component && row.part > 0);
-  const total = parts.reduce((sum, row) => sum + (row.held.hours ?? 0), 0);
-  if (!(total > 0)) return weeks;
-  const before = parts.filter((row) => row.part < part).reduce((sum, row) => sum + (row.held.hours ?? 0), 0);
-  const own = heldOf(plan, key)?.hours ?? 0;
-  const start = Math.round((before / total) * weeks.length);
-  const end = Math.max(start + 1, Math.round(((before + own) / total) * weeks.length));
-  return weeks.slice(start, Math.min(end, weeks.length));
-}
-
-/** Every row spread evenly over its weeks, as a layout to start from: a component over the semester, a part over its stretch. */
 export function spreadRows(plan: Pick<CoursePlan, "components" | "parts">, weeks: number[]): Layout {
   const spread: Layout = {};
   for (const row of rowsOf(plan)) {
-    const even = spreadEvenly(row.held.hours ?? 0, row.held.length ?? 0, rowWeeks(plan, row.key, weeks));
+    const even = spreadEvenly(row.held.hours ?? 0, row.held.length ?? 0, weeks);
     if (Object.keys(even).length) spread[row.key] = even;
   }
   return spread;
