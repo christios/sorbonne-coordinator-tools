@@ -101,7 +101,32 @@ def current_user(request: Request) -> dict[str, Any]:
     user = user_for_request(request.cookies.get(SESSION_COOKIE), request.headers.get("authorization"))
     if user is None:  # pragma: no cover - the gate rejects these before they arrive
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
+    if not request.headers.get("authorization"):
+        _remember_owner(user)
     return _profile(user)
+
+
+def _remember_owner(user: StaffUser) -> None:
+    """Keep a signed-in owner's Google name, from their session, if nothing holds it yet.
+
+    Signing in keeps it (25 Nov 2026), but an owner signed in from before that has no row
+    until they sign in again, so what they entered for a teacher went on saying "entered by
+    <address>". Their session carries Google's name: the first page they open keeps it.
+    """
+    name = (user.name or "").strip()
+    if user.email not in owner_emails() or not name or name.casefold() == user.email.casefold():
+        return
+    try:
+        coordinator_directory.directory().get(user.email)
+        return
+    except coordinator_directory.AccountNotFound:
+        pass
+    except Exception:  # noqa: BLE001 - a directory hiccup must not keep anyone from the app
+        return
+    try:
+        coordinator_directory.directory().record_sign_in(user.email, name, owner=True)
+    except Exception:  # noqa: BLE001, S110 - the same: the name can wait for the next page
+        pass
 
 
 # ------------------------------------------------------------- API tokens

@@ -115,6 +115,9 @@ describe("invitations and the deadline, on the list", () => {
     });
     page();
     expect(await screen.findByText(/^Opened /)).toBeTruthy();
+    // To the minute, as the answer's own line (25 Nov 2026).
+    const opened = new Date("2026-11-10T10:00:00Z").toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" });
+    expect(screen.getByText(/^Opened /).textContent).toContain(opened);
     expect(screen.getByRole("button", { name: "Make a new invitation for Jad Tarsissi" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Withdraw Jad Tarsissi's invitation" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Invite Valerie Le Guyon" })).toBeTruthy();
@@ -137,6 +140,8 @@ describe("the list, on the department's Record list as Part-time Teachers", () =
     expect(within(row).getByText("hard")).toBeTruthy();
     expect(within(row).getByText("soft")).toBeTruthy();
     expect(screen.getByText(/· by the teacher$/)).toBeTruthy();
+    const submitted = new Date("2026-11-09T10:00:00Z").toLocaleString(undefined, { hour: "2-digit", minute: "2-digit" });
+    expect(screen.getByText(/· by the teacher$/).textContent).toContain(submitted);
 
     fireEvent.click(screen.getByRole("button", { name: "Not started 1" }));
     expect(screen.queryByRole("button", { name: "Open Valerie Le Guyon's preferences" })).toBeNull();

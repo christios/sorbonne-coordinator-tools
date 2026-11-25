@@ -4,12 +4,15 @@ The route sweep walks the application's own routing table rather than a list kep
 here, so a router added later is covered by this test the day it is mounted.
 """
 
+from uuid import uuid4
+
 import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
 from sorbonne.config import config
 from sorbonne.main import app
+from sorbonne.services import coordinator_directory
 from sorbonne.services.auth_gate import PUBLIC_PATHS, is_public
 from sorbonne.services.staff_auth import SESSION_COOKIE, StaffUser, issue_session
 
@@ -164,3 +167,15 @@ def test_an_invited_teachers_link_opens_the_app(tmp_path, monkeypatch):
     page = TestClient(app).get("/preferences/abc123")
     assert page.status_code == status.HTTP_200_OK
     assert "id=app" in page.text
+
+
+def test_an_owner_signed_in_before_names_were_kept_is_named_on_the_next_page(
+    client: TestClient, configured: None, monkeypatch: pytest.MonkeyPatch
+):
+    """Their session carries Google's name; opening the app keeps it, so "entered by" says who (25 Nov 2026)."""
+    owner = f"owner-{uuid4().hex[:8]}@sorbonne.ae"
+    monkeypatch.setattr(config, "coordinator_access_emails", f"coordinator@sorbonne.ae, {owner}")
+    client.cookies.set(SESSION_COOKIE, issue_session(StaffUser(email=owner, name="Dr Owner", is_admin=True)))
+
+    assert client.get("/api/v1/auth/me").json()["name"] == "Dr Owner"
+    assert coordinator_directory.name_for(owner) == "Dr Owner"

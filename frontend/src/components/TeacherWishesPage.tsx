@@ -52,6 +52,16 @@ const STATUS = {
 const dated = (value: string) =>
   value ? new Date(value.length === 10 ? `${value}T00:00:00` : value).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : "";
 
+/**
+ * "25 Nov 2026, 14:32": when something happened, to the minute (user, 25 Nov 2026) — when an
+ * answer was submitted or changed, and when an invitation was sent, opened or signed in to.
+ * A bare date ("2026-11-25") has no time to tell, and says the day alone.
+ */
+const datedAt = (value: string) =>
+  !value || value.length === 10
+    ? dated(value)
+    : new Date(value).toLocaleString(undefined, { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
 type Shown = "all" | "submitted" | "draft" | "none";
 const statusOf = (row: WishTeacher): Exclude<Shown, "all"> => row.wishes?.status ?? "none";
 
@@ -101,8 +111,10 @@ function sortedRows(rows: WishTeacher[], sort: RecordSort<SortKey> | null): Wish
  * and when it last changed, what it holds, how far their invitation got, and what can be done.
  */
 // Narrower screens keep the name readable: the figures go on two lines in a narrower Answer column.
+// The teacher's column gives way to the answer's and the invitation's (user, 25 Nov 2026): their lines say who entered
+// it and when, to the minute, and were cut short.
 const ROW_GRID =
-  "gap-x-4 gap-y-2 px-4 sm:grid-cols-[minmax(9.5rem,2fr)_minmax(6rem,1fr)_9.5rem_minmax(7rem,1fr)_5.75rem] xl:grid-cols-[minmax(11rem,2fr)_minmax(7rem,1fr)_15.5rem_minmax(7.5rem,1fr)_6rem] sm:items-center";
+  "gap-x-4 gap-y-2 px-4 sm:grid-cols-[minmax(8.5rem,1.1fr)_minmax(8rem,1.5fr)_9.5rem_minmax(8rem,1.2fr)_5.75rem] xl:grid-cols-[minmax(10rem,1.1fr)_minmax(11rem,1.6fr)_15.5rem_minmax(11rem,1.2fr)_6rem] sm:items-center";
 
 /** What an answer holds, as the Record list shows figures: each over what it counts, in small capitals. */
 function AnswerFigures({ row, cap }: { row: WishTeacher; cap: number }) {
@@ -661,7 +673,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                           className="block max-w-full truncate text-xs text-[#475467]"
                           title={row.wishes.updatedBy ? `Entered by ${row.wishes.updatedBy}` : undefined}
                         >
-                          {dated(row.wishes.updatedAt)} ·{" "}
+                          {datedAt(row.wishes.updatedAt)} ·{" "}
                           {enteredBy(row) === "A coordinator"
                             ? `entered by ${row.wishes.updatedBy || "a coordinator"}`
                             : "by the teacher"}
@@ -686,7 +698,7 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                     <span className="min-w-0 leading-tight">
                       {row.invitation ? (
                         <>
-                          <span className="block text-sm text-[#344054]">{`${stage} ${dated(invitedOn)}`}</span>
+                          <span className="block text-sm text-[#344054]">{`${stage} ${datedAt(invitedOn)}`}</span>
                           <span
                             className="block truncate text-xs text-[#475467]"
                             title={`${row.invitation.email}${row.invitation.createdBy ? ` · made by ${row.invitation.createdBy}` : ""}`}
