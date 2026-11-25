@@ -27,6 +27,7 @@ from sorbonne.services.staff_auth import (
     StaffUser,
     is_configured,
     issue_session,
+    owner_emails,
     user_for_request,
     verify_google_credential,
 )
@@ -77,7 +78,7 @@ def sign_in(body: SignInInput, response: Response) -> dict[str, Any]:
     except SignInRejected as exc:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc)) from exc
 
-    coordinator_directory.directory().record_sign_in(user.email, user.name)
+    coordinator_directory.directory().record_sign_in(user.email, user.name, owner=user.email in owner_emails())
     response.set_cookie(
         SESSION_COOKIE,
         issue_session(user),

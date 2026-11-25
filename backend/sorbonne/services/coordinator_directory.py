@@ -199,18 +199,34 @@ class CoordinatorDirectory:
             return None
         return Access(is_admin=row.is_admin)
 
-    def record_sign_in(self, email: str, name: str) -> None:
-        """Remember the display name and the moment, for anyone the directory holds."""
+    def record_sign_in(self, email: str, name: str, *, owner: bool = False) -> None:
+        """Remember the display name and the moment, for anyone the directory holds.
+
+        An owner is admitted by the environment and may have no row: one is made for them,
+        holding nothing but the name, as naming them in Settings does (`set_display_name`) —
+        so what they sign — "entered by …" on an answer they typed in for a teacher — says
+        their name and not their address (25 Nov 2026). A name chosen in Settings still wins.
+        """
+        values = {"email": email.strip().casefold(), "name": name, "seen_at": _timestamp()}
         with self.engine.begin() as connection:
-            connection.execute(
-                text(
-                    """
-                    UPDATE coordinator_accounts SET name = :name, last_seen_at = :seen_at
-                    WHERE email = :email
-                    """
-                ),
-                {"email": email.strip().casefold(), "name": name, "seen_at": _timestamp()},
-            )
+            if owner:
+                connection.execute(
+                    text("""INSERT INTO coordinator_accounts
+                                (email, name, display_name, is_admin, is_active, invited_by, created_at, last_seen_at)
+                            VALUES (:email, :name, '', FALSE, TRUE, '', :seen_at, :seen_at)
+                            ON CONFLICT (email) DO UPDATE SET name = :name, last_seen_at = :seen_at"""),
+                    values,
+                )
+            else:
+                connection.execute(
+                    text(
+                        """
+                        UPDATE coordinator_accounts SET name = :name, last_seen_at = :seen_at
+                        WHERE email = :email
+                        """
+                    ),
+                    values,
+                )
 
 
 _cache: dict[str, tuple[float, Access | None]] = {}

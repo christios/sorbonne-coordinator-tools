@@ -91,6 +91,26 @@ def test_signing_in_records_the_name_and_the_moment(directory: CoordinatorDirect
     assert account["lastSeenAt"]
 
 
+def test_an_owner_signing_in_is_remembered_by_name_without_being_invited(directory: CoordinatorDirectory):
+    """An owner has no invitation to hold a name: one is kept for them, so "entered by" says who."""
+    email = an_address()
+
+    directory.record_sign_in(email, "Dr Owner", owner=True)
+    assert directory.get(email)["name"] == "Dr Owner"
+    assert directory.get(email)["lastSeenAt"]
+
+    # A name chosen in Settings wins over Google's, sign-in after sign-in.
+    directory.set_display_name(email, "Dr O. Owner")
+    directory.record_sign_in(email, "Dr Owner", owner=True)
+    assert directory.get(email)["name"] == "Dr O. Owner"
+
+    # Anybody else is not invented by signing in.
+    stranger = an_address()
+    directory.record_sign_in(stranger, "Someone")
+    with pytest.raises(AccountNotFound):
+        directory.get(stranger)
+
+
 def test_nobody_is_invited_twice_or_by_a_typo(directory: CoordinatorDirectory):
     email = an_address()
     directory.invite(email)

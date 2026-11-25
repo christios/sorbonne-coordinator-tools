@@ -4,6 +4,7 @@ import { StrictMode } from "react";
 import ReactDOM from "react-dom/client";
 
 import { InvitedWishesPage } from "@/components/InvitedWishesPage";
+import { PreferencesPreviewPage } from "@/components/PreferencesPreviewPage";
 import { GatedApp } from "@/routes/GatedApp";
 import { QUERY_DEFAULTS } from "@/services/queryDefaults";
 import { installSearchEscape } from "@/services/searchEscape";
@@ -33,8 +34,20 @@ const invitedWishesRoute = createRoute({
     return <InvitedWishesPage code={code} />;
   },
 });
+/*
+ * The coordinators' preview of that page (25 Nov 2026): a sample teacher on the semester's own
+ * settings, read with the coordinator's sign-in, and nothing saved.
+ */
+const preferencesPreviewRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/preview/preferences/$term",
+  component: function PreferencesPreview() {
+    const { term } = preferencesPreviewRoute.useParams();
+    return <PreferencesPreviewPage term={term} />;
+  },
+});
 const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute, invitedWishesRoute]),
+  routeTree: rootRoute.addChildren([indexRoute, invitedWishesRoute, preferencesPreviewRoute]),
   defaultPreload: "intent",
 });
 

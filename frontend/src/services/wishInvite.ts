@@ -119,10 +119,7 @@ export async function saveInviteeReductions(
 }
 
 /** A course lead's courses, laid out week by week, each with a note for the coordinators. */
-export async function saveInviteeCoursePlans(
-  code: string,
-  courses: { courseCode: string; weeks: Layout; lengths: Lengths; note: string; paceReason?: string }[],
-): Promise<InviteeForm> {
+export async function saveInviteeCoursePlans(code: string, courses: CourseLayoutInput[]): Promise<InviteeForm> {
   return answer(
     await apiFetch(at(code, "/course-plans"), {
       method: "PUT",
@@ -132,6 +129,22 @@ export async function saveInviteeCoursePlans(
     "Your course schedule could not be saved. Try again in a moment.",
   );
 }
+
+/** A course lead's courses as their step saves them. */
+export type CourseLayoutInput = { courseCode: string; weeks: Layout; lengths: Lengths; note: string; paceReason?: string };
+
+/**
+ * Where the teacher's page reads and saves: their link's door on the server — or, for the
+ * coordinators' preview of the page (25 Nov 2026), a sample teacher kept in the browser.
+ */
+export type InviteeSource = {
+  invitation: () => Promise<Invitation>;
+  form: () => Promise<InviteeForm>;
+  saveAnswer: (input: WishesInput) => Promise<InviteeForm>;
+  saveReductions: (items: Record<string, ReductionInput>, note: string) => Promise<InviteeForm>;
+  saveCoursePlans: (courses: CourseLayoutInput[]) => Promise<InviteeForm>;
+  signOut: () => Promise<void>;
+};
 
 /**
  * On a developer's own machine only: be the invited teacher without their Google account, to

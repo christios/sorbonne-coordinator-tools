@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, Link2, Link2Off, LockOpen, RefreshCw, Send, Settings } from "lucide-react";
+import { CalendarHeart, Eye, Link2, Link2Off, LockOpen, RefreshCw, Send, Settings } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -577,6 +577,16 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                 {deadlineWords}
               </span>
               {tip}
+              {/* The page a teacher's link opens, with a sample teacher and nothing saved: in a tab of its own. */}
+              <a
+                href={`/preview/preferences/${encodeURIComponent(term)}`}
+                target="_blank"
+                rel="noopener"
+                title="Open the request as a teacher sees it, with a sample teacher: nothing is saved"
+                className={BAR_BUTTON}
+              >
+                <Eye size={16} aria-hidden="true" /> Preview as a teacher
+              </a>
               <button type="button" onClick={() => setSharing(true)} className={BAR_BUTTON}>
                 <Link2 size={16} aria-hidden="true" /> Shared link
               </button>

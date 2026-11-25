@@ -163,6 +163,13 @@ async def invited_teacher_frontend(code: str) -> FileResponse:
     return frontend_entrypoint()
 
 
+@app.get("/preview/preferences/{term}", include_in_schema=False)
+async def preferences_preview_frontend(term: str) -> FileResponse:
+    """The coordinators' preview of a teacher's page: the app, which reads it with their sign-in."""
+    del term
+    return frontend_entrypoint()
+
+
 @app.get("/privacy", include_in_schema=False)
 async def privacy_policy() -> FileResponse:
     return FileResponse(LEGAL_PAGES / "privacy.html")

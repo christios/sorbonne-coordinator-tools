@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, CalendarHeart, Check, CheckCircle2, Loader2, Lock, LogOut, Pencil } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { CalendarClock, CalendarHeart, Check, CheckCircle2, Loader2, Lock, LogOut, Pencil, RotateCcw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 import { CourseScheduleStep, type CourseLayouts } from "@/components/CourseScheduleStep";
@@ -14,6 +14,7 @@ import { fetchSignInConfig } from "@/services/auth";
 import { componentsOf, laidOut, type CoursePlan } from "@/services/coursePlans";
 import { yearWords } from "@/services/hourReductions";
 import type { Wishes, WishesInput } from "@/services/teacherWishes";
+import type { ReductionInput } from "@/services/hourReductions";
 import {
   InviteRefused,
   fetchInvitation,
@@ -26,7 +27,20 @@ import {
   signInInvitee,
   signOutInvitee,
   type InviteeForm,
+  type InviteeSource,
 } from "@/services/wishInvite";
+
+/** A teacher's own link: everything through its door on the server. */
+function linkSource(code: string): InviteeSource {
+  return {
+    invitation: () => fetchInvitation(code),
+    form: () => fetchInviteeForm(code),
+    saveAnswer: (input) => saveInviteeAnswer(code, input),
+    saveReductions: (items, note) => saveInviteeReductions(code, items, note),
+    saveCoursePlans: (courses) => saveInviteeCoursePlans(code, courses),
+    signOut: () => signOutInvitee(code),
+  };
+}
 
 /** A course needs nothing more from its lead: its weeks are laid out, or it has no hours to lay out. */
 const courseDone = (course: CoursePlan) => laidOut(course.weeks) || !componentsOf(course).length;
@@ -39,9 +53,10 @@ const day = (value: string) =>
   value ? new Date(`${value}T00:00:00`).toLocaleDateString(undefined, { day: "numeric", month: "long", year: "numeric" }) : "";
 
 /** The page's frame: the university's name over a card, and nothing of the coordinators' app. */
-function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean }) {
+function Frame({ children, wide = false, banner }: { children: ReactNode; wide?: boolean; banner?: ReactNode }) {
   return (
     <main className="min-h-screen bg-[#f7f8fa] px-3 py-6 sm:px-4 sm:py-12">
+      {banner}
       <div className={`mx-auto ${wide ? "max-w-5xl" : "max-w-lg"}`}>
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[#a6292f]">Sorbonne University Abu Dhabi</p>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
@@ -67,16 +82,31 @@ function Frame({ children, wide = false }: { children: ReactNode; wide?: boolean
  * on it until they have saved it once, and may skip it for now; afterwards it is one click back.
  * A course lead has one too, after it: the sessions of each course they lead, week by week.
  */
-export function InvitedWishesPage({ code }: { code: string }) {
+export function InvitedWishesPage({
+  code,
+  source,
+  banner,
+}: {
+  code: string;
+  /**
+   * Where the page reads and saves: the link's door on the server, unless the coordinators'
+   * preview gives a sample teacher of its own, kept in the browser — then Sign out is Start again.
+   */
+  source?: InviteeSource;
+  /** Over the page: the preview says it is one. */
+  banner?: ReactNode;
+}) {
   const client = useQueryClient();
+  const api = useMemo(() => source ?? linkSource(code), [code, source]);
+  const preview = Boolean(source);
   const config = useQuery({ queryKey: ["sign-in-config"], queryFn: fetchSignInConfig, retry: false });
   const invitation = useQuery({
     queryKey: ["invitation", code],
-    queryFn: () => fetchInvitation(code),
+    queryFn: () => api.invitation(),
     retry: false,
   });
   const signedIn = invitation.data?.signedIn === true;
-  const form = useQuery({ queryKey: ["invitee-form", code], queryFn: () => fetchInviteeForm(code), enabled: signedIn, retry: false });
+  const form = useQuery({ queryKey: ["invitee-form", code], queryFn: () => api.form(), enabled: signedIn, retry: false });
   const [editing, setEditing] = useState(false);
   const [startFrom, setStartFrom] = useState<Wishes | null>(null);
   const [saved, setSaved] = useState<"" | "draft" | "submitted">("");
@@ -113,9 +143,18 @@ export function InvitedWishesPage({ code }: { code: string }) {
   // Microsoft's popup, closed or blocked, says so here; its token goes the same way as Google's.
   const [microsoftTrouble, setMicrosoftTrouble] = useState("");
   const signOut = useMutation({
-    mutationFn: () => signOutInvitee(code),
+    mutationFn: () => api.signOut(),
     onSuccess: () => {
       dirty.current = false;
+      if (preview) {
+        // The preview starts again from the top, as a teacher opening the link the first time.
+        setStep(null);
+        setEditing(false);
+        setSaved("");
+        setFormShown(false);
+        void client.resetQueries({ queryKey: ["invitee-form", code] });
+        return;
+      }
       client.removeQueries({ queryKey: ["invitee-form", code] });
       client.setQueryData(["invitation", code], (current: unknown) => (current ? { ...(current as object), signedIn: false } : current));
       // By the shared link, where this browser stands now comes from the server: nobody, signed out.
@@ -123,22 +162,21 @@ export function InvitedWishesPage({ code }: { code: string }) {
     },
   });
   const declare = useMutation({
-    mutationFn: ({ items, note }: { items: Parameters<typeof saveInviteeReductions>[1]; note: string }) =>
-      saveInviteeReductions(code, items, note),
+    mutationFn: ({ items, note }: { items: Record<string, ReductionInput>; note: string }) => api.saveReductions(items, note),
     onSuccess: (data) => {
       client.setQueryData(["invitee-form", code], data);
       setStep(data.coursePlans ? "courses" : "preferences");
     },
   });
   const layOut = useMutation({
-    mutationFn: (courses: CourseLayouts) => saveInviteeCoursePlans(code, courses),
+    mutationFn: (courses: CourseLayouts) => api.saveCoursePlans(courses),
     onSuccess: (data) => {
       client.setQueryData(["invitee-form", code], data);
       setStep("preferences");
     },
   });
   const save = useMutation({
-    mutationFn: (input: WishesInput) => saveInviteeAnswer(code, input),
+    mutationFn: (input: WishesInput) => api.saveAnswer(input),
     onSuccess: (data, input) => {
       dirty.current = false;
       client.setQueryData(["invitee-form", code], data);
@@ -149,7 +187,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
 
   if (invitation.isLoading || config.isLoading) {
     return (
-      <Frame>
+      <Frame banner={banner}>
         <p className="flex items-center gap-2 text-sm text-[#667085]">
           <Loader2 size={16} className="animate-spin" aria-hidden="true" /> Opening your invitation…
         </p>
@@ -159,7 +197,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   if (invitation.isError || !invitation.data) {
     const gone = invitation.error instanceof InviteRefused && invitation.error.status === 401;
     return (
-      <Frame>
+      <Frame banner={banner}>
         <p className="text-base font-semibold text-[#171717]">{gone ? "This link no longer works" : "This page could not be opened"}</p>
         <p className="mt-2 text-sm text-[#475467]">{(invitation.error as Error | null)?.message}</p>
       </Frame>
@@ -171,7 +209,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   const microsoftId = config.data?.microsoftClientId ?? "";
   if (!signedIn) {
     return (
-      <Frame>
+      <Frame banner={banner}>
         <p className="text-base font-semibold text-[#171717]">{invite.shared ? "Hello," : `Hello ${invite.teacherName},`}</p>
         <p className="mt-2 text-sm leading-6 text-[#475467]">
           Please tell us when you can&rsquo;t teach{invite.semesterName ? ` in ${invite.semesterName}` : ""}, when you&rsquo;d rather
@@ -237,7 +275,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
 
   if (form.isLoading || !form.data) {
     return (
-      <Frame>
+      <Frame banner={banner}>
         {form.isError ? (
           <p role="alert" className="text-sm text-[#a6292f]">{(form.error as Error).message}</p>
         ) : (
@@ -290,7 +328,7 @@ export function InvitedWishesPage({ code }: { code: string }) {
   // window, where the Guided tour button sits while answering (18 Nov 2026).
   const canChange = Boolean(collection) && open.open && Boolean(data.wishes) && !answering;
   return (
-    <Frame wide>
+    <Frame wide banner={banner}>
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eef1f5] pb-4">
         <div>
           <p className="text-base font-semibold text-[#171717]">
@@ -333,7 +371,15 @@ export function InvitedWishesPage({ code }: { code: string }) {
           onClick={() => signOut.mutate()}
           className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-semibold text-[#667085] hover:bg-[#f2f4f7] hover:text-[#344054]"
         >
-          <LogOut size={13} aria-hidden="true" /> Sign out ({data.email})
+          {preview ? (
+            <>
+              <RotateCcw size={13} aria-hidden="true" /> Start again
+            </>
+          ) : (
+            <>
+              <LogOut size={13} aria-hidden="true" /> Sign out ({data.email})
+            </>
+          )}
         </button>
       </div>
       {collection?.message ? <p className="mt-4 whitespace-pre-line text-sm text-[#475467]">{collection.message}</p> : null}
