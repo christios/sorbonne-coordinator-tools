@@ -2,7 +2,6 @@ import { CalendarDays, Check, ClipboardList, Pencil } from "lucide-react";
 import type { ReactNode } from "react";
 
 import {
-  componentsOf,
   figure,
   hoursLaidOut,
   laidOut,
@@ -11,6 +10,8 @@ import {
   sessionsWords,
   lengthWords,
   planStanding,
+  rowsOf,
+  rowWords,
   type CoursePlan,
   type CoursePlanSemester,
   type TeachingWeek,
@@ -147,7 +148,7 @@ function StandingPill({ course }: { course: CoursePlan }) {
     state !== "answered"
       ? ["bg-[#f2f4f7] text-[#475467]", "Not laid out yet"]
       : offTarget.length
-        ? ["bg-[#fdf6e3] text-[#8a6116]", `${offTarget.join(", ")} off the hours`]
+        ? ["bg-[#fdf6e3] text-[#8a6116]", `${offTarget.map(rowWords).join(", ")} off the hours`]
         : ["bg-[#e7f4ec] text-[#2e7d55]", "Laid out"];
   return <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-semibold ${look}`}>{words}</span>;
 }
@@ -159,7 +160,8 @@ function StandingPill({ course }: { course: CoursePlan }) {
  * the target.
  */
 export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: TeachingWeek[] }) {
-  const components = componentsOf(course);
+  // A strip per component, and per part of its groups taught in parts (25 Nov 2026).
+  const components = rowsOf(course);
   const lengths = course.lengths ?? {};
   // The weeks off between teaching weeks: a dashed block, as in the grid the lead filled in.
   const columns = withWeeksOff(weeks);
@@ -189,17 +191,22 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
         )}
       </div>
       <span aria-hidden="true" className="text-[9px] font-semibold uppercase tracking-wide text-[#98a2b3]">Total</span>
-      {components.map((component) => {
+      {components.map((row) => {
+        const component = row.key;
+        const words = rowWords(row.key);
         const done = hoursLaidOut(course, course.weeks, component, lengths);
-        const target = course.components[component].hours ?? 0;
+        const target = row.held.hours ?? 0;
+        const usual = row.held.length ?? 0;
         const met = Math.abs(done - target) < 0.01;
         const own = lengths[component] ?? {};
         return (
           <div key={component} className="contents">
-            <span className="justify-self-start rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
+            <span className="justify-self-start whitespace-nowrap rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]" title={row.teachers.join(", ") || undefined}>
+              {row.part ? `${row.component} ${row.part}` : component}
+            </span>
             <div
               role="group"
-              aria-label={`${component}: ${layoutWords(course.weeks[component])}${Object.keys(own).length ? `, ${lengthWords(own)}` : ""}`}
+              aria-label={`${words}: ${layoutWords(course.weeks[component])}${Object.keys(own).length ? `, ${lengthWords(own)}` : ""}`}
               className="flex gap-[3px]"
             >
               {columns.map(({ week, off }) => {
@@ -212,14 +219,14 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
                   );
                 }
                 const count = course.weeks[component]?.[String(week.week)] ?? 0;
-                const each = sessionLengths(course.components[component].length ?? 0, own[String(week.week)], count);
+                const each = sessionLengths(usual, own[String(week.week)], count);
                 const hours = each.reduce((sum, one) => sum + one, 0);
                 const odd = String(week.week) in own;
                 // As the lead filled it in: the sessions in the block, the hours they make under it;
                 // the week in full on hover, in the app's own bubble.
                 const said = count
-                  ? `Week ${week.week}: ${count} ${component} session${count === 1 ? "" : "s"} of ${sessionsWords(each)}`
-                  : `Week ${week.week}: no ${component} session`;
+                  ? `Week ${week.week}: ${count} ${words} session${count === 1 ? "" : "s"} of ${sessionsWords(each)}`
+                  : `Week ${week.week}: no ${words} session`;
                 return (
                   <Tip
                     key={week.week}
@@ -228,7 +235,7 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
                     delay={80}
                     icon={CalendarDays}
                     title={`Week ${week.week}${week.monday ? ` · ${formatDayAndMonth(week.monday)}` : ""}`}
-                    content={<WeekDetail component={component} lengths={each} usual={course.components[component].length ?? 0} holidays={week.holidays} />}
+                    content={<WeekDetail component={words} lengths={each} usual={usual} holidays={week.holidays} />}
                   >
                   <span role="img" aria-label={said} className="flex min-w-0 flex-1 cursor-default flex-col items-stretch">
                     <span

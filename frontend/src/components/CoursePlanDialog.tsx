@@ -12,6 +12,7 @@ import {
   changeCoursePlan,
   componentsOf,
   figure,
+  rowsOf,
   layOutCourse,
   unevenComponents,
   type CoursePlan,
@@ -163,6 +164,22 @@ export function PlanHours({ plan }: { plan: CoursePlan }) {
                 <span className="block text-xs font-semibold text-[#8a6116]">{held.exceptions.join(" · ")}</span>
               ) : null}
             </dd>
+            {/* Its groups taught in parts: each part's hours, laid out on a row of its own (25 Nov 2026). */}
+            {rowsOf(plan)
+              .filter((row) => row.component === component && row.part)
+              .map((row) => (
+                <div key={row.key} className="contents">
+                  <dt className="pl-3 text-xs text-[#475467]">
+                    Part {row.part}
+                    {row.teachers.length ? <span className="text-[#667085]"> · {row.teachers.join(", ")}</span> : null}
+                  </dt>
+                  <dd className="text-right text-xs tabular-nums text-[#344054]">
+                    {row.held.hours ? `${figure(row.held.hours)} h` : "—"}
+                    {row.held.length ? <span className="text-[#667085]"> · sessions of {figure(row.held.length)} h</span> : null}
+                    {row.held.issue ? <span className="block font-semibold text-[#8a6116]">{row.held.issue}</span> : null}
+                  </dd>
+                </div>
+              ))}
           </div>
         );
       })}

@@ -46,3 +46,33 @@ describe("the week-by-week grid, around holidays and weeks off (24 Nov 2026)", (
     expect(document.querySelector("[data-holidays]")).toBeNull();
   });
 });
+
+describe("a group taught in parts (25 Nov 2026)", () => {
+  const SPLIT = {
+    courseCode: "MATH-233",
+    components: { CM: { hours: 4, length: 2, split: "all" as const }, TD: { hours: null, length: null }, TP: { hours: null, length: null } },
+    parts: {
+      "CM:1": { hours: 2, length: 2, teachers: ["Sudarshan Shinde"], groups: ["CM Mathematics"], crns: ["23904"] },
+      "CM:2": { hours: 2, length: 2, teachers: ["Grace Younes"], groups: ["CM Mathematics"], crns: ["23905"] },
+    },
+  };
+  function Parts() {
+    const [value, setValue] = useState<ScheduleDraft>({ weeks: {}, lengths: {} });
+    return (
+      <>
+        <CourseScheduleGrid plan={SPLIT} weeks={WEEKS} value={value} onChange={setValue} />
+        <output data-testid="weeks">{JSON.stringify(value.weeks)}</output>
+      </>
+    );
+  }
+
+  it("lays each part out on a row of its own, saying who teaches it", () => {
+    render(<Parts />);
+    expect(screen.getByText("Part 1")).toBeTruthy();
+    expect(screen.getByText("Grace Younes")).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "CM sessions in week 1" })).toBeNull();
+
+    fireEvent.change(screen.getByRole("textbox", { name: "CM part 2 sessions in week 3" }), { target: { value: "1" } });
+    expect(JSON.parse(screen.getByTestId("weeks").textContent ?? "{}")).toEqual({ "CM:2": { "3": 1 } });
+  });
+});

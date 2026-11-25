@@ -188,7 +188,8 @@ def test_every_active_course_is_listed_with_an_empty_plan_until_somebody_plans_i
 
     assert [course["courseCode"] for course in semester["courses"]] == [MATH, PHYS]
     math = _course(semester, MATH)
-    assert math["components"]["CM"] == {"hours": None, "length": None, "issue": "", "source": "", "exceptions": []}
+    empty = {"hours": None, "length": None, "issue": "", "source": "", "exceptions": [], "split": ""}
+    assert math["components"]["CM"] == empty
     assert (math["leadId"], math["weeks"], math["coefficient"], math["active"]) == ("", {}, "4", True)
 
 
@@ -199,10 +200,16 @@ def test_the_hours_and_session_lengths_are_groups_and_crns(client: TestClient):
     _groups(MATH, "CM", "24", "1.5")
     _groups(MATH, "td", "", "", sections=[[("21", "1,5")], [("12", "1.5"), ("9 h", "")]])
     plan = _course(client.get(f"{AT}/{TERM}").json(), MATH)
-    plain = {"issue": "", "exceptions": []}
+    plain = {"issue": "", "exceptions": [], "split": ""}
     assert plan["components"]["CM"] == {"hours": 24, "length": 1.5, "source": "asks", **plain}
     # The TD's set asks nothing: its sections, which agree, give the figure.
-    assert plan["components"]["TD"] == {"hours": 21, "length": 1.5, "source": "sections", **plain}
+    # One of its two groups is taught in two parts: "some", and each part a row of its own (25 Nov 2026).
+    assert plan["components"]["TD"] == {"hours": 21, "length": 1.5, "source": "sections", **plain, "split": "some"}
+    assert (plan["parts"]["TD:1"]["hours"], plan["parts"]["TD:1"]["length"]) == (12, 1.5)
+    # The second part says no length of its own: the TD's.
+    second = plan["parts"]["TD:2"]
+    assert (second["hours"], second["length"], second["issue"]) == (9, 1.5, "")
+    assert [label.upper() for label in plan["parts"]["TD:2"]["groups"]] == ["TD 2"]
     assert plan["components"]["TP"] == {"hours": None, "length": None, "source": "", **plain}
 
     # Groups that disagree give no figure, and say so; so does a length that isn't one number,
@@ -212,7 +219,7 @@ def test_the_hours_and_session_lengths_are_groups_and_crns(client: TestClient):
     _groups(PHYS, "CM", "20")
     phys = _course(client.get(f"{AT}/{TERM}").json(), PHYS)["components"]
     disagree = "Its sections say 7.5 h and 12 h: set the hours on what the course asks"
-    assert phys["TP"] == {"hours": None, "length": None, "issue": disagree, "source": "", "exceptions": []}
+    assert phys["TP"] == {"hours": None, "length": None, "issue": disagree, "source": "", "exceptions": [], "split": ""}
     assert phys["TD"]["hours"] == 30 and "isn't one number" in phys["TD"]["issue"]
     assert phys["CM"]["issue"] == "No session length in Groups & CRNs yet"
     assert (phys["CM"]["hours"], phys["CM"]["length"], phys["CM"]["source"]) == (20, None, "asks")
@@ -235,6 +242,31 @@ def test_the_hours_and_session_lengths_are_groups_and_crns(client: TestClient):
     refused = client.patch(f"{AT}/{TERM}/{MATH}", json={"hours": {"CM": {"hours": 30, "length": 1.5}}})
     assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "set in Groups & CRNs" in refused.json()["detail"]
+
+
+def test_a_group_taught_in_parts_lays_each_part_out_on_its_own(client: TestClient):
+    """Algebra 2: the CM taught 30 h then 15 h, each part laid out in its own weeks (25 Nov 2026)."""
+    _groups(MATH, "CM", "45", "2", sections=[[("30", ""), ("15", "")]])
+    plan = _course(client.get(f"{AT}/{TERM}").json(), MATH)
+    # Every CM group is taught in parts: the parts are the rows, each with the CM's session length.
+    assert plan["components"]["CM"]["split"] == "all"
+    parts = {key: (part["hours"], part["length"]) for key, part in plan["parts"].items()}
+    assert parts == {"CM:1": (30, 2), "CM:2": (15, 2)}
+
+    first = {str(week): 1 for week in range(1, 9)}
+    second = {str(week): 1 for week in range(9, 15)}
+    both = {"weeks": {"CM:1": first, "CM:2": second}, "lengths": {"CM:2": {"14": 3}}}
+    laid = client.put(f"{AT}/{TERM}/{MATH}/weeks", json=both)
+    assert laid.status_code == status.HTTP_200_OK, laid.text
+    held = laid.json()
+    assert held["weeks"]["CM:1"] == first and held["weeks"]["CM:2"] == second
+    assert held["lengths"] == {"CM:2": {"14": [3.0]}}
+
+    # A part the course doesn't have is not laid out; a row that is no part of anything is refused.
+    ignored = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": {"CM:3": {"1": 1}}}).json()
+    assert "CM:3" not in ignored["weeks"]
+    wrong = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": {"CM:x": {"1": 1}}})
+    assert wrong.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
 def test_a_lead_is_picked_by_hand_and_is_one_of_the_departments_teachers(client: TestClient):

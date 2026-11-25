@@ -1224,7 +1224,7 @@ export function SemesterPlan({
             const laid = sessionsOf(classPlan.weeks) > 0;
             const own = Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : "";
             return {
-              words: `${classPlan.component} ${laid ? layoutWords(classPlan.weeks).toLowerCase() : "(weeks not laid out yet)"}, sessions of ${figure(classPlan.length)} h${own}`,
+              words: `${classPlan.component}${classPlan.part ? ` part ${classPlan.part}` : ""} ${laid ? layoutWords(classPlan.weeks).toLowerCase() : "(weeks not laid out yet)"}, sessions of ${figure(classPlan.length)} h${own}`,
               weeks: laid ? proposedWeeks(data, section, classPlan, dialog.series?.id ?? "") : null,
               length: classPlan.length,
               lengths: classPlan.lengths,
@@ -1328,7 +1328,7 @@ function TrayCoursePlan({
   const laid = sessionsOf(classPlan.weeks) > 0;
   return (
     <p data-course-plan={section.id} className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-[#475467]">
-      <span className="truncate" title={`Course plan: ${classPlan.component}, ${figure(classPlan.hours)} h${classPlan.component === "CM" ? "" : " a group"}`}>
+      <span className="truncate" title={`Course plan: ${classPlan.component}${classPlan.part ? ` part ${classPlan.part}` : ""}, ${figure(classPlan.hours)} h${classPlan.component === "CM" ? "" : " a group"}`}>
         Course plan · {laid ? layoutWords(classPlan.weeks) : "weeks not laid out yet"} · {figure(classPlan.length)} h
         {Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : ""}
       </span>

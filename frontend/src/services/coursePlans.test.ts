@@ -313,3 +313,55 @@ describe("holidays and weeks off in a week-by-week view (24 Nov 2026)", () => {
     expect(withWeeksOff([week(1, ""), week(2, "")]).map((column) => column.week?.week)).toEqual([1, 2]);
   });
 });
+
+describe("a group taught in parts, each part laid out on its own (25 Nov 2026)", () => {
+  /** Algebra 2: every CM group taught 30 h by one teacher, then 15 h by another. */
+  const SPLIT: CoursePlan = {
+    ...PLAN,
+    courseCode: "MATH-233",
+    components: { CM: { hours: 45, length: 2, split: "all" }, TD: { hours: 21, length: 1.5, split: "" }, TP: { hours: null, length: null } },
+    parts: {
+      "CM:1": { hours: 30, length: 2, teachers: ["Sudarshan Shinde"], groups: ["CM Mathematics"], crns: ["23904"] },
+      "CM:2": { hours: 15, length: 2, teachers: ["Grace Younes"], groups: ["CM Mathematics"], crns: ["23905"] },
+    },
+  };
+  const FOURTEEN = Array.from({ length: 14 }, (_, index) => index + 1);
+
+  it("lays the parts out as rows, and the component as one only where some group is taught whole", async () => {
+    const { rowsOf } = await import("@/services/coursePlans");
+    expect(rowsOf(SPLIT).map((row) => [row.key, row.teachers.join(", ")])).toEqual([
+      ["CM:1", "Sudarshan Shinde"],
+      ["CM:2", "Grace Younes"],
+      ["TD", ""],
+    ]);
+    const some = { ...SPLIT, components: { ...SPLIT.components, CM: { ...SPLIT.components.CM, split: "some" as const } } };
+    expect(rowsOf(some).map((row) => row.key)).toEqual(["CM", "CM:1", "CM:2", "TD"]);
+  });
+
+  it("spreads each part over its share of the semester, in turn", async () => {
+    const { rowWeeks, spreadRows } = await import("@/services/coursePlans");
+    // 30 h then 15 h: the first two thirds of fourteen weeks, then the rest.
+    expect(rowWeeks(SPLIT, "CM:1", FOURTEEN)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(rowWeeks(SPLIT, "CM:2", FOURTEEN)).toEqual([10, 11, 12, 13, 14]);
+    const spread = spreadRows(SPLIT, FOURTEEN);
+    expect(hoursLaidOut(SPLIT, spread, "CM:1")).toBe(30);
+    expect(hoursLaidOut(SPLIT, spread, "CM:2")).toBe(16);
+    expect(Object.keys(spread["CM:2"] ?? {}).map(Number).every((week) => week >= 10)).toBe(true);
+  });
+
+  it("measures a part's pace between its first and last week, so a second half is even", () => {
+    const laid = { ...SPLIT, weeks: { "CM:1": weeks(1, 10), "CM:2": weeks(11, 14, 2) } };
+    expect(paceOf(laid, laid.weeks, {}, "CM:2", FOURTEEN)?.state).toBe("even");
+    expect(unevenComponents(laid, FOURTEEN)).toEqual([]);
+    // Off its hours, a part says so by its own name.
+    expect(planStanding({ ...laid, answeredAt: "now" }).offTarget).toEqual(["CM:1", "CM:2", "TD"]);
+  });
+
+  it("gives a part's CRN on the Semester plan that part's weeks", () => {
+    const laid = { ...SPLIT, weeks: { "CM:1": weeks(1, 10), "CM:2": weeks(11, 14) } };
+    const byCode = new Map([["MATH-233", laid]]);
+    const second = classPlanOf(section({ courseCode: "MATH-233", component: "CM", crn: "23905" }), byCode);
+    expect(second && { part: second.part, hours: second.hours, weeks: second.weeks }).toEqual({ part: 2, hours: 15, weeks: weeks(11, 14) });
+    expect(classPlanOf(section({ courseCode: "MATH-233", component: "CM", crn: "23904" }), byCode)?.part).toBe(1);
+  });
+});

@@ -13,6 +13,7 @@ import {
   fetchCoursePlans,
   figure,
   planStanding,
+  rowWords,
   unevenComponents,
   type Component,
   type CoursePlan,
@@ -31,7 +32,7 @@ const STANDING_WORDS = { "no-lead": "No lead yet", waiting: "Waiting for the lea
 /** Where a course's weeks stand, as the filter lists it: "Laid out, uneven" among them (23 Nov 2026). */
 const standingWords = (plan: CoursePlan, weeks: number[]) => {
   const { state, offTarget } = planStanding(plan);
-  const said = offTarget.length ? `Laid out, ${offTarget.join(", ")} off the hours` : STANDING_WORDS[state];
+  const said = offTarget.length ? `Laid out, ${offTarget.map(rowWords).join(", ")} off the hours` : STANDING_WORDS[state];
   return state === "answered" && unevenComponents(plan, weeks).length ? `${said}, uneven` : said;
 };
 
@@ -41,7 +42,7 @@ function UnevenPill({ plan, weeks }: { plan: CoursePlan; weeks: number[] }) {
   if (!uneven.length) return null;
   return (
     <span
-      title={plan.paceReason ? `Why the ${uneven.join(" and ")} weeks are uneven: ${plan.paceReason}` : "Uneven, with no reason given"}
+      title={plan.paceReason ? `Why the ${uneven.map(rowWords).join(" and ")} weeks are uneven: ${plan.paceReason}` : "Uneven, with no reason given"}
       className="inline-flex shrink-0 items-center rounded-full border border-[#e5b454] bg-[#fdf6e3] px-2 py-0.5 text-[11px] font-semibold text-[#8a6116]"
     >
       Uneven
@@ -103,7 +104,7 @@ export function CoursePlansPage() {
                 title={row.note ? `The lead's note: ${row.note}` : undefined}
                 className="inline-flex min-w-0 items-center truncate rounded-full bg-[#fdf6e3] px-2 py-0.5 text-[11px] font-semibold text-[#8a6116]"
               >
-                Laid out · {offTarget.join(", ")} off the hours
+                Laid out · {offTarget.map(rowWords).join(", ")} off the hours
               </span>
             ) : (
               <StatePill tone="good">Laid out</StatePill>

@@ -7,7 +7,8 @@ import {
   componentsOf,
   hoursWords,
   laidOut,
-  spreadEvenly,
+  rowWords,
+  spreadRows,
   unevenComponents,
   type CoursePlan,
   type CoursePlanSemester,
@@ -32,12 +33,8 @@ const EMPTY: Draft = { weeks: {}, lengths: {}, note: "", paceReason: "" };
 function opening(course: CoursePlan, weeks: number[]): Draft & { spread: boolean } {
   const kept = { weeks: course.weeks, lengths: course.lengths ?? {}, note: course.note, paceReason: course.paceReason ?? "" };
   if (laidOut(course.weeks) || !weeks.length) return { ...kept, spread: false };
-  const spread: Layout = {};
-  for (const component of componentsOf(course)) {
-    const held = course.components[component];
-    const even = spreadEvenly(held.hours ?? 0, held.length ?? 0, weeks);
-    if (Object.keys(even).length) spread[component] = even;
-  }
+  // Each part of a group taught in parts over its own stretch of the semester (25 Nov 2026).
+  const spread: Layout = spreadRows(course, weeks);
   return Object.keys(spread).length ? { ...kept, weeks: spread, lengths: {}, spread: true } : { ...kept, spread: false };
 }
 
@@ -185,7 +182,7 @@ export function CourseScheduleStep({
               >
                 <span className="flex items-center gap-1.5">
                   <AlertTriangle size={14} aria-hidden="true" />
-                  Why are the {uneven.join(" and ")} sessions bunched up?
+                  Why are the {uneven.map(rowWords).join(" and ")} sessions bunched up?
                   <span className="font-normal text-[#8a6116]">(needed)</span>
                 </span>
                 <span className="mt-0.5 block text-xs font-normal text-[#8a6116]">

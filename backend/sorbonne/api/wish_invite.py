@@ -81,9 +81,9 @@ class CourseLayout(BaseModel):
     """One course the teacher leads: its sessions per teaching week by component, and a note."""
 
     courseCode: str = Field(min_length=1, max_length=40)
-    weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=3)
+    weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=24)
     # The weeks whose sessions last other than usual, each session's hours: {"CM": {"8": [1.5, 3]}}.
-    lengths: dict[str, dict[str, float | list[float]]] = Field(default_factory=dict, max_length=3)
+    lengths: dict[str, dict[str, float | list[float]]] = Field(default_factory=dict, max_length=24)
     note: str | None = Field(default=None, max_length=2000)
     # Why the weeks run unevenly over the semester, which the step asks for; "" once they are even.
     paceReason: str | None = Field(default=None, max_length=2000)

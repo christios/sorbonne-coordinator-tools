@@ -34,16 +34,30 @@ export type ComponentHours = {
   source?: "" | "asks" | "sections";
   /** The sections whose own figure differs from it, as exceptions: "TD 3 says 45 h". */
   exceptions?: string[];
+  /** Whether its groups are taught in parts, each part a row of its own: every one, some, or none. */
+  split?: "" | "some" | "all";
 };
 
-/** Sessions per teaching week, by component: `{ TD: { "2": 1, "3": 1 } }`; weeks with none left out. */
-export type Layout = Partial<Record<Component, Record<string, number>>>;
+/**
+ * A part of a component's groups taught in parts (25 Nov 2026): "CM:2" is the second stretch of
+ * every CM group taught in parts, laid out in its own weeks — Algebra 2's CM is 30 h of one
+ * teacher, then 15 h of another.
+ */
+export type PartKey = `${Component}:${number}`;
+/** A row of a course's weeks: a component, or a part of one. */
+export type RowKey = Component | PartKey;
+
+/** A part's hours and session length (the component's, where it says none), who teaches it, and the groups and CRNs it is. */
+export type PartHours = ComponentHours & { teachers: string[]; groups: string[]; crns: string[] };
+
+/** Sessions per teaching week, by row: `{ TD: { "2": 1, "3": 1 }, "CM:2": { "9": 1 } }`; weeks with none left out. */
+export type Layout = Partial<Record<RowKey, Record<string, number>>>;
 
 /**
  * The weeks whose sessions last other than the usual length, each session's hours, so one week
  * can hold a usual session and a three-hour exam: `{ CM: { "8": [1.5, 3] } }`.
  */
-export type Lengths = Partial<Record<Component, Record<string, number[]>>>;
+export type Lengths = Partial<Record<RowKey, Record<string, number[]>>>;
 
 export type TeachingWeek = {
   week: number;
@@ -59,6 +73,8 @@ export type CoursePlan = {
   /** Still on the semester's list of active courses. */
   active: boolean;
   components: Record<Component, ComponentHours>;
+  /** The parts of its groups taught in parts, by row: absent from an older server. */
+  parts?: Partial<Record<PartKey, PartHours>>;
   hoursUpdatedAt: string;
   hoursUpdatedBy: string;
   leadId: string;
@@ -146,13 +162,86 @@ export function componentsOf(plan: Pick<CoursePlan, "components">): Component[] 
   return COMPONENTS.filter((component) => (plan.components[component]?.hours ?? 0) > 0);
 }
 
+/** The component a row is of: "CM" for "CM" and "CM:2" alike. */
+export function componentOfRow(key: RowKey | string): Component {
+  return key.split(":")[0] as Component;
+}
+
+/** Which part a row is, from 1; 0 for a component's own row. */
+export function partOfRow(key: RowKey | string): number {
+  const [, part] = key.split(":");
+  return part ? Number(part) : 0;
+}
+
+/** "CM", "CM part 2": a row as words. */
+export function rowWords(key: RowKey | string): string {
+  const part = partOfRow(key);
+  return part ? `${componentOfRow(key)} part ${part}` : key;
+}
+
+/** A row's hours and session length: its component's, or its part's. */
+export function heldOf(plan: Pick<CoursePlan, "components" | "parts">, key: RowKey): ComponentHours | undefined {
+  return partOfRow(key) ? plan.parts?.[key as PartKey] : plan.components[key as Component];
+}
+
+/** A row of the course's weeks, as the grid lays it out. */
+export type PlanRow = { key: RowKey; component: Component; part: number; held: ComponentHours; teachers: string[] };
+
+/**
+ * The rows a course is laid out in, CM, TD, TP order: a component the coordinators gave hours
+ * to, and after it each part of its groups taught in parts (25 Nov 2026). Where every group of
+ * the component is taught in parts, the parts are its rows and the component has none of its own.
+ */
+export function rowsOf(plan: Pick<CoursePlan, "components" | "parts">): PlanRow[] {
+  const rows: PlanRow[] = [];
+  for (const component of COMPONENTS) {
+    const held = plan.components[component];
+    const parts = (Object.entries(plan.parts ?? {}) as [PartKey, PartHours][])
+      .filter(([key]) => componentOfRow(key) === component)
+      .sort(([left], [right]) => partOfRow(left) - partOfRow(right));
+    if ((held?.hours ?? 0) > 0 && !(held.split === "all" && parts.length)) rows.push({ key: component, component, part: 0, held, teachers: [] });
+    if (!(held?.hours ?? 0) && !parts.length) continue;
+    for (const [key, part] of parts) rows.push({ key, component, part: partOfRow(key), held: part, teachers: part.teachers ?? [] });
+  }
+  return rows;
+}
+
+/**
+ * The weeks a row is spread over: every teaching week for a component; for a part, its stretch
+ * of them in turn, as long as its share of the parts' hours (25 Nov 2026) — 30 h then 15 h are
+ * the first two thirds of the semester, then the last.
+ */
+export function rowWeeks(plan: Pick<CoursePlan, "components" | "parts">, key: RowKey, weeks: number[]): number[] {
+  const part = partOfRow(key);
+  if (!part) return weeks;
+  const component = componentOfRow(key);
+  const parts = rowsOf(plan).filter((row) => row.component === component && row.part > 0);
+  const total = parts.reduce((sum, row) => sum + (row.held.hours ?? 0), 0);
+  if (!(total > 0)) return weeks;
+  const before = parts.filter((row) => row.part < part).reduce((sum, row) => sum + (row.held.hours ?? 0), 0);
+  const own = heldOf(plan, key)?.hours ?? 0;
+  const start = Math.round((before / total) * weeks.length);
+  const end = Math.max(start + 1, Math.round(((before + own) / total) * weeks.length));
+  return weeks.slice(start, Math.min(end, weeks.length));
+}
+
+/** Every row spread evenly over its weeks, as a layout to start from: a component over the semester, a part over its stretch. */
+export function spreadRows(plan: Pick<CoursePlan, "components" | "parts">, weeks: number[]): Layout {
+  const spread: Layout = {};
+  for (const row of rowsOf(plan)) {
+    const even = spreadEvenly(row.held.hours ?? 0, row.held.length ?? 0, rowWeeks(plan, row.key, weeks));
+    if (Object.keys(even).length) spread[row.key] = even;
+  }
+  return spread;
+}
+
 export function sessionsOf(byWeek: Record<string, number> | undefined): number {
   return Object.values(byWeek ?? {}).reduce((sum, count) => sum + (count > 0 ? count : 0), 0);
 }
 
 /** Whether anybody has laid out any week of the course. */
 export function laidOut(layout: Layout): boolean {
-  return COMPONENTS.some((component) => sessionsOf(layout[component]) > 0);
+  return Object.values(layout).some((byWeek) => sessionsOf(byWeek) > 0);
 }
 
 /**
@@ -163,16 +252,22 @@ export function sessionLengths(usual: number, own: number[] | undefined, count: 
   return Array.from({ length: Math.max(0, count) }, (_, index) => own?.[index] ?? usual);
 }
 
-/** A week's hours for a component: its sessions' lengths added up. */
-export function weekHours(plan: Pick<CoursePlan, "components">, lengths: Lengths, component: Component, week: number | string, count: number): number {
-  return sessionLengths(plan.components[component]?.length ?? 0, lengths[component]?.[String(week)], count).reduce((sum, hours) => sum + hours, 0);
+/** A week's hours for a row: its sessions' lengths added up. */
+export function weekHours(
+  plan: Pick<CoursePlan, "components" | "parts">,
+  lengths: Lengths,
+  component: RowKey,
+  week: number | string,
+  count: number,
+): number {
+  return sessionLengths(heldOf(plan, component)?.length ?? 0, lengths[component]?.[String(week)], count).reduce((sum, hours) => sum + hours, 0);
 }
 
-/** Hours a component's sessions add up to, week by week. */
+/** Hours a row's sessions add up to, week by week. */
 export function hoursLaidOut(
-  plan: Pick<CoursePlan, "components">,
+  plan: Pick<CoursePlan, "components" | "parts">,
   layout: Layout,
-  component: Component,
+  component: RowKey,
   lengths: Lengths = {},
 ): number {
   return Object.entries(layout[component] ?? {}).reduce(
@@ -250,19 +345,27 @@ export type Pace = {
 export const PACE_WEEKS = 2;
 
 export function paceOf(
-  plan: Pick<CoursePlan, "components">,
+  plan: Pick<CoursePlan, "components" | "parts">,
   layout: Layout,
   lengths: Lengths,
-  component: Component,
-  weeks: number[],
+  component: RowKey,
+  every: number[],
 ): Pace | null {
-  const length = plan.components[component]?.length ?? 0;
-  const target = plan.components[component]?.hours ?? 0;
+  const length = heldOf(plan, component)?.length ?? 0;
+  const target = heldOf(plan, component)?.hours ?? 0;
+  /*
+   * A part runs for a stretch of the semester (25 Nov 2026): its pace is measured from its first
+   * week laid out to its last, so a second half is not "too few sessions" for its first weeks.
+   * Laid out nowhere yet, it has no stretch to aim within.
+   */
+  const part = partOfRow(component) > 0;
+  const held = every.filter((week) => (layout[component]?.[String(week)] ?? 0) > 0);
+  const weeks = part && held.length ? every.filter((week) => week >= held[0] && week <= held[held.length - 1]) : every;
   if (!weeks.length || !(length > 0)) return null;
   const byWeek = weeks.map((week) => weekHours(plan, lengths, component, week, layout[component]?.[String(week)] ?? 0));
   const total = byWeek.reduce((sum, hours) => sum + hours, 0);
   // The aim is the hours the coordinators set, so a lead past them isn't told to keep going.
-  const usual = evenWords((target || total) / length, weeks.length);
+  const usual = part && !held.length ? "" : evenWords((target || total) / length, weeks.length);
   if (!(total > 0)) {
     return {
       state: "unset",
@@ -359,12 +462,14 @@ export function withWeeksOff(weeks: TeachingWeek[]): WeekColumn[] {
   return columns;
 }
 
-/** The components whose weeks run unevenly, for a course as it stands. */
-export function unevenComponents(plan: Pick<CoursePlan, "components" | "weeks" | "lengths">, weeks: number[]): Component[] {
-  return componentsOf(plan).filter((component) => {
-    const state = paceOf(plan, plan.weeks, plan.lengths ?? {}, component, weeks)?.state;
-    return state === "ahead" || state === "behind";
-  });
+/** The rows whose weeks run unevenly, for a course as it stands: "TD", "CM part 2". */
+export function unevenComponents(plan: Pick<CoursePlan, "components" | "parts" | "weeks" | "lengths">, weeks: number[]): RowKey[] {
+  return rowsOf(plan)
+    .map((row) => row.key)
+    .filter((key) => {
+      const state = paceOf(plan, plan.weeks, plan.lengths ?? {}, key, weeks)?.state;
+      return state === "ahead" || state === "behind";
+    });
 }
 
 /**
@@ -397,11 +502,10 @@ export function hoursWords(component: Component, held: ComponentHours): string {
  * Where a course's plan stands, for the lists: no lead picked, waiting on the lead, laid out —
  * and, laid out, whether every component adds up to its target.
  */
-export function planStanding(plan: CoursePlan): { state: "no-lead" | "waiting" | "answered"; offTarget: Component[] } {
-  const offTarget = componentsOf(plan).filter(
-    (component) =>
-      Math.abs(hoursLaidOut(plan, plan.weeks, component, plan.lengths ?? {}) - (plan.components[component].hours ?? 0)) > 0.01,
-  );
+export function planStanding(plan: CoursePlan): { state: "no-lead" | "waiting" | "answered"; offTarget: RowKey[] } {
+  const offTarget = rowsOf(plan)
+    .filter((row) => Math.abs(hoursLaidOut(plan, plan.weeks, row.key, plan.lengths ?? {}) - (row.held.hours ?? 0)) > 0.01)
+    .map((row) => row.key);
   if (plan.answeredAt && laidOut(plan.weeks)) return { state: "answered", offTarget };
   return { state: plan.leadId ? "waiting" : "no-lead", offTarget: [] };
 }
@@ -422,6 +526,8 @@ export function answeredWords(plan: CoursePlan): string {
 /** What a class of the plan is to its course's plan: its component's target, length and weeks. */
 export type ClassPlan = {
   component: Component;
+  /** The part of a group taught in parts this class is, whose own weeks it follows; 0 for none. */
+  part?: number;
   hours: number;
   length: number;
   weeks: Record<string, number>;
@@ -448,22 +554,31 @@ export function classPlanOf(section: PlanSection, byCode: Map<string, CoursePlan
   const component = componentOf(section);
   const plan = byCode.get(section.courseCode.toUpperCase());
   if (!component || !plan) return null;
-  const held = plan.components[component];
+  // A part's CRN follows that part's own weeks (25 Nov 2026), not the component's.
+  const crn = section.crn.trim();
+  const part = crn
+    ? (Object.entries(plan.parts ?? {}) as [PartKey, PartHours][]).find(
+        ([key, held]) => componentOfRow(key) === component && held.crns.includes(crn),
+      )?.[0]
+    : undefined;
+  const key: RowKey = part ?? component;
+  const held = heldOf(plan, key);
   if (!held?.hours || !held.length) return null;
   return {
     component,
+    ...(part ? { part: partOfRow(part) } : {}),
     hours: held.hours,
     length: held.length,
-    weeks: plan.weeks[component] ?? {},
-    lengths: plan.lengths?.[component] ?? {},
-    ...(teachingWeeks ? { uneven: unevenOf(plan, component, teachingWeeks) } : {}),
+    weeks: plan.weeks[key] ?? {},
+    lengths: plan.lengths?.[key] ?? {},
+    ...(teachingWeeks ? { uneven: unevenOf(plan, key, teachingWeeks) } : {}),
   };
 }
 
 /** A component its lead laid out unevenly: how far off an even pace, and why, as they said. */
 export function unevenOf(
-  plan: Pick<CoursePlan, "components" | "weeks" | "lengths" | "paceReason">,
-  component: Component,
+  plan: Pick<CoursePlan, "components" | "parts" | "weeks" | "lengths" | "paceReason">,
+  component: RowKey,
   weeks: number[],
 ): { words: string; reason: string } | null {
   const pace = paceOf(plan, plan.weeks, plan.lengths ?? {}, component, weeks);

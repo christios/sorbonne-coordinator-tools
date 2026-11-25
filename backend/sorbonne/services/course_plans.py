@@ -40,6 +40,9 @@ from sorbonne.services.coordinator_directory import name_for
 from sorbonne.services.semester_plans import teaching_mondays
 
 COMPONENTS = ("CM", "TD", "TP")
+#: A row of a course's weeks: a component ("CM"), or one part of the groups of it taught in parts
+#: ("CM:2", the second stretch) — laid out on its own (user, 25 Nov 2026).
+ROW_KEY = re.compile(r"^(CM|TD|TP)(?::([1-9]))?$")
 #: The most hours a course's component can have in a semester, and one session's longest.
 MOST_HOURS = 500
 LONGEST_SESSION = 8
@@ -193,24 +196,74 @@ def groups_figures(connection: Connection, term: str) -> dict[str, dict[str, dic
                 entry[kind].append(number)
     sections: dict[tuple[str, str], list[Any]] = defaultdict(list)
     for cell in connection.execute(
-        text("""SELECT c.course_id, c.group_id, g.label, c.hours, c.duration, c.retired, c.not_taught
+        text("""SELECT c.course_id, c.group_id, g.label, c.part, c.crn, c.teacher_id, c.teacher,
+                       c.hours, c.duration, c.retired, c.not_taught
                 FROM group_crns c JOIN scope_groups g ON g.id = c.group_id
                 WHERE c.course_id = ANY(:ids)"""),
         {"ids": list(courses)},
     ).mappings():
         sections[(cell["course_id"], cell["group_id"])].append(cell)
-    for (course_id, _group), parts in sections.items():
-        live = [part for part in parts if not part["retired"]]
-        if not live or any(part["not_taught"] for part in parts):
-            continue
-        course = courses[course_id]
-        said[(course["code"], course["component"])]["sections"].append(_section_said(course["component"], live))
+    split, taught = _sections_said(sections, courses, said)
     figures: dict[str, dict[str, dict[str, Any]]] = defaultdict(dict)
     for (code, component), entry in said.items():
         figure = _figure_of(entry)
+        counted = taught.get((code, component), {"whole": 0, "split": 0})
+        # Whether its groups are taught in parts: every one, some, or none.
+        figure["split"] = ("all" if not counted["whole"] else "some") if counted["split"] else ""
         if figure["hours"] or figure["issue"]:
             figures[code][component] = figure
+    for (code, component, order), parts in split.items():
+        figures[code].setdefault("parts", {})[f"{component}:{order}"] = _part_said(component, order, parts)
     return figures
+
+
+def _sections_said(
+    sections: dict[tuple[str, str], list[Any]],
+    courses: dict[str, Any],
+    said: dict[tuple[str, str], dict[str, list[Any]]],
+) -> tuple[dict[tuple[str, str, int], list[Any]], dict[tuple[str, str], dict[str, int]]]:
+    """Each section's word, into what its course's component says; and, of a group taught in
+    parts, its parts in order — the Nth of every such group on one row — with how many of a
+    component's groups are taught whole and how many in parts."""
+    split: dict[tuple[str, str, int], list[Any]] = defaultdict(list)
+    taught: dict[tuple[str, str], dict[str, int]] = defaultdict(lambda: {"whole": 0, "split": 0})
+    for (course_id, _group), parts in sections.items():
+        live = sorted((part for part in parts if not part["retired"]), key=lambda part: part["part"])
+        if not live or any(part["not_taught"] for part in parts):
+            continue
+        course = courses[course_id]
+        key = (course["code"], course["component"])
+        said[key]["sections"].append(_section_said(course["component"], live))
+        taught[key]["split" if len(live) > 1 else "whole"] += 1
+        if len(live) > 1:
+            for order, part in enumerate(live, start=1):
+                split[(course["code"], course["component"], order)].append(part)
+    return split, taught
+
+
+def _part_said(component: str, order: int, parts: list[Any]) -> dict[str, Any]:
+    """The Nth part of a component's groups taught in parts: its hours, which those groups must
+    agree on, its own session length where it says one, who teaches it and under which CRNs."""
+    hours = [_said(part["hours"]) for part in parts]
+    lengths = [_said(part["duration"]) for part in parts]
+    agreed, said = _one_of([number for words, number in hours if words and number is not None])
+    issue = ""
+    if any(words and number is None for words, number in hours):
+        agreed, issue = None, f"Part {order}'s hours aren't one number in Groups & CRNs"
+    elif agreed is None and said:
+        issue = f"The groups' part {order} say {_hours_words(said)}: they must agree"
+    elif agreed is None:
+        issue = f"Part {order} has no hours in Groups & CRNs yet"
+    length, _ = _one_of([number for words, number in lengths if words and number is not None])
+    return {
+        "hours": agreed,
+        # The part's own session length; else the component's, filled in when read.
+        "length": length,
+        "issue": issue,
+        "teachers": [(str(part["teacher_id"] or ""), str(part["teacher"] or "").strip()) for part in parts],
+        "groups": sorted({_section_said(component, [part])["label"] for part in parts}),
+        "crns": sorted({str(part["crn"]).strip() for part in parts if str(part["crn"] or "").strip()}),
+    }
 
 
 def _section_said(component: str, live: list[Any]) -> dict[str, Any]:
@@ -307,9 +360,9 @@ def _layout(raw: object) -> dict[str, dict[str, int]]:
     if not isinstance(held, dict):
         return {}
     return {
-        component: {str(week): int(count) for week, count in (held.get(component) or {}).items() if int(count) > 0}
-        for component in COMPONENTS
-        if isinstance(held.get(component), dict)
+        key: {str(week): int(count) for week, count in rows.items() if int(count) > 0}
+        for key, rows in held.items()
+        if ROW_KEY.match(str(key)) and isinstance(rows, dict)
     }
 
 
@@ -331,9 +384,9 @@ def _lengths(raw: object) -> dict[str, dict[str, list[float]]]:
     if not isinstance(held, dict):
         return {}
     return {
-        component: {str(week): _session_lengths(hours) for week, hours in (held.get(component) or {}).items()}
-        for component in COMPONENTS
-        if isinstance(held.get(component), dict) and held.get(component)
+        key: {str(week): _session_lengths(hours) for week, hours in rows.items()}
+        for key, rows in held.items()
+        if ROW_KEY.match(str(key)) and isinstance(rows, dict) and rows
     }
 
 
@@ -350,9 +403,41 @@ def _components(code: str, figures: dict[str, dict[str, dict[str, Any]]]) -> dic
             "source": held.get(component, {}).get("source", ""),
             # The sections whose own figure differs from it: "TD 3 says 45 h".
             "exceptions": held.get(component, {}).get("exceptions", []),
+            # Whether its groups are taught in parts, each part then a row of its own: "all", "some" or "".
+            "split": held.get(component, {}).get("split", ""),
         }
         for component in COMPONENTS
     }
+
+
+def _parts(
+    code: str,
+    figures: dict[str, dict[str, dict[str, Any]]],
+    components: dict[str, dict[str, Any]],
+    names: dict[str, str],
+) -> dict[str, dict[str, Any]]:
+    """The parts of a course's groups taught in parts, each a row of its weeks: "CM:1", "CM:2" —
+    its hours, its session length (the component's where it says none), who teaches it, and
+    the groups and CRNs it is."""
+    shown: dict[str, dict[str, Any]] = {}
+    for key, part in sorted(figures.get(code.upper(), {}).get("parts", {}).items()):
+        component = key.split(":")[0]
+        length = part["length"] or components[component]["length"]
+        teachers = []
+        for teacher_id, typed in part["teachers"]:
+            name = names.get(teacher_id, "") if teacher_id else typed
+            if name and name not in teachers:
+                teachers.append(name)
+        issue = part["issue"] or ("" if length else "No session length in Groups & CRNs yet")
+        shown[key] = {
+            "hours": part["hours"],
+            "length": length,
+            "issue": issue,
+            "teachers": teachers,
+            "groups": part["groups"],
+            "crns": part["crns"],
+        }
+    return shown
 
 
 def _plan(row: Any, names: dict[str, str], figures: dict[str, dict[str, dict[str, Any]]]) -> dict[str, Any]:
@@ -363,7 +448,8 @@ def _plan(row: Any, names: dict[str, str], figures: dict[str, dict[str, dict[str
         "coefficient": row["coefficient"] or "",
         # Still on the semester's list of active courses; a plan outlives being taken off it.
         "active": bool(row["active"]),
-        "components": _components(row["course_code"], figures),
+        "components": (components := _components(row["course_code"], figures)),
+        "parts": _parts(row["course_code"], figures, components, names),
         "hoursUpdatedAt": row["hours_updated_at"] or "",
         "hoursUpdatedBy": name_for(row["hours_updated_by"]) if row["hours_updated_by"] else "",
         "leadId": row["lead_id"] or "",
@@ -628,12 +714,19 @@ class CoursePlans:
         return saved
 
     @staticmethod
+    def _held(current: dict[str, Any], key: str) -> dict[str, Any] | None:
+        """A row's hours and session length: a component's, or a part's of it; None for neither."""
+        match = ROW_KEY.match(str(key))
+        if not match:
+            raise InvalidCoursePlan(f"A course's sessions are CM, TD or TP, or a part of one, not {key}.")
+        return current["components"][key] if not match.group(2) else current.get("parts", {}).get(key)
+
+    @staticmethod
     def _checked_layout(weeks: dict[str, Any], current: dict[str, Any], count: int) -> dict[str, dict[str, int]]:
         layout: dict[str, dict[str, int]] = {}
         for component, by_week in (weeks or {}).items():
-            if component not in COMPONENTS:
-                raise InvalidCoursePlan(f"A course's sessions are CM, TD or TP, not {component}.")
-            if not current["components"][component]["hours"]:
+            held = CoursePlans._held(current, component)
+            if not held or not held["hours"]:
                 # Not the course's: Groups & CRNs gives it no hours.
                 continue
             kept: dict[str, int] = {}
@@ -651,9 +744,9 @@ class CoursePlans:
                 if not 0 < many <= MOST_SESSIONS:
                     raise InvalidCoursePlan(f"A week holds between 0 and {MOST_SESSIONS} {component} sessions.")
                 kept[str(number)] = many
-            if kept and not current["components"][component]["length"]:
+            if kept and not held["length"]:
                 raise InvalidCoursePlan(
-                    f"The {component} has no session length in Groups & CRNs yet, so it can't be laid out."
+                    f"The {_row_words(component)} has no session length in Groups & CRNs yet, so it can't be laid out."
                 )
             if kept:
                 layout[component] = dict(sorted(kept.items(), key=lambda item: int(item[0])))
@@ -668,9 +761,8 @@ class CoursePlans:
         one differs from the component's usual length."""
         kept: dict[str, dict[str, list[float]]] = {}
         for component, by_week in (lengths or {}).items():
-            if component not in COMPONENTS:
-                raise InvalidCoursePlan(f"A course's sessions are CM, TD or TP, not {component}.")
-            usual = current["components"][component]["length"]
+            held = CoursePlans._held(current, component)
+            usual = held["length"] if held else None
             for week, given in (by_week or {}).items():
                 count = layout.get(component, {}).get(str(week), 0)
                 if not count:
@@ -695,3 +787,8 @@ class CoursePlans:
         return {
             component: dict(sorted(weeks.items(), key=lambda item: int(item[0]))) for component, weeks in kept.items()
         }
+
+
+def _row_words(key: str) -> str:
+    """"CM", or "CM part 2" for a part's row."""
+    return key.replace(":", " part ")

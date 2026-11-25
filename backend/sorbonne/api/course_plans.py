@@ -47,10 +47,10 @@ class PlanChange(BaseModel):
 class LayoutInput(BaseModel):
     """Sessions per teaching week, by component: {"TD": {"2": 1, "3": 1}}, and the lead's note."""
 
-    weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=3)
+    weeks: dict[str, dict[str, int]] = Field(default_factory=dict, max_length=24)
     # The weeks whose sessions last other than usual, each session's hours: {"CM": {"8": [1.5, 3]}};
     # one number stands for every session of the week.
-    lengths: dict[str, dict[str, float | list[float]]] = Field(default_factory=dict, max_length=3)
+    lengths: dict[str, dict[str, float | list[float]]] = Field(default_factory=dict, max_length=24)
     note: str | None = Field(default=None, max_length=2000)
     # Why the weeks run unevenly over the semester; "" once they are even. Left out, kept.
     paceReason: str | None = Field(default=None, max_length=2000)

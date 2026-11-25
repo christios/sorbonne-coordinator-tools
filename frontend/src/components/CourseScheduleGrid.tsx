@@ -4,12 +4,15 @@ import { Fragment, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   COMPONENT_WORDS,
-  componentsOf,
   figure,
+  heldOf,
   holidayWords,
   hoursLaidOut,
   paceOf,
   paceWords,
+  rowsOf,
+  rowWeeks,
+  rowWords,
   sessionLengths,
   sessionsWords,
   sessionsOf,
@@ -20,6 +23,8 @@ import {
   type Layout,
   type Lengths,
   type Pace,
+  type PlanRow,
+  type RowKey,
   type TeachingWeek,
   type WeekColumn,
 } from "@/services/coursePlans";
@@ -66,7 +71,7 @@ export function CourseScheduleGrid({
   only,
   spreadable = false,
 }: {
-  plan: Pick<CoursePlan, "courseCode" | "components">;
+  plan: Pick<CoursePlan, "courseCode" | "components" | "parts">;
   weeks: TeachingWeek[];
   value: ScheduleDraft;
   /** Absent for the grid to read only. */
@@ -80,36 +85,37 @@ export function CourseScheduleGrid({
   /** A "Spread evenly" button on each row, for a coordinator laying the course out; never in the lead's step. */
   spreadable?: boolean;
 }) {
-  const components = componentsOf(plan).filter((component) => !only || component === only);
+  // A row for each component, and for each part of its groups taught in parts (25 Nov 2026).
+  const rows = rowsOf(plan).filter((row) => !only || row.component === only);
   const editable = Boolean(onChange);
   const numbers = weeks.map((week) => week.week);
   const { weeks: layout, lengths } = value;
   // The rows whose sessions make more hours than the coordinators set: said under the grid.
-  const over = components
-    .filter((component) => plan.components[component].length)
-    .map((component) => ({ component, done: hoursLaidOut(plan, layout, component, lengths), set: plan.components[component].hours ?? 0 }))
+  const over = rows
+    .filter((row) => row.held.length)
+    .map((row) => ({ component: row.key, done: hoursLaidOut(plan, layout, row.key, lengths), set: row.held.hours ?? 0 }))
     .filter(({ done, set }) => done - set > 0.01);
   // The weeks off between teaching weeks, as dashed columns: nothing can be put in them.
   const columns = withWeeksOff(weeks);
   // The weeks with a holiday that hold sessions: a class falling on that day is not held.
   const holidayWeeks = weeks.filter(
-    (week) => week.holidays.length && components.some((component) => (layout[component]?.[String(week.week)] ?? 0) > 0),
+    (week) => week.holidays.length && rows.some((row) => (layout[row.key]?.[String(week.week)] ?? 0) > 0),
   );
 
   /**
    * A week's own session lengths for a component, one per session, or back to the usual length
    * with null — and back to it too when every one is the usual length; nothing empty kept.
    */
-  const withLengths = (current: Lengths, component: Component, week: number, hours: number[] | null): Lengths => {
-    const usual = plan.components[component]?.length ?? 0;
+  const withLengths = (current: Lengths, component: RowKey, week: number, hours: number[] | null): Lengths => {
+    const usual = heldOf(plan, component)?.length ?? 0;
     const row = { ...(current[component] ?? {}) };
     if (hours === null || hours.every((each) => Math.abs(each - usual) < 0.001)) delete row[String(week)];
     else row[String(week)] = hours;
-    const next = { ...current, [component]: row };
+    const next: Lengths = { ...current, [component]: row };
     if (!Object.keys(row).length) delete next[component];
     return next;
   };
-  const set = (component: Component, week: number, wanted: number) => {
+  const set = (component: RowKey, week: number, wanted: number) => {
     const count = Math.max(0, Math.min(MOST_SESSIONS, wanted));
     const row = { ...(layout[component] ?? {}) };
     if (count > 0) row[String(week)] = count;
@@ -117,10 +123,10 @@ export function CourseScheduleGrid({
     // The week's own lengths follow its sessions: a session added lasts the usual length, one
     // taken away takes its length with it, and a week with none keeps no length of its own.
     const own = lengths[component]?.[String(week)];
-    const kept = own && count ? sessionLengths(plan.components[component]?.length ?? 0, own, count) : null;
+    const kept = own && count ? sessionLengths(heldOf(plan, component)?.length ?? 0, own, count) : null;
     onChange?.({ weeks: { ...layout, [component]: row }, lengths: withLengths(lengths, component, week, kept) });
   };
-  const keys = (component: Component, week: number) => (event: KeyboardEvent<HTMLInputElement>) => {
+  const keys = (component: RowKey, week: number) => (event: KeyboardEvent<HTMLInputElement>) => {
     const held = layout[component]?.[String(week)] ?? 0;
     if (event.key === "ArrowUp") {
       event.preventDefault();
@@ -192,8 +198,11 @@ export function CourseScheduleGrid({
             </tr>
           </thead>
           <tbody>
-            {components.map((component) => {
-              const target = plan.components[component];
+            {rows.map((row) => {
+              // The row's key for its weeks, "CM" or "CM:2"; its words, "CM" or "CM part 2".
+              const component = row.key;
+              const words = rowWords(row.key);
+              const target = row.held;
               const usual = target.length ?? 0;
               const done = hoursLaidOut(plan, layout, component, lengths);
               const sessions = sessionsOf(layout[component]);
@@ -205,10 +214,7 @@ export function CourseScheduleGrid({
                 return (
                   <tr key={component}>
                     <th scope="row" className="sticky left-0 z-10 border-b border-r border-[#d0d5dd] bg-white px-3 py-2 text-left align-top font-normal">
-                      <span className="flex items-baseline gap-2">
-                        <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
-                        <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
-                      </span>
+                      <RowName row={row} />
                       <span className="mt-1 block text-sm font-semibold tabular-nums text-[#8a6116]">{figure(target.hours ?? 0)} h</span>
                     </th>
                     <td colSpan={columns.length} className="border-b border-[#d0d5dd] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
@@ -224,10 +230,7 @@ export function CourseScheduleGrid({
                     scope="row"
                     className={`sticky left-0 z-10 border-r border-[#d0d5dd] bg-white px-3 py-2 text-left align-top font-normal ${pace ? "" : "border-b"}`}
                   >
-                    <span className="flex items-baseline gap-2">
-                      <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{component}</span>
-                      <span className="text-xs text-[#475467]">{COMPONENT_WORDS[component].replace(` (${component})`, "")}</span>
-                    </span>
+                    <RowName row={row} />
                     {/* The running total against the locked target: green once they meet, red past it. */}
                     <span
                       data-total={component}
@@ -246,7 +249,8 @@ export function CourseScheduleGrid({
                         onClick={() => {
                           const rest = { ...lengths };
                           delete rest[component];
-                          onChange?.({ weeks: { ...layout, [component]: spreadEvenly(target.hours ?? 0, usual, numbers) }, lengths: rest });
+                          // A part over its own stretch of the semester, in turn with the others.
+                          onChange?.({ weeks: { ...layout, [component]: spreadEvenly(target.hours ?? 0, usual, rowWeeks(plan, component, numbers)) }, lengths: rest });
                         }}
                         className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#1f4e79] hover:underline"
                       >
@@ -265,11 +269,11 @@ export function CourseScheduleGrid({
                       <td key={week.week} className={`border-b border-[#eef1f5] px-0.5 py-1 text-center align-middle ${week.holidays.length ? "bg-[#fdf9ee]" : ""}`}>
                         {editable ? (
                           <input
-                            aria-label={`${component} sessions in week ${week.week}`}
+                            aria-label={`${words} sessions in week ${week.week}`}
                             title={
                               count
-                                ? `${count} ${component} session${count === 1 ? "" : "s"} in week ${week.week}: ${sessionsWords(each)}`
-                                : `How many ${component} sessions in week ${week.week}: each is ${figure(usual)} h`
+                                ? `${count} ${words} session${count === 1 ? "" : "s"} in week ${week.week}: ${sessionsWords(each)}`
+                                : `How many ${words} sessions in week ${week.week}: each is ${figure(usual)} h`
                             }
                             inputMode="numeric"
                             value={count ? String(count) : ""}
@@ -296,7 +300,7 @@ export function CourseScheduleGrid({
                         {/* The hours the box makes; pressed, the week's own session length. */}
                         {count && editable ? (
                           <WeekLength
-                            component={component}
+                            component={words}
                             week={week.week}
                             lengths={each}
                             usual={usual}
@@ -315,7 +319,7 @@ export function CourseScheduleGrid({
                     );
                   })}
                 </tr>
-                {pace ? <PaceRow component={component} pace={pace} columns={columns} /> : null}
+                {pace ? <PaceRow component={component} words={words} pace={pace} columns={columns} /> : null}
                 </Fragment>
               );
             })}
@@ -329,7 +333,7 @@ export function CourseScheduleGrid({
           <div>
             {over.map(({ component, done, set }) => (
               <p key={component} className="font-semibold">
-                {component}: {figure(done)} h, {figure(done - set)} h more than the {figure(set)} h set.
+                {rowWords(component)}: {figure(done)} h, {figure(done - set)} h more than the {figure(set)} h set.
               </p>
             ))}
             <p className="text-xs text-[#8f2a2f]">Take some sessions out, or say why in the note.</p>
@@ -347,7 +351,7 @@ export function CourseScheduleGrid({
           </div>
         </div>
       ) : null}
-      {editable && hint && components.length ? (
+      {editable && hint && rows.length ? (
         <p className="mt-1.5 text-xs text-[#667085]">
           A week&rsquo;s sessions longer or shorter than usual, like an exam? Press the hours under its box.
         </p>
@@ -360,7 +364,7 @@ export function CourseScheduleGrid({
  * A row's pace: how it stands, in words, beside a bar for each week's hours — the dashed line
  * an even week, the weeks off an even pace in amber.
  */
-function PaceRow({ component, pace, columns }: { component: Component; pace: Pace; columns: WeekColumn[] }) {
+function PaceRow({ component, words, pace, columns }: { component: RowKey; words: string; pace: Pace; columns: WeekColumn[] }) {
   const off = pace.state === "ahead" || pace.state === "behind";
   // Tall enough for the busiest week and for twice an even one, so the line sits inside.
   const top = Math.max(...pace.weeks.map((week) => week.hours), pace.perWeek * 2, 0.01);
@@ -368,7 +372,7 @@ function PaceRow({ component, pace, columns }: { component: Component; pace: Pac
   return (
     <tr data-pace={component}>
       <th scope="row" className="sticky left-0 z-10 border-b border-r border-[#d0d5dd] bg-white px-3 pb-2 text-left align-top font-normal">
-        <span className="sr-only">{component} pace: </span>
+        <span className="sr-only">{words} pace: </span>
         {pace.state === "unset" ? (
           <span className="block text-[11px] leading-snug text-[#667085]">{paceWords(pace)}</span>
         ) : pace.state === "even" ? (
@@ -385,8 +389,10 @@ function PaceRow({ component, pace, columns }: { component: Component; pace: Pac
         )}
       </th>
       {columns.map((column) => {
-        const week = column.week && pace.weeks.find((each) => each.week === column.week.week);
-        if (!week) return <td key={`off-${column.off}`} aria-hidden="true" className="border-b border-[#d0d5dd] bg-[#f2f4f7]" />;
+        if (!column.week) return <td key={`off-${column.off}`} aria-hidden="true" className="border-b border-[#d0d5dd] bg-[#f2f4f7]" />;
+        const week = pace.weeks.find((each) => each.week === column.week.week);
+        // Outside a part's stretch: no bar, and nothing to be off.
+        if (!week) return <td key={column.week.week} aria-hidden="true" className="border-b border-[#d0d5dd]" />;
         return (
         <td
           key={week.week}
@@ -439,7 +445,8 @@ function WeekLength({
   own,
   onChange,
 }: {
-  component: Component;
+  /** The row's words: "CM", "CM part 2". */
+  component: string;
   week: number;
   /** Each session's length this week, as it stands. */
   lengths: number[];
@@ -548,5 +555,27 @@ function WeekLength({
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  );
+}
+
+/**
+ * A row's name at the start of the grid: the component's badge and words, or for a part of
+ * groups taught in parts (25 Nov 2026) "part 2" and who teaches it.
+ */
+function RowName({ row }: { row: PlanRow }) {
+  return (
+    <>
+      <span className="flex items-baseline gap-2">
+        <span className="rounded bg-[#e8edf3] px-1.5 text-xs font-bold text-[#1f4e79]">{row.component}</span>
+        <span className="text-xs text-[#475467]">
+          {row.part ? `Part ${row.part}` : COMPONENT_WORDS[row.component].replace(` (${row.component})`, "")}
+        </span>
+      </span>
+      {row.part && row.teachers.length ? (
+        <span className="mt-0.5 block truncate text-[11px] text-[#667085]" title={row.teachers.join(", ")}>
+          {row.teachers.join(", ")}
+        </span>
+      ) : null}
+    </>
   );
 }
