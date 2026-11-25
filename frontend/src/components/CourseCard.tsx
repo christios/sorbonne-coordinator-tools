@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query";
 import { AlertTriangle, Check, ChevronDown, ChevronRight, HelpCircle, Pencil, Wand2 } from "lucide-react";
 import { useState } from "react";
 
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { FillBlock, type FillReport } from "@/components/FillBlock";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
@@ -14,6 +15,7 @@ import {
   type Cohort,
   EMPTY_PART,
   parentsOf,
+  partsOf,
   type SectionPart,
   setGroupCrn,
   shortProgram,
@@ -377,6 +379,24 @@ export function SectionDialog({
   const held = row.section ?? EMPTY_PART;
   const [draft, setDraft] = useState<SectionPart>({ ...held });
   const label = `${row.scope.code} ${row.group.label} ${row.course.code}`;
+  // The part being edited, so a handover's second half is written to its own row
+  // rather than over the first professor's.
+  const part = held.part || 1;
+  /*
+   * How many parts the section has — the row says, when it is one part of several; the
+   * section says, when the row is the whole of it — and the highest number among them.
+   */
+  const siblings = Math.max(row.parts ?? 1, partsOf(row.section).length);
+  const lastPart = row.lastPart ?? Math.max(1, ...partsOf(row.section).map((each) => each.part || 1));
+  /*
+   * A part of a section taught in parts, rather than a section taught start to finish.
+   *
+   * Clearing a part's CRN takes the part off and leaves the others, so undoing a handover
+   * leaves the half that remains. Clearing a whole section's CRN keeps the section, with
+   * its teacher and hours, waiting for the CRN the portal has not made yet (user, 25 Nov 2026).
+   */
+  const divided = part > 1 || siblings > 1;
+  const [removing, setRemoving] = useState(false);
   const set = (patch: Partial<SectionPart>) => setDraft((current) => ({ ...current, ...patch }));
   /*
    * Whose cell this is, on a group with sub-rows: everybody's — the mutualized lecture,
@@ -456,14 +476,31 @@ export function SectionDialog({
    */
   const split = useMutation({
     mutationFn: async () => {
-      const next = (row.parts ?? 1) + 1;
-      await updateSection(row.group.id, row.course.id, { ...EMPTY_PART, part: next, majorId });
+      // Past the highest number, not the count: with part 1 of two taken off, part 2 is
+      // still there, and a new "part 2" would be written over it.
+      await updateSection(row.group.id, row.course.id, { ...EMPTY_PART, part: lastPart + 1, majorId });
     },
     onSuccess: () => {
       onSaved();
       onClose();
     },
   });
+
+  /*
+   * Take this part off, the other parts staying as they are: a part added by mistake has
+   * no CRN to clear, so clearing one is not enough of a way to remove it.
+   */
+  const remove = useMutation({
+    mutationFn: () => setGroupCrn(row.group.id, row.course.id, { crn: "", part, majorId: held.majorId }),
+    onSuccess: onSaved,
+    onSettled: () => setRemoving(false),
+  });
+  const heldTeacher = teachers.find((teacher) => teacher.id === held.teacherId)?.fullName || held.teacher;
+  const partWords = [
+    held.crn ? `CRN ${held.crn}` : "no CRN yet",
+    heldTeacher,
+    held.hours ? `${held.hours} h` : "",
+  ].filter(Boolean).join(", ");
 
   const save = useMutation({
     mutationFn: async () => {
@@ -473,14 +510,18 @@ export function SectionDialog({
         await setGroupCrn(row.group.id, row.course.id, { crn: "", part: 1, majorId: row.major.id });
       }
       const crn = draft.crn.trim();
-      // The part being edited, so a handover's second half is written to its own row
-      // rather than over the first professor's.
-      const part = held.part || 1;
       // Only the seats changed on a row nobody has started: no empty section is written for it.
       if (!row.section && whose !== "not-taught" && JSON.stringify(draft) === JSON.stringify(held)) return;
       if (whose === "not-taught" && row.major) {
         // The sub-row's word about the course; it has no CRN and no request of its own.
         await setGroupCrn(row.group.id, row.course.id, { crn: "", part, majorId: row.major.id, notTaught: true });
+        return;
+      }
+      if (divided && held.crn && !crn) {
+        // A part whose CRN is cleared comes off, where it is held. Its details are not
+        // written after: that wrote the part straight back, with no CRN and still its
+        // teacher and hours, so a part could not be removed at all (25 Nov 2026).
+        await setGroupCrn(row.group.id, row.course.id, { crn: "", part, majorId: held.majorId });
         return;
       }
       // Moved from the shared cell to the sub-row's own, or back: the old one is not
@@ -505,15 +546,26 @@ export function SectionDialog({
       description={`${card.name || "This course"}${row.course.component ? `, ${row.course.component}` : ""} — the row the timetabler gets for this group.`}
       onClose={onClose}
       footer={
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <label className="inline-flex items-center gap-2 text-sm text-[#344054]">
             <input type="checkbox" aria-label={`Retire ${label}`} checked={draft.retired} onChange={(event) => set({ retired: event.target.checked })} />
             Retired — kept on the workbook, marked, and the fill skips it
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* A part only: a section taught start to finish is kept, and retired rather than removed. */}
+            {siblings > 1 ? (
+              <button
+                type="button"
+                disabled={remove.isPending}
+                onClick={() => setRemoving(true)}
+                className="text-sm font-semibold text-[#a6292f] disabled:text-[#9ba8b5]"
+              >
+                Remove this part
+              </button>
+            ) : null}
             {/* Offered on the last part only, so a three-way split is made one hand-over
                 at a time rather than from whichever card happened to be open. */}
-            {held.part === (row.parts ?? 1) ? (
+            {part === lastPart ? (
               <button
                 type="button"
                 disabled={split.isPending}
@@ -603,7 +655,12 @@ export function SectionDialog({
             <input aria-label={`CRN for ${label}`} value={draft.crn} inputMode="numeric" onChange={(event) => set({ crn: event.target.value })} placeholder="23223" className={field} />
           )}
           <span className="mt-1 block text-[11px] text-[#98a2b3]">
-            {portal ? "From the portal's list for this semester. Clearing it removes the section." : "This semester is not linked to a portal term, so the CRN is typed."}
+            {portal ? "From the portal's list for this semester." : "This semester is not linked to a portal term, so the CRN is typed."}{" "}
+            {siblings > 1
+              ? `Clearing it removes this part; the other ${siblings > 2 ? "parts stay" : "part stays"}.`
+              : divided
+                ? "Clearing it removes the section."
+                : "With no CRN, the section stays, waiting for one."}
           </span>
         </div>
         <div>
@@ -701,6 +758,16 @@ export function SectionDialog({
         </label>
       </div>
       {save.error ? <p role="alert" className="mt-3 text-sm text-[#a6292f]">{(save.error as Error).message}</p> : null}
+      {remove.error ? <p role="alert" className="mt-3 text-sm text-[#a6292f]">{(remove.error as Error).message}</p> : null}
+      <ConfirmDialog
+        open={removing}
+        title="Remove this part?"
+        description={`The part of ${label} with ${partWords} comes off. The other ${siblings > 2 ? `${siblings - 1} parts stay as they are` : "part stays as it is"}.`}
+        confirmLabel="Remove the part"
+        busy={remove.isPending}
+        onConfirm={() => remove.mutate()}
+        onClose={() => setRemoving(false)}
+      />
     </Modal>
   );
 }

@@ -36,6 +36,14 @@ export type SectionRow = {
    */
   parts?: number;
   /**
+   * The highest part number the section holds, carried beside `parts` for the same reason.
+   *
+   * A part's number is the order it was added in, and a part can be taken off: remove
+   * part 1 of two and what is left is part 2. A new part is numbered past this one —
+   * `parts + 1` would land on the part that is already there and write over it.
+   */
+  lastPart?: number;
+  /**
    * How many of the group's students do not take this course.
    *
    * On the row rather than read off `section`, because a row may carry a single part and a
@@ -374,7 +382,16 @@ export function sectionsOf(card: Card): SectionRow[] {
 export function rowsPerPart(row: SectionRow): SectionRow[] {
   const parts = partsOf(row.section);
   if (parts.length < 2) return [row];
-  return parts.map((part) => ({ ...row, section: part, parts: parts.length }));
+  return parts.map((part) => partRow(row, part));
+}
+
+/**
+ * The row for one part of a section — or for the row itself, given null — with how many
+ * parts the section has and the highest number among them, which the part alone does not know.
+ */
+export function partRow(row: SectionRow, part: SectionPart | null): SectionRow {
+  const parts = partsOf(row.section);
+  return { ...row, section: part, parts: parts.length, lastPart: Math.max(0, ...parts.map((each) => each.part || 1)) };
 }
 
 /** The teachers a card's sections name, for the filter and the collapsed line. */

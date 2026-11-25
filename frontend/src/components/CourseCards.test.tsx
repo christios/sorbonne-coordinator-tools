@@ -373,6 +373,82 @@ describe("a section taught in more than one stretch", () => {
     // list, so it has no display value of its own to read.
     expect(await screen.findByDisplayValue("7-14")).toBeTruthy();
   });
+
+  it("removes a part whose CRN is cleared, and writes nothing back over it (25 Nov 2026)", async () => {
+    // The details used to be written after the CRN was cleared, which put the part straight
+    // back as "no CRN" with its teacher and hours: a part could not be taken off at all.
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(withSection(split()));
+    const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
+    const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Edit TD 1 MATH001, part 2/ }));
+    expect(await screen.findByText(/Clearing it removes this part; the other part stays\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole("combobox", { name: "CRN for TD 1 MATH001" }));
+    fireEvent.click(await screen.findByRole("option", { name: "None yet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(saveCrn).toHaveBeenCalledWith("td-1", "td-math", { crn: "", part: 2, majorId: "" }));
+    expect(saveCrn).toHaveBeenCalledTimes(1);
+    expect(saveDetails).not.toHaveBeenCalled();
+  });
+
+  it("keeps a section taught start to finish whose CRN is cleared, waiting for its CRN", async () => {
+    // The user's call (25 Nov 2026): a whole section without a CRN is one the portal has not
+    // made yet, so its teacher and hours stay. Only a part comes off when its CRN is cleared.
+    const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
+    const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
+    show();
+
+    fireEvent.click(await screen.findByLabelText("Edit TD 1 MATH001"));
+    expect(await screen.findByText(/With no CRN, the section stays, waiting for one\./)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove this part" })).toBeNull();
+    fireEvent.click(screen.getByRole("combobox", { name: "CRN for TD 1 MATH001" }));
+    fireEvent.click(await screen.findByRole("option", { name: "None yet" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(saveDetails).toHaveBeenCalledWith("td-1", "td-math", expect.objectContaining({ part: 1, teacherId: "act-1", hours: "50" })),
+    );
+    expect(saveCrn).toHaveBeenCalledWith("td-1", "td-math", { crn: "", teacher: "", part: 1, majorId: "" });
+  });
+
+  it("removes a part added by mistake, which has no CRN to clear", async () => {
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(
+      withSection(split({ parts: [split().parts[0], { ...database.EMPTY_PART, part: 2 }] })),
+    );
+    const saveCrn = vi.spyOn(database, "setGroupCrn").mockResolvedValue();
+    const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
+    show();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Edit TD 1 MATH001, part 2/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "Remove this part" }));
+    const confirm = await screen.findByRole("dialog", { name: "Remove this part?" });
+    expect(confirm.textContent).toContain("no CRN yet");
+    expect(confirm.textContent).toContain("The other part stays as it is.");
+    fireEvent.click(within(confirm).getByRole("button", { name: "Remove the part" }));
+
+    await waitFor(() => expect(saveCrn).toHaveBeenCalledWith("td-1", "td-math", { crn: "", part: 2, majorId: "" }));
+    expect(saveDetails).not.toHaveBeenCalled();
+  });
+
+  it("numbers a new part past the highest one held, so it never lands on one that is there", async () => {
+    // Part 1 of two taken off: what is left is part 2, and a new part numbered by the count
+    // ("part 2") would have been written over it.
+    const second = split().parts[1];
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(
+      withSection(split({ part: 2, crn: second.crn, teacher: second.teacher, weeks: second.weeks, parts: [second] })),
+    );
+    const saveDetails = vi.spyOn(database, "updateSection").mockResolvedValue();
+    show();
+
+    fireEvent.click(await screen.findByLabelText("Edit TD 1 MATH001"));
+    expect(await screen.findByDisplayValue("7-14")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Remove this part" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Taught in another part" }));
+
+    await waitFor(() => expect(saveDetails).toHaveBeenCalledWith("td-1", "td-math", expect.objectContaining({ part: 3 })));
+  });
 });
 
 describe("a set whose groups hold one major each", () => {

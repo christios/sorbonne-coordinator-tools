@@ -23,7 +23,7 @@ import { SectionDialog } from "@/components/CourseCard";
 import { CourseRecord } from "@/components/CourseRecord";
 import { UnlinkedTermWarning } from "@/components/PortalTermLink";
 import { YearPill } from "@/components/YearPill";
-import { type Card, type CardSet, type SectionRow, cardSeats, rowKey, teaches } from "@/services/courseCards";
+import { type Card, type CardSet, type SectionRow, cardSeats, partRow, rowKey, teaches } from "@/services/courseCards";
 import { componentOf, figure, hoursIn, type CoursePlan } from "@/services/coursePlans";
 import type { Request } from "@/services/studentDatabase";
 import { MUTUALIZED_WORDS, type ActiveTeacher, type TermCrns } from "@/services/portalLists";
@@ -892,7 +892,7 @@ export function CourseDetail({
               {live.length ? (
                 <SectionList>
                   {live.map((row) => (
-                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing(partRow(row, part))} onShowGroup={() => setShowingGroup(row)} />
                   ))}
                 </SectionList>
               ) : (
@@ -904,7 +904,7 @@ export function CourseDetail({
               {retired.length && showingRetired[set.scope.id] ? (
                 <SectionList faded>
                   {retired.map((row) => (
-                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing({ ...row, section: part, parts: partsOf(row.section).length })} onShowGroup={() => setShowingGroup(row)} />
+                    <SectionRows key={rowKey(row)} row={row} teacherName={teacherName} portal={portal} teacherDrift={teacherDrift} onEdit={(part) => setEditing(partRow(row, part))} onShowGroup={() => setShowingGroup(row)} />
                   ))}
                 </SectionList>
               ) : null}
