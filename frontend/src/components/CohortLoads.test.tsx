@@ -177,13 +177,27 @@ describe("Teaching loads, by program and with the tabs one wants", () => {
     fireEvent.click(within(ticks).getByRole("checkbox", { name: "Department" }));
 
     const tabs = screen.getByRole("group", { name: "Cohort" });
-    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["L1"]);
+    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["L1", "All cohorts"]);
     // With Department put away, the first tab shown is the one open.
     expect(within(tabs).getByRole("button", { name: "L1", pressed: true })).toBeTruthy();
     expect(window.localStorage.getItem("scen-remembered:teaching-loads-hidden-tabs")).toBe("department\nfy");
+    fireEvent.click(within(ticks).getByRole("checkbox", { name: "All cohorts" }));
+    expect(within(tabs).getAllByRole("button").map((button) => button.textContent)).toEqual(["L1"]);
 
     // The last tab shown cannot be put away.
     expect((within(ticks).getByRole("checkbox", { name: "L1" }) as HTMLInputElement).disabled).toBe(true);
+  });
+
+  it("lists every cohort's courses under All cohorts, each saying whose it is (25 Nov 2026)", () => {
+    showPrograms();
+
+    fireEvent.click(within(screen.getByRole("group", { name: "Cohort" })).getByRole("button", { name: "All cohorts" }));
+    // Foundation Year's sections and L1's, together, each course tagged with its cohort.
+    for (const crn of ["23223", "23224", "22151", "22001", "22135"]) expect(screen.getByText(crn)).toBeTruthy();
+    expect(screen.getByText("5 of 5 sections")).toBeTruthy();
+    expect(screen.getByText("MATH-001").parentElement?.textContent).toContain("Foundation Year");
+    expect(screen.getByText("PHYS-125").parentElement?.textContent).toContain("L1");
+    expect(screen.getByText("Who teaches every cohort’s hours")).toBeTruthy();
   });
 
   it("has no Program menu in a department with no programme, and points to where courses are grouped", () => {

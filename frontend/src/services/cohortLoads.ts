@@ -115,6 +115,44 @@ export const bucketOf = (section: Pick<LoadSection, "teacher" | "status">): Buck
 
 export const splitTotal = (split: Split): number => BUCKETS.reduce((sum, bucket) => sum + split[bucket], 0);
 
+/**
+ * Every cohort of the year as one (user, 25 Nov 2026): what Teaching loads' "All cohorts" tab
+ * lists — every course of every cohort, the years' and the shared sets' alike — where it used
+ * to list the shared sets alone. Each semester keeps its courses in the order of the cohorts
+ * they come from; the split, the CM/TD/TP hours and each teacher's hours are added up.
+ */
+export function everyCohortLoad(loads: CohortLoad[], cohortId: string, cohortName: string, termIds: string[]): CohortLoad | null {
+  if (!loads.length) return null;
+  const semesters = new Map<string, LoadCourse[]>();
+  const split: Record<string, Split> = {};
+  const kinds: Record<LoadKind, number> = { CM: 0, TD: 0, TP: 0, OTHER: 0 };
+  const byTeacher = new Map<string, CohortLoad["teachers"][number]>();
+  for (const load of loads) {
+    for (const semester of load.semesters) semesters.set(semester.termId, [...(semesters.get(semester.termId) ?? []), ...semester.courses]);
+    for (const [id, part] of Object.entries(load.split)) {
+      split[id] ??= emptySplit();
+      for (const bucket of BUCKETS) split[id][bucket] += part[bucket];
+    }
+    for (const kind of Object.keys(kinds) as LoadKind[]) kinds[kind] += load.kinds[kind];
+    for (const teacher of load.teachers) {
+      const key = teacher.teacherId || teacher.teacher.toLowerCase();
+      const held = byTeacher.get(key) ?? { ...teacher, hours: 0 };
+      held.hours += teacher.hours;
+      byTeacher.set(key, held);
+    }
+  }
+  return {
+    cohortId,
+    cohortName,
+    semesters: [...semesters.entries()]
+      .sort(([left], [right]) => termIds.indexOf(left) - termIds.indexOf(right))
+      .map(([termId, courses]) => ({ termId, courses })),
+    split,
+    kinds,
+    teachers: [...byTeacher.values()].sort((left, right) => right.hours - left.hours || left.teacher.localeCompare(right.teacher)),
+  };
+}
+
 function kindOf(component: string): LoadKind {
   const said = component.trim().toUpperCase();
   return said === "CM" || said === "TD" || said === "TP" ? said : "OTHER";

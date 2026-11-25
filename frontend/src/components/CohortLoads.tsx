@@ -19,6 +19,7 @@ import {
   departmentKinds,
   departmentSplit,
   departmentTeachers,
+  everyCohortLoad,
   loadSections,
   shareOf,
   splitTotal,
@@ -34,6 +35,7 @@ import { NO_COURSE_PROGRAMS, programmeName, type CoursePrograms } from "@/servic
 import type { ActiveTeacher } from "@/services/portalLists";
 import { TEACHING_LOADS_HIDDEN, TEACHING_LOADS_PROGRAM } from "@/services/remembered";
 import { optionsFor, type GridColumn } from "@/services/studentColumns";
+import { ALL_COHORTS } from "@/services/studentDatabase";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 
 const DEPARTMENT = "department";
@@ -159,7 +161,7 @@ function SplitTable({ split, termIds, termLabel }: { split: Record<string, Split
 const card = "rounded-lg border border-[#c9d2de] bg-white p-4";
 
 /** A section as the search and the filters read it. */
-type Row = LoadSection & { semester: string; course: string; typeLabel: string; teacherShown: string; statusShown: string };
+type Row = LoadSection & { semester: string; course: string; typeLabel: string; teacherShown: string; statusShown: string; cohortShown: string };
 
 const option = (id: string, displayName: string, accessor: (row: Row) => string): GridColumn<Row> => ({
   id,
@@ -170,6 +172,8 @@ const option = (id: string, displayName: string, accessor: (row: Row) => string)
 });
 /** Everything a section can be filtered on, as the other pages' tables can be. */
 const COLUMNS: GridColumn<Row>[] = [
+  // Which cohort a section is of: what narrows All cohorts to one, or to the shared sets alone.
+  option("cohort", "Cohort", (row) => row.cohortShown),
   option("semester", "Semester", (row) => row.semester),
   option("course", "Course", (row) => row.course),
   option("type", "Type", (row) => row.typeLabel),
@@ -232,28 +236,43 @@ export function CohortLoads({
     () => (program ? cohortLoads(cards, termIds, teachers, inProgram, programs) : yearCohorts),
     [program, cards, termIds, teachers, inProgram, programs, yearCohorts],
   );
+  /*
+   * All cohorts is every cohort's courses together (user, 25 Nov 2026), after the years. It
+   * keeps the shared sets' own id, so a tab chosen or put away before stays so; the shared
+   * sets alone are the Cohort filter's "All cohorts".
+   */
+  const years = everyCohort.filter((entry) => entry.cohortId !== ALL_COHORTS);
+  // Beside a single year it would say the same twice.
+  const offerEvery = everyCohort.length > 1 || everyCohort.some((entry) => entry.cohortId === ALL_COHORTS);
   const tabs = [
     ...(hidden.has(DEPARTMENT) ? [] : [{ id: DEPARTMENT, name: "Department" }]),
-    ...everyCohort.filter((entry) => !hidden.has(entry.cohortId)).map((entry) => ({ id: entry.cohortId, name: entry.cohortName })),
+    ...years.filter((entry) => !hidden.has(entry.cohortId)).map((entry) => ({ id: entry.cohortId, name: entry.cohortName })),
+    ...(offerEvery && !hidden.has(ALL_COHORTS) ? [{ id: ALL_COHORTS, name: "All cohorts" }] : []),
   ];
   // A tab put away, or with nothing in the program, gives way to the first one shown.
   const tab = tabs.some((entry) => entry.id === chosen) ? chosen : (tabs[0]?.id ?? DEPARTMENT);
-  const cohort = everyCohort.find((entry) => entry.cohortId === tab) ?? null;
+  const every = tab === ALL_COHORTS;
+  const cohort = useMemo(
+    () => (every ? everyCohortLoad(everyCohort, ALL_COHORTS, "All cohorts", termIds) : (everyCohort.find((entry) => entry.cohortId === tab) ?? null)),
+    [every, everyCohort, tab, termIds],
+  );
+  const cohortNames = useMemo(() => new Map(cards.map((card) => [card.cohortId, card.cohortName])), [cards]);
 
   const rows = useMemo<Row[]>(
     () =>
       loadSections(cards, termIds, teachers, programs)
         .filter(inProgram)
-        .filter((section) => !cohort || section.cohortId === cohort.cohortId)
+        .filter((section) => !cohort || every || section.cohortId === cohort.cohortId)
         .map((section) => ({
           ...section,
+          cohortShown: cohortNames.get(section.cohortId) ?? "",
           semester: termLabel(section.termId),
           course: `${section.courseCode} · ${section.courseName}`,
           typeLabel: KIND_LABEL[section.kind],
           teacherShown: section.teacher || "Nobody yet",
           statusShown: bucketLabel(bucketOf(section)),
         })),
-    [cards, termIds, teachers, programs, cohort, termLabel, inProgram],
+    [cards, termIds, teachers, programs, cohort, every, cohortNames, termLabel, inProgram],
   );
   const kept = useMemo(() => {
     const words = query.trim().toLowerCase();
@@ -269,7 +288,11 @@ export function CohortLoads({
     () => (narrowed ? cohortLoads(cards, termIds, teachers, (section) => kept.has(section.key), programs) : everyCohort),
     [narrowed, cards, termIds, teachers, kept, programs, everyCohort],
   );
-  const shownCohort = cohort ? (counted.find((entry) => entry.cohortId === cohort.cohortId) ?? null) : null;
+  const shownCohort = !cohort
+    ? null
+    : every
+      ? everyCohortLoad(counted, ALL_COHORTS, "All cohorts", termIds)
+      : (counted.find((entry) => entry.cohortId === cohort.cohortId) ?? null);
 
   if (!yearCohorts.length) {
     return (
@@ -286,7 +309,11 @@ export function CohortLoads({
     setFilters([]);
     setQuery("");
   };
-  const tabChoices = [{ value: DEPARTMENT, label: "Department" }, ...yearCohorts.map((entry) => ({ value: entry.cohortId, label: entry.cohortName }))];
+  const tabChoices = [
+    { value: DEPARTMENT, label: "Department" },
+    ...yearCohorts.filter((entry) => entry.cohortId !== ALL_COHORTS).map((entry) => ({ value: entry.cohortId, label: entry.cohortName })),
+    ...(offerEvery ? [{ value: ALL_COHORTS, label: "All cohorts" }] : []),
+  ];
   const programName = program ? programmeName(program, programs) : "";
 
   return (
@@ -368,6 +395,7 @@ export function CohortLoads({
       ) : shownCohort ? (
         <CohortBlock
           cohort={shownCohort}
+          every={every}
           termIds={termIds}
           termLabel={termLabel}
           narrowed={narrowed}
@@ -383,7 +411,7 @@ export function CohortLoads({
           programName={programName}
           // Beside a teacher's whole year only: a programme or a filter shows part of it.
           owed={narrowed || programName ? undefined : owed}
-          canOpen={(cohortId) => tabs.some((entry) => entry.id === cohortId)}
+          canOpen={(cohortId) => cohortId !== ALL_COHORTS && tabs.some((entry) => entry.id === cohortId)}
           onChoose={setChosen}
           onOpenTeacher={onOpenTeacher}
         />
@@ -584,7 +612,19 @@ function DepartmentBlock({
                 return (
                   <tr key={cohort.cohortId} className="hover:bg-[#f5f8fc]">
                     <td className={`${lineCell} pr-3`}>
-                      {canOpen(cohort.cohortId) ? (
+                      {cohort.cohortId === ALL_COHORTS ? (
+                        /*
+                         * The sets every cohort shares, the languages: counted here once, in no
+                         * year. The All cohorts tab is every cohort's courses, these among them.
+                         */
+                        <span
+                          className="inline-flex items-center gap-1.5 font-semibold text-[#171717]"
+                          title="The sets every cohort shares, such as the languages. The All cohorts tab lists them with every other course; its Cohort filter shows them alone."
+                        >
+                          {cohort.cohortName}
+                          <span className="rounded-full bg-[#eef1f5] px-1.5 text-[11px] font-medium text-[#475467]">shared sets</span>
+                        </span>
+                      ) : canOpen(cohort.cohortId) ? (
                         <button type="button" onClick={() => onChoose(cohort.cohortId)} className="font-semibold text-[#1f4e79] hover:underline">
                           {cohort.cohortName}
                         </button>
@@ -624,6 +664,7 @@ const cell = "border-b border-r border-[#dde3ea] px-3 py-1.5 group-hover:bg-[#f5
 
 function CohortBlock({
   cohort,
+  every = false,
   termIds,
   termLabel,
   narrowed,
@@ -631,12 +672,15 @@ function CohortBlock({
   onOpenTeacher,
 }: {
   cohort: CohortLoad;
+  /** Every cohort's courses together, as All cohorts shows them: each course says whose it is. */
+  every?: boolean;
   termIds: string[];
   termLabel: (termId: string) => string;
   narrowed: boolean;
   programName: string;
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
+  const whose = every ? "every cohort’s" : `${cohort.cohortName}’s`;
   const kinds = LOAD_KINDS.filter((kind) => kind !== "OTHER" || cohort.kinds.OTHER > 0);
   const teacherName = (teacherId: string, name: string) => (
     <TeacherName teacherId={teacherId} name={name} onOpenTeacher={onOpenTeacher} />
@@ -649,7 +693,7 @@ function CohortBlock({
           <Heading about={ABOUT}>
             {narrowed
               ? "Who teaches the hours of the sections shown"
-              : `Who teaches ${cohort.cohortName}’s ${programName ? `${programName} ` : ""}hours`}
+              : `Who teaches ${whose} ${programName ? `${programName} ` : ""}hours`}
           </Heading>
           <div className="overflow-x-auto">
             <SplitTable split={cohort.split} termIds={termIds} termLabel={termLabel} />
@@ -658,7 +702,7 @@ function CohortBlock({
         <div className="space-y-4">
           <KindTiles kinds={cohort.kinds} />
           <TeacherList
-            title={`Each teacher ${programName ? `of ${programName} ` : ""}in ${cohort.cohortName}`}
+            title={`Each teacher ${programName ? `of ${programName} ` : ""}in ${every ? "every cohort" : cohort.cohortName}`}
             teachers={cohort.teachers}
             onOpenTeacher={onOpenTeacher}
           />
@@ -694,6 +738,11 @@ function CohortBlock({
                     <td colSpan={3} className={`${courseCell} left-0 z-[15]`}>
                       <span>{course.card.name || course.card.code}</span>
                       <span className="ml-2 font-normal text-[#475467]">{course.card.code}</span>
+                      {every ? (
+                        <span className="ml-2 inline-block rounded-full bg-[#e8eef6] px-2 text-xs font-semibold text-[#1f4e79]">
+                          {course.card.cohortName}
+                        </span>
+                      ) : null}
                       {course.coefficient ? (
                         <span className="ml-2 inline-block rounded border border-[#8f9bab] bg-white px-1.5 text-xs font-semibold text-[#344054]">
                           Coeff. {course.coefficient}
