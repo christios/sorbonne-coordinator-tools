@@ -28,6 +28,9 @@ import { formatDayAndMonth } from "@/services/weekSchedule";
 /** The most sessions of one component a week can hold, and one session's longest, as the server allows. */
 const MOST_SESSIONS = 7;
 const LONGEST_SESSION = 8;
+/** The row names' column, and the narrowest a week's column gets before the grid scrolls (in rem): 17 weeks and a break fit in 46rem. */
+const LABEL_REM = 10;
+const WEEK_REM = 2;
 
 /** A course's weeks as the grid edits them: the sessions in each week, and the weeks of another length. */
 export type ScheduleDraft = { weeks: Layout; lengths: Lengths };
@@ -130,11 +133,23 @@ export function CourseScheduleGrid({
 
   return (
     <div>
+      {/*
+        * The whole semester in view (25 Nov 2026): the weeks share the width equally, each down to
+        * WEEK_REM; only narrower than that — a phone — does the grid scroll sideways.
+        */}
       <div className="overflow-x-auto rounded-lg border border-[#d0d5dd]">
-        <table aria-label={label ?? `${plan.courseCode} week by week`} className="w-full border-separate border-spacing-0 text-sm">
+        <table
+          aria-label={label ?? `${plan.courseCode} week by week`}
+          className="w-full table-fixed border-separate border-spacing-0 text-sm"
+          style={{ minWidth: `${LABEL_REM + columns.length * WEEK_REM}rem` }}
+        >
           <thead>
             <tr className="bg-[#f5f7fa] text-[11px] text-[#475467]">
-              <th scope="col" className="sticky left-0 z-10 min-w-[13.5rem] border-b border-r border-[#d0d5dd] bg-[#f5f7fa] px-3 py-1.5 text-left font-semibold uppercase tracking-wide">
+              <th
+                scope="col"
+                style={{ width: `${LABEL_REM}rem` }}
+                className="sticky left-0 z-10 border-b border-r border-[#d0d5dd] bg-[#f5f7fa] px-3 py-1.5 text-left font-semibold uppercase tracking-wide"
+              >
                 Teaching week
               </th>
               {columns.map((column) => {
@@ -144,10 +159,11 @@ export function CourseScheduleGrid({
                       key={`off-${column.off}`}
                       scope="col"
                       title={`Week of ${formatDayAndMonth(column.off)}: no classes`}
-                      className="min-w-[2.6rem] border-b border-[#d0d5dd] bg-[#f2f4f7] px-0.5 py-1.5 text-center font-normal"
+                      className="border-b border-[#d0d5dd] bg-[#f2f4f7] px-0 py-1.5 text-center font-normal"
                     >
-                      <span className="block text-[10px] font-semibold uppercase tracking-wide text-[#98a2b3]">Off</span>
-                      <span className="block whitespace-nowrap text-[10px] text-[#98a2b3]">{formatDayAndMonth(column.off)}</span>
+                      <span className="block text-[10px] font-semibold uppercase leading-4 tracking-wide text-[#98a2b3]">Off</span>
+                      <span className="block whitespace-nowrap text-[10px] tracking-tight text-[#98a2b3]">{formatDayAndMonth(column.off)}</span>
+                      <span aria-hidden="true" className="mt-0.5 block h-1.5" />
                     </th>
                   );
                 }
@@ -158,13 +174,18 @@ export function CourseScheduleGrid({
                     key={week.week}
                     scope="col"
                     title={holiday ? `Holiday in this week — ${holiday}` : undefined}
-                    className="min-w-[2.6rem] border-b border-[#d0d5dd] px-0.5 py-1.5 text-center font-semibold"
+                    className="border-b border-[#d0d5dd] px-0 py-1.5 text-center font-semibold"
                   >
-                    <span className="block text-[#171717]">{week.week}</span>
-                    {week.monday ? <span className="block whitespace-nowrap text-[10px] font-normal text-[#667085]">{formatDayAndMonth(week.monday)}</span> : null}
+                    <span className="block leading-4 text-[#171717]">{week.week}</span>
+                    {week.monday ? (
+                      <span className="block whitespace-nowrap text-[10px] font-normal tracking-tight text-[#667085]">{formatDayAndMonth(week.monday)}</span>
+                    ) : null}
+                    {/* The dot's line is kept in every week, so a week with a holiday lines up with the rest. */}
                     {holiday ? (
                       <span className="mx-auto mt-0.5 block h-1.5 w-1.5 rounded-full bg-[#d99b1c]" aria-label="A holiday falls in this week" />
-                    ) : null}
+                    ) : (
+                      <span aria-hidden="true" className="mt-0.5 block h-1.5" />
+                    )}
                   </th>
                 );
               })}
@@ -259,7 +280,7 @@ export function CourseScheduleGrid({
                               const typed = event.target.value.replace(/\D/g, "").slice(-1);
                               set(component, week.week, typed ? Number(typed) : 0);
                             }}
-                            className={`h-8 w-9 rounded border text-center text-sm tabular-nums placeholder:text-[#c8d0da] focus:border-[#1f4e79] focus:outline-none focus:ring-1 focus:ring-[#1f4e79] ${
+                            className={`h-8 w-full min-w-0 max-w-9 rounded border text-center text-sm tabular-nums placeholder:text-[#c8d0da] focus:border-[#1f4e79] focus:outline-none focus:ring-1 focus:ring-[#1f4e79] ${
                               count
                                 ? own
                                   ? "border-[#d99b1c] bg-[#fdf6e3] font-semibold text-[#8a6116]"
@@ -268,7 +289,7 @@ export function CourseScheduleGrid({
                             }`}
                           />
                         ) : (
-                          <span className={`inline-block w-7 tabular-nums ${count ? (own ? "font-semibold text-[#8a6116]" : "font-semibold text-[#1f4e79]") : "text-[#c8d0da]"}`}>
+                          <span className={`inline-block w-full max-w-7 tabular-nums ${count ? (own ? "font-semibold text-[#8a6116]" : "font-semibold text-[#1f4e79]") : "text-[#c8d0da]"}`}>
                             {count || "·"}
                           </span>
                         )}
@@ -398,7 +419,7 @@ function WeekOff({ monday, editable }: { monday: string; editable: boolean }) {
         role="img"
         aria-label={`Week of ${formatDayAndMonth(monday)}: no classes`}
         title="Week off: no classes"
-        className={`mx-auto block rounded border-[1.5px] border-dashed border-[#98a2b3] ${editable ? "h-8 w-9" : "h-5 w-7"}`}
+        className={`mx-auto block w-full rounded border-[1.5px] border-dashed border-[#98a2b3] ${editable ? "h-8 max-w-9" : "h-5 max-w-7"}`}
       />
       <span aria-hidden="true" className="mt-0.5 block h-3.5" />
     </td>
