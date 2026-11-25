@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Check,
   CalendarDays,
   ChevronDown,
   ChevronRight,
@@ -71,15 +72,18 @@ function seatsVerdict(placed: number, seats: number): keyof typeof SEATS {
 function Seats({ placed, seats, exempt, dim }: { placed: number; seats: number; exempt: number; dim: boolean }) {
   const verdict = seatsVerdict(placed, seats);
   return (
-    <span className="flex items-center justify-end gap-1.5 whitespace-nowrap">
+    <span className="flex items-center justify-end gap-1 whitespace-nowrap @lg:gap-1.5">
       {exempt ? (
-        <span title={`${exempt} of the group's students don't take this course`} className={`${PILL} ${dim ? TONE.gone : TONE.plain}`}>
+        <span
+          title={`${exempt} of the group's students don't take this course`}
+          className={`${PILL} border border-dashed ${dim ? "border-[#eef1f5] text-[#d5dce4]" : "border-[#c8d0da] text-[#98a2b3]"}`}
+        >
           {exempt} exempt
         </span>
       ) : null}
       <span
         title={seats ? `${placed} of ${seats} seats taken` : `${placed} placed, no capacity set`}
-        className={`${PILL} min-w-[4.5rem] justify-center text-xs font-semibold tabular-nums ${dim ? TONE.gone : SEATS[verdict]}`}
+        className={`${PILL} justify-center text-xs font-semibold tabular-nums @lg:min-w-[4.5rem] ${dim ? TONE.gone : SEATS[verdict]}`}
       >
         {placed}
         <span className="px-0.5 opacity-50">/</span>
@@ -170,23 +174,69 @@ function said(key: keyof Asked, value: string): string {
  * Laid out as a card (user, 25 Nov 2026): the group, its CRN in a box, the teacher, and the
  * seats on the first line; the figures as pills under the CRN; the note in a box of its own.
  */
-const ROW_COLUMNS = "flex flex-col @lg:grid @lg:grid-cols-[max-content_max-content_minmax(6rem,1fr)_max-content_max-content] @lg:gap-x-3";
+const ROW_COLUMNS =
+  "flex flex-col @lg:grid @lg:grid-cols-[max-content_max-content_minmax(6rem,1fr)_max-content_max-content_max-content_max-content] @lg:gap-x-3";
 
-const FIGURE_ICON = { hours: Clock3, duration: Timer, perWeek: Repeat, weeks: CalendarDays } as const;
+/**
+ * Each kind of figure its own look and place (user, 25 Nov 2026): hours a solid pill and the
+ * session length an outlined one, in their own columns on the first line so they line up down
+ * the set; sessions a week and weeks tinted pills under it; the note a line ruled in amber.
+ * They were all the same grey pill, one after another, and read as one.
+ */
+const FIGURE = {
+  hours: "bg-[#e3ecf7] font-semibold text-[#1f4e79]",
+  duration: "border border-[#cfd6df] bg-white text-[#475467]",
+  perWeek: "bg-[#efeefe] text-[#3c3489]",
+  weeks: "bg-[#e6f4ee] text-[#085041]",
+  warn: "bg-[#fdf6e3] font-semibold text-[#8a6116]",
+} as const;
+
+/**
+ * A part's number at the start of its line, ① ② on a line joining them (user, 25 Nov 2026),
+ * so the parts of a section read as one teaching in turn, not as unrelated rows. The joining
+ * line runs from one number to the next where the list has columns; on a phone the numbers
+ * stand alone.
+ */
+function PartMarker({ number, first, last, gone }: { number: number; first: boolean; last: boolean; gone: boolean }) {
+  return (
+    // Against the CRN, at the end of the group's column, so "① 23904 Sudarshan Shinde" reads as one.
+    <span className="relative inline-flex items-start @lg:row-span-2 @lg:justify-end @lg:self-stretch">
+      <span
+        aria-hidden="true"
+        className={`absolute right-[8.5px] hidden w-px bg-[#c8d3df] @lg:block ${first ? "top-3" : "-top-1"} ${last ? "h-4" : "-bottom-2"} ${
+          first && last ? "!hidden" : ""
+        }`}
+      />
+      <span
+        className={`relative z-[1] mt-[2px] inline-flex size-[18px] items-center justify-center rounded-full border bg-white text-[10px] font-semibold tabular-nums ${
+          gone ? "border-[#e4e8ef] text-[#c8d0da]" : "border-[#b7c6d8] text-[#1f4e79]"
+        }`}
+        title={`Part ${number}`}
+      >
+        {number}
+      </span>
+    </span>
+  );
+}
 
 /**
  * One stretch of a section's teaching, as a row of its set's list.
  *
- * For the ordinary section — one professor, first week to last — this is the whole row.
- * For a course handed over at mid-semester it is one of two lines, each with its own CRN,
- * name and weeks, pressed and edited on its own; the group's seats and roster sit on the
- * first line only, since the same people sit in each.
+ * For the ordinary section — one professor, first week to last — this is the whole row: the
+ * group, its CRN, the teacher and the seats on the first line, its figures and note under it.
+ *
+ * For a section taught in parts it is one numbered part under the group's own line, which
+ * carries the name, the seats and whether the parts' hours add up (user, 25 Nov 2026). Each
+ * part has its CRN, teacher, own hours, the course's session length and its note, and is
+ * pressed and edited on its own. The first part used to be the group's line and the second a
+ * grey "part 2" under it, which read as two unrelated rows; and neither said its session
+ * length, which a part takes from the course like any section.
  */
 function PartRow({
   row,
   part,
   index,
-  split,
+  count,
   dim,
   teacherName,
   portal,
@@ -197,7 +247,8 @@ function PartRow({
   row: SectionRow;
   part: SectionPart;
   index: number;
-  split: boolean;
+  /** How many parts the section has: one for the ordinary section. */
+  count: number;
   dim: boolean;
   teacherName: (id: string) => string;
   portal: TermCrns | null;
@@ -205,17 +256,17 @@ function PartRow({
   onEdit: () => void;
   onShowGroup?: () => void;
 }) {
-  const parts = partsOf(row.section);
-  const first = index === 0;
+  const split = count > 1;
   const gone = dim || part.retired;
   const name = `${row.scope.code} ${row.group.label}`;
   const label = `${name} ${row.course.code}`;
   const portalRow = portal && part.crn ? (portal.crns[part.crn] ?? null) : undefined;
   const chosen = part.teacherId ? teacherName(part.teacherId) : "";
-  // The course's hours and session length unless the section says its own; a part of a
-  // divided section carries its own share, so only an undivided one takes the course's.
-  const shown = shownOf(part, split ? undefined : row.course.request);
-  const asked = askedOf(part, split ? undefined : row.course.request);
+  // The course's hours and session length unless the section says its own. A part of a
+  // divided section carries its own share of the hours, so it takes only the session length.
+  const course = split ? { ...row.course.request, hours: "" } : row.course.request;
+  const shown = shownOf(part, course);
+  const asked = askedOf(part, course);
   const drifted = Boolean(part.crn) && teacherDrift.has(part.crn);
   const { seats, placed } = cardSeats(row);
 
@@ -225,6 +276,18 @@ function PartRow({
     .filter((each) => each.words);
   const ownNote = asked.note;
   const warn = shown.overrides.length && !gone;
+  const hoursWords = own.find((each) => each.key === "hours")?.words ?? "";
+  // Amber where the section's own figure is not what the course asks.
+  const hoursOff = shown.overrides.some((each) => each.startsWith("Its own"));
+  const durationOff = shown.overrides.some((each) => each.startsWith("sessions of"));
+  // The session length's own hover: what it is, and where it is not the course's.
+  const durationTitle = asked.duration
+    ? [
+        `${asked.duration} h sessions${shown.durationInherited ? `, from what the course asks: the ${split ? "part" : "section"} says none of its own` : ""}`,
+        ...shown.overrides.filter((each) => each.startsWith("sessions of")),
+      ].join("\n")
+    : undefined;
+  const pattern = own.filter((each): each is { key: "perWeek" | "weeks"; words: string } => each.key === "perWeek" || each.key === "weeks");
   // The whole of the figures on hover, with where they differ from the course and whose they are.
   const figuresTitle = own.length
     ? [
@@ -232,7 +295,7 @@ function PartRow({
         ...(warn ? shown.overrides : []),
         ...own.flatMap((each) =>
           (each.key === "hours" && shown.hoursInherited) || (each.key === "duration" && shown.durationInherited)
-            ? [`${each.words}, from what the course asks: the section says none of its own`]
+            ? [`${each.words}, from what the course asks: the ${split ? "part" : "section"} says none of its own`]
             : [],
         ),
       ].join("\n")
@@ -251,24 +314,18 @@ function PartRow({
       }}
       // Numbered as they are read, top to bottom: the parts keep no order of their own.
       aria-label={split ? `Edit ${label}, part ${index + 1}` : `Edit ${label}`}
-      className={`group flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-left text-sm hover:bg-[#f6f8fb] @lg:col-span-full @lg:grid @lg:grid-cols-subgrid @lg:gap-y-1.5 ${
-        first ? "" : "border-t border-dashed border-[#eef1f5]"
+      className={`group flex flex-wrap items-center gap-x-1.5 gap-y-1.5 px-2.5 text-left text-sm hover:bg-[#f6f8fb] @lg:col-span-full @lg:gap-x-3 @lg:px-3 @lg:grid @lg:grid-cols-subgrid @lg:gap-y-1.5 ${
+        split ? `pt-1 ${index === count - 1 ? "pb-2.5" : "pb-2"}` : "py-2.5"
       }`}
     >
-      <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
-        {first ? (
+      {split ? (
+        <PartMarker number={index + 1} first={index === 0} last={index === count - 1} gone={gone} />
+      ) : (
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
           <span className={`font-semibold ${gone ? "text-[#c8d0da]" : "text-[#171717]"}`}>{name}</span>
-        ) : (
-          <span className="pl-2 text-xs text-[#98a2b3]">part {index + 1}</span>
-        )}
-        {/* Said on the first line: one thing to know about the section before reading its parts. */}
-        {first && split ? (
-          <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="Taught in more than one stretch, by more than one person">
-            {parts.length} parts
-          </span>
-        ) : null}
-        {part.retired && !dim ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
-      </span>
+          {part.retired && !dim ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
+        </span>
+      )}
 
       <span className="whitespace-nowrap tabular-nums">
         {part.crn ? (
@@ -300,36 +357,45 @@ function PartRow({
         </span>
       </span>
 
-      {first ? (
+      {/* On a phone the figures start a line of their own, so every card breaks in the same place. */}
+      <span aria-hidden="true" className="h-0 basis-full @lg:hidden" />
+
+      <span className="flex justify-end tabular-nums" title={figuresTitle}>
+        {hoursWords === "no hours" ? (
+          <span className={`${PILL} border border-dashed border-[#d9dee7] text-[#98a2b3]`}>no hours</span>
+        ) : hoursWords ? (
+          <span className={`${PILL} text-xs ${gone ? TONE.gone : hoursOff ? FIGURE.warn : FIGURE.hours}`}>
+            {hoursOff && !gone ? <AlertTriangle size={11} aria-hidden="true" className="shrink-0" /> : <Clock3 size={11} aria-hidden="true" className="shrink-0" />}
+            {hoursWords}
+          </span>
+        ) : null}
+      </span>
+      <span className="flex tabular-nums" title={durationTitle}>
+        {asked.duration ? (
+          <span className={`${PILL} ${gone ? TONE.gone : durationOff ? FIGURE.warn : FIGURE.duration}`}>
+            {durationOff && !gone ? <AlertTriangle size={11} aria-hidden="true" className="shrink-0" /> : null}
+            {asked.duration} h each
+          </span>
+        ) : null}
+      </span>
+
+      {/* The group's seats and roster are the group's line's, when the section has parts. */}
+      {split ? (
+        <span className="hidden @lg:block" />
+      ) : (
         <span className="ml-auto flex justify-end @lg:ml-0">
           <Seats placed={placed} seats={seats} exempt={row.exempt ?? 0} dim={dim} />
         </span>
-      ) : (
-        <span className="hidden @lg:block" />
       )}
 
-      <span className="inline-flex items-center gap-0.5">
+      <span className={`inline-flex items-center gap-0.5 ${split ? "ml-auto @lg:ml-0" : ""}`}>
         {/*
           * Who is in this group — its own button rather than the row's press, which opens
           * the editor: looking at a group is not editing it.
           */}
-        {first && onShowGroup ? (
-          <button
-            type="button"
-            aria-label={`Who is in ${name}`}
-            title="Who is in this group"
-            onClick={(event) => {
-              event.stopPropagation();
-              onShowGroup();
-            }}
-            className="shrink-0 rounded p-0.5 text-[#c8d0da] hover:bg-[#eef1f5] hover:text-[#1f4e79]"
-          >
-            <Eye size={13} aria-hidden="true" />
-          </button>
-        ) : (
-          <span className="w-[17px]" />
-        )}
-        <Pencil size={13} className="shrink-0 text-transparent group-hover:text-[#98a2b3]" aria-hidden="true" />
+        {!split && onShowGroup ? <WhoButton name={name} onShowGroup={onShowGroup} /> : <span className="w-[17px]" />}
+        {/* Shown on hover, which a touch screen has none of. */}
+        <Pencil size={13} className="hidden shrink-0 text-transparent group-hover:text-[#98a2b3] @lg:block" aria-hidden="true" />
       </span>
 
       {/*
@@ -337,14 +403,14 @@ function PartRow({
         * says otherwise, and the note in a box of its own.
         */}
       <span className="flex min-w-0 basis-full flex-col items-start gap-1.5 @lg:col-start-2 @lg:col-end-[-1] @lg:basis-auto">
-        {own.length || (part.crn && portalRow === null) || (portalRow?.teacherName && drifted) ? (
-          <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 tabular-nums" title={figuresTitle}>
-            {own.map((each) => {
-              const amber = warn && (each.key === "hours" || each.key === "duration");
-              const Icon = amber ? AlertTriangle : FIGURE_ICON[each.key as keyof typeof FIGURE_ICON];
+        {pattern.length || (part.crn && portalRow === null) || (portalRow?.teacherName && drifted) || (split && part.retired && !dim) ? (
+          <span className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5 tabular-nums" title={pattern.map((each) => each.words).join(" · ") || undefined}>
+            {split && part.retired && !dim ? <span className={`${PILL} ${TONE.gone}`}>retired</span> : null}
+            {pattern.map((each) => {
+              const Icon = each.key === "perWeek" ? Repeat : CalendarDays;
               return (
-                <span key={each.key} className={`${PILL} ${gone ? TONE.gone : amber ? `${TONE.warn} font-semibold` : TONE.plain}`}>
-                  {Icon ? <Icon size={11} aria-hidden="true" className="shrink-0" /> : null}
+                <span key={each.key} className={`${PILL} ${gone ? TONE.gone : FIGURE[each.key]}`}>
+                  <Icon size={11} aria-hidden="true" className="shrink-0" />
                   <span className="min-w-0 truncate">{each.words}</span>
                 </span>
               );
@@ -362,11 +428,11 @@ function PartRow({
         {ownNote ? (
           <span
             title={ownNote}
-            className={`flex min-w-0 max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-xs ${
-              gone ? "border-[#f2f4f7] text-[#d5dce4]" : "border-[#eef1f5] bg-[#f8fafc] text-[#667085]"
+            className={`flex min-w-0 max-w-full items-center gap-1.5 border-l-2 py-px pl-2 text-xs ${
+              gone ? "border-[#eef1f5] text-[#d5dce4]" : "border-[#e9c46a] text-[#667085]"
             }`}
           >
-            <StickyNote size={12} aria-hidden="true" className="shrink-0 text-[#98a2b3]" />
+            <StickyNote size={12} aria-hidden="true" className="shrink-0 text-[#c79a3a]" />
             <span className="min-w-0 truncate">{ownNote}</span>
           </span>
         ) : null}
@@ -375,13 +441,57 @@ function PartRow({
   );
 }
 
+/** The eye at the end of a group's line: who is in it. */
+function WhoButton({ name, onShowGroup }: { name: string; onShowGroup: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={`Who is in ${name}`}
+      title="Who is in this group"
+      onClick={(event) => {
+        event.stopPropagation();
+        onShowGroup();
+      }}
+      className="shrink-0 rounded p-0.5 text-[#c8d0da] hover:bg-[#eef1f5] hover:text-[#1f4e79]"
+    >
+      <Eye size={13} aria-hidden="true" />
+    </button>
+  );
+}
+
+/**
+ * Whether a section's parts add up to what the course asks, on the group's line: green when
+ * they do, amber when they don't or when a part says no hours.
+ */
+function PartsHours({ together, asked, dim }: { together: number | null; asked: number | null; dim: boolean }) {
+  if (together === null) {
+    return (
+      <span className={`${PILL} ${dim ? TONE.gone : TONE.warn}`} title="A part says no hours, so the section's load can't be counted">
+        <AlertTriangle size={11} aria-hidden="true" className="shrink-0" /> Not every part has hours
+      </span>
+    );
+  }
+  if (asked === null) {
+    return <span className={`${PILL} ${dim ? TONE.gone : TONE.plain}`}>{figure(together)} h in all</span>;
+  }
+  const adds = Math.abs(together - asked) <= 0.001;
+  return (
+    <span
+      className={`${PILL} ${dim ? TONE.gone : adds ? "bg-[#eaf5ee] text-[#2e7d55]" : `${TONE.warn} font-semibold`}`}
+      title={adds ? `Its parts make ${figure(together)} h, what the course asks` : `Its parts make ${figure(together)} h — the course asks ${figure(asked)} h`}
+    >
+      {adds ? <Check size={11} aria-hidden="true" className="shrink-0" /> : <AlertTriangle size={11} aria-hidden="true" className="shrink-0" />}
+      {figure(together)} h of the course&apos;s {figure(asked)} h
+    </span>
+  );
+}
+
 /**
  * One section, as a row of its set's list (user, 24 Nov 2026).
  *
  * The cards before it sat two or three abreast, each repeating the set's hours, session length
  * and note, with the CRN, the teacher and the seats in a different place on each. As rows the
- * set reads down: every CRN under the one above, every teacher, every seat count, and the
- * figures the set shares said once, on its line.
+ * set reads down: every CRN under the one above, every teacher, every seat count.
  */
 function SectionRows({
   row,
@@ -420,11 +530,12 @@ function SectionRows({
         <span className="font-semibold text-[#c8d0da]">
           {row.scope.code} {row.group.label}
         </span>
-        <span className="text-xs text-[#98a2b3] @lg:col-span-3">Not taught to this sub-row.</span>
+        <span className="text-xs text-[#98a2b3] @lg:col-span-5">Not taught to this sub-row.</span>
       </div>
     );
   }
 
+  const name = `${row.scope.code} ${row.group.label}`;
   const parts = partsOf(row.section);
   const held = parts.length ? parts : [EMPTY_PART];
   const split = parts.length > 1;
@@ -436,23 +547,40 @@ function SectionRows({
     ? live.reduce((sum, part) => sum + (hoursIn(part.hours) ?? 0), 0)
     : null;
   const asked = hoursIn(row.course.request.hours);
-  const splitDiffers =
-    split && together !== null && asked !== null && Math.abs(together - asked) > 0.001
-      ? `Its parts make ${figure(together)} h — the course asks ${figure(asked)} h`
-      : "";
+  const { seats, placed } = cardSeats(row);
 
   return (
     <article
       aria-label={label}
       className={`flex flex-col border-t border-[#eef1f5] first:border-t-0 @lg:col-span-full @lg:grid @lg:grid-cols-subgrid ${dim ? "bg-[#fdfefe]" : ""}`}
     >
+      {split ? (
+        // The group's own line: its name, how its parts' hours add up, its seats and roster.
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 pb-1.5 pt-2.5 text-sm @lg:col-span-full @lg:grid @lg:grid-cols-subgrid">
+          <span className="inline-flex min-w-0 flex-wrap items-center gap-1.5 @lg:col-span-5">
+            <span className={`whitespace-nowrap font-semibold ${dim ? "text-[#c8d0da]" : "text-[#171717]"}`}>{name}</span>
+            <span className={`${chip} bg-[#eef4fa] text-[#1f4e79]`} title="Taught in more than one stretch, by more than one person">
+              {parts.length} parts
+            </span>
+            {live.length ? <PartsHours together={together} asked={asked} dim={dim} /> : null}
+            {dim ? <span className={`${chip} bg-[#f8fafc] text-[#c8d0da]`}>retired</span> : null}
+          </span>
+          <span className="ml-auto flex justify-end @lg:ml-0">
+            <Seats placed={placed} seats={seats} exempt={row.exempt ?? 0} dim={dim} />
+          </span>
+          <span className="inline-flex items-center gap-0.5">
+            {onShowGroup ? <WhoButton name={name} onShowGroup={onShowGroup} /> : <span className="w-[17px]" />}
+            <span className="w-[13px]" />
+          </span>
+        </div>
+      ) : null}
       {held.map((part, index) => (
         <PartRow
           key={part.part}
           row={row}
           part={part}
           index={index}
-          split={split}
+          count={held.length}
           dim={dim}
           teacherName={teacherName}
           portal={portal}
@@ -461,12 +589,6 @@ function SectionRows({
           onShowGroup={onShowGroup}
         />
       ))}
-      {splitDiffers ? (
-        <p className="flex items-start gap-1 px-3 pb-2 text-[11px] font-semibold text-[#8a6116] @lg:col-start-2 @lg:col-end-[-1] @lg:px-0">
-          <AlertTriangle size={11} className="mt-0.5 shrink-0" aria-hidden="true" />
-          <span>{splitDiffers}</span>
-        </p>
-      ) : null}
     </article>
   );
 }
@@ -669,9 +791,9 @@ export function CourseDetail({
                 <InfoTip label="How to read a section row" title="Reading a section row">
                   <TipDo>Press a row to edit its CRN, teacher, hours and what it asks.</TipDo>
                   <TipPoint>
-                    <TipButton icon={Clock3}>50 h</TipButton> <TipButton icon={Timer}>1.5 h sessions</TipButton> the section&apos;s hours,
-                    session length, sessions a week and weeks, each in its pill under the row&apos;s name, and its note in the box under
-                    them. Long ones end in &hellip;; hover for the whole.
+                    <TipButton icon={Clock3}>50 h</TipButton> <TipButton icon={Timer}>1.5 h each</TipButton> the section&apos;s hours and
+                    session length, in their columns on the row&apos;s first line. Under them, how many sessions a week and which weeks,
+                    and the note on the line ruled in amber. Long ones end in &hellip;; hover for the whole.
                   </TipPoint>
                   <TipPoint tone="caution">
                     <TipButton look="warn" icon={AlertTriangle}>45 h</TipButton> differs from what the course asks; the course&apos;s figure

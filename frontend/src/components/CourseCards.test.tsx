@@ -196,9 +196,9 @@ describe("the course cards", () => {
 
     for (const name of ["Edit TD 1 MATH001", "Edit TD 2 MATH001"]) {
       const row = (await screen.findByLabelText(name)) as HTMLElement;
-      // Each figure in its own pill (25 Nov 2026), and all of them together on hover.
+      // Hours and session length in their own pills and columns (25 Nov 2026), and all of them together on hover.
       expect(within(row).getByText("50 h")).toBeTruthy();
-      expect(within(row).getByText("1.5 h sessions")).toBeTruthy();
+      expect(within(row).getByText("1.5 h each")).toBeTruthy();
       expect(within(row).getByTitle("50 h · 1.5 h sessions")).toBeTruthy();
       expect(within(row).getByTitle("Mutualized with Maths")).toBeTruthy();
     }
@@ -319,6 +319,46 @@ describe("a section taught in more than one stretch", () => {
     expect(within(card).getByText("Sudarshan Shinde")).toBeTruthy();
     // The group's own facts, once — not once per stretch.
     expect(within(card).getAllByTitle(/seats taken/)).toHaveLength(1);
+  });
+
+  /** Algebra 2's CM: 30 h then 15 h, against a course asking 45 h in 2 h sessions. */
+  const algebra = (second: string): database.CohortCatalogue[] => {
+    const catalogue = withSection(
+      split({
+        parts: [
+          { ...database.EMPTY_PART, part: 1, crn: "23904", teacher: "Sudarshan Shinde", hours: "30" },
+          { ...database.EMPTY_PART, part: 2, crn: "23905", teacher: "Grace Younes", hours: second },
+        ],
+      }),
+    );
+    catalogue[0].scopes[0].courses[0] = { ...catalogue[0].scopes[0].courses[0], request: { ...database.EMPTY_REQUEST, hours: "45", duration: "2" } };
+    return catalogue;
+  };
+
+  it("numbers the parts under the group's own line, which says whether their hours add up (25 Nov 2026)", async () => {
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(algebra("15"));
+    show();
+
+    const card = (await screen.findByRole("article", { name: "TD 1 MATH001" })) as HTMLElement;
+    expect(within(card).getByText("2 parts")).toBeTruthy();
+    expect(within(card).getByTitle("Its parts make 45 h, what the course asks").textContent).toContain("45 h of the course's 45 h");
+    for (const [number, hours] of [["1", "30 h"], ["2", "15 h"]]) {
+      const part = within(card).getByRole("button", { name: `Edit TD 1 MATH001, part ${number}` });
+      expect(within(part).getByTitle(`Part ${number}`).textContent).toBe(number);
+      expect(within(part).getByText(hours)).toBeTruthy();
+      // A part takes the course's session length, though not its hours: its share is its own.
+      expect(within(part).getByText("2 h each")).toBeTruthy();
+    }
+    // The group's name, seats and roster once, on its own line, not on part 1's.
+    expect(within(card).getAllByRole("button", { name: /Who is in TD 1/ })).toHaveLength(1);
+  });
+
+  it("says in amber when the parts' hours don't make what the course asks", async () => {
+    vi.spyOn(database, "fetchCourseCards").mockResolvedValue(algebra("10"));
+    show();
+
+    const card = (await screen.findByRole("article", { name: "TD 1 MATH001" })) as HTMLElement;
+    expect(within(card).getByTitle("Its parts make 40 h — the course asks 45 h").textContent).toContain("40 h of the course's 45 h");
   });
 
   it("opens the half that was pressed, not whichever came first", async () => {
@@ -502,7 +542,7 @@ describe("hours set for the course, and a card's own (23 Nov 2026)", () => {
     expect(within(follows).getByTitle(/45 h, from what the course asks/)).toBeTruthy();
     expect(follows.textContent).not.toContain("the course asks 45 h");
     // Each row says its sessions, the course's 1.5 h.
-    expect(own.textContent).toContain("1.5 h sessions");
-    expect(follows.textContent).toContain("1.5 h sessions");
+    expect(own.textContent).toContain("1.5 h each");
+    expect(follows.textContent).toContain("1.5 h each");
   });
 });
