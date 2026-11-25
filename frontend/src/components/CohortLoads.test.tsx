@@ -200,6 +200,29 @@ describe("Teaching loads, by program and with the tabs one wants", () => {
     expect(screen.getByText("Who teaches every cohort’s hours")).toBeTruthy();
   });
 
+  it("narrows every tab and figure to one semester, as the Program menu does (25 Nov 2026)", () => {
+    // The Foundation Year in Semester 1, L1 in Semester 2.
+    const twoTerms = PROGRAMS_CATALOGUES.map((catalogue, index) =>
+      index === 1 ? { ...catalogue, scopes: catalogue.scopes.map((scope) => ({ ...scope, termId: "s2" })) } : catalogue,
+    ) as unknown as CohortCatalogue[];
+    const label = (id: string) => (id === "s1" ? "S1 · Semester 1" : "S2 · Semester 2");
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <CohortLoads cards={buildCards(twoTerms, label, [])} termIds={["s1", "s2"]} termLabel={label} teachers={TEACHERS} programs={SCEN} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByText("5 of 5 sections")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Semester" }));
+    fireEvent.click(screen.getByRole("option", { name: "S2 · Semester 2" }));
+    expect(screen.getByText("2 of 2 sections")).toBeTruthy();
+    expect(screen.getByText("Cohort by cohort, in S2 · Semester 2")).toBeTruthy();
+    // The Foundation Year teaches nothing in Semester 2, so it has no tab; and no Year beside the one semester.
+    expect(within(screen.getByRole("group", { name: "Cohort" })).queryByRole("button", { name: "Foundation Year" })).toBeNull();
+    const split = screen.getByText("Who teaches the department’s hours").closest("section") as HTMLElement;
+    expect(within(split).queryByText("Year")).toBeNull();
+  });
+
   it("has no Program menu in a department with no programme, and points to where courses are grouped", () => {
     showPrograms(NO_COURSE_PROGRAMS);
 

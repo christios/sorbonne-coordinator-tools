@@ -115,8 +115,19 @@ const lineCell = "border-b border-[#dde3ea] py-1.5";
  * and one for hours nobody teaches yet, only when there are any — so the total is always
  * the hours counted, and the shares say what is still open.
  */
-function SplitTable({ split, termIds, termLabel }: { split: Record<string, Split>; termIds: string[]; termLabel: (id: string) => string }) {
-  const columns = [...termIds.filter((id) => split[id]), "year"];
+function SplitTable({
+  split,
+  termIds,
+  termLabel,
+  year = true,
+}: {
+  split: Record<string, Split>;
+  termIds: string[];
+  termLabel: (id: string) => string;
+  /** False when the page is narrowed to one semester: its total would say the same again. */
+  year?: boolean;
+}) {
+  const columns = [...termIds.filter((id) => split[id]), ...(year ? ["year"] : [])];
   const shownBuckets = BUCKETS.filter(
     (bucket) => STAFF_STATUSES.some((entry) => entry.status === bucket) || columns.some((id) => split[id][bucket] > 0),
   );
@@ -200,7 +211,7 @@ const KIND_LABEL: Record<LoadKind, string> = { CM: "CM", TD: "TD", TP: "TP", OTH
  */
 export function CohortLoads({
   cards,
-  termIds,
+  termIds: yearTerms,
   termLabel,
   teachers,
   programs = NO_COURSE_PROGRAMS,
@@ -219,6 +230,13 @@ export function CohortLoads({
   onOpenTeacher?: (teacher: TeacherRef) => void;
 }) {
   const [chosen, setChosen] = usePageState<string>("teaching-loads:cohort", DEPARTMENT);
+  /*
+   * One semester of the year, or both (user, 25 Nov 2026): every tab and every figure then
+   * counts that semester's sections alone, as a program narrows them to its courses.
+   */
+  const [semesterSaid, setSemester] = usePageState<string>("teaching-loads:semester", "");
+  const semester = yearTerms.includes(semesterSaid) ? semesterSaid : "";
+  const termIds = useMemo(() => (semester ? [semester] : yearTerms), [semester, yearTerms]);
   const [filters, setFilters] = usePageState<FilterModel[]>("teaching-loads:filters", []);
   const [query, setQuery] = usePageState("teaching-loads:search", "");
   const [programSaid, setProgram] = useRemembered(TEACHING_LOADS_PROGRAM);
@@ -326,6 +344,17 @@ export function CohortLoads({
             </button>
           ))}
         </div>
+        {yearTerms.length > 1 ? (
+          <div className="w-44">
+            <SelectMenu
+              label="Semester"
+              value={semester}
+              onChange={setSemester}
+              align="start"
+              options={[{ value: "", label: "Both semesters" }, ...yearTerms.map((id) => ({ value: id, label: termLabel(id) }))]}
+            />
+          </div>
+        ) : null}
         {/* No programme with courses under it, nothing to narrow to: Settings → Programmes is where they are grouped. */}
         {programs.programmes.length ? (
           <div className="w-40">
@@ -380,10 +409,18 @@ export function CohortLoads({
 
       {!everyCohort.length ? (
         <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
-          No {programName} course is planned for this academic year yet.{" "}
-          <button type="button" onClick={() => setProgram("")} className="font-semibold text-[#1f4e79] underline">
-            All programs
-          </button>
+          No {programName} course is planned {semester ? `in ${termLabel(semester)}` : "for this academic year"} yet.{" "}
+          {semester ? (
+            <button type="button" onClick={() => setSemester("")} className="font-semibold text-[#1f4e79] underline">
+              Both semesters
+            </button>
+          ) : null}
+          {semester && program ? " · " : null}
+          {program ? (
+            <button type="button" onClick={() => setProgram("")} className="font-semibold text-[#1f4e79] underline">
+              All programs
+            </button>
+          ) : null}
         </p>
       ) : cohort && !shownCohort ? (
         <p className="rounded-lg border border-dashed border-[#b8c2cf] bg-white px-5 py-8 text-center text-sm text-[#475467]">
@@ -396,6 +433,7 @@ export function CohortLoads({
         <CohortBlock
           cohort={shownCohort}
           every={every}
+          semester={semester}
           termIds={termIds}
           termLabel={termLabel}
           narrowed={narrowed}
@@ -405,12 +443,13 @@ export function CohortLoads({
       ) : (
         <DepartmentBlock
           cohorts={counted}
+          semester={semester}
           termIds={termIds}
           termLabel={termLabel}
           narrowed={narrowed}
           programName={programName}
-          // Beside a teacher's whole year only: a programme or a filter shows part of it.
-          owed={narrowed || programName ? undefined : owed}
+          // Beside a teacher's whole year only: a programme, a semester or a filter shows part of it.
+          owed={narrowed || programName || semester ? undefined : owed}
           canOpen={(cohortId) => cohortId !== ALL_COHORTS && tabs.some((entry) => entry.id === cohortId)}
           onChoose={setChosen}
           onOpenTeacher={onOpenTeacher}
@@ -534,6 +573,7 @@ function TeacherName({ teacherId, name, onOpenTeacher }: { teacherId: string; na
 
 function DepartmentBlock({
   cohorts,
+  semester = "",
   termIds,
   termLabel,
   narrowed,
@@ -544,6 +584,8 @@ function DepartmentBlock({
   onOpenTeacher,
 }: {
   cohorts: CohortLoad[];
+  /** The one semester the page is narrowed to, or "" for the year. */
+  semester?: string;
   termIds: string[];
   termLabel: (termId: string) => string;
   narrowed: boolean;
@@ -578,7 +620,7 @@ function DepartmentBlock({
               : `Who teaches the department’s ${programName ? `${programName} ` : ""}hours`}
           </Heading>
           <div className="overflow-x-auto">
-            <SplitTable split={split} termIds={termIds} termLabel={termLabel} />
+            <SplitTable split={split} termIds={termIds} termLabel={termLabel} year={!semester} />
           </div>
         </section>
         <div className="space-y-4">
@@ -592,7 +634,9 @@ function DepartmentBlock({
         </div>
       </div>
       <section className={card}>
-        <Heading>{programName ? `${programName}, cohort by cohort, over the year` : "Cohort by cohort, over the year"}</Heading>
+        <Heading>
+          {`${programName ? `${programName}, cohort by cohort` : "Cohort by cohort"}, ${semester ? `in ${termLabel(semester)}` : "over the year"}`}
+        </Heading>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[44rem] border-separate border-spacing-0 text-sm tabular-nums">
             <thead>
@@ -665,6 +709,7 @@ const cell = "border-b border-r border-[#dde3ea] px-3 py-1.5 group-hover:bg-[#f5
 function CohortBlock({
   cohort,
   every = false,
+  semester = "",
   termIds,
   termLabel,
   narrowed,
@@ -674,6 +719,8 @@ function CohortBlock({
   cohort: CohortLoad;
   /** Every cohort's courses together, as All cohorts shows them: each course says whose it is. */
   every?: boolean;
+  /** The one semester the page is narrowed to, or "" for the year. */
+  semester?: string;
   termIds: string[];
   termLabel: (termId: string) => string;
   narrowed: boolean;
@@ -696,7 +743,7 @@ function CohortBlock({
               : `Who teaches ${whose} ${programName ? `${programName} ` : ""}hours`}
           </Heading>
           <div className="overflow-x-auto">
-            <SplitTable split={cohort.split} termIds={termIds} termLabel={termLabel} />
+            <SplitTable split={cohort.split} termIds={termIds} termLabel={termLabel} year={!semester} />
           </div>
         </section>
         <div className="space-y-4">
