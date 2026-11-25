@@ -418,6 +418,27 @@ describe("a teacher's week, marked block by block", () => {
     expect(said("Tuesday", "15:00")).toContain("constraint, this week only");
   });
 
+  it("lets a block of the whole semester go under one that starts later, which stays on top from its week", () => {
+    // Miklos, 25 Nov 2026: away every day from a week on, and mornings rather not, the whole semester.
+    const away: WishBlock = { ...block("away", [1, 2, 3, 4, 5], 8, 19, "Leaves"), repeat: "from", week: "2027-01-18" };
+    render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={answer([away])} onSave={() => {}} />);
+    stroke(["Monday", "08:00"], ["Friday", "09:00"]);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(box().getAttribute("aria-label")).toBe("Hard constraint · Mon–Fri 08:00–10:00 · whole semester");
+    fireEvent.click(within(box()).getByRole("radio", { name: "Soft constraint" }));
+    done();
+    expect(said("Monday", "08:00")).toContain("soft constraint, whole semester");
+    // From its week, the block that starts later is the one that counts.
+    fireEvent.click(screen.getByRole("button", { name: "The week after" }));
+    expect(said("Monday", "08:00")).toContain("hard constraint, every week starting 18 Jan");
+    expect(said("Friday", "15:00")).toContain("hard constraint, every week starting 18 Jan");
+    // Made to start when the mornings do, it would meet them: that choice is off, and says why.
+    fireEvent.click(cell("Monday", "08:00"));
+    const whole = within(box()).getByRole("radio", { name: /^Whole semester/ }) as HTMLButtonElement;
+    expect(whole.disabled).toBe(true);
+    expect(whole.textContent).toContain("Overlaps Mon–Fri 08:00–10:00 (Whole semester)");
+  });
+
   it("takes a week's whole days into a whole week marked over them, reasons and all", () => {
     render(<WishesForm collection={COLLECTION} calendar={CALENDAR} initial={null} onSave={() => {}} />);
     fireEvent.click(screen.getByRole("button", { name: "Thursday 14 Jan: a hard constraint all day, this week only" }));

@@ -6,8 +6,9 @@
  * **soft constraint** (they would rather not teach then: the plan keeps to it if it can). Kept as
  * "constraint" and "preference" underneath. Each block repeats every
  * week, every week from a given week on, or that one week only — a day away is a constraint for
- * one week. Blocks do not overlap (`clashes`), but for a one-week block over a repeating one: there
- * the one-week block is on top for its week. Then a few limits on the week, each hard or soft,
+ * one week. Blocks do not overlap (`clashes`), but for a block that starts later over one that
+ * started earlier: a one-week block is on top for its week, one from a week on is on top from that
+ * week. Then a few limits on the week, each hard or soft,
  * room needs and a note. The server keeps the same rules (`answer_lines`).
  *
  * The Semester plan reads the answers to shade a teacher's week and flag every placed class
@@ -117,9 +118,11 @@ export function weekOf(blocks: WishBlock[], monday: string): Map<string, WishBlo
 
 /**
  * Whether two blocks cover the same hours of a day in some week (17 Nov 2026: blocks may not
- * overlap). Two that repeat always meet, in their later weeks; two one-week blocks, in the same
- * week. A one-week block over a repeating one is allowed: a day or a week away, or one week
- * changed, stands in for that week — the block on top (`weekOf`) is the one that counts.
+ * overlap). Two one-week blocks meet in the same week; two that repeat, when they start the same
+ * week (two of the whole semester, say). A block that starts later over one that started earlier
+ * is allowed, and stands in for it from then on — the block on top (`weekOf`) is the one that
+ * counts: a day or a week away over the usual week, or, from a week on, a change to it (25 Nov
+ * 2026: mornings rather not, the whole semester, under every day away from 10 May on).
  */
 export function clashes(left: Pick<WishBlock, "id" | "days" | "from" | "to" | "repeat" | "week">, right: typeof left): boolean {
   if (left.id === right.id) return false;
@@ -127,7 +130,8 @@ export function clashes(left: Pick<WishBlock, "id" | "days" | "from" | "to" | "r
   if (left.from >= right.to || right.from >= left.to) return false;
   const [once, other] = [left.repeat === "once", right.repeat === "once"];
   if (once !== other) return false;
-  return once ? left.week === right.week : true;
+  const starts = (block: typeof left) => (block.repeat === "all" ? "" : block.week);
+  return starts(left) === starts(right);
 }
 
 /** The block a block would overlap, if any: the first in the list. */

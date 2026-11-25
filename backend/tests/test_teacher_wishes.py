@@ -114,22 +114,24 @@ def test_a_block_out_of_shape_is_refused(client: TestClient):
         assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, wrong
 
 
-def test_blocks_may_not_overlap_but_a_one_week_block_may_stand_over_a_repeating_one(client: TestClient):
+def test_blocks_may_not_overlap_but_one_that_starts_later_may_stand_over_one_started_earlier(client: TestClient):
     opened(client, days=[1, 2, 3, 4, 5], firstHour=8, lastHour=19)
     weekly = block("preference", [2, 4], 14, 16, id="weekly")
-    for wrong, named in (
-        # Two that repeat meet, whatever week the second starts.
-        (block("constraint", [4], 15, 17, id="b"), "Thu 15:00–17:00, whole semester"),
-        (
-            block("constraint", [2], 9, 14.25, id="b", repeat="from", week="2027-03-01"),
-            "every week starting 2027-03-01",
-        ),
-    ):
-        refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [weekly, wrong]})
-        assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT, wrong
-        detail = refused.json()["detail"]
-        assert "Two blocks cover the same hours: Tue, Thu 14:00–16:00, whole semester" in detail
-        assert named in detail
+    # Two of the whole semester meet.
+    thursday = block("constraint", [4], 15, 17, id="b")
+    refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [weekly, thursday]})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    detail = refused.json()["detail"]
+    assert "Two blocks cover the same hours: Tue, Thu 14:00–16:00, whole semester" in detail
+    assert "Thu 15:00–17:00, whole semester" in detail
+    # One from a week on stands over the usual week from then (25 Nov 2026); two from the same week meet.
+    march = block("constraint", [2], 9, 14.25, id="march", repeat="from", week="2027-03-01", comment="Leaves")
+    kept = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [weekly, march]})
+    assert kept.status_code == 200, kept.text
+    same = block("preference", [2], 10, 12, id="same", repeat="from", week="2027-03-01")
+    refused = client.put(f"{AT}/{TERM}/wish-test-bilal", json={"blocks": [weekly, march, same]})
+    assert refused.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "every week starting 2027-03-01" in refused.json()["detail"]
     # Two of the same week meet; of different weeks, they don't.
     day = block("constraint", [2], 0, 24, id="day", repeat="once", week="2027-02-01", comment="Away")
     morning = block("constraint", [2], 9, 10, id="morning", repeat="once", week="2027-02-01", comment="Exam")

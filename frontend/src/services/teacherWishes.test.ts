@@ -133,12 +133,17 @@ describe("a week, as its blocks make it", () => {
     ]);
   });
 
-  it("lets no two blocks cover the same hours, but a week's own block over a repeating one", () => {
+  it("lets no two blocks cover the same hours, but one that starts later over one that started earlier", () => {
     const weekly = block("w", "preference", [2, 4], 14, 16);
-    // Two that repeat meet, whenever the second starts; touching is not meeting.
+    // Two of the whole semester meet; touching is not meeting.
     expect(clashes(weekly, block("b", "constraint", [4], 15, 17))).toBe(true);
-    expect(clashes(weekly, block("b", "constraint", [2], 9, 15, { repeat: "from", week: "2027-03-01" }))).toBe(true);
     expect(clashes(weekly, block("b", "constraint", [2, 4], 16, 18))).toBe(false);
+    // One from a week on stands over the usual week from then (25 Nov 2026); two from the same week meet.
+    const fromMarch = block("b", "constraint", [2], 9, 15, { repeat: "from", week: "2027-03-01" });
+    expect(clashes(weekly, fromMarch)).toBe(false);
+    expect(clashes(fromMarch, weekly)).toBe(false);
+    expect(clashes(fromMarch, block("c", "preference", [2], 14, 16, { repeat: "from", week: "2027-03-01" }))).toBe(true);
+    expect(clashes(fromMarch, block("c", "preference", [2], 14, 16, { repeat: "from", week: "2027-03-08" }))).toBe(false);
     expect(clashes(weekly, block("b", "constraint", [3], 14, 16))).toBe(false);
     // A week's own block stands over the usual week; two of the same week meet, of different weeks not.
     const day = block("d", "constraint", [2], 8, 19, { repeat: "once", week: "2027-02-01" });

@@ -10,8 +10,9 @@ days that are a **constraint**, shown as a hard constraint (they can't teach the
 keep to it), or a **preference**, shown as a soft constraint since 16 Nov 2026 (they would rather
 not teach then: the plan keeps to it if it can). Each block repeats every
 week, every week from a given week on, or that one week only — a day away is a constraint for
-one week. Blocks do not overlap (`clashes`), but for a one-week block over a repeating one, which
-is on top for its week. Then a few limits on the week, each a constraint or a preference, room
+one week. Blocks do not overlap (`clashes`), but for a block that starts later over one that
+started earlier, which is on top from its week: a one-week block for its week, one from a week on
+from that week. Then a few limits on the week, each a constraint or a preference, room
 needs and a note.
 
 The Semester plan reads the answers to shade a teacher's week and flag the classes that go
@@ -150,9 +151,10 @@ def recurring_constraint_hours(blocks: list[dict[str, Any]]) -> float:
 def clashes(left: dict[str, Any], right: dict[str, Any]) -> bool:
     """Whether two blocks cover the same hours of a day in some week (17 Nov 2026: they may not).
 
-    Two that repeat always meet, in their later weeks; two of one week, in the same week. A
-    one-week block over a repeating one is allowed: a day or a week away, or one week changed,
-    stands in for that week. The form keeps the same rule (`clashes` in teacherWishes.ts).
+    Two of one week meet in the same week; two that repeat, when they start the same week (two of
+    the whole semester, say). A block that starts later over one that started earlier is allowed
+    and stands in for it from then on: a day or a week away over the usual week, or, from a week
+    on, a change to it (25 Nov 2026). The form keeps the same rule (`clashes` in teacherWishes.ts).
     """
     if not set(left["days"]) & set(right["days"]):
         return False
@@ -161,7 +163,11 @@ def clashes(left: dict[str, Any], right: dict[str, Any]) -> bool:
     once, other = left["repeat"] == "once", right["repeat"] == "once"
     if once != other:
         return False
-    return left["week"] == right["week"] if once else True
+
+    def starts(block: dict[str, Any]) -> str:
+        return "" if block["repeat"] == "all" else block["week"]
+
+    return starts(left) == starts(right)
 
 
 _DAY_SHORT = ("", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
