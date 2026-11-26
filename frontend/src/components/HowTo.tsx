@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 /**
- * How a part of a form is used, in three short steps side by side: an icon, what to do, a
+ * How a part of a form is used, in three or four short steps side by side: an icon, what to do, a
  * hint — and, beside them, a box for the one thing apart. The preferences week opened with it
  * first; the course schedule step uses the same (18 Nov 2026).
  */
@@ -10,7 +10,11 @@ export function HowTo({ steps, children }: { steps: { icon: LucideIcon; title: R
   return (
     <div className="mt-3 flex flex-wrap items-stretch gap-2">
       {/* The steps take the row on a phone, the box beside them going under. */}
-      <ol className="grid min-w-0 flex-1 basis-full gap-2 sm:basis-0 sm:grid-cols-3">
+      <ol
+        className={`grid min-w-0 flex-1 basis-full gap-2 sm:basis-0 ${
+          steps.length === 4 ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"
+        }`}
+      >
         {steps.map(({ icon: Icon, title, hint }, index) => (
           <li key={index} className="flex items-start gap-2.5 rounded-lg border border-[#e3e8ef] bg-white px-3 py-2">
             <span className="relative mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#eef4fa] text-[#1f4e79]">

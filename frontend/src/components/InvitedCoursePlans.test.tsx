@@ -363,7 +363,7 @@ describe("a lead's exams and the order of a week's kinds (26 Nov 2026)", () => {
 
     const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
     // How to do it, said under the grid.
-    expect(screen.getByText(/tick Exam beside that\s+session/)).toBeTruthy();
+    expect(screen.getByText("Press the hours under its week, tick Exam")).toBeTruthy();
     fireEvent.click(within(grid).getByRole("button", { name: "Length of the TD session in week 4: 1.5 h" }));
     fireEvent.click(await screen.findByRole("checkbox", { name: "The TD session in week 4 is an exam" }));
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
@@ -390,8 +390,8 @@ describe("a lead's exams and the order of a week's kinds (26 Nov 2026)", () => {
     page();
 
     await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
-    const cmFirst = screen.getByRole("checkbox", { name: "CM comes before TD/TP" }) as HTMLInputElement;
-    const tdFirst = screen.getByRole("checkbox", { name: "TD comes before TP" }) as HTMLInputElement;
+    const cmFirst = screen.getByRole("checkbox", { name: "CM before TD/TP" }) as HTMLInputElement;
+    const tdFirst = screen.getByRole("checkbox", { name: "TD before TP" }) as HTMLInputElement;
     expect([cmFirst.checked, tdFirst.checked]).toEqual([false, false]);
     fireEvent.click(cmFirst);
 
@@ -405,8 +405,8 @@ describe("a lead's exams and the order of a week's kinds (26 Nov 2026)", () => {
     vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
     page();
     await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
-    expect(screen.getByRole("checkbox", { name: "CM comes before TD" })).toBeTruthy();
-    expect(screen.queryByRole("checkbox", { name: "TD comes before TP" })).toBeNull();
+    expect(screen.getByRole("checkbox", { name: "CM before TD" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "TD before TP" })).toBeNull();
   });
 
   it("warns, without stopping the lead, when the first week with sessions has no CM", async () => {

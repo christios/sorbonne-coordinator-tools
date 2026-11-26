@@ -416,50 +416,62 @@ export function CourseScheduleGrid({
           {examLines.join(" · ")}
         </p>
       ) : null}
-      {editable && (choices.cm || choices.td) ? (
-        <fieldset data-order="" className="mt-2 rounded-md border border-[#d0d5dd] px-3 pb-2 pt-1">
-          <legend className="flex items-center gap-1.5 px-1 text-xs font-semibold text-[#344054]">
-            <ListOrdered size={13} aria-hidden="true" /> In the same week <span className="font-normal text-[#667085]">(optional)</span>
-          </legend>
-          <div className="flex flex-wrap gap-x-5 gap-y-1">
-            {choices.cm ? (
-              <label className="flex items-center gap-2 text-sm text-[#344054]">
-                <input
-                  type="checkbox"
-                  checked={Boolean(value.cmFirst)}
-                  onChange={(event) => emit({ cmFirst: event.target.checked })}
-                  className="h-4 w-4 accent-[#1f4e79]"
-                />
-                CM comes before {choices.cm.join("/")}
-              </label>
-            ) : null}
-            {choices.td ? (
-              <label className="flex items-center gap-2 text-sm text-[#344054]">
-                <input
-                  type="checkbox"
-                  checked={Boolean(value.tdBeforeTp)}
-                  onChange={(event) => emit({ tdBeforeTp: event.target.checked })}
-                  className="h-4 w-4 accent-[#1f4e79]"
-                />
-                TD comes before TP
-              </label>
-            ) : null}
-          </div>
-          <p className="mt-1 text-xs text-[#667085]">Tick when students need one before the other: the week&rsquo;s sessions are then timetabled in that order.</p>
-        </fieldset>
+      {editable && rows.length && (choices.cm || choices.td || hint) ? (
+        // One quiet line under the grid (26 Nov 2026: the text was overwhelming): the order on the left and, where no
+        // cards above say it (hint), how to change a length or mark an exam on the right. Why the order matters is in
+        // the hover text, not on the page.
+        <div data-order="" className="mt-2 flex flex-wrap items-center justify-between gap-x-6 gap-y-1.5 text-xs text-[#475467]">
+          {choices.cm || choices.td ? (
+            <div
+              role="group"
+              aria-label="In the same week"
+              title="Tick when students need one before the other: that week's sessions are then timetabled in that order."
+              className="flex flex-wrap items-center gap-x-4 gap-y-1"
+            >
+              <span className="flex items-center gap-1.5 font-semibold text-[#344054]">
+                <ListOrdered size={13} aria-hidden="true" /> In the same week:
+              </span>
+              {choices.cm ? (
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(value.cmFirst)}
+                    onChange={(event) => emit({ cmFirst: event.target.checked })}
+                    className="h-3.5 w-3.5 accent-[#1f4e79]"
+                  />
+                  CM before {choices.cm.join("/")}
+                </label>
+              ) : null}
+              {choices.td ? (
+                <label className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(value.tdBeforeTp)}
+                    onChange={(event) => emit({ tdBeforeTp: event.target.checked })}
+                    className="h-3.5 w-3.5 accent-[#1f4e79]"
+                  />
+                  TD before TP
+                </label>
+              ) : null}
+            </div>
+          ) : (
+            <span />
+          )}
+          {hint ? (
+            <p className="flex items-center gap-1.5 text-[#667085]">
+              <span aria-hidden="true" className="rounded-sm bg-[#6941c6] px-[3px] text-[9px] font-bold leading-3 text-white">
+                E
+              </span>
+              Longer session or exam? Press the hours under its week.
+            </p>
+          ) : null}
+        </div>
       ) : !editable && asked.length ? (
         <p data-order="" className="mt-1.5 flex items-center gap-1.5 text-xs text-[#475467]">
           <ListOrdered size={13} aria-hidden="true" />
           <span>
             <b className="font-semibold">In the same week:</b> {asked.join(" · ")}
           </span>
-        </p>
-      ) : null}
-      {editable && rows.length ? (
-        <p className="mt-1.5 text-xs text-[#667085]">
-          {hint ? "A week’s sessions longer or shorter than usual? Press the hours under its box. " : ""}
-          <b className="font-semibold text-[#53389e]">An exam?</b> Press the hours under its week and tick Exam beside that
-          session: the box then shows an E.
         </p>
       ) : null}
     </div>

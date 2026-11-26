@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock3, Hash, Loader2, MessageSquareText, Sparkles, Target } from "lucide-react";
+import { AlertTriangle, ClipboardCheck, Clock3, Hash, Loader2, MessageSquareText, Sparkles, Target } from "lucide-react";
 import { useState } from "react";
 
 import { CourseScheduleGrid } from "@/components/CourseScheduleGrid";
@@ -136,11 +136,13 @@ export function CourseScheduleStep({
           {many ? "Your courses" : "Your course"}, week by week{semesterName ? ` in ${semesterName}` : ""}
         </h2>
         <p className="mt-1 text-sm text-[#475467]">You lead {many ? `${step.courses.length} courses` : "this course"} this semester.</p>
-        {/* How the grid is filled, in the preferences week's own three steps (18 Nov 2026). */}
+        {/* How the grid is filled, in the preferences week's own cards (18 Nov 2026), the exam one added 26 Nov. */}
         <HowTo
           steps={[
             { icon: Hash, title: "Sessions in each week", hint: "Not hours: the hours show under each box" },
-            { icon: Clock3, title: "A longer session, or an exam?", hint: "Press the hours under its box: change its length, or tick Exam" },
+            { icon: Clock3, title: "A longer session?", hint: "Press the hours under its box" },
+            // The exam, a card of its own (26 Nov 2026): how to mark one, said where the lead starts reading.
+            { icon: ClipboardCheck, title: "An exam?", hint: "Press the hours under its week, tick Exam" },
             { icon: Target, title: "Reach each total", hint: "It turns green once the hours add up" },
           ]}
         >
@@ -185,7 +187,7 @@ export function CourseScheduleStep({
               <>
                 {opened[course.courseCode]?.spread ? (
                   <p className="text-xs text-[#475467]">
-                    Filled in evenly to start with. Change the weeks that differ, like an exam week.
+                    Filled in evenly to start with: change only the weeks that differ.
                   </p>
                 ) : null}
                 <CourseScheduleGrid
@@ -236,7 +238,7 @@ export function CourseScheduleStep({
                 ) : null}
               </div>
             ) : null}
-            <label className="block text-sm font-semibold text-[#344054]">
+            <label className="block pt-3 text-sm font-semibold text-[#344054]">
               Note for the coordinators <span className="font-normal text-[#667085]">(optional)</span>
               <textarea
                 aria-label={`Note about ${course.courseCode}`}
