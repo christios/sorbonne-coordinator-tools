@@ -105,6 +105,40 @@ def read_invitee_session(token: str | None, *, now: float | None = None) -> dict
     return {"invitation": str(claims.get("inv") or ""), "email": str(claims.get("email") or "")}
 
 
+def sign_in_address(email: str) -> str:
+    """The address somebody signs in with, as kept: trimmed and in one case; refused if it is none."""
+    address = (email or "").strip().casefold()
+    if not _EMAIL.match(address) or len(address) > LONGEST_EMAIL:
+        raise InvalidWishes("Give the address they sign in with: a Gmail one, or a personal Outlook or Hotmail.")
+    return address
+
+
+def on_the_list(connection: Any, term: str, teacher_id: str) -> bool:
+    """On the semester's Timetable preferences list: active in it, put on it by a coordinator,
+    or with an answer for it."""
+    return (
+        connection.execute(
+            text("""SELECT 1
+                    WHERE EXISTS (SELECT 1 FROM active_teacher_terms WHERE active_id = :id AND term_code = :term)
+                       OR EXISTS (SELECT 1 FROM wish_people WHERE teacher_id = :id AND term_code = :term)
+                       OR EXISTS (SELECT 1 FROM teacher_wishes WHERE teacher_id = :id AND term_code = :term)"""),
+            {"id": teacher_id, "term": term},
+        ).first()
+        is not None
+    )
+
+
+def active_in(connection: Any, term: str, teacher_id: str) -> bool:
+    """On the semester's Active teachers: only they get hour reductions and a course schedule."""
+    return (
+        connection.execute(
+            text("SELECT 1 FROM active_teacher_terms WHERE active_id = :id AND term_code = :term"),
+            {"id": teacher_id, "term": term},
+        ).first()
+        is not None
+    )
+
+
 def masked(email: str) -> str:
     """"c*****@gmail.com": enough to recognise one's own address, not to harvest it."""
     name, _, domain = email.partition("@")
@@ -119,45 +153,46 @@ class InvitationStore:
         self.engine = engine
 
     def invite(self, term_code: str, teacher_id: str, email: str, actor: str = "") -> tuple[str, dict[str, Any]]:
-        """Invite a teacher of the semester at a Google address. The code is returned once."""
+        """Invite somebody on the semester's list at a Google address. The code is returned once."""
         term = _term(term_code)
-        address = (email or "").strip().casefold()
-        if not _EMAIL.match(address) or len(address) > LONGEST_EMAIL:
-            raise InvalidWishes("Give the address they sign in with: a Gmail one, or a personal Outlook or Hotmail.")
+        address = sign_in_address(email)
         with self.engine.begin() as connection:
             collecting = connection.execute(
                 text("SELECT 1 FROM wish_collections WHERE term_code = :term"), {"term": term}
             ).first()
             if collecting is None:
                 raise NoCollection(term)
-            active = connection.execute(
-                text("SELECT 1 FROM active_teacher_terms WHERE active_id = :id AND term_code = :term"),
-                {"id": teacher_id, "term": term},
-            ).first()
-            if active is None:
+            if not on_the_list(connection, term, teacher_id):
                 raise UnknownTeacher(teacher_id)
-            at = _now()
-            connection.execute(
-                text("""UPDATE wish_invitations SET withdrawn_at = :at
-                        WHERE term_code = :term AND teacher_id = :id AND withdrawn_at = ''"""),
-                {"at": at, "term": term, "id": teacher_id},
-            )
-            code = secrets.token_urlsafe(CODE_BYTES)
-            record = {
-                "id": uuid.uuid4().hex,
-                "term": term,
-                "teacher": teacher_id,
-                "email": address,
-                "hash": _hash(code),
-                "at": at,
-                "by": actor,
-            }
-            connection.execute(
-                text("""INSERT INTO wish_invitations
-                            (id, term_code, teacher_id, email, code_hash, created_at, created_by)
-                        VALUES (:id, :term, :teacher, :email, :hash, :at, :by)"""),
-                record,
-            )
+            return self.invite_within(connection, term, teacher_id, address, actor)
+
+    @staticmethod
+    def invite_within(
+        connection: Any, term: str, teacher_id: str, address: str, actor: str = ""
+    ) -> tuple[str, dict[str, Any]]:
+        """The invitation made, in a transaction already open: the one before withdrawn."""
+        at = _now()
+        connection.execute(
+            text("""UPDATE wish_invitations SET withdrawn_at = :at
+                    WHERE term_code = :term AND teacher_id = :id AND withdrawn_at = ''"""),
+            {"at": at, "term": term, "id": teacher_id},
+        )
+        code = secrets.token_urlsafe(CODE_BYTES)
+        record = {
+            "id": uuid.uuid4().hex,
+            "term": term,
+            "teacher": teacher_id,
+            "email": address,
+            "hash": _hash(code),
+            "at": at,
+            "by": actor,
+        }
+        connection.execute(
+            text("""INSERT INTO wish_invitations
+                        (id, term_code, teacher_id, email, code_hash, created_at, created_by)
+                    VALUES (:id, :term, :teacher, :email, :hash, :at, :by)"""),
+            record,
+        )
         return code, {"email": address, "createdAt": at, "createdBy": actor, "openedAt": "", "signedInAt": ""}
 
     def withdraw(self, term_code: str, teacher_id: str) -> None:

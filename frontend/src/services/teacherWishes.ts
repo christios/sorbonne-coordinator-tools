@@ -327,6 +327,16 @@ export type WishTeacher = {
   invitation?: WishInvitation | null;
   /** The day a coordinator let this teacher answer until, past the deadline; "" if not. */
   reopenedUntil?: string;
+  /**
+   * On the semester's Active teachers. Somebody who isn't — put on the list by hand, a new hire
+   * or a candidate (user, 26 Nov 2026) — answers the preferences alone: no hour reductions, no
+   * course schedule. Missing is active, as every row was before.
+   */
+  active?: boolean;
+  /** Put on this semester's list here without being active in it: they can be taken off it. */
+  added?: boolean;
+  /** A record made here, on neither Active teachers nor the part-time list: linked once they are. */
+  byHand?: boolean;
 };
 
 /** Whether a teacher may still answer for themselves: until the deadline, or a reopening. */
@@ -442,6 +452,29 @@ export async function reopenFor(termCode: string, teacherId: string, until: stri
 
 export async function closeAgain(termCode: string, teacherId: string): Promise<void> {
   return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/${encodeURIComponent(teacherId)}/reopen`, { method: "DELETE" }));
+}
+
+/** Somebody put on the semester's list, invited at their address: the link's code comes back once, here. */
+export type AddedPerson = { code: string; teacherId: string; name: string; existing: boolean; invitation: WishInvitation };
+
+/** Put somebody on neither Active teachers nor the part-time list on the semester's list, invited. */
+export async function addPerson(termCode: string, name: string, email: string): Promise<AddedPerson> {
+  return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/people`, json("POST", { name, email })));
+}
+
+/** Whose answer stays when both answered for a semester: the person added, or the active teacher. */
+export type LinkKeep = "" | "person" | "teacher";
+
+/** Somebody added by hand is this active teacher: their answer and invitation move to them. */
+export async function linkPerson(termCode: string, teacherId: string, to: string, keep: LinkKeep = ""): Promise<{ name: string }> {
+  return answer(
+    await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/people/${encodeURIComponent(teacherId)}/link`, json("POST", { to, keep })),
+  );
+}
+
+/** Take somebody added off the semester's list, with their answer for it. */
+export async function removePerson(termCode: string, teacherId: string): Promise<void> {
+  return answer(await apiFetch(`${BASE}/${encodeURIComponent(termCode)}/people/${encodeURIComponent(teacherId)}`, { method: "DELETE" }));
 }
 
 /** The link a teacher opens: this site's own address, and the code. */

@@ -183,3 +183,82 @@ describe("sorting the list by a column's heading (23 Nov 2026)", () => {
     expect(names()).toEqual(["Valerie Le Guyon", "Jad Tarsissi"]);
   });
 });
+
+describe("somebody on neither Active teachers nor the part-time list (26 Nov 2026)", () => {
+  const INVITATION = { email: "nadia.new@gmail.com", createdAt: "2026-11-26T08:00:00Z", createdBy: "", openedAt: "", signedInAt: "" };
+  const NADIA: wishes.WishTeacher = {
+    teacherId: "t-nadia", name: "Nadia New", email: "nadia.new@gmail.com", wishes: null, invitation: INVITATION,
+    active: false, added: true, byHand: true,
+  };
+  const withNadia = (nadia: wishes.WishTeacher = NADIA): wishes.WishSemester => ({
+    ...SEMESTER,
+    teachers: [...SEMESTER.teachers.map((teacher) => ({ ...teacher, active: true })), nadia],
+  });
+
+  it("is added by name and account, and their invitation is ready to send", async () => {
+    const added = vi.spyOn(wishes, "addPerson").mockResolvedValue({
+      code: "abc", teacherId: "t-nadia", name: "Nadia New", existing: false, invitation: INVITATION,
+    });
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Add a person" }));
+    const dialog = screen.getByRole("dialog", { name: "Add a person" });
+    expect(within(dialog).getByRole("note").textContent).toMatch(/no hour reductions and no course schedule/);
+    fireEvent.change(within(dialog).getByPlaceholderText("First name and surname"), { target: { value: " Nadia New " } });
+    fireEvent.change(within(dialog).getByPlaceholderText(/someone@gmail\.com/), { target: { value: "nadia.new@gmail.com" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add and invite" }));
+    await waitFor(() => expect(added).toHaveBeenCalledWith("262720", "Nadia New", "nadia.new@gmail.com"));
+    expect((await within(dialog).findByText(/is on the list/)).textContent).toMatch(/The shared link opens their form already/);
+    expect(within(dialog).getByRole("link", { name: /Email the invitation/ })).toBeTruthy();
+  });
+
+  it("is tagged Not active under their name, and linked to a teacher on Active teachers", async () => {
+    vi.mocked(wishes.fetchWishSemester).mockResolvedValue(withNadia());
+    const linked = vi.spyOn(wishes, "linkPerson").mockResolvedValue({ name: "Jad Tarsissi" });
+    page();
+    await screen.findByRole("button", { name: "Fill in Nadia New's preferences" });
+    const tags = document.querySelectorAll("[data-not-active]");
+    expect([...tags].map((tag) => tag.textContent)).toEqual(["Not activeLinkRemove"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Link Nadia New to an active teacher" }));
+    const dialog = screen.getByRole("dialog", { name: "Link Nadia New to an active teacher" });
+    // Only the semester's active teachers are offered: never somebody else added here.
+    expect(within(dialog).getAllByRole("option").map((option) => option.textContent)).toEqual([
+      "Choose a teacher…", "Valerie Le Guyon", "Jad Tarsissi",
+    ]);
+    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "t-jad" } });
+    expect(within(dialog).queryByText(/Both have an answer/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Link" }));
+    await waitFor(() => expect(linked).toHaveBeenCalledWith("262720", "t-nadia", "t-jad", ""));
+  });
+
+  it("asks whose answer to keep when both answered", async () => {
+    vi.mocked(wishes.fetchWishSemester).mockResolvedValue(withNadia({ ...NADIA, wishes: SEMESTER.teachers[0].wishes }));
+    const linked = vi.spyOn(wishes, "linkPerson").mockResolvedValue({ name: "Valerie Le Guyon" });
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Link Nadia New to an active teacher" }));
+    const dialog = screen.getByRole("dialog", { name: "Link Nadia New to an active teacher" });
+    fireEvent.change(within(dialog).getByRole("combobox"), { target: { value: "t-valerie" } });
+    expect(within(dialog).getByText(/Both have an answer for Semester 2/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole("radio", { name: "Valerie Le Guyon's own" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Link" }));
+    await waitFor(() => expect(linked).toHaveBeenCalledWith("262720", "t-nadia", "t-valerie", "teacher"));
+  });
+
+  it("is taken off the list after saying what goes", async () => {
+    vi.mocked(wishes.fetchWishSemester).mockResolvedValue(withNadia({ ...NADIA, wishes: SEMESTER.teachers[0].wishes }));
+    const removed = vi.spyOn(wishes, "removePerson").mockResolvedValue(undefined);
+    page();
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Nadia New from the list" }));
+    const dialog = screen.getByRole("dialog", { name: "Remove Nadia New from the list?" });
+    expect(dialog.textContent).toMatch(/their link stops working\. Their answer for this semester is deleted\./);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() => expect(removed).toHaveBeenCalledWith("262720", "t-nadia"));
+  });
+
+  it("is never tagged when active, nor is a row from before the tag", async () => {
+    page();
+    await screen.findByRole("button", { name: "Fill in Jad Tarsissi's preferences" });
+    expect(document.querySelectorAll("[data-not-active]").length).toBe(0);
+    expect(screen.queryByRole("button", { name: /to an active teacher/ })).toBeNull();
+  });
+});

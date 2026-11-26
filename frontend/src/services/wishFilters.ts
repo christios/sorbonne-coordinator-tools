@@ -31,6 +31,11 @@ export function enteredBy(row: WishTeacher): "No answer" | "The teacher" | "A co
   return row.wishes.source === "coordinator" ? "A coordinator" : "The teacher";
 }
 
+/** On the semester's Active teachers, or not: the tag a row carries and the filter's words. */
+export function activeWords(row: WishTeacher): "Active" | "Not active" {
+  return row.active === false ? "Not active" : "Active";
+}
+
 export const WISH_COLUMNS: GridColumn<WishTeacher>[] = [
   column("name", "Name", "text", (row) => row.name),
   column("email", "E-mail", "text", (row) => row.email || "No email"),
@@ -39,4 +44,6 @@ export const WISH_COLUMNS: GridColumn<WishTeacher>[] = [
   column("preferences", "Soft constraints", "number", (row) => count(row, "preference")),
   column("entered", "Entered by", "option", enteredBy),
   column("invitation", "Invitation", "option", invitationStage),
+  // Somebody put on the list by hand, a new hire or a candidate, shows "Not active": shown or hidden in one chip.
+  column("active", "Active teacher", "option", activeWords),
 ];

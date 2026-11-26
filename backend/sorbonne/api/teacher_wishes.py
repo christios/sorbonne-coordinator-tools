@@ -4,6 +4,9 @@ Read and edited by anybody signed in, as the plan is: the coordinators open a se
 collection and answer for a teacher who sent theirs by email, invite a teacher to answer
 for themselves, and reopen one teacher's answer after the deadline. The invited teacher
 comes in through a door of their own (api/wish_invite); the SCEN Requests app will too.
+
+They also put somebody on a semester's list who is on neither Active teachers nor the
+part-time list, link them to their active record once they have one, or take them off.
 """
 
 from __future__ import annotations
@@ -17,6 +20,7 @@ from sorbonne.config import config
 from sorbonne.services.engine import engine_for
 from sorbonne.services.teacher_wishes import InvalidWishes, NoCollection, UnknownTeacher, WishStore
 from sorbonne.services.wish_invitations import InvitationStore
+from sorbonne.services.wish_people import AlreadyOnList, BothAnswered, WishPeople
 
 router = APIRouter(prefix="/wishes", tags=["wishes"])
 
@@ -27,6 +31,10 @@ def get_wishes() -> WishStore:
 
 def get_invitations() -> InvitationStore:
     return InvitationStore(engine_for(config.database_url))
+
+
+def get_people() -> WishPeople:
+    return WishPeople(engine_for(config.database_url))
 
 
 def _actor(request: Request) -> str:
@@ -153,10 +161,65 @@ def invite(
     except (InvalidWishes, NoCollection, UnknownTeacher) as exc:
         if isinstance(exc, UnknownTeacher):
             raise HTTPException(
-                status.HTTP_404_NOT_FOUND, detail="Only a teacher on this semester's Active teachers can be invited."
+                status.HTTP_404_NOT_FOUND,
+                detail="Only somebody on this semester's list can be invited: add them to it first.",
             ) from exc
         raise _refused(exc) from exc
     return {"code": code, "invitation": record}
+
+
+class PersonInput(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    email: str = Field(min_length=3, max_length=254)
+
+
+class LinkInput(BaseModel):
+    to: str = Field(min_length=1, max_length=64)
+    # Whose answer stays where both answered for a semester: "person" or "teacher".
+    keep: str = Field(default="", max_length=10)
+
+
+@router.post("/{term}/people", status_code=status.HTTP_201_CREATED)
+def add_person(
+    term: str, body: PersonInput, request: Request, people: WishPeople = Depends(get_people)
+) -> dict[str, Any]:
+    """Put somebody on neither Active teachers nor the part-time list on the semester's list,
+    invited at their address. The link's code is in this answer and nowhere else."""
+    try:
+        code, added = people.add(term, body.name, body.email, _actor(request))
+    except AlreadyOnList as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"{exc.args[0]} is on this semester's list already, at that address: invite them from their row.",
+        ) from exc
+    except (InvalidWishes, NoCollection) as exc:
+        raise _refused(exc) from exc
+    return {"code": code, **added}
+
+
+@router.post("/{term}/people/{teacher_id}/link")
+def link_person(
+    term: str, teacher_id: str, body: LinkInput, people: WishPeople = Depends(get_people)
+) -> dict[str, str]:
+    """Somebody added here is this active teacher: their answer and invitation move to them."""
+    try:
+        return {"name": people.link(term, teacher_id, body.to, body.keep)}
+    except BothAnswered as exc:
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            detail=f"Both have an answer for {' and '.join(exc.args[0])}: choose whose to keep.",
+        ) from exc
+    except (InvalidWishes, UnknownTeacher) as exc:
+        raise _refused(exc) from exc
+
+
+@router.delete("/{term}/people/{teacher_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_person(term: str, teacher_id: str, people: WishPeople = Depends(get_people)) -> None:
+    """Take somebody added here off the semester's list, with their answer for it."""
+    try:
+        people.remove(term, teacher_id)
+    except (InvalidWishes, UnknownTeacher) as exc:
+        raise _refused(exc) from exc
 
 
 @router.post("/collection/{term}/share-link")

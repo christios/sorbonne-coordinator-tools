@@ -12,7 +12,9 @@ save until the deadline. The same store, the same rules; only the door differs.
 A full-timer starts with their hour reductions for the year: they declare the research ones
 here, while the window is open, and read those the Head of Department set. A teacher who leads
 a course that semester lays out its weeks here too (the course schedule step), within the
-hours the coordinators set.
+hours the coordinators set. Both steps are for teachers on the semester's Active teachers:
+somebody put on its list without being active in it — a new hire, a candidate — gives their
+preferences and constraints alone (26 Nov 2026).
 
 A code is a teacher's own link, or the semester's shared link (18 Nov 2026), posted once to
 every teacher. By the shared link, signing in with an address the coordinator set for one of
@@ -42,6 +44,7 @@ from sorbonne.services.wish_invitations import (
     INVITEE_PATH,
     InvitationStore,
     NotInvited,
+    active_in,
     issue_invitee_session,
     masked,
     read_invitee_session,
@@ -189,6 +192,12 @@ def shared_sign_in(
     return invitation
 
 
+def _teaching(invitation: dict[str, Any], engine: Any) -> bool:
+    """On the semester's Active teachers: the only ones with hour reductions and a course schedule."""
+    with engine.connect() as connection:
+        return active_in(connection, invitation["term_code"], invitation["teacher_id"])
+
+
 def _reductions(invitation: dict[str, Any], reductions: HourReductions) -> dict[str, Any] | None:
     """A full-timer's year of hour reductions; nothing for anybody else, who never sees the step."""
     term, teacher = invitation["term_code"], invitation["teacher_id"]
@@ -207,9 +216,11 @@ def _form(
     term, teacher = invitation["term_code"], invitation["teacher_id"]
     semester = wishes.semester(term)
     mine = next((row for row in semester["teachers"] if row["teacherId"] == teacher), None)
+    # Somebody not active in the semester gives their preferences and constraints alone.
+    teaching = bool(mine and mine["active"])
     return {
-        "reductions": _reductions(invitation, reductions),
-        "coursePlans": plans.led_by(term, teacher),
+        "reductions": _reductions(invitation, reductions) if teaching else None,
+        "coursePlans": plans.led_by(term, teacher) if teaching else [],
         "semesterName": invitation["semester_name"],
         "teacherName": invitation["teacher_name"],
         "email": invitation["email"],
@@ -307,6 +318,10 @@ def declare(
             detail="The deadline has passed, so your hour reductions can no longer be changed here. Write to the "
             "Head of Department.",
         )
+    if not _teaching(found, reductions.engine):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="Hour reductions are declared by full-time teachers active this semester."
+        )
     try:
         reductions.declare(
             year_of(found["term_code"]),
@@ -339,6 +354,10 @@ def lay_out(  # noqa: PLR0913 - the courses, the invitation, and the records the
             status.HTTP_409_CONFLICT,
             detail="The deadline has passed, so your course schedule can no longer be changed here. Write to the "
             "coordinator.",
+        )
+    if not _teaching(found, plans.engine):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN, detail="A course schedule is laid out by teachers active this semester."
         )
     try:
         plans.lay_out_all(

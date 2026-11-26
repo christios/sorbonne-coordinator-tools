@@ -31,6 +31,7 @@ from sqlalchemy.exc import IntegrityError
 from sorbonne.services.engine import engine_for
 from sorbonne.services.checks import BY_NAME, Setting, settled
 from sorbonne.services.section_collisions import collisions
+from sorbonne.services.teacher_wishes import BY_HAND
 from sorbonne.services.student_database import (
     DuplicateFilterName,
     FilterNotFound,
@@ -1012,13 +1013,17 @@ class PortalListStore:
 
         For one semester when `term_code` (a portal term, 262710) is said: the teachers
         active in it, and the sections of that semester each is down to teach.
+
+        Somebody put on a Timetable preferences list by hand — on neither Active teachers nor
+        the part-time list — is on no list here until they are (26 Nov 2026): nobody picks a
+        candidate to teach a section.
         """
         term = _text(term_code)
         params = {"term": term} if term else {}
         only = (
             " WHERE EXISTS (SELECT 1 FROM active_teacher_terms x WHERE x.active_id = a.id AND x.term_code = :term)"
             if term
-            else ""
+            else f" WHERE NOT {BY_HAND}"
         )
         # A section is in a semester through its set, and the set's semester through its portal term.
         in_term = (
@@ -1194,11 +1199,14 @@ class PortalListStore:
             # one stored when somebody first added them.
             active = (
                 connection.execute(
-                    text("""SELECT a.id, a.part_time_teacher_id,
+                    # Never somebody put on a preferences list by hand: they are no teacher yet,
+                    # and would stand as a second row answering to a part-time record's name.
+                    text(f"""SELECT a.id, a.part_time_teacher_id,
                                    coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), '') AS full_name,
                                    coalesce(nullif(p.psuad_email, ''), nullif(a.email, ''), '') AS email
                             FROM active_teachers a
-                            LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id""")
+                            LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
+                            WHERE NOT {BY_HAND}""")  # noqa: S608 - a fixed clause
                 )
                 .mappings()
                 .all()

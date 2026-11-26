@@ -1,10 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CalendarHeart, Eye, Link2, Link2Off, LockOpen, RefreshCw, Send, Settings } from "lucide-react";
+import { CalendarHeart, Eye, Link2, Link2Off, LockOpen, RefreshCw, Send, Settings, UserPlus } from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { CourseScheduleEditor } from "@/components/CoursePlanDialog";
-import { InviteDialog } from "@/components/InviteDialog";
+import { AddPersonDialog, InviteDialog } from "@/components/InviteDialog";
 import { BAR_BUTTON, ICON_BUTTON, ListSearch, SEGMENTS, SegmentCount, ShownCount, segment } from "@/components/ListLook";
 import { LabelledFigure, RECORD_CARD, RecordList, RecordRow, RecordToolbar, SortHead, type RecordSort } from "@/components/RecordList";
 import { useStaffUser } from "@/components/useStaffUser";
@@ -23,12 +23,15 @@ import {
   DAY_SHORT,
   closeAgain,
   fetchWishSemester,
+  linkPerson,
   openCollection,
   recurringConstraintHours,
+  removePerson,
   reopenFor,
   saveWishes,
   withdrawInvitation,
   type CollectionInput,
+  type LinkKeep,
   type WishCollection,
   type WishTeacher,
   type WishesInput,
@@ -37,7 +40,7 @@ import { fetchCoursePlans, planStanding, type CoursePlan } from "@/services/cour
 import { optionsFor } from "@/services/studentColumns";
 import { applyFilters, type FilterModel } from "@/services/tableFilter";
 import { isoToday } from "@/services/weekSchedule";
-import { WISH_COLUMNS, enteredBy, invitationStage } from "@/services/wishFilters";
+import { WISH_COLUMNS, activeWords, enteredBy, invitationStage } from "@/services/wishFilters";
 
 const field = "w-full rounded-md border border-[#cbd5e1] px-2.5 py-1.5 text-sm";
 const label = "text-xs font-semibold text-[#344054]";
@@ -188,6 +191,97 @@ function LeadCourses({
         </div>
       ))}
     </section>
+  );
+}
+
+/**
+ * Somebody added by hand is now on Active teachers, as a record of their own: pick it, and
+ * their answer and invitation move there (user, 26 Nov 2026). Where both answered, the
+ * coordinator says whose answer stays.
+ */
+function LinkPersonDialog({
+  person,
+  teachers,
+  semesterName,
+  busy,
+  error,
+  onLink,
+  onClose,
+}: {
+  person: WishTeacher;
+  teachers: WishTeacher[];
+  semesterName: string;
+  busy: boolean;
+  error: string;
+  onLink: (to: string, keep: LinkKeep) => void;
+  onClose: () => void;
+}) {
+  const [to, setTo] = useState("");
+  const [keep, setKeep] = useState<LinkKeep>("person");
+  const target = teachers.find((row) => row.teacherId === to);
+  const both = Boolean(person.wishes && target?.wishes);
+  return (
+    <Modal
+      open
+      title={`Link ${person.name} to an active teacher`}
+      description={`Once ${person.name} is on ${semesterName}'s Active teachers, pick them here: their answer and invitation move to that teacher, and this entry goes.`}
+      onClose={onClose}
+      footer={
+        <div className="flex items-center justify-end gap-3">
+          {error ? (
+            <span role="alert" className="mr-auto text-sm text-[#a6292f]">
+              {error}
+            </span>
+          ) : null}
+          <button type="button" onClick={onClose} className="text-sm font-semibold text-[#667085]">
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={!to || busy}
+            onClick={() => onLink(to, both ? keep : "")}
+            className="rounded-md bg-[#1f4e79] px-4 py-2 text-sm font-semibold text-white disabled:bg-[#9ba8b5]"
+          >
+            {busy ? "Linking…" : "Link"}
+          </button>
+        </div>
+      }
+    >
+      <div className="grid gap-3">
+        <label className="block">
+          <span className={label}>Active teacher</span>
+          <select value={to} onChange={(event) => setTo(event.target.value)} className={`mt-1 ${field}`}>
+            <option value="">Choose a teacher…</option>
+            {teachers.map((row) => (
+              <option key={row.teacherId} value={row.teacherId}>
+                {row.name}
+                {row.email ? ` · ${row.email}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        {both && target ? (
+          <fieldset className="grid gap-1.5 rounded-md bg-[#fdf6e3] px-3 py-2 text-sm text-[#7a5d00]">
+            <legend className="sr-only">Whose answer to keep</legend>
+            <span>Both have an answer for {semesterName}. Keep:</span>
+            {(
+              [
+                ["person", `${person.name}'s, given as somebody added here`],
+                ["teacher", `${target.name}'s own`],
+              ] as const
+            ).map(([which, words]) => (
+              <label key={which} className="inline-flex items-center gap-2 text-[#344054]">
+                <input type="radio" name="keep" checked={keep === which} onChange={() => setKeep(which)} />
+                {words}
+              </label>
+            ))}
+          </fieldset>
+        ) : null}
+        {!teachers.length ? (
+          <p className="text-sm text-[#667085]">Nobody is on {semesterName}&rsquo;s Active teachers yet.</p>
+        ) : null}
+      </div>
+    </Modal>
   );
 }
 
@@ -453,6 +547,27 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
     },
   });
   const closeFor = useMutation({ mutationFn: (row: WishTeacher) => closeAgain(term, row.teacherId), onSuccess: refresh });
+  /*
+   * Somebody on neither Active teachers nor the part-time list (26 Nov 2026): put on the list,
+   * linked to their active record once they have one, or taken off it.
+   */
+  const [adding, setAdding] = useState(false);
+  const [linking, setLinking] = useState<WishTeacher | null>(null);
+  const [removing, setRemoving] = useState<WishTeacher | null>(null);
+  const link = useMutation({
+    mutationFn: ({ row, to, keep }: { row: WishTeacher; to: string; keep: LinkKeep }) => linkPerson(term, row.teacherId, to, keep),
+    onSuccess: async () => {
+      await refresh();
+      setLinking(null);
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (row: WishTeacher) => removePerson(term, row.teacherId),
+    onSuccess: async () => {
+      await refresh();
+      setRemoving(null);
+    },
+  });
   const open = useMutation({
     mutationFn: (input: CollectionInput) => openCollection(term, input),
     onSuccess: async () => {
@@ -505,6 +620,11 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
       <TipPoint step={2}>
         Or press <TipButton icon={Link2}>Shared link</TipButton> and post one link for everyone. The address you set for a teacher
         opens their form; any other is refused.
+      </TipPoint>
+      <TipPoint step={2}>
+        Somebody on neither Active teachers nor the part-time list, such as a new hire? Press <TipButton icon={UserPlus}>Add a person</TipButton>: their
+        name and account. They answer the preferences and constraints only, with no hour reductions or course schedule, and show
+        as Not active. Once they&rsquo;re on Active teachers, press Link on their row and their answer moves with them.
       </TipPoint>
       <TipPoint step={3}>
         On <TipPage name="Semester plan" />, a class in a teacher&rsquo;s hard constraint is flagged red, in a soft one amber, and their
@@ -581,6 +701,14 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
               ))}
             </div>
             <ListSearch label="Search teachers" value={query} onChange={setQuery} />
+            <button
+              type="button"
+              onClick={() => setAdding(true)}
+              title="Somebody on neither Active teachers nor the part-time list: a new hire, a candidate"
+              className={BAR_BUTTON}
+            >
+              <UserPlus size={16} aria-hidden="true" /> Add a person
+            </button>
             <div className="ml-auto flex items-center gap-2">
               <span
                 className={`whitespace-nowrap text-sm ${closed ? "font-semibold text-[#a6292f]" : "text-[#667085]"}`}
@@ -649,22 +777,66 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
                 const invitedOn = row.invitation ? row.invitation.signedInAt || row.invitation.openedAt || row.invitation.createdAt : "";
                 return (
                   <RecordRow key={row.teacherId} columns={ROW_GRID}>
-                    {/* The name opens the answer, as a name opens a profile on Part-time Teachers. */}
-                    <button
-                      type="button"
-                      onClick={() => openRow(row)}
-                      aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
-                      title={row.wishes ? "Open their answer" : "Fill in for them"}
-                      className="flex min-w-0 items-center gap-3 text-left"
-                    >
-                      <TeacherAvatar fullName={row.name} />
-                      <span className="min-w-0">
-                        <span className="block truncate font-semibold text-[#171717] group-hover:text-[#1f4e79]">{row.name}</span>
-                        <span className={`block truncate text-xs ${row.email ? "text-[#475467]" : "italic text-[#667085]"}`}>
-                          {row.email || "No email"}
+                    <span className="min-w-0">
+                      {/* The name opens the answer, as a name opens a profile on Part-time Teachers. */}
+                      <button
+                        type="button"
+                        onClick={() => openRow(row)}
+                        aria-label={`${row.wishes ? "Open" : "Fill in"} ${row.name}'s preferences`}
+                        title={row.wishes ? "Open their answer" : "Fill in for them"}
+                        className="flex w-full min-w-0 items-center gap-3 text-left"
+                      >
+                        <TeacherAvatar fullName={row.name} />
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold text-[#171717] group-hover:text-[#1f4e79]">{row.name}</span>
+                          <span className={`block truncate text-xs ${row.email ? "text-[#475467]" : "italic text-[#667085]"}`}>
+                            {row.email || "No email"}
+                          </span>
                         </span>
-                      </span>
-                    </button>
+                      </button>
+                      {/*
+                       * Not on the semester's Active teachers: a grey tag, under the name and in line with it. Somebody
+                       * added here can be linked to their active record once they have one, or taken off the list.
+                       */}
+                      {activeWords(row) === "Not active" ? (
+                        <span data-not-active className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-13 text-xs">
+                          <span
+                            title={`Not on ${semesterName}'s Active teachers: they give their preferences and constraints only, with no hour reductions or course schedule`}
+                            className="whitespace-nowrap rounded-full bg-[#eaecf0] px-2 py-0.5 font-semibold text-[#475467]"
+                          >
+                            Not active
+                          </span>
+                          {row.byHand ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                link.reset();
+                                setLinking(row);
+                              }}
+                              aria-label={`Link ${row.name} to an active teacher`}
+                              title="Once they're on Active teachers: their answer and invitation move there"
+                              className="font-semibold text-[#1f4e79] hover:underline"
+                            >
+                              Link
+                            </button>
+                          ) : null}
+                          {row.added ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                remove.reset();
+                                setRemoving(row);
+                              }}
+                              aria-label={`Remove ${row.name} from the list`}
+                              title="Take them off this semester's list"
+                              className="font-semibold text-[#667085] hover:text-[#a6292f] hover:underline"
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </span>
+                      ) : null}
+                    </span>
                     {/* Where the answer stands, and under it when it last changed and by whom. */}
                     <span className="flex min-w-0 flex-col items-start gap-1">
                       <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-semibold ${status.tone}`}>{status.words}</span>
@@ -837,6 +1009,48 @@ export function TeacherWishesPage({ header }: { header?: HTMLElement | null }) {
           onInvited={() => void refresh()}
         />
       ) : null}
+      {adding && collection ? (
+        <AddPersonDialog
+          term={term}
+          semesterName={semesterName}
+          collection={collection}
+          sender={me?.name ?? ""}
+          onClose={() => setAdding(false)}
+          onAdded={() => void refresh()}
+        />
+      ) : null}
+      {linking ? (
+        <LinkPersonDialog
+          person={linking}
+          teachers={teachers.filter((row) => activeWords(row) === "Active")}
+          semesterName={semesterName}
+          busy={link.isPending}
+          error={link.isError ? (link.error as Error).message : ""}
+          onLink={(to, keep) => link.mutate({ row: linking, to, keep })}
+          onClose={() => setLinking(null)}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={Boolean(removing)}
+        title={removing ? `Remove ${removing.name} from the list?` : "Remove from the list?"}
+        description={
+          removing
+            ? `${removing.name} comes off ${semesterName}'s preferences list and their link stops working.${
+                removing.wishes ? " Their answer for this semester is deleted." : ""
+              }`
+            : ""
+        }
+        confirmLabel="Remove"
+        busy={remove.isPending}
+        onConfirm={() => removing && remove.mutate(removing)}
+        onClose={() => setRemoving(null)}
+      >
+        {remove.isError ? (
+          <p role="alert" className="text-sm text-[#a6292f]">
+            {(remove.error as Error).message}
+          </p>
+        ) : null}
+      </ConfirmDialog>
       <ConfirmDialog
         open={Boolean(withdrawing)}
         title="Withdraw the invitation?"

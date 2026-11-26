@@ -69,6 +69,12 @@ class ClosedForAnswers(PermissionError):
     """A teacher answering after the deadline, with nobody having reopened it for them."""
 
 
+#: A department record made on the Timetable preferences page, for somebody on neither Active
+#: teachers nor the part-time list (26 Nov 2026): no portal profile, no part-time record, active in
+#: no semester. SQL over `active_teachers a`.
+BY_HAND = """(a.portal_teacher_id = '' AND a.part_time_teacher_id = ''
+              AND NOT EXISTS (SELECT 1 FROM active_teacher_terms x WHERE x.active_id = a.id))"""
+
 #: The deadline is a day in Abu Dhabi: it closes when that day ends there.
 ABU_DHABI = timezone(timedelta(hours=4))
 #: How an answer came: a coordinator for the teacher, or the teacher through a door of theirs.
@@ -589,22 +595,36 @@ class WishStore:
     def semester(self, term_code: str) -> dict[str, Any]:
         """A semester's collection, and every teacher of it with their answer, if any.
 
-        The teachers are those active in the semester, and anybody who has answered for it
-        without being active there (yet): nobody who has answered is left off the list.
+        The teachers are those active in the semester, anybody who has answered for it
+        without being active there (yet): nobody who has answered is left off the list — and
+        anybody a coordinator put on it who is on neither Active teachers nor the part-time
+        list (26 Nov 2026). Each says whether they are active in the semester, whether they
+        were put on its list here, and whether their record was made here by hand.
         """
         term = _term(term_code)
         with self.engine.connect() as connection:
             row = self._collection_row(connection, term)
             teachers = (
                 connection.execute(
-                    text("""SELECT a.id, a.email,
-                               coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), a.email, a.id) AS name
+                    text(
+                        """SELECT a.id, a.email,
+                               coalesce(nullif(p.full_name, ''), nullif(a.full_name, ''), a.email, a.id) AS name,
+                               EXISTS (SELECT 1 FROM active_teacher_terms t
+                                       WHERE t.active_id = a.id AND t.term_code = :term) AS active,
+                               EXISTS (SELECT 1 FROM wish_people g
+                                       WHERE g.teacher_id = a.id AND g.term_code = :term) AS added,
+                               """
+                        + BY_HAND
+                        + """ AS by_hand
                         FROM active_teachers a LEFT JOIN portal_teachers p ON p.teacher_id = a.portal_teacher_id
                         WHERE EXISTS (SELECT 1 FROM active_teacher_terms t
                                       WHERE t.active_id = a.id AND t.term_code = :term)
                            OR EXISTS (SELECT 1 FROM teacher_wishes w
                                       WHERE w.teacher_id = a.id AND w.term_code = :term)
-                        ORDER BY 3"""),
+                           OR EXISTS (SELECT 1 FROM wish_people g
+                                      WHERE g.teacher_id = a.id AND g.term_code = :term)
+                        ORDER BY 3"""
+                    ),
                     {"term": term},
                 )
                 .mappings()
@@ -646,6 +666,12 @@ class WishStore:
                     "teacherId": teacher["id"],
                     "name": teacher["name"],
                     "email": teacher["email"] or "",
+                    # On the semester's Active teachers: only they get hour reductions and a course schedule.
+                    "active": bool(teacher["active"]),
+                    # Put on this semester's list here without being active in it: they can be taken off.
+                    "added": bool(teacher["added"]) and not teacher["active"],
+                    # A record made here, of somebody on neither list: linked once they are on Active teachers.
+                    "byHand": bool(teacher["by_hand"]),
                     "wishes": _answer(answers[teacher["id"]]) if teacher["id"] in answers else None,
                     "invitation": _invitation(invitations[teacher["id"]]) if teacher["id"] in invitations else None,
                     "reopenedUntil": reopened.get(teacher["id"], ""),
