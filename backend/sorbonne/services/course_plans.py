@@ -14,6 +14,9 @@ One plan per course per semester, shared by every cohort that takes it (user, 18
     a usual one and a three-hour exam. The lead lays them out
     in the Timetable preferences request (a step of its own, only for leads), or a coordinator
     does for them; a lead who disagrees with a total says so in the note.
+  - **order and exams** (26 Nov 2026) — whether, in a week holding both, the CM comes before the
+    TD and TP and the TD before the TP (each off until ticked), and which sessions are exams: an
+    exam is one of its week's sessions, counting in its kind's hours and keeping its groups.
 
 The teaching weeks are the Semester plan's: Week 1 is the week its first day falls in, and a
 week without classes takes no number (`semester_plans.teaching_mondays`). A holiday is a day
@@ -390,6 +393,30 @@ def _lengths(raw: object) -> dict[str, dict[str, list[float]]]:
     }
 
 
+def _exams(raw: object) -> dict[str, dict[str, list[int]]]:
+    """The sessions that are exams, as kept: {"TD": {"8": [2]}}, each its place among its week's
+    sessions from 1; anything unreadable, none."""
+    try:
+        held = json.loads(raw or "{}") if isinstance(raw, str) else raw
+    except ValueError:
+        return {}
+    if not isinstance(held, dict):
+        return {}
+    kept: dict[str, dict[str, list[int]]] = {}
+    for key, rows in held.items():
+        if not ROW_KEY.match(str(key)) or not isinstance(rows, dict):
+            continue
+        weeks = {
+            str(week): sorted({int(place) for place in places if int(place) > 0})
+            for week, places in rows.items()
+            if isinstance(places, list)
+        }
+        weeks = {week: places for week, places in weeks.items() if places}
+        if weeks:
+            kept[key] = weeks
+    return kept
+
+
 def _components(code: str, figures: dict[str, dict[str, dict[str, Any]]]) -> dict[str, dict[str, Any]]:
     """A course's CM, TD and TP as Groups & CRNs has them: hours and a session's length, and
     what stands in the way where it can't say ("No session length in Groups & CRNs yet")."""
@@ -462,6 +489,11 @@ def _plan(row: Any, names: dict[str, str], figures: dict[str, dict[str, dict[str
         "note": row["note"] or "",
         # Why the weeks run unevenly over the semester, when the lead's step asked.
         "paceReason": row["pace_reason"] or "",
+        # In a week holding both, the CM before the TD and TP, and the TD before the TP.
+        "cmFirst": bool(row["cm_first"]),
+        "tdBeforeTp": bool(row["td_before_tp"]),
+        # The sessions that are exams: {"TD": {"8": [2]}}, the second TD session of week 8.
+        "exams": _exams(row["exams"]),
         "answeredAt": row["answered_at"] or "",
         "answeredBy": (
             names.get(row["lead_id"] or "", "")
@@ -483,6 +515,8 @@ _PLANS = """
            coalesce(p.lead_set_by, '') AS lead_set_by, coalesce(p.weeks, '{}') AS weeks,
            coalesce(p.lengths, '{}') AS lengths,
            coalesce(p.note, '') AS note, coalesce(p.pace_reason, '') AS pace_reason,
+           coalesce(p.cm_first, false) AS cm_first, coalesce(p.td_before_tp, false) AS td_before_tp,
+           coalesce(p.exams, '{}') AS exams,
            coalesce(p.answered_at, '') AS answered_at,
            coalesce(p.answered_by, '') AS answered_by, coalesce(p.answer_source, '') AS answer_source
     FROM active_courses a
@@ -637,13 +671,18 @@ class CoursePlans:
         lead_id: str = "",
         lengths: dict[str, Any] | None = None,
         pace_reason: str | None = None,
+        exams: dict[str, Any] | None = None,
+        cm_first: bool | None = None,
+        td_before_tp: bool | None = None,
     ) -> dict[str, Any]:
         """How many sessions of each component fall in each teaching week, and the lead's note.
 
         By the lead (`source` "lead", with their `lead_id`) only for a course they lead; by a
         coordinator for anybody's. Only the components the course has hours for are kept: the
         lead lays out the coordinators' totals, never one of their own. A week's sessions may
-        last other than the usual length (`lengths`, hours by week), which the totals count.
+        last other than the usual length (`lengths`, hours by week), which the totals count, and
+        some may be exams (`exams`); the order of a week's kinds is `cm_first` and `td_before_tp`.
+        Left out (None), the exams and the order stay as they were.
         """
         return self.lay_out_all(
             term_code,
@@ -654,6 +693,9 @@ class CoursePlans:
                     "note": note,
                     "lengths": lengths or {},
                     "paceReason": pace_reason,
+                    "exams": exams,
+                    "cmFirst": cm_first,
+                    "tdBeforeTp": td_before_tp,
                 }
             ],
             actor=actor,
@@ -684,6 +726,11 @@ class CoursePlans:
                 try:
                     layout = self._checked_layout(given.get("weeks") or {}, current, count)
                     lengths = self._checked_lengths(given.get("lengths") or {}, current, layout)
+                    # Left out, the exams stay as they were, as far as their weeks keep their sessions.
+                    said = given.get("exams")
+                    exams = self._checked_exams(
+                        current["exams"] if said is None else said, current, layout, strict=said is not None
+                    )
                 except InvalidCoursePlan as exc:
                     # Said with the course's code when the lead's step sends several.
                     if len(layouts) > 1:
@@ -693,16 +740,22 @@ class CoursePlans:
                 # Why the weeks run unevenly: the lead's step asks for it then, and sends "" once
                 # they are even again. Left out, it stays as it was.
                 reason = given.get("paceReason")
+                cm_first, td_before_tp = given.get("cmFirst"), given.get("tdBeforeTp")
                 self._ensure(connection, term, code)
                 connection.execute(
                     text("""UPDATE course_plans SET weeks = :weeks, lengths = :lengths, note = :note,
-                                pace_reason = :reason, answered_at = :at, answered_by = :by, answer_source = :source
+                                pace_reason = :reason, exams = :exams, cm_first = :cm_first,
+                                td_before_tp = :td_before_tp, answered_at = :at, answered_by = :by,
+                                answer_source = :source
                             WHERE term_code = :term AND course_code = :code"""),
                     {
                         "weeks": json.dumps(layout),
                         "lengths": json.dumps(lengths),
                         "note": current["note"] if note is None else _words(note, NOTE_LENGTH),
                         "reason": current["paceReason"] if reason is None else _words(reason, NOTE_LENGTH),
+                        "exams": json.dumps(exams),
+                        "cm_first": current["cmFirst"] if cm_first is None else bool(cm_first),
+                        "td_before_tp": current["tdBeforeTp"] if td_before_tp is None else bool(td_before_tp),
                         "at": _now(),
                         "by": actor,
                         "source": source,
@@ -787,6 +840,34 @@ class CoursePlans:
         return {
             component: dict(sorted(weeks.items(), key=lambda item: int(item[0]))) for component, weeks in kept.items()
         }
+
+
+    @staticmethod
+    def _checked_exams(
+        exams: dict[str, Any], current: dict[str, Any], layout: dict[str, dict[str, int]], *, strict: bool
+    ) -> dict[str, dict[str, list[int]]]:
+        """The sessions that are exams, each its place among its week's sessions from 1. Said by
+        the page (`strict`), an exam must be one of its week's sessions; kept from before, an
+        exam whose week lost that session goes with it, as a week's own lengths do."""
+        kept: dict[str, dict[str, list[int]]] = {}
+        for key, by_week in (exams or {}).items():
+            CoursePlans._held(current, key)
+            for week, places in (by_week or {}).items():
+                try:
+                    number = int(str(week))
+                    said = sorted({int(place) for place in (places or [])})
+                except (TypeError, ValueError) as exc:
+                    raise InvalidCoursePlan("An exam is one of its week's sessions: the first, the second…") from exc
+                count = layout.get(key, {}).get(str(number), 0)
+                fitting = [place for place in said if 1 <= place <= count]
+                if strict and len(fitting) != len(said):
+                    raise InvalidCoursePlan(
+                        f"Week {number} has {count} {_row_words(key)} session{'s' if count != 1 else ''}: "
+                        "an exam is one of them."
+                    )
+                if fitting:
+                    kept.setdefault(key, {})[str(number)] = fitting
+        return {key: dict(sorted(weeks.items(), key=lambda item: int(item[0]))) for key, weeks in kept.items()}
 
 
 def _row_words(key: str) -> str:

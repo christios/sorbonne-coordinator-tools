@@ -61,6 +61,8 @@ export type PlacedSession = Session & {
    * corner, apart from the clash outline, so the two are never read as one another.
    */
   wish?: { level: "must" | "would"; said: string };
+  /** The exam among its week's sessions, as its course plan says (26 Nov 2026): a small "Exam" tag in the box. */
+  exam?: boolean;
 };
 
 /** What the calendar prints about a CRN, and how it paints it. */

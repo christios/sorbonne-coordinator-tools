@@ -435,3 +435,52 @@ def test_a_weeks_sessions_may_last_longer_or_shorter_than_usual(client: TestClie
     short = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": {"CM": {"2": 2}}, "lengths": {"CM": {"2": [3]}}})
     assert short.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "say how long each one lasts" in short.json()["detail"]
+
+
+def test_a_lead_says_the_order_of_a_weeks_kinds_and_which_sessions_are_exams(client: TestClient):
+    """A professor's feedback (26 Nov 2026): the CM before the TD and TP in a week holding both,
+    and an exam marked as one of its week's sessions — counting in its kind's hours."""
+    _groups(MATH, "CM", "6", "1.5")
+    _groups(MATH, "TD", "6", "1.5")
+    client.patch(f"{AT}/{TERM}/{MATH}", json={"leadId": LEAD})
+
+    # Nothing ticked, no exams, until somebody says so.
+    fresh = _course(client.get(f"{AT}/{TERM}").json(), MATH)
+    assert (fresh["cmFirst"], fresh["tdBeforeTp"], fresh["exams"]) == (False, False, {})
+
+    code = _invitee(client, LEAD, "valerie@gmail.com")
+    weeks = {"CM": {"1": 1, "2": 1, "3": 1}, "TD": {"2": 1, "3": 1, "4": 2}}
+    saved = client.put(
+        f"{DOOR}/{code}/course-plans",
+        json={
+            "courses": [
+                {
+                    "courseCode": MATH,
+                    "weeks": weeks,
+                    "lengths": {"TD": {"4": [1.5, 3]}},
+                    # The second TD session of week 4 is the exam.
+                    "exams": {"TD": {"4": [2]}},
+                    "cmFirst": True,
+                }
+            ]
+        },
+    )
+    assert saved.status_code == status.HTTP_200_OK, saved.text
+    mine = saved.json()["coursePlans"]["courses"][0]
+    assert (mine["cmFirst"], mine["tdBeforeTp"], mine["exams"]) == (True, False, {"TD": {"4": [2]}})
+
+    # Left out, the order and the exams stay; a week that loses its exam's session loses the exam.
+    client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": weeks, "lengths": {"TD": {"4": [1.5, 3]}}})
+    kept = _course(client.get(f"{AT}/{TERM}").json(), MATH)
+    assert (kept["cmFirst"], kept["exams"]) == (True, {"TD": {"4": [2]}})
+    fewer = {**weeks, "TD": {"2": 1, "3": 1, "4": 1}}
+    client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": fewer})
+    assert _course(client.get(f"{AT}/{TERM}").json(), MATH)["exams"] == {}
+
+    # Said, an exam must be one of its week's sessions; unticked, the order goes.
+    beyond = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": fewer, "exams": {"TD": {"4": [2]}}})
+    assert beyond.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+    assert "an exam is one of them" in beyond.json()["detail"]
+    off = client.put(f"{AT}/{TERM}/{MATH}/weeks", json={"weeks": fewer, "exams": {"CM": {"3": [1]}}, "cmFirst": False})
+    assert off.status_code == status.HTTP_200_OK, off.text
+    assert (off.json()["cmFirst"], off.json()["exams"]) == (False, {"CM": {"3": [1]}})

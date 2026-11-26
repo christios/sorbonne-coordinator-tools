@@ -6,7 +6,7 @@
  * The SCEN Requests app will do the same for the teachers on its list (stage 3).
  */
 
-import type { CoursePlanSemester, Layout, Lengths } from "@/services/coursePlans";
+import type { CoursePlanSemester, Exams, Layout, Lengths } from "@/services/coursePlans";
 import type { ReductionInput, ReductionSheet } from "@/services/hourReductions";
 import { apiFetch, API_BASE_URL } from "@/services/http";
 import { refusalWords, type AnswerWindow, type WishCalendar, type WishCollection, type Wishes, type WishesInput } from "@/services/teacherWishes";
@@ -130,8 +130,17 @@ export async function saveInviteeCoursePlans(code: string, courses: CourseLayout
   );
 }
 
-/** A course lead's courses as their step saves them. */
-export type CourseLayoutInput = { courseCode: string; weeks: Layout; lengths: Lengths; note: string; paceReason?: string };
+/** A course lead's courses as their step saves them: the exams and the order of a week's kinds too (26 Nov 2026). */
+export type CourseLayoutInput = {
+  courseCode: string;
+  weeks: Layout;
+  lengths: Lengths;
+  exams?: Exams;
+  cmFirst?: boolean;
+  tdBeforeTp?: boolean;
+  note: string;
+  paceReason?: string;
+};
 
 /**
  * Where the teacher's page reads and saves: their link's door on the server — or, for the

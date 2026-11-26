@@ -54,6 +54,11 @@ class LayoutInput(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
     # Why the weeks run unevenly over the semester; "" once they are even. Left out, kept.
     paceReason: str | None = Field(default=None, max_length=2000)
+    # The sessions that are exams, each its place in its week from 1: {"TD": {"8": [2]}}. Left out, kept.
+    exams: dict[str, dict[str, list[int]]] | None = Field(default=None, max_length=24)
+    # In a week holding both: the CM before the TD and TP, the TD before the TP. Left out, kept.
+    cmFirst: bool | None = None
+    tdBeforeTp: bool | None = None
 
 
 def _refused(exc: Exception) -> HTTPException:
@@ -111,6 +116,9 @@ def lay_out(
             source=COORDINATOR,
             lengths=body.lengths,
             pace_reason=body.paceReason,
+            exams=body.exams,
+            cm_first=body.cmFirst,
+            td_before_tp=body.tdBeforeTp,
         )
     except (InvalidCoursePlan, UnknownCourse) as exc:
         raise _refused(exc) from exc

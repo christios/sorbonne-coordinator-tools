@@ -121,6 +121,9 @@ describe("a course lead's step: their courses, week by week", () => {
           courseCode: "MATH-002",
           weeks: { CM: { "1": 1, "2": 1, "3": 1, "4": 1 }, TD: { "2": 1 } },
           lengths: {},
+          exams: {},
+          cmFirst: false,
+          tdBeforeTp: false,
           note: "TD needs 4.5 h",
           paceReason: "",
         },
@@ -220,6 +223,9 @@ describe("a course lead's step: their courses, week by week", () => {
           courseCode: "MATH-002",
           weeks: { CM: { "1": 1, "2": 1 }, TD: { "2": 1, "4": 1 } },
           lengths: { CM: { "2": [3] } },
+          exams: {},
+          cmFirst: false,
+          tdBeforeTp: false,
           note: "",
           paceReason: "",
         },
@@ -259,6 +265,9 @@ describe("a course lead's step: their courses, week by week", () => {
           courseCode: "MATH-002",
           weeks: { CM: { "3": 2 }, TD: { "2": 1, "4": 1 } },
           lengths: { CM: { "3": [1.5, 3] } },
+          exams: {},
+          cmFirst: false,
+          tdBeforeTp: false,
           note: "",
           paceReason: "",
         },
@@ -339,5 +348,105 @@ describe("a course lead's step: their courses, week by week", () => {
     // Back to the hours set, the warning goes.
     fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 2" }), { target: { value: "1" } });
     expect(document.querySelector("[data-over]")).toBeNull();
+  });
+});
+
+describe("a lead's exams and the order of a week's kinds (26 Nov 2026)", () => {
+  /** The course with practicals too: three sessions of 3 h in the semester's four weeks. */
+  const WITH_TP: CoursePlan = { ...COURSE, components: { ...COURSE.components, TP: { hours: 6, length: 3 } } };
+  const formWith = (course: CoursePlan): invite.InviteeForm => ({ ...FORM, coursePlans: { ...STEP, courses: [course] } });
+
+  it("marks a session as the exam in its week's panel: an E on the box, said under the grid, kept with its session", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    // How to do it, said under the grid.
+    expect(screen.getByText(/tick Exam beside that\s+session/)).toBeTruthy();
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of the TD session in week 4: 1.5 h" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "The TD session in week 4 is an exam" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(document.querySelector("[data-exams]")?.textContent).toContain("TD exam in week 4");
+    expect(within(grid).getByRole("button", { name: "Length of the TD session in week 4: 1.5 h, with an exam" })).toBeTruthy();
+    // The exam counts in the TD's hours, as any TD session.
+    expect(total("TD")).toBe("3 of 3 h");
+
+    // The week's session taken away takes the exam with it.
+    fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 4" }), { target: { value: "" } });
+    expect(document.querySelector("[data-exams]")).toBeNull();
+    fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 4" }), { target: { value: "1" } });
+    fireEvent.click(within(grid).getByRole("button", { name: "Length of the TD session in week 4: 1.5 h" }));
+    fireEvent.click(await screen.findByRole("checkbox", { name: "The TD session in week 4 is an exam" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith("the-code", [expect.objectContaining({ exams: { TD: { "4": [1] } } })]));
+  });
+
+  it("has unticked order boxes for the kinds the course has, and sends the lead's ticks", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(formWith(WITH_TP));
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    const cmFirst = screen.getByRole("checkbox", { name: "CM comes before TD/TP" }) as HTMLInputElement;
+    const tdFirst = screen.getByRole("checkbox", { name: "TD comes before TP" }) as HTMLInputElement;
+    expect([cmFirst.checked, tdFirst.checked]).toEqual([false, false]);
+    fireEvent.click(cmFirst);
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("the-code", [expect.objectContaining({ cmFirst: true, tdBeforeTp: false })]),
+    );
+  });
+
+  it("has no order boxes for a course of lectures and tutorials alone but the CM's", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    page();
+    await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    expect(screen.getByRole("checkbox", { name: "CM comes before TD" })).toBeTruthy();
+    expect(screen.queryByRole("checkbox", { name: "TD comes before TP" })).toBeNull();
+  });
+
+  it("warns, without stopping the lead, when the first week with sessions has no CM", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(FORM);
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    expect(document.querySelector("[data-first-cm]")).toBeNull();
+    fireEvent.change(within(grid).getByRole("textbox", { name: "CM sessions in week 1" }), { target: { value: "" } });
+    fireEvent.change(within(grid).getByRole("textbox", { name: "TD sessions in week 1" }), { target: { value: "1" } });
+    expect(document.querySelector("[data-first-cm]")?.textContent).toContain("Week 1, the first with sessions, has TD but no CM");
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() => expect(save).toHaveBeenCalled());
+  });
+
+  it("offers the usual reason at a press when the practicals come later", async () => {
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue(formWith(WITH_TP));
+    const save = vi.spyOn(invite, "saveInviteeCoursePlans").mockResolvedValue(FORM);
+    page();
+
+    const grid = await screen.findByRole("table", { name: "MATH-002 sessions week by week" });
+    // Both practicals in the last week: the TP runs behind an even pace.
+    for (const week of [1, 2, 3]) {
+      fireEvent.change(within(grid).getByRole("textbox", { name: `TP sessions in week ${week}` }), { target: { value: "" } });
+    }
+    fireEvent.change(within(grid).getByRole("textbox", { name: "TP sessions in week 4" }), { target: { value: "2" } });
+    fireEvent.click(screen.getByRole("button", { name: "CM and TD first, to prepare for the TPs" }));
+    expect((screen.getByRole("textbox", { name: "Why MATH-002 is spread unevenly" }) as HTMLTextAreaElement).value).toBe(
+      "CM and TD first, to prepare for the TPs",
+    );
+    // Taken, it is no longer offered; it can still be changed by hand.
+    expect(screen.queryByRole("button", { name: "CM and TD first, to prepare for the TPs" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save and go on to your preferences" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith("the-code", [
+        expect.objectContaining({ paceReason: "CM and TD first, to prepare for the TPs" }),
+      ]),
+    );
   });
 });

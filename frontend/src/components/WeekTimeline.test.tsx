@@ -28,6 +28,22 @@ const week = (editing: Partial<GridEditing> = {}) =>
   );
 
 describe("a class on the plan's week", () => {
+  it("tags the exam its course plan says, in the box and on its hover (26 Nov 2026)", () => {
+    const { container } = render(
+      <WeekTimeline
+        weekStart={new Date(2027, 0, 11)}
+        sessions={[{ ...SESSION, wish: undefined, exam: true }]}
+        courses={new Map([["22229", COURSE]])}
+        today="2027-01-01"
+        widthZoom={1}
+        heightZoom={1}
+      />,
+    );
+    const box = container.querySelector("[data-box]") as HTMLElement;
+    expect(box.getAttribute("title")).toContain("Exam");
+    expect(box.textContent).toContain("Exam");
+  });
+
   it("says the class on its hover, and the wishes it breaks in its flag's bubble", async () => {
     const { container } = week();
     const box = container.querySelector("[data-box]") as HTMLElement;

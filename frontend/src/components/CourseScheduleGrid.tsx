@@ -1,13 +1,16 @@
-import { AlertTriangle, CalendarX, Check, Wand2 } from "lucide-react";
+import { AlertTriangle, CalendarX, Check, ListOrdered, Wand2 } from "lucide-react";
 import { Popover } from "radix-ui";
 import { Fragment, useState, type FormEvent, type KeyboardEvent } from "react";
 
 import {
   COMPONENT_WORDS,
+  examWords,
   figure,
   heldOf,
   holidayWords,
   hoursLaidOut,
+  orderChoices,
+  orderWords,
   paceOf,
   paceWords,
   rowsOf,
@@ -16,9 +19,12 @@ import {
   sessionsWords,
   sessionsOf,
   spreadEvenly,
+  startsWithoutCm,
+  withExams,
   withWeeksOff,
   type Component,
   type CoursePlan,
+  type Exams,
   type Layout,
   type Lengths,
   type Pace,
@@ -36,8 +42,11 @@ const LONGEST_SESSION = 8;
 const LABEL_REM = 10;
 const WEEK_REM = 2;
 
-/** A course's weeks as the grid edits them: the sessions in each week, and the weeks of another length. */
-export type ScheduleDraft = { weeks: Layout; lengths: Lengths };
+/**
+ * A course's weeks as the grid edits them: the sessions in each week, the weeks of another
+ * length, the sessions that are exams, and the order of a week's kinds (26 Nov 2026).
+ */
+export type ScheduleDraft = { weeks: Layout; lengths: Lengths; exams?: Exams; cmFirst?: boolean; tdBeforeTp?: boolean };
 
 /**
  * One course's sessions, week by week: a row for each of CM, TD and TP the coordinators gave
@@ -59,6 +68,11 @@ export type ScheduleDraft = { weeks: Layout; lengths: Lengths };
  * A week off between two teaching weeks shows as a grey column with an empty dashed box, so
  * nobody counts on a class there; a week holding sessions and a holiday says so under the grid
  * — "Week 9 has a holiday (Wed 10 Mar, Eid al-Fitr): no class that day." (24 Nov 2026).
+ *
+ * After a professor's feedback (26 Nov 2026): a session can be marked as an exam in the same
+ * panel as its length, and its week's box then shows an E; under the grid, two tick boxes say
+ * whether, in a week holding both, the CM comes before the TD and TP and the TD before the TP;
+ * and a course whose first week with sessions has no CM is warned, never stopped.
  */
 export function CourseScheduleGrid({
   plan,
@@ -89,6 +103,14 @@ export function CourseScheduleGrid({
   const editable = Boolean(onChange);
   const numbers = weeks.map((week) => week.week);
   const { weeks: layout, lengths } = value;
+  const exams = value.exams ?? {};
+  // Every change keeps the rest of the draft: the order ticks ride along with the weeks.
+  const emit = (patch: Partial<ScheduleDraft>) => onChange?.({ ...value, exams, ...patch });
+  // The order tick boxes the course has, and a first week with sessions but no CM; never on one component's rows alone.
+  const choices = only ? { cm: null, td: false } : orderChoices(plan);
+  const opener = only ? null : startsWithoutCm(plan, layout, numbers);
+  const asked = orderWords({ ...plan, cmFirst: value.cmFirst, tdBeforeTp: value.tdBeforeTp });
+  const examLines = examWords(exams);
   // The rows whose sessions make more hours than the coordinators set: said under the grid.
   const over = rows
     .filter((row) => row.held.length)
@@ -123,7 +145,12 @@ export function CourseScheduleGrid({
     // taken away takes its length with it, and a week with none keeps no length of its own.
     const own = lengths[component]?.[String(week)];
     const kept = own && count ? sessionLengths(heldOf(plan, component)?.length ?? 0, own, count) : null;
-    onChange?.({ weeks: { ...layout, [component]: row }, lengths: withLengths(lengths, component, week, kept) });
+    // Its exams too: one past the week's sessions goes with the session taken away.
+    emit({
+      weeks: { ...layout, [component]: row },
+      lengths: withLengths(lengths, component, week, kept),
+      exams: withExams(exams, component, week, exams[component]?.[String(week)] ?? [], count),
+    });
   };
   const keys = (component: RowKey, week: number) => (event: KeyboardEvent<HTMLInputElement>) => {
     const held = layout[component]?.[String(week)] ?? 0;
@@ -248,8 +275,10 @@ export function CourseScheduleGrid({
                         onClick={() => {
                           const rest = { ...lengths };
                           delete rest[component];
+                          const noExams = { ...exams };
+                          delete noExams[component];
                           // A part too over every week: the parts are interspersed through the term.
-                          onChange?.({ weeks: { ...layout, [component]: spreadEvenly(target.hours ?? 0, usual, numbers) }, lengths: rest });
+                          emit({ weeks: { ...layout, [component]: spreadEvenly(target.hours ?? 0, usual, numbers) }, lengths: rest, exams: noExams });
                         }}
                         className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-[#1f4e79] hover:underline"
                       >
@@ -264,14 +293,19 @@ export function CourseScheduleGrid({
                     const each = sessionLengths(usual, lengths[component]?.[String(week.week)], count);
                     const hours = each.reduce((sum, one) => sum + one, 0);
                     const own = String(week.week) in (lengths[component] ?? {});
+                    // The week's exams, by their place among its sessions: the box shows an E.
+                    const examPlaces = exams[component]?.[String(week.week)] ?? [];
+                    const exam = count > 0 && examPlaces.length > 0;
+                    const examSaid = exam ? ` · exam: ${count === 1 ? "the session" : `session ${examPlaces.join(" and ")}`}` : "";
                     return (
                       <td key={week.week} className={`border-b border-[#eef1f5] px-0.5 py-1 text-center align-middle ${week.holidays.length ? "bg-[#fdf9ee]" : ""}`}>
                         {editable ? (
+                          <span className="relative mx-auto block w-full max-w-9">
                           <input
                             aria-label={`${words} sessions in week ${week.week}`}
                             title={
                               count
-                                ? `${count} ${words} session${count === 1 ? "" : "s"} in week ${week.week}: ${sessionsWords(each)}`
+                                ? `${count} ${words} session${count === 1 ? "" : "s"} in week ${week.week}: ${sessionsWords(each)}${examSaid}`
                                 : `How many ${words} sessions in week ${week.week}: each is ${figure(usual)} h`
                             }
                             inputMode="numeric"
@@ -283,17 +317,25 @@ export function CourseScheduleGrid({
                               const typed = event.target.value.replace(/\D/g, "").slice(-1);
                               set(component, week.week, typed ? Number(typed) : 0);
                             }}
-                            className={`h-8 w-full min-w-0 max-w-9 rounded border text-center text-sm tabular-nums placeholder:text-[#c8d0da] focus:border-[#1f4e79] focus:outline-none focus:ring-1 focus:ring-[#1f4e79] ${
+                            className={`block h-8 w-full min-w-0 rounded border text-center text-sm tabular-nums placeholder:text-[#c8d0da] focus:border-[#1f4e79] focus:outline-none focus:ring-1 focus:ring-[#1f4e79] ${
                               count
-                                ? own
-                                  ? "border-[#d99b1c] bg-[#fdf6e3] font-semibold text-[#8a6116]"
-                                  : "border-[#9fb6cf] bg-[#eef4fa] font-semibold text-[#1f4e79]"
+                                ? exam
+                                  ? "border-[#9e77ed] bg-[#f4f0fd] font-semibold text-[#53389e]"
+                                  : own
+                                    ? "border-[#d99b1c] bg-[#fdf6e3] font-semibold text-[#8a6116]"
+                                    : "border-[#9fb6cf] bg-[#eef4fa] font-semibold text-[#1f4e79]"
                                 : "border-[#d0d5dd] bg-white"
                             }`}
                           />
+                          {exam ? <ExamMark /> : null}
+                          </span>
                         ) : (
-                          <span className={`inline-block w-full max-w-7 tabular-nums ${count ? (own ? "font-semibold text-[#8a6116]" : "font-semibold text-[#1f4e79]") : "text-[#c8d0da]"}`}>
+                          <span
+                            title={exam ? `Week ${week.week}${examSaid}` : undefined}
+                            className={`relative mx-auto block w-full max-w-7 tabular-nums ${count ? (exam ? "font-semibold text-[#53389e]" : own ? "font-semibold text-[#8a6116]" : "font-semibold text-[#1f4e79]") : "text-[#c8d0da]"}`}
+                          >
                             {count || "·"}
+                            {exam ? <ExamMark /> : null}
                           </span>
                         )}
                         {/* The hours the box makes; pressed, the week's own session length. */}
@@ -304,7 +346,13 @@ export function CourseScheduleGrid({
                             lengths={each}
                             usual={usual}
                             own={own}
-                            onChange={(next) => onChange?.({ weeks: layout, lengths: withLengths(lengths, component, week.week, next) })}
+                            exams={examPlaces}
+                            onChange={(next, places) =>
+                              emit({
+                                lengths: withLengths(lengths, component, week.week, next),
+                                exams: withExams(exams, component, week.week, places, count),
+                              })
+                            }
                           />
                         ) : (
                           <span
@@ -350,12 +398,83 @@ export function CourseScheduleGrid({
           </div>
         </div>
       ) : null}
-      {editable && hint && rows.length ? (
+      {opener ? (
+        // The first session of a semester is usually a CM (26 Nov 2026): said, never refused.
+        <div role="status" data-first-cm="" className="mt-1.5 flex gap-2 rounded-md border border-[#e5c27a] bg-[#fdf9ee] px-3 py-2 text-sm text-[#8a6116]">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <p>
+            Week {opener.week}, the first with sessions, has {opener.kinds.join(" and ")} but no CM. The semester usually starts
+            with a CM: put one in week {opener.week}, or start the {opener.kinds.join(" and ")} later.
+          </p>
+        </div>
+      ) : null}
+      {examLines.length ? (
+        <p data-exams="" className="mt-1.5 flex items-center gap-1.5 text-xs text-[#53389e]">
+          <span aria-hidden="true" className="rounded-sm bg-[#6941c6] px-[3px] text-[9px] font-bold leading-3 text-white">
+            E
+          </span>
+          {examLines.join(" · ")}
+        </p>
+      ) : null}
+      {editable && (choices.cm || choices.td) ? (
+        <fieldset data-order="" className="mt-2 rounded-md border border-[#d0d5dd] px-3 pb-2 pt-1">
+          <legend className="flex items-center gap-1.5 px-1 text-xs font-semibold text-[#344054]">
+            <ListOrdered size={13} aria-hidden="true" /> In the same week <span className="font-normal text-[#667085]">(optional)</span>
+          </legend>
+          <div className="flex flex-wrap gap-x-5 gap-y-1">
+            {choices.cm ? (
+              <label className="flex items-center gap-2 text-sm text-[#344054]">
+                <input
+                  type="checkbox"
+                  checked={Boolean(value.cmFirst)}
+                  onChange={(event) => emit({ cmFirst: event.target.checked })}
+                  className="h-4 w-4 accent-[#1f4e79]"
+                />
+                CM comes before {choices.cm.join("/")}
+              </label>
+            ) : null}
+            {choices.td ? (
+              <label className="flex items-center gap-2 text-sm text-[#344054]">
+                <input
+                  type="checkbox"
+                  checked={Boolean(value.tdBeforeTp)}
+                  onChange={(event) => emit({ tdBeforeTp: event.target.checked })}
+                  className="h-4 w-4 accent-[#1f4e79]"
+                />
+                TD comes before TP
+              </label>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs text-[#667085]">Tick when students need one before the other: the week&rsquo;s sessions are then timetabled in that order.</p>
+        </fieldset>
+      ) : !editable && asked.length ? (
+        <p data-order="" className="mt-1.5 flex items-center gap-1.5 text-xs text-[#475467]">
+          <ListOrdered size={13} aria-hidden="true" />
+          <span>
+            <b className="font-semibold">In the same week:</b> {asked.join(" · ")}
+          </span>
+        </p>
+      ) : null}
+      {editable && rows.length ? (
         <p className="mt-1.5 text-xs text-[#667085]">
-          A week&rsquo;s sessions longer or shorter than usual, like an exam? Press the hours under its box.
+          {hint ? "A week’s sessions longer or shorter than usual? Press the hours under its box. " : ""}
+          <b className="font-semibold text-[#53389e]">An exam?</b> Press the hours under its week and tick Exam beside that
+          session: the box then shows an E.
         </p>
       ) : null}
     </div>
+  );
+}
+
+/** An exam among the week's sessions: a small E in the box's corner. */
+function ExamMark() {
+  return (
+    <span
+      aria-hidden="true"
+      className="pointer-events-none absolute -right-1 -top-1 rounded-sm bg-[#6941c6] px-[3px] text-[8px] font-bold leading-[10px] text-white"
+    >
+      E
+    </span>
   );
 }
 
@@ -434,7 +553,8 @@ function WeekOff({ monday, editable }: { monday: string; editable: boolean }) {
 /**
  * The hours under a filled box, pressed to say how long that week's sessions last: one length
  * for a single session, a length for each when the week holds more — a usual session and a
- * three-hour exam (18 Nov 2026) — or back to the usual length.
+ * three-hour exam (18 Nov 2026) — or back to the usual length. Each session can be ticked as an
+ * exam there too (26 Nov 2026).
  */
 function WeekLength({
   component,
@@ -442,6 +562,7 @@ function WeekLength({
   lengths,
   usual,
   own,
+  exams,
   onChange,
 }: {
   /** The row's words: "CM", "CM part 2". */
@@ -451,20 +572,25 @@ function WeekLength({
   lengths: number[];
   usual: number;
   own: boolean;
-  /** Each session's length in hours, or null for the usual one. */
-  onChange: (hours: number[] | null) => void;
+  /** The week's exams, each its place among the sessions from 1. */
+  exams: number[];
+  /** Each session's length in hours, or null for the usual one; and which sessions are exams. */
+  onChange: (hours: number[] | null, exams: number[]) => void;
 }) {
   const count = lengths.length;
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState<string[]>(() => lengths.map(figure));
+  const [ticked, setTicked] = useState<boolean[]>(() => lengths.map((_, index) => exams.includes(index + 1)));
   const [problem, setProblem] = useState("");
   const openChange = (next: boolean) => {
     if (next) {
       setTyped(lengths.map(figure));
+      setTicked(lengths.map((_, index) => exams.includes(index + 1)));
       setProblem("");
     }
     setOpen(next);
   };
+  const places = () => ticked.flatMap((on, index) => (on ? [index + 1] : []));
   const done = (event: FormEvent) => {
     event.preventDefault();
     const hours = typed.map((one) => Number(one.trim().replace(",", ".")));
@@ -472,19 +598,23 @@ function WeekLength({
       setProblem(`A session lasts between 0 and ${LONGEST_SESSION} hours, like 3 or 1.5.`);
       return;
     }
-    onChange(hours.map((one) => Math.round(one * 100) / 100));
+    onChange(
+      hours.map((one) => Math.round(one * 100) / 100),
+      places(),
+    );
     setOpen(false);
   };
   const total = lengths.reduce((sum, one) => sum + one, 0);
+  const exam = exams.length > 0;
   return (
     <Popover.Root open={open} onOpenChange={openChange}>
       <Popover.Trigger asChild>
         <button
           type="button"
-          aria-label={`Length of the ${component} session${count === 1 ? "" : "s"} in week ${week}: ${sessionsWords(lengths)}`}
-          title="Change how long this week's sessions last"
+          aria-label={`Length of the ${component} session${count === 1 ? "" : "s"} in week ${week}: ${sessionsWords(lengths)}${exam ? ", with an exam" : ""}`}
+          title="Change how long this week's sessions last, or mark one as an exam"
           className={`mx-auto mt-0.5 block h-3.5 whitespace-nowrap rounded px-0.5 text-[10px] leading-3 tabular-nums underline decoration-dotted underline-offset-2 hover:bg-[#eef4fa] ${
-            own ? "font-bold text-[#8a6116]" : "text-[#667085] hover:text-[#1f4e79]"
+            own ? "font-bold text-[#8a6116]" : exam ? "font-semibold text-[#53389e]" : "text-[#667085] hover:text-[#1f4e79]"
           }`}
         >
           {figure(total)} h
@@ -496,7 +626,7 @@ function WeekLength({
           sideOffset={6}
           collisionPadding={12}
           aria-label={`${component} sessions in week ${week}`}
-          className="z-[100] isolate w-64 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg outline-none"
+          className="z-[100] isolate w-72 rounded-lg border border-[#d9dee7] bg-white p-3 opacity-100 shadow-lg outline-none"
         >
           <form onSubmit={done}>
             <p className="text-sm font-semibold text-[#171717]">
@@ -508,24 +638,39 @@ function WeekLength({
             </p>
             <div className="mt-2 grid gap-1.5">
               {typed.map((value, index) => (
-                <label key={index} className="flex items-center justify-between gap-2 text-sm text-[#344054]">
-                  {count === 1 ? "The session lasts" : `Session ${index + 1} lasts`}
-                  <span className="flex items-center gap-1.5">
+                <div key={index} className="flex items-center justify-between gap-2 text-sm text-[#344054]">
+                  <label className="flex flex-1 items-center justify-between gap-2">
+                    {count === 1 ? "The session lasts" : `Session ${index + 1} lasts`}
+                    <span className="flex items-center gap-1.5">
+                      <input
+                        aria-label={count === 1 ? `Hours the ${component} session lasts in week ${week}` : `Hours ${component} session ${index + 1} lasts in week ${week}`}
+                        inputMode="decimal"
+                        autoFocus={index === 0}
+                        value={value}
+                        onFocus={(event) => event.target.select()}
+                        onChange={(event) => setTyped((current) => current.map((one, at) => (at === index ? event.target.value : one)))}
+                        className="w-16 rounded-md border border-[#b7bec8] px-2 py-1 text-sm tabular-nums"
+                      />
+                      h
+                    </span>
+                  </label>
+                  {/* An exam is one of the week's sessions: it counts in its kind's hours and keeps its groups. */}
+                  <label className={`flex items-center gap-1 rounded px-1 text-xs font-semibold ${ticked[index] ? "bg-[#f4f0fd] text-[#53389e]" : "text-[#475467]"}`}>
                     <input
-                      aria-label={count === 1 ? `Hours the ${component} session lasts in week ${week}` : `Hours ${component} session ${index + 1} lasts in week ${week}`}
-                      inputMode="decimal"
-                      autoFocus={index === 0}
-                      value={value}
-                      onFocus={(event) => event.target.select()}
-                      onChange={(event) => setTyped((current) => current.map((one, at) => (at === index ? event.target.value : one)))}
-                      className="w-16 rounded-md border border-[#b7bec8] px-2 py-1 text-sm tabular-nums"
+                      type="checkbox"
+                      aria-label={count === 1 ? `The ${component} session in week ${week} is an exam` : `${component} session ${index + 1} in week ${week} is an exam`}
+                      checked={ticked[index] ?? false}
+                      onChange={(event) => setTicked((current) => current.map((one, at) => (at === index ? event.target.checked : one)))}
+                      className="h-3.5 w-3.5 accent-[#6941c6]"
                     />
-                    h
-                  </span>
-                </label>
+                    Exam
+                  </label>
+                </div>
               ))}
             </div>
-            <p className="mt-1.5 text-xs text-[#667085]">Usually {figure(usual)} h each.</p>
+            <p className="mt-1.5 text-xs text-[#667085]">
+              Usually {figure(usual)} h each. An exam counts in the {component.split(" ")[0]} hours, sat in its usual groups.
+            </p>
             {problem ? (
               <p role="alert" className="mt-1 text-xs text-[#a6292f]">
                 {problem}
@@ -536,7 +681,7 @@ function WeekLength({
                 <button
                   type="button"
                   onClick={() => {
-                    onChange(null);
+                    onChange(null, places());
                     setOpen(false);
                   }}
                   className="text-xs font-semibold text-[#1f4e79] underline"

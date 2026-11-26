@@ -64,6 +64,8 @@ import { judgeSlot } from "@/services/planJudge";
 import {
   classPlanOf,
   coursePlanDrift,
+  examClasses,
+  orderWords,
   fetchCoursePlans,
   figure,
   layoutWords,
@@ -275,6 +277,8 @@ export function SemesterPlan({
     [coursePlans.data],
   );
   const drift = useMemo(() => (data ? coursePlanDrift(data, coursePlanOf) : new Map<string, PlanDrift>()), [data, coursePlanOf]);
+  // The classes that are exams, as their course plans say (26 Nov 2026): tagged in their boxes.
+  const exams = useMemo(() => (data ? examClasses(data, coursePlanOf) : new Set<PlanClass>()), [data, coursePlanOf]);
   // The teaching weeks the leads laid their courses out over, to say which run unevenly.
   const teachingWeeks = useMemo(() => (coursePlans.data?.weeks ?? []).map((week) => week.week), [coursePlans.data]);
   // Whose wishes are shaded: the class being moved, else the class last opened, else the teacher filtered to.
@@ -518,6 +522,7 @@ export function SemesterPlan({
       end: moving?.endsAt ?? entry.endsAt,
       room: moving?.room ?? entry.room,
       tentative: Boolean(moving),
+      ...(exams.has(entry) ? { exam: true } : {}),
       clashes: its.length > 0,
       clashSaid: its
         .map((clash) => `${CLASH_WORDS[clash.kind]} ${sectionLabel(sectionsById.get(clash.with.sectionId))} (${clash.with.startsAt}–${clash.with.endsAt})`)
@@ -1229,6 +1234,11 @@ export function SemesterPlan({
               length: classPlan.length,
               lengths: classPlan.lengths,
               uneven: classPlan.uneven ?? null,
+              exams: classPlan.exams,
+              order: (() => {
+                const course = coursePlanOf.get(section.courseCode.toUpperCase());
+                return course ? orderWords(course) : [];
+              })(),
             };
           })()}
           editing={
@@ -1335,6 +1345,15 @@ function TrayCoursePlan({
       {off ? (
         <span title={off.join("\n")} className="rounded-full bg-[#fdf6e3] px-1.5 font-semibold text-[#8a6116]">
           off the plan
+        </span>
+      ) : null}
+      {Object.keys(classPlan.exams ?? {}).length ? (
+        // A week of it holds an exam (26 Nov 2026): that week's class is tagged Exam once placed.
+        <span
+          title={`Exam in ${weeksSaid(Object.keys(classPlan.exams ?? {}).map(Number).sort((a, b) => a - b)).toLowerCase()}`}
+          className="rounded-full bg-[#f4f0fd] px-1.5 font-semibold text-[#53389e]"
+        >
+          exam
         </span>
       ) : null}
       {classPlan.uneven ? (

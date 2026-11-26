@@ -60,10 +60,17 @@ function CoursePlanNote({
     length: number;
     lengths?: Record<string, number[]>;
     uneven?: { words: string; reason: string } | null;
+    /** The weeks holding an exam, each the exam's place among the week's sessions (26 Nov 2026). */
+    exams?: Record<string, number[]>;
+    /** The order of a week's kinds the lead asks for: "CM before TD/TP". */
+    order?: string[];
   };
   weeks: number[];
   minutes: number;
 }) {
+  const examWeeks = Object.keys(plan.exams ?? {})
+    .map(Number)
+    .sort((a, b) => a - b);
   const extra = plan.weeks ? weeks.filter((week) => !plan.weeks?.includes(week)) : [];
   // Weeks whose sessions last other than usual: a series has one length, so those weeks are changed on their own.
   const odd = weeks.filter((week) => String(week) in (plan.lengths ?? {}));
@@ -80,6 +87,14 @@ function CoursePlanNote({
             {plan.uneven.reason ? `Why: “${plan.uneven.reason}”` : "No reason given."}
           </span>
         </span>
+      ) : null}
+      {examWeeks.length ? (
+        <span className="block font-semibold text-[#53389e]">
+          Exam in {weeksSaid(examWeeks).toLowerCase()}: that week&rsquo;s class is tagged Exam once placed.
+        </span>
+      ) : null}
+      {plan.order?.length ? (
+        <span className="block font-semibold text-[#1f4e79]">In the same week, the lead asks for {plan.order.join(" and ")}.</span>
       ) : null}
       {extra.length ? <span className="block font-semibold text-[#8a6116]">{weeksSaid(extra)} {extra.length === 1 ? "is" : "are"} not among them.</span> : null}
       {longer ? (
@@ -333,6 +348,8 @@ export function PlanClassDialog({
     length: number;
     lengths?: Record<string, number[]>;
     uneven?: { words: string; reason: string } | null;
+    exams?: Record<string, number[]>;
+    order?: string[];
   } | null;
   rooms: string[];
   initial: ClassDraft;

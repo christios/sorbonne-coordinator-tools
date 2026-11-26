@@ -936,6 +936,7 @@ function Class({
       [
         label,
         course?.title,
+        session.exam ? "Exam" : "",
         `CRN ${session.crn}`,
         `${session.start}–${session.end}`,
         seats !== null && session.room ? `${formatRoom(session.room)} (${seats} seats)` : formatRoom(session.room),
@@ -961,6 +962,7 @@ function Class({
    * teacher before the hours, which the box's place under the hours already says.
    */
   const rest = [
+    session.exam ? "Exam" : "",
     cancelled ? "Cancelled" : covered ? (covered.standingIn ? "Standing in" : "Covered") : "",
     crowded ? `${registered}/${seats}` : "",
     formatRoom(session.room),
@@ -1010,10 +1012,17 @@ function Class({
           // Spaced the same whether shown or not, so it measures the same.
           lines={lines}
           aside={
-            // Never dropped: a room too small is the thing to see at a glance.
-            crowded ? (
-              <span className="shrink-0 rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
-                {registered}/{seats}
+            // Never dropped: a room too small is the thing to see at a glance; an exam too.
+            crowded || session.exam ? (
+              <span className="flex shrink-0 gap-0.5">
+                {session.exam ? (
+                  <span className="rounded bg-white px-1 py-px text-[10px] font-bold text-[#53389e]">Exam</span>
+                ) : null}
+                {crowded ? (
+                  <span className="rounded bg-[#a6292f] px-1 py-px text-[10px] font-semibold tabular-nums text-white">
+                    {registered}/{seats}
+                  </span>
+                ) : null}
               </span>
             ) : null
           }

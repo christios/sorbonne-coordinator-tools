@@ -10,8 +10,10 @@ import { useCoursePrograms } from "@/components/useCoursePrograms";
 import { withProgrammeColumn } from "@/services/coursePrograms";
 import {
   COMPONENTS,
+  examWords,
   fetchCoursePlans,
   figure,
+  orderWords,
   planStanding,
   rowWords,
   unevenComponents,
@@ -50,6 +52,35 @@ function UnevenPill({ plan, weeks }: { plan: CoursePlan; weeks: number[] }) {
   );
 }
 
+/**
+ * Beside "Laid out", what the lead asked of a week (26 Nov 2026): the order of its kinds, and the
+ * weeks holding an exam — each a small tag, the words on hover.
+ */
+function OrderAndExams({ plan }: { plan: CoursePlan }) {
+  const order = orderWords(plan);
+  const exams = examWords(plan.exams);
+  return (
+    <>
+      {order.length ? (
+        <span
+          title={`In the same week: ${order.join(" · ")}`}
+          className="inline-flex shrink-0 items-center rounded-full border border-[#9fb6cf] bg-[#eef4fa] px-2 py-0.5 text-[11px] font-semibold text-[#1f4e79]"
+        >
+          Order
+        </span>
+      ) : null}
+      {exams.length ? (
+        <span
+          title={exams.join(" · ")}
+          className="inline-flex shrink-0 items-center rounded-full border border-[#c3b1f2] bg-[#f4f0fd] px-2 py-0.5 text-[11px] font-semibold text-[#53389e]"
+        >
+          Exam
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 const columnsFor = (weeks: number[]): GridColumn<CoursePlan>[] => [
   { id: "courseCode", displayName: "Course", type: "text", accessor: (row) => row.courseCode, required: true, defaultWidth: 110 },
   { id: "title", displayName: "Title", type: "text", accessor: (row) => row.title, defaultWidth: 200 },
@@ -67,6 +98,9 @@ const columnsFor = (weeks: number[]): GridColumn<CoursePlan>[] => [
   { id: "standing", displayName: "Week by week", type: "option", accessor: (row) => standingWords(row, weeks), defaultWidth: 190 },
   { id: "note", displayName: "Lead's note", type: "text", accessor: (row) => row.note, defaultWidth: 240 },
   { id: "paceReason", displayName: "Why uneven", type: "text", accessor: (row) => row.paceReason ?? "", defaultWidth: 240 },
+  // What the lead asked of a week (26 Nov 2026): hidden until wanted, the tags say it beside "Laid out".
+  { id: "order", displayName: "Order in a week", type: "text", accessor: (row) => orderWords(row).join(" · "), defaultWidth: 200 },
+  { id: "exams", displayName: "Exams", type: "text", accessor: (row) => examWords(row.exams).join(" · "), defaultWidth: 200 },
 ];
 const SHOWN = ["courseCode", "title", "coefficient", "hours-CM", "hours-TD", "hours-TP", "lead", "standing"];
 
@@ -110,6 +144,7 @@ export function CoursePlansPage() {
               <StatePill tone="good">Laid out</StatePill>
             )}
             <UnevenPill plan={row} weeks={numbers} />
+            <OrderAndExams plan={row} />
           </span>
         );
       }

@@ -12,7 +12,7 @@
  */
 
 import { apiFetch } from "@/services/http";
-import { hoursOf, weeksSaid, type Plan, type PlanSection } from "@/services/semesterPlans";
+import { hoursOf, mayShareStudents, weeksSaid, type Plan, type PlanClass, type PlanSection } from "@/services/semesterPlans";
 import { DAY_NAMES, formatDayAndMonth, parseIsoDate, toIsoDate } from "@/services/weekSchedule";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000";
@@ -59,6 +59,13 @@ export type Layout = Partial<Record<RowKey, Record<string, number>>>;
  */
 export type Lengths = Partial<Record<RowKey, Record<string, number[]>>>;
 
+/**
+ * The sessions that are exams (26 Nov 2026), each its place among its week's sessions from 1:
+ * `{ TD: { "8": [2] } }`, the second TD session of week 8. An exam is a session of its kind: it
+ * counts in that kind's hours and keeps its groups.
+ */
+export type Exams = Partial<Record<RowKey, Record<string, number[]>>>;
+
 export type TeachingWeek = {
   week: number;
   /** "2027-01-11"; "" while the semester's Week 1 is not set. */
@@ -87,6 +94,12 @@ export type CoursePlan = {
   note: string;
   /** Why the weeks run unevenly over the semester, as the lead said; absent from an older server. */
   paceReason?: string;
+  /** In a week holding both, the CM comes before the TD and TP (26 Nov 2026); absent from an older server. */
+  cmFirst?: boolean;
+  /** In a week holding both, the TD comes before the TP. */
+  tdBeforeTp?: boolean;
+  /** The sessions that are exams; absent from an older server. */
+  exams?: Exams;
   /** When the weeks were last laid out, by whom, and how: by the lead, or a coordinator for them. */
   answeredAt: string;
   answeredBy: string;
@@ -142,7 +155,7 @@ export async function changeCoursePlan(term: string, courseCode: string, change:
 export async function layOutCourse(
   term: string,
   courseCode: string,
-  layout: { weeks: Layout; lengths: Lengths; note?: string },
+  layout: { weeks: Layout; lengths: Lengths; exams?: Exams; cmFirst?: boolean; tdBeforeTp?: boolean; note?: string },
 ): Promise<CoursePlan> {
   return answer(
     await apiFetch(`${BASE}/${encodeURIComponent(term)}/${encodeURIComponent(courseCode)}/weeks`, json("PUT", layout)),
@@ -277,6 +290,80 @@ export function lengthWords(byWeek: Record<string, number[]> | undefined): strin
     .sort((a, b) => Math.min(...a[1]) - Math.min(...b[1]))
     .map(([said, weeks]) => `${said} in ${weeksSaid(weeks.sort((x, y) => x - y)).toLowerCase()}`)
     .join(" · ");
+}
+
+// ------------------------------------------------------------------ order and exams
+
+/**
+ * A week's exams for a row, kept to its sessions: a place past the week's count goes, as a
+ * session taken away takes its length with it; a week with none keeps no exams.
+ */
+export function withExams(current: Exams, row: RowKey, week: number | string, places: number[], count: number): Exams {
+  const kept = [...new Set(places)].filter((place) => place >= 1 && place <= count).sort((a, b) => a - b);
+  const byWeek = { ...(current[row] ?? {}) };
+  if (kept.length) byWeek[String(week)] = kept;
+  else delete byWeek[String(week)];
+  const next: Exams = { ...current, [row]: byWeek };
+  if (!Object.keys(byWeek).length) delete next[row];
+  return next;
+}
+
+/** The weeks holding an exam, row by row: "TD exam in week 8", "CM exams in weeks 7, 14". */
+export function examWords(exams: Exams | undefined): string[] {
+  return (Object.entries(exams ?? {}) as [RowKey, Record<string, number[]>][])
+    .map(([row, byWeek]) => {
+      const weeks = Object.entries(byWeek)
+        .filter(([, places]) => places.length)
+        .map(([week]) => Number(week))
+        .sort((a, b) => a - b);
+      const many = Object.values(byWeek).reduce((sum, places) => sum + places.length, 0) > 1;
+      return weeks.length ? `${rowWords(row)} exam${many ? "s" : ""} in ${weeksSaid(weeks).toLowerCase()}` : "";
+    })
+    .filter(Boolean);
+}
+
+/** Which order tick boxes a course has: the CM's, once it has a CM and a TD or TP; the TD's, once it has a TD and a TP. */
+export function orderChoices(plan: Pick<CoursePlan, "components" | "parts">): { cm: Component[] | null; td: boolean } {
+  const kinds = new Set(rowsOf(plan).map((row) => row.component));
+  const after = (["TD", "TP"] as const).filter((kind) => kinds.has(kind));
+  return { cm: kinds.has("CM") && after.length ? [...after] : null, td: kinds.has("TD") && kinds.has("TP") };
+}
+
+/** The order a lead asked for, in words: "CM before TD/TP", "TD before TP"; none for no order. */
+export function orderWords(plan: Pick<CoursePlan, "components" | "parts" | "cmFirst" | "tdBeforeTp">): string[] {
+  const choices = orderChoices(plan);
+  return [
+    plan.cmFirst && choices.cm ? `CM before ${choices.cm.join("/")}` : "",
+    plan.tdBeforeTp && choices.td ? "TD before TP" : "",
+  ].filter(Boolean);
+}
+
+/**
+ * The reason a lead can give at a press when the TPs come later (26 Nov 2026): the CM and TD run
+ * ahead to prepare the students for them — "CM and TD first, to prepare for the TPs".
+ */
+export function readyReason(course: Pick<CoursePlan, "components" | "parts">): string {
+  const kinds = new Set(rowsOf(course).map((row) => row.component));
+  const before = (["CM", "TD"] as const).filter((kind) => kinds.has(kind));
+  return kinds.has("TP") && before.length ? `${before.join(" and ")} first, to prepare for the TPs` : "";
+}
+
+/**
+ * The semester's first week with sessions, when it holds a TD or TP and no CM (26 Nov 2026): the
+ * first session of a semester is usually a CM. Said only once the CM is laid out somewhere, so a
+ * lead filling in the TD first isn't warned before they get to it.
+ */
+export function startsWithoutCm(plan: Pick<CoursePlan, "components" | "parts">, layout: Layout, weeks: number[]): { week: number; kinds: Component[] } | null {
+  const rows = rowsOf(plan);
+  const cm = rows.filter((row) => row.component === "CM");
+  if (!cm.some((row) => sessionsOf(layout[row.key]) > 0)) return null;
+  for (const week of weeks) {
+    const held = rows.filter((row) => (layout[row.key]?.[String(week)] ?? 0) > 0);
+    if (!held.length) continue;
+    if (held.some((row) => row.component === "CM")) return null;
+    return { week, kinds: [...new Set(held.map((row) => row.component))] };
+  }
+  return null;
 }
 
 /**
@@ -518,6 +605,8 @@ export type ClassPlan = {
   weeks: Record<string, number>;
   /** The weeks whose sessions last other than `length`, each session's hours. */
   lengths: Record<string, number[]>;
+  /** The weeks holding an exam, each the exam's place among the week's sessions from 1. */
+  exams?: Record<string, number[]>;
   /**
    * Laid out unevenly over the semester: how far off an even pace, and why, as the lead said —
    * so whoever places the class knows the weeks proposed are bunched up on purpose, or not.
@@ -556,6 +645,7 @@ export function classPlanOf(section: PlanSection, byCode: Map<string, CoursePlan
     length: held.length,
     weeks: plan.weeks[key] ?? {},
     lengths: plan.lengths?.[key] ?? {},
+    exams: plan.exams?.[key] ?? {},
     ...(teachingWeeks ? { uneven: unevenOf(plan, key, teachingWeeks) } : {}),
   };
 }
@@ -664,6 +754,7 @@ export function coursePlanDrift(plan: Plan, byCode: Map<string, CoursePlan>): Ma
       if (missing.length) lines.push(`Nothing placed in ${weeksSaid(missing).toLowerCase()}`);
       if (other.length) lines.push(other.join("; ").replace(/^w/, "W"));
     }
+    lines.push(...orderDrift(plan, section, classPlan.component, byCode.get(section.courseCode.toUpperCase())));
     if (!lines.length) continue;
     const when = sessionsOf(classPlan.weeks) ? ` in ${layoutWords(classPlan.weeks).toLowerCase()}` : "";
     const own = Object.keys(classPlan.lengths).length ? ` (${lengthWords(classPlan.lengths)})` : "";
@@ -671,6 +762,80 @@ export function coursePlanDrift(plan: Plan, byCode: Map<string, CoursePlan>): Ma
       sectionId: section.id,
       lines: [`Course plan · ${classPlan.component}${when}, sessions of ${figure(classPlan.length)} h${own}`, ...lines],
     });
+  }
+  return found;
+}
+
+/** When a class meets, to put a week's classes in order: its day, then its start. */
+const whenOf = (entry: Pick<PlanClass, "meetsOn" | "startsAt">) => `${entry.meetsOn} ${entry.startsAt}`;
+
+/**
+ * The weeks a TD or TP class is placed before the CM (or a TP before the TD) its lead asks to
+ * come first (26 Nov 2026): against the week's first class of that kind for the same course
+ * whose students it may share — the CM is the whole class's, a TD group may be some of the TP's.
+ * Weeks without the earlier kind are not judged: there is nothing to come first.
+ */
+function orderDrift(plan: Plan, section: PlanSection, component: Component, course: CoursePlan | undefined): string[] {
+  if (!course || component === "CM") return [];
+  const firsts: Component[] = [
+    ...(course.cmFirst ? (["CM"] as const) : []),
+    ...(course.tdBeforeTp && component === "TP" ? (["TD"] as const) : []),
+  ];
+  const lines: string[] = [];
+  for (const first of firsts) {
+    const earlier = new Set(
+      plan.sections
+        .filter(
+          (other) =>
+            other.id !== section.id &&
+            other.courseCode.toUpperCase() === section.courseCode.toUpperCase() &&
+            componentOf(other) === first &&
+            mayShareStudents(section, other),
+        )
+        .map((other) => other.id),
+    );
+    if (!earlier.size) continue;
+    const firstIn = new Map<number, string>();
+    for (const entry of plan.classes) {
+      if (!earlier.has(entry.sectionId)) continue;
+      const when = whenOf(entry);
+      const held = firstIn.get(entry.week);
+      if (held === undefined || when < held) firstIn.set(entry.week, when);
+    }
+    const before = new Set<number>();
+    for (const entry of plan.classes) {
+      if (entry.sectionId !== section.id) continue;
+      const opening = firstIn.get(entry.week);
+      if (opening !== undefined && whenOf(entry) < opening) before.add(entry.week);
+    }
+    if (before.size) {
+      const weeks = [...before].sort((a, b) => a - b);
+      lines.push(`Before that week's ${first} in ${weeksSaid(weeks).toLowerCase()}: the lead asks for the ${first} first`);
+    }
+  }
+  return lines;
+}
+
+/**
+ * The classes that are exams, as the course plan says (26 Nov 2026): in a week whose sessions of
+ * a class include an exam, the class at that place among the week's, in the order they meet.
+ */
+export function examClasses(plan: Plan, byCode: Map<string, CoursePlan>): Set<PlanClass> {
+  const found = new Set<PlanClass>();
+  for (const section of plan.sections) {
+    const exams = classPlanOf(section, byCode)?.exams ?? {};
+    if (!Object.keys(exams).length) continue;
+    const byWeek = new Map<number, PlanClass[]>();
+    for (const entry of plan.classes) {
+      if (entry.sectionId === section.id) byWeek.set(entry.week, [...(byWeek.get(entry.week) ?? []), entry]);
+    }
+    for (const [week, places] of Object.entries(exams)) {
+      const held = [...(byWeek.get(Number(week)) ?? [])].sort((a, b) => whenOf(a).localeCompare(whenOf(b)));
+      for (const place of places) {
+        const entry = held[place - 1];
+        if (entry) found.add(entry);
+      }
+    }
   }
   return found;
 }

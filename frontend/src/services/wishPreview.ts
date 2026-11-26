@@ -76,7 +76,7 @@ function totalled(sheet: ReductionSheet): ReductionSheet {
   return { ...sheet, total, owed: Math.max(0, sheet.service - total) };
 }
 
-/** A course the sample teacher leads: lectures and tutorials, their hours and session lengths set. */
+/** A course the sample teacher leads: lectures, tutorials and practicals, their hours and session lengths set. */
 export function sampleCourse(): CoursePlan {
   return {
     courseCode: SAMPLE_COURSE,
@@ -86,7 +86,8 @@ export function sampleCourse(): CoursePlan {
     components: {
       CM: { hours: 24, length: 1.5, source: "asks" },
       TD: { hours: 18, length: 1.5, source: "asks" },
-      TP: { hours: null, length: null },
+      // Practicals too, so the order of a week's kinds can be tried (26 Nov 2026).
+      TP: { hours: 12, length: 3, source: "asks" },
     },
     hoursUpdatedAt: "",
     hoursUpdatedBy: "",
@@ -96,6 +97,9 @@ export function sampleCourse(): CoursePlan {
     leadSetBy: "",
     weeks: {},
     lengths: {},
+    exams: {},
+    cmFirst: false,
+    tdBeforeTp: false,
     note: "",
     paceReason: "",
     answeredAt: "",
@@ -217,6 +221,9 @@ export function previewSource(semester: PreviewSemester, now: () => string = () 
           ...course,
           weeks: given.weeks,
           lengths: given.lengths,
+          exams: given.exams ?? course.exams ?? {},
+          cmFirst: given.cmFirst ?? course.cmFirst ?? false,
+          tdBeforeTp: given.tdBeforeTp ?? course.tdBeforeTp ?? false,
           note: given.note,
           paceReason: given.paceReason ?? "",
           answeredAt: at,

@@ -1,4 +1,4 @@
-import { AlertTriangle, Clock3, Hash, Loader2, MessageSquareText, Target } from "lucide-react";
+import { AlertTriangle, Clock3, Hash, Loader2, MessageSquareText, Sparkles, Target } from "lucide-react";
 import { useState } from "react";
 
 import { CourseScheduleGrid } from "@/components/CourseScheduleGrid";
@@ -7,23 +7,36 @@ import {
   componentsOf,
   hoursWords,
   laidOut,
+  readyReason,
   rowWords,
   spreadRows,
   unevenComponents,
   type CoursePlan,
   type CoursePlanSemester,
+  type Exams,
   type Layout,
   type Lengths,
 } from "@/services/coursePlans";
 
 /**
  * What the step sends: each course the teacher leads, its weeks, the weeks of another length,
- * its note, and why its weeks run unevenly — "" when they don't.
+ * its exams and the order of a week's kinds (26 Nov 2026), its note, and why its weeks run
+ * unevenly — "" when they don't.
  */
-export type CourseLayouts = { courseCode: string; weeks: Layout; lengths: Lengths; note: string; paceReason: string }[];
+export type CourseLayouts = {
+  courseCode: string;
+  weeks: Layout;
+  lengths: Lengths;
+  exams: Exams;
+  cmFirst: boolean;
+  tdBeforeTp: boolean;
+  note: string;
+  paceReason: string;
+}[];
 
-type Draft = { weeks: Layout; lengths: Lengths; note: string; paceReason: string };
-const EMPTY: Draft = { weeks: {}, lengths: {}, note: "", paceReason: "" };
+type Draft = Omit<CourseLayouts[number], "courseCode">;
+const EMPTY: Draft = { weeks: {}, lengths: {}, exams: {}, cmFirst: false, tdBeforeTp: false, note: "", paceReason: "" };
+
 
 /**
  * A course as the step opens it: as the lead left it, or — never laid out — already spread
@@ -31,11 +44,19 @@ const EMPTY: Draft = { weeks: {}, lengths: {}, note: "", paceReason: "" };
  * one to build. Nothing is saved until the lead saves the step.
  */
 function opening(course: CoursePlan, weeks: number[]): Draft & { spread: boolean } {
-  const kept = { weeks: course.weeks, lengths: course.lengths ?? {}, note: course.note, paceReason: course.paceReason ?? "" };
+  const kept: Draft = {
+    weeks: course.weeks,
+    lengths: course.lengths ?? {},
+    exams: course.exams ?? {},
+    cmFirst: course.cmFirst ?? false,
+    tdBeforeTp: course.tdBeforeTp ?? false,
+    note: course.note,
+    paceReason: course.paceReason ?? "",
+  };
   if (laidOut(course.weeks) || !weeks.length) return { ...kept, spread: false };
   // Each part of a group taught in parts too, interspersed over the whole semester (25 Nov 2026).
   const spread: Layout = spreadRows(course, weeks);
-  return Object.keys(spread).length ? { ...kept, weeks: spread, lengths: {}, spread: true } : { ...kept, spread: false };
+  return Object.keys(spread).length ? { ...kept, weeks: spread, lengths: {}, exams: {}, spread: true } : { ...kept, spread: false };
 }
 
 /** "Elements of Calculus" after the code, when the course has a title. */
@@ -69,7 +90,10 @@ export function CourseScheduleStep({
   const [opened] = useState(() => Object.fromEntries(step.courses.map((course) => [course.courseCode, opening(course, numbers)])));
   const [drafts, setDrafts] = useState<Record<string, Draft>>(() =>
     Object.fromEntries(
-      Object.entries(opened).map(([code, { weeks, lengths, note, paceReason }]) => [code, { weeks, lengths, note, paceReason }]),
+      Object.entries(opened).map(([code, { weeks, lengths, exams, cmFirst, tdBeforeTp, note, paceReason }]) => [
+        code,
+        { weeks, lengths, exams, cmFirst, tdBeforeTp, note, paceReason },
+      ]),
     ),
   );
   /** Asked to say why, and hasn't: the courses whose reason box is ringed. */
@@ -116,7 +140,7 @@ export function CourseScheduleStep({
         <HowTo
           steps={[
             { icon: Hash, title: "Sessions in each week", hint: "Not hours: the hours show under each box" },
-            { icon: Clock3, title: "A longer or shorter session?", hint: "Press the hours under its box to change it" },
+            { icon: Clock3, title: "A longer session, or an exam?", hint: "Press the hours under its box: change its length, or tick Exam" },
             { icon: Target, title: "Reach each total", hint: "It turns green once the hours add up" },
           ]}
         >
@@ -141,6 +165,7 @@ export function CourseScheduleStep({
         const components = componentsOf(course);
         const uneven = step.weeks.length ? unevenIn(course) : [];
         const asked = unsaid.includes(course.courseCode) && !draft.paceReason.trim();
+        const ready = readyReason(course);
         return (
           <section key={course.courseCode} aria-label={course.courseCode} className="space-y-3 rounded-lg border border-[#d0d5dd] px-3 py-3 sm:px-4">
             <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -175,7 +200,7 @@ export function CourseScheduleStep({
             ) : null}
             {uneven.length ? (
               // Uneven stays possible: it costs a sentence, which the coordinators read.
-              <label
+              <div
                 className={`block rounded-lg border px-3 py-2.5 text-sm font-semibold text-[#7a5410] ${
                   asked ? "border-[#b54708] bg-[#fef0c7]" : "border-[#e5b454] bg-[#fdf9ee]"
                 }`}
@@ -199,7 +224,17 @@ export function CourseScheduleStep({
                   placeholder="For example: the lectures end in week 12, before the project weeks."
                   className="mt-1.5 block w-full rounded-md border border-[#d9b36a] bg-white px-3 py-2 text-sm font-normal text-[#171717]"
                 />
-              </label>
+                {ready && draft.paceReason.trim() !== ready ? (
+                  // The usual reason with practicals, at a press (26 Nov 2026): it can still be changed after.
+                  <button
+                    type="button"
+                    onClick={() => change(course.courseCode, { paceReason: ready })}
+                    className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-[#d9b36a] bg-white px-2.5 py-1 text-xs font-semibold text-[#7a5410] hover:bg-[#fef6e0]"
+                  >
+                    <Sparkles size={12} aria-hidden="true" /> {ready}
+                  </button>
+                ) : null}
+              </div>
             ) : null}
             <label className="block text-sm font-semibold text-[#344054]">
               Note for the coordinators <span className="font-normal text-[#667085]">(optional)</span>

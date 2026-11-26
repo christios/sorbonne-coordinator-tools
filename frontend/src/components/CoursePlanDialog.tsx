@@ -36,7 +36,15 @@ export function CourseScheduleEditor({
   onSaved: (plan: CoursePlan) => void;
 }) {
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState<ScheduleDraft>({ weeks: plan.weeks, lengths: plan.lengths ?? {} });
+  // As kept: the weeks, their lengths and exams, and the order of a week's kinds (26 Nov 2026).
+  const kept: ScheduleDraft = {
+    weeks: plan.weeks,
+    lengths: plan.lengths ?? {},
+    exams: plan.exams ?? {},
+    cmFirst: plan.cmFirst ?? false,
+    tdBeforeTp: plan.tdBeforeTp ?? false,
+  };
+  const [draft, setDraft] = useState<ScheduleDraft>(kept);
   const [note, setNote] = useState(plan.note);
   const save = useMutation({
     mutationFn: () => layOutCourse(term, plan.courseCode, { ...draft, note }),
@@ -47,7 +55,7 @@ export function CourseScheduleEditor({
   });
   const components = componentsOf(plan);
   const start = () => {
-    setDraft({ weeks: plan.weeks, lengths: plan.lengths ?? {} });
+    setDraft(kept);
     setNote(plan.note);
     save.reset();
     setEditing(true);
@@ -86,7 +94,7 @@ export function CourseScheduleEditor({
       <CourseScheduleGrid
         plan={plan}
         weeks={weeks}
-        value={editing ? draft : { weeks: plan.weeks, lengths: plan.lengths ?? {} }}
+        value={editing ? draft : kept}
         onChange={editing ? setDraft : undefined}
         label={`${plan.courseCode} sessions week by week`}
         spreadable

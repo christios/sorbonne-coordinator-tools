@@ -90,6 +90,11 @@ class CourseLayout(BaseModel):
     note: str | None = Field(default=None, max_length=2000)
     # Why the weeks run unevenly over the semester, which the step asks for; "" once they are even.
     paceReason: str | None = Field(default=None, max_length=2000)
+    # The sessions that are exams, each its place in its week from 1: {"TD": {"8": [2]}}. Left out, kept.
+    exams: dict[str, dict[str, list[int]]] | None = Field(default=None, max_length=24)
+    # In a week holding both: the CM before the TD and TP, the TD before the TP. Left out, kept.
+    cmFirst: bool | None = None
+    tdBeforeTp: bool | None = None
 
 
 class LayoutsInput(BaseModel):

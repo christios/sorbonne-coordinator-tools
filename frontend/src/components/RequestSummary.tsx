@@ -1,7 +1,8 @@
-import { CalendarDays, Check, ClipboardList, Pencil } from "lucide-react";
+import { CalendarDays, Check, ClipboardList, ListOrdered, Pencil } from "lucide-react";
 import type { ReactNode } from "react";
 
 import {
+  examWords,
   figure,
   hoursLaidOut,
   laidOut,
@@ -9,6 +10,7 @@ import {
   sessionLengths,
   sessionsWords,
   lengthWords,
+  orderWords,
   planStanding,
   rowsOf,
   rowWords,
@@ -163,6 +165,10 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
   // A strip per component, and per part of its groups taught in parts (25 Nov 2026).
   const components = rowsOf(course);
   const lengths = course.lengths ?? {};
+  const exams = course.exams ?? {};
+  // The order of a week's kinds the lead asked for, and their exams (26 Nov 2026).
+  const order = orderWords(course);
+  const examLines = examWords(exams);
   // The weeks off between teaching weeks: a dashed block, as in the grid the lead filled in.
   const columns = withWeeksOff(weeks);
   if (!components.length) return <p className="text-sm text-[#667085]">No hours set yet.</p>;
@@ -222,10 +228,11 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
                 const each = sessionLengths(usual, own[String(week.week)], count);
                 const hours = each.reduce((sum, one) => sum + one, 0);
                 const odd = String(week.week) in own;
+                const examPlaces = count ? (exams[component]?.[String(week.week)] ?? []) : [];
                 // As the lead filled it in: the sessions in the block, the hours they make under it;
                 // the week in full on hover, in the app's own bubble.
                 const said = count
-                  ? `Week ${week.week}: ${count} ${words} session${count === 1 ? "" : "s"} of ${sessionsWords(each)}`
+                  ? `Week ${week.week}: ${count} ${words} session${count === 1 ? "" : "s"} of ${sessionsWords(each)}${examPlaces.length ? ", with an exam" : ""}`
                   : `Week ${week.week}: no ${words} session`;
                 return (
                   <Tip
@@ -235,15 +242,21 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
                     delay={80}
                     icon={CalendarDays}
                     title={`Week ${week.week}${week.monday ? ` · ${formatDayAndMonth(week.monday)}` : ""}`}
-                    content={<WeekDetail component={words} lengths={each} usual={usual} holidays={week.holidays} />}
+                    content={<WeekDetail component={words} lengths={each} usual={usual} exams={examPlaces} holidays={week.holidays} />}
                   >
                   <span role="img" aria-label={said} className="flex min-w-0 flex-1 cursor-default flex-col items-stretch">
                     <span
                       className={`grid h-6 place-items-center rounded-[3px] text-[11px] font-bold tabular-nums leading-none ${
-                        !count ? "bg-[#eef1f5] text-transparent" : odd ? "bg-[#c98a12] text-white" : "bg-[#3b6a97] text-white"
+                        !count
+                          ? "bg-[#eef1f5] text-transparent"
+                          : examPlaces.length
+                            ? "bg-[#6941c6] text-white"
+                            : odd
+                              ? "bg-[#c98a12] text-white"
+                              : "bg-[#3b6a97] text-white"
                       }`}
                     >
-                      {count || ""}
+                      {count ? `${count}${examPlaces.length ? "E" : ""}` : ""}
                     </span>
                     <span
                       className={`mt-0.5 h-3 overflow-hidden text-center text-[9px] tabular-nums leading-3 ${odd ? "font-bold text-[#8a6116]" : "text-[#667085]"}`}
@@ -275,7 +288,22 @@ export function CourseWeeks({ course, weeks }: { course: CoursePlan; weeks: Teac
         <span className="inline-flex items-center gap-1">
           <span aria-hidden="true" className="h-2.5 w-2.5 rounded-[2px] bg-[#c98a12]" /> sessions longer or shorter than usual
         </span>
+        {examLines.length ? (
+          <span className="inline-flex items-center gap-1">
+            <span aria-hidden="true" className="h-2.5 w-2.5 rounded-[2px] bg-[#6941c6]" /> E: an exam among them
+          </span>
+        ) : null}
       </p>
+      {examLines.length || order.length ? (
+        <p data-order-exams="" className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-[#344054] sm:pl-[3.25rem]">
+          {examLines.length ? <span className="font-semibold text-[#53389e]">{examLines.join(" · ")}</span> : null}
+          {order.length ? (
+            <span className="inline-flex items-center gap-1">
+              <ListOrdered size={12} aria-hidden="true" /> In the same week: {order.join(" · ")}
+            </span>
+          ) : null}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -285,12 +313,15 @@ function WeekDetail({
   component,
   lengths,
   usual,
+  exams,
   holidays,
 }: {
   component: string;
   /** Each session's length this week. */
   lengths: number[];
   usual: number;
+  /** Which of them are exams, each its place from 1. */
+  exams: number[];
   holidays: TeachingWeek["holidays"];
 }) {
   const count = lengths.length;
@@ -313,6 +344,11 @@ function WeekDetail({
       {odd.length ? (
         <span className="block font-semibold text-[#8a6116]">
           {same ? `${lengths[0] > usual ? "Longer" : "Shorter"} than the usual ${figure(usual)} h` : `Usually ${figure(usual)} h each`}
+        </span>
+      ) : null}
+      {exams.length ? (
+        <span className="block font-semibold text-[#53389e]">
+          {count === 1 ? "An exam" : `Exam: session ${exams.join(" and ")}`}
         </span>
       ) : null}
       {holidays.map((day) => (
