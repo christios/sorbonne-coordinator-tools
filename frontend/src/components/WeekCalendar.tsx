@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ClassFacts } from "@/components/ClassFacts";
-import { heightNeeded } from "@/services/boxFit";
+import { heightNeeded, linesIn } from "@/services/boxFit";
 import {
   DAY_NAMES,
   formatDayAndMonth,
@@ -49,6 +49,8 @@ function usePhone(): boolean {
  * was still too tall beside the facts: two thirds of it.
  */
 const RECORD_HEIGHT = 270;
+/** The least an enlarged week's minute is given, however short the dialog: 24 px an hour. */
+const FITTED_LEAST = 0.4;
 const TOP_PADDING = 10;
 /**
  * How narrow a class drawn beside others at its hour may be. Every box says everything
@@ -91,6 +93,15 @@ type WeekCalendarProps = {
   dayWidth?: number;
   /** How many a room seats, by the name the portal gives it, for the hover details. */
   seatsOf?: (room: string) => number | null;
+  /**
+   * The enlarged calendar of a record, in its dialog: the whole week inside the dialog, as a
+   * student's or a CRN's already was (user, 26 Nov 2026). A course's four groups at the same
+   * hour widened each day past the dialog and every box's facts made the hours a screen
+   * high. Here the days share the width, never scrolling sideways, and the hours share the
+   * dialog's height: a box with less room than its facts take shows the whole lines that
+   * fit, and its hover says the rest. A week that fits already is drawn as before.
+   */
+  fitDialog?: boolean;
 };
 
 /**
@@ -116,6 +127,7 @@ export function WeekCalendar({
   stack = false,
   dayWidth,
   seatsOf,
+  fitDialog = false,
 }: WeekCalendarProps) {
   const days = weekDays(weekStart, sessions);
   const inWeek = sessionsInRange(sessions, days[0], days[days.length - 1]);
@@ -127,9 +139,17 @@ export function WeekCalendar({
    * height does not change, so one measurement is the answer and not a step towards it.
    */
   const [fit, setFit] = useState(0);
+  // In a dialog, the height its hours may take: measured below, 0 until then (no limit).
+  const [room, setRoom] = useState(0);
+  const natural = Math.max(hourHeight / 60, fit);
+  const roomPerMinute = room > 0 ? Math.max(FITTED_LEAST, (room - TOP_PADDING * 2) / Math.max(60, endMinute - startMinute)) : 0;
+  // Squeezed when the dialog has less height than every box saying everything would take.
+  const squeezed = fitDialog && roomPerMinute > 0 && roomPerMinute < natural;
   const pixelsPerMinute = compact
     ? (RECORD_HEIGHT - TOP_PADDING * 2) / Math.max(60, endMinute - startMinute)
-    : Math.max(hourHeight / 60, fit);
+    : squeezed
+      ? roomPerMinute
+      : natural;
   const height = (endMinute - startMinute) * pixelsPerMinute + TOP_PADDING * 2;
   const hours: number[] = [];
   for (let minute = startMinute; minute <= endMinute; minute += 60) hours.push(minute);
@@ -137,6 +157,7 @@ export function WeekCalendar({
   const gutter = compact ? 30 : 44;
 
   const box = useRef<HTMLDivElement>(null);
+  const grid = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useEffect(() => {
     const element = box.current;
@@ -195,6 +216,40 @@ export function WeekCalendar({
     // Whatever changes what the boxes say or how wide they are; their height is the answer.
   }, [width, weekKey, shownDay, oneDayAtATime, sessions, courses, compact, stack]);
 
+  /*
+   * The dialog's room for the hours: its tallest, less what sits above the hours (its
+   * header, the week's arrows, the days' names) and below them (the legend, the notes, the
+   * padding). Neither changes with the hours' height, so one measurement settles it; it is
+   * taken again when the window is resized or what is around the grid changes.
+   */
+  useLayoutEffect(() => {
+    if (!fitDialog) return;
+    const hoursArea = grid.current;
+    const dialog = hoursArea?.closest<HTMLElement>('[role="dialog"]');
+    const scroller = hoursArea?.closest<HTMLElement>(".overflow-y-auto");
+    if (!hoursArea || !dialog || !scroller) return;
+    const measure = () => {
+      const tallest = parseFloat(window.getComputedStyle(dialog).maxHeight);
+      const most = Number.isFinite(tallest) && tallest > 0 ? tallest : window.innerHeight;
+      const scrolled = scroller.scrollTop;
+      const top = hoursArea.getBoundingClientRect().top;
+      const above = top - dialog.getBoundingClientRect().top + scrolled;
+      const bottom = hoursArea.getBoundingClientRect().bottom - scroller.getBoundingClientRect().top + scrolled;
+      const below = scroller.scrollHeight - bottom;
+      // The dialog's border, top and bottom.
+      const next = Math.floor(most - above - below - 2);
+      setRoom((held) => (Math.abs(held - next) < 2 ? held : next));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(dialog);
+    return () => {
+      window.removeEventListener("resize", measure);
+      observer?.disconnect();
+    };
+  }, [fitDialog, weekKey, sessions, courses]);
+
   return (
     <div ref={box}>
       {oneDayAtATime ? (
@@ -231,7 +286,8 @@ export function WeekCalendar({
           style={{
             gridTemplateColumns: `${gutter}px repeat(${visibleDays.length}, minmax(0, 1fr))`,
             // A record's week shares the width it is given, never scrolling sideways: its days narrow instead.
-            minWidth: compact ? undefined : gutter + visibleDays.length * narrowestDay,
+            // So does its enlarged week in a dialog.
+            minWidth: compact || fitDialog ? undefined : gutter + visibleDays.length * narrowestDay,
           }}
         >
           <div className="border-b border-[#e4e8ef] bg-[#fbfcfe]" />
@@ -249,7 +305,7 @@ export function WeekCalendar({
             </div>
           ))}
 
-          <div className="relative" style={{ height }}>
+          <div ref={grid} className="relative" style={{ height }}>
             {hours.map((minute) => (
               <span
                 key={minute}
@@ -276,6 +332,7 @@ export function WeekCalendar({
               onPick={onPick}
               nowAt={day === today && nowMinute >= startMinute && nowMinute <= endMinute ? topOf(nowMinute) : null}
               seatsOf={seatsOf}
+              squeezed={squeezed}
             />
           ))}
         </div>
@@ -306,6 +363,8 @@ type DayColumnProps = {
   /** Where the current time falls in this column, when the column is today and the hour is on the grid. */
   nowAt: number | null;
   seatsOf?: (room: string) => number | null;
+  /** Shorter than every box's facts take: each box shows the whole lines that fit. */
+  squeezed?: boolean;
 };
 
 function DayColumn({
@@ -321,6 +380,7 @@ function DayColumn({
   onPick,
   nowAt,
   seatsOf,
+  squeezed = false,
 }: DayColumnProps) {
   return (
     <div className="relative border-l border-[#e4e8ef]" style={{ height }}>
@@ -422,7 +482,8 @@ function DayColumn({
               color: outline ? color : undefined,
             }}
           >
-            <ClassFacts session={session} course={course} small={compact} />
+            {/* Squeezed into a dialog, the lines that fit inside the box's padding (py-1, 8 px). */}
+            <ClassFacts session={session} course={course} small={compact} lines={squeezed ? Math.max(1, linesIn(boxHeight - 8)) : undefined} />
           </Box>
         );
       })}

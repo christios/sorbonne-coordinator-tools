@@ -145,3 +145,42 @@ describe("a record's week (23 Nov 2026)", () => {
     expect(heights).toEqual(["270px", "270px"]);
   });
 });
+
+describe("the enlarged week in a record's dialog (26 Nov 2026)", () => {
+  // Four groups of one course at the same hour, as SCEN-102's Monday afternoon.
+  const groups = ["1", "2", "3", "4"].map((n) => ({ ...COURSE, crn: `2400${n}`, label: `RDNS ${n}`, group: `RDNS ${n}` }));
+  const sessions: PlacedSession[] = groups.map((group) => ({
+    crn: group.crn, date: "2026-09-07", start: "13:15", end: "14:45", room: "4.135", clashes: false,
+  }));
+  const inDialog = (fitDialog: boolean) =>
+    render(
+      <section role="dialog" style={{ maxHeight: "300px" }}>
+        <div className="overflow-y-auto">
+          <WeekCalendar
+            weekStart={new Date(2026, 8, 7)}
+            sessions={sessions}
+            courses={new Map(groups.map((group) => [group.crn, group]))}
+            today="2026-09-07"
+            fitDialog={fitDialog}
+          />
+        </div>
+      </section>,
+    );
+  const grid = () => document.querySelector<HTMLElement>("[style*='grid-template-columns']")!;
+
+  it("keeps its days inside the dialog's width, and its boxes to the lines that fit in its height", () => {
+    inDialog(true);
+    expect(grid().style.minWidth).toBe("");
+    const facts = [...document.querySelectorAll<HTMLElement>("[data-facts]")];
+    expect(facts).toHaveLength(4);
+    // Squeezed: each box says the whole lines it has room for; its hover says everything.
+    expect(facts.every((each) => each.style.maxHeight !== "" && each.style.overflow === "hidden")).toBe(true);
+    expect(document.querySelector("[title*='CRN 24001']")?.getAttribute("title")).toMatch(/13:15–14:45 · 4\.135/);
+  });
+
+  it("is as wide as its groups side by side need anywhere else", () => {
+    inDialog(false);
+    expect(grid().style.minWidth).not.toBe("");
+    expect([...document.querySelectorAll<HTMLElement>("[data-facts]")].every((each) => each.style.maxHeight === "")).toBe(true);
+  });
+});

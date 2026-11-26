@@ -166,8 +166,13 @@ export function SectionTimetable(props: TimetableProps) {
   return (
     <>
       <Timetable {...props} onExpand={() => setExpanded(true)} />
-      <Modal open={expanded} size="wide" title={props.title ?? "Timetable"} description="As the portal has booked it." onClose={() => setExpanded(false)}>
-        <Timetable {...props} compact={false} />
+      {/*
+        * The whole week inside the dialog, a course's as a student's or a CRN's (user, 26 Nov
+        * 2026): its days share the dialog's width and its hours the dialog's height. As wide
+        * as a record, for a course's groups side by side.
+        */}
+      <Modal open={expanded} size="record" title={props.title ?? "Timetable"} description="As the portal has booked it." onClose={() => setExpanded(false)}>
+        <Timetable {...props} compact={false} fitDialog />
       </Modal>
     </>
   );
@@ -194,7 +199,8 @@ function Timetable({
   sessionFilter,
   registeredOf,
   onExpand,
-}: TimetableProps & { onExpand?: () => void }) {
+  fitDialog = false,
+}: TimetableProps & { onExpand?: () => void; fitDialog?: boolean }) {
   const today = isoToday();
   // The rooms' seats, for every class's hover and a room's row: read once, shared.
   const { roomOf } = useRooms();
@@ -445,6 +451,7 @@ function Timetable({
               compact={compact}
               hourHeight={hourHeight ?? (compact ? 24 : 48)}
               seatsOf={seatsOf}
+              fitDialog={fitDialog}
               onPick={onPickSession ?? (onOpenCrn ? (session) => onOpenCrn(session.crn) : undefined)}
             />
           )}
