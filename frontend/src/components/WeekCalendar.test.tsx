@@ -184,3 +184,24 @@ describe("the enlarged week in a record's dialog (26 Nov 2026)", () => {
     expect([...document.querySelectorAll<HTMLElement>("[data-facts]")].every((each) => each.style.maxHeight === "")).toBe(true);
   });
 });
+
+describe("what a box is called (26 Nov 2026)", () => {
+  it("names a course's own section by its group once, its CRN right after it", () => {
+    const group = { ...COURSE, label: "TD 3", group: "TD 3" };
+    render(
+      <WeekCalendar weekStart={new Date(2026, 8, 7)} sessions={[classAt()]} courses={new Map([["23638", group]])} today="2026-09-07" />,
+    );
+    const facts = document.querySelector<HTMLElement>("[data-facts]")!;
+    expect(facts.textContent).not.toMatch(/TD 3 · TD 3/);
+    // The CRN is said second, before the hours: never the line a short box cuts.
+    expect(facts.textContent).toMatch(/^TD 3· 23638 ?10:30–12:30/);
+    expect(facts.textContent?.match(/23638/g)).toHaveLength(1);
+  });
+
+  it("keeps the course and its group, with the CRN last, everywhere else", () => {
+    week(classAt());
+    const facts = document.querySelector<HTMLElement>("[data-facts]")!;
+    expect(facts.textContent).toMatch(/^PHYS-125 · TD 3/);
+    expect(facts.textContent).toMatch(/CRN 23638$/);
+  });
+});

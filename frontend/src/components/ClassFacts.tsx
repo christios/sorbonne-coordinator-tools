@@ -4,6 +4,24 @@ import type { ReactNode } from "react";
 import { FACTS_LINE } from "@/services/boxFit";
 import { formatRoom, type CalendarCourse, type PlacedSession } from "@/services/weekSchedule";
 
+const said = (words?: string) => (words ?? "").trim().replace(/\s+/g, " ").toLowerCase();
+
+/**
+ * The box named by its group alone: a course's own calendar names each section by its
+ * group, since the course is the same on every box, and gives the group as well.
+ */
+function namedByGroup(label: string, group?: string): boolean {
+  return Boolean(group) && said(label) === said(group);
+}
+
+/**
+ * The box's name, the group once (user, 26 Nov 2026): "TD 3", never "TD 3 · TD 3", on a
+ * course's own calendar, where the name already is the group.
+ */
+function boxName(label: string, group?: string): string {
+  return namedByGroup(label, group) ? label : [label, group].filter(Boolean).join(" · ");
+}
+
 /**
  * What a class's box says, the same on every calendar of the app.
  *
@@ -43,6 +61,7 @@ export function ClassFacts({
   const covered = session.change?.kind === "covered" ? session.change : null;
   const room = formatRoom(session.room);
   const icon = small ? 7 : 9;
+  const crnFirst = namedByGroup(label, course?.group);
   const mark = `shrink-0 rounded px-1 font-bold uppercase tracking-wide ${small ? "text-[7px]" : "text-[9px]"} ${
     outline ? "bg-current/15" : "bg-white/30"
   }`;
@@ -55,7 +74,14 @@ export function ClassFacts({
       }`}
       style={lines === undefined ? undefined : { maxHeight: lines * FACTS_LINE, overflow: "hidden" }}
     >
-      <b className={`font-semibold ${cancelled ? "line-through" : ""}`}>{[label, course?.group].filter(Boolean).join(" · ")}</b>
+      <b className={`font-semibold ${cancelled ? "line-through" : ""}`}>{boxName(label, course?.group)}</b>
+      {/*
+        * On a course's own calendar the CRN is what tells its sections apart: it follows the
+        * group's name, the first thing said, never cut from a short box (user, 26 Nov 2026).
+        * The number alone, kept whole: four groups side by side leave a box too narrow for the
+        * word as well, and "CRN" broke from its number. The hover says "CRN 23998".
+        */}
+      {crnFirst ? <span className="whitespace-nowrap tabular-nums opacity-90">· {session.crn}</span> : null}
       {cancelled ? (
         <span className={mark}>Cancelled</span>
       ) : covered ? (
@@ -86,7 +112,7 @@ export function ClassFacts({
           <span>{covered.standingIn ? `for ${covered.coverTeacherName}` : `by ${covered.coverTeacherName}`}</span>
         </span>
       ) : null}
-      <span className="tabular-nums opacity-80">CRN {session.crn}</span>
+      {crnFirst ? null : <span className="tabular-nums opacity-80">CRN {session.crn}</span>}
     </div>
   );
 }
