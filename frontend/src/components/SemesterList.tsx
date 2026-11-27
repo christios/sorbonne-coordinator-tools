@@ -5,7 +5,8 @@ import { useMemo, useState } from "react";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { InfoTip } from "@/components/InfoTip";
 import { Modal } from "@/components/Modal";
-import { NewSemesterDialog, PlanSettingsDialog } from "@/components/PlanDialogs";
+import { NewSemesterDialog } from "@/components/PlanDialogs";
+import { PlanSettingsPage } from "@/components/PlanSettingsPage";
 import { PayCycleCell } from "@/components/PayCycleCell";
 import { SemesterShortName } from "@/components/SemesterShortName";
 import { SemesterTag } from "@/components/SemesterTag";
@@ -54,7 +55,10 @@ function weekOneWords(weekOne: string): string {
   return `Week 1 from ${formatDayAndMonth(weekOne)} ${parseIsoDate(weekOne).getFullYear()}`;
 }
 
-/** A semester made here: its name, Week 1, teaching weeks, breaks and holidays, read when opened. */
+/**
+ * A semester made here: its name, Week 1, teaching weeks, breaks, holidays and periods, read when
+ * opened — a page in place of the list (27 Nov 2026), with Back, rather than a dialog over it.
+ */
 function OwnSemesterSettings({ plan, onClose }: { plan: PlanSummary; onClose: () => void }) {
   const client = useQueryClient();
   const full = useQuery({ queryKey: ["plan", plan.termCode], queryFn: () => fetchPlan(plan.termCode) });
@@ -66,15 +70,14 @@ function OwnSemesterSettings({ plan, onClose }: { plan: PlanSummary; onClose: ()
       onClose();
     },
   });
-  if (!full.data) return null;
+  if (!full.data) return <p className="px-1 py-6 text-sm text-[#667085]">Opening the settings…</p>;
   return (
-    <PlanSettingsDialog
-      open
+    <PlanSettingsPage
       plan={full.data}
       busy={settle.isPending}
       error={settle.error ? (settle.error as Error).message : ""}
       onSave={(settings) => settle.mutate(settings)}
-      onClose={onClose}
+      onBack={onClose}
     />
   );
 }
@@ -232,7 +235,8 @@ export function SemesterList({
         </p>
       ) : null}
 
-      {reviewing ? null : (
+      {settingsOf?.kind === "own" ? <OwnSemesterSettings plan={settingsOf.plan} onClose={() => setSettingsOf(null)} /> : null}
+      {reviewing || settingsOf?.kind === "own" ? null : (
         <section className="rounded-lg border border-[#d9dee7] bg-white">
           <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[#e4e8ef] px-6 py-4">
             <div className="flex items-center gap-2">
@@ -428,7 +432,6 @@ export function SemesterList({
         onClose={() => setCreating(false)}
       />
 
-      {settingsOf?.kind === "own" ? <OwnSemesterSettings plan={settingsOf.plan} onClose={() => setSettingsOf(null)} /> : null}
       <Modal
         open={settingsOf?.kind === "hub"}
         title="Semester settings"

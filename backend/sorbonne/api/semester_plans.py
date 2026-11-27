@@ -70,9 +70,10 @@ class SettingsInput(BaseModel):
     weekOne: str = Field(default="", max_length=10)
     weeks: int = Field(default=0, ge=0, le=30)
     without: list[str] = Field(default_factory=list, max_length=30)
-    holidays: list[Holiday] = Field(default_factory=list, max_length=60)
+    # A holiday of several days is a day each (27 Nov 2026), so room for long ones.
+    holidays: list[Holiday] = Field(default_factory=list, max_length=400)
     # Absent from a page that does not edit them: the periods there are stay.
-    periods: list[Period] | None = Field(default=None, max_length=20)
+    periods: list[Period] | None = Field(default=None, max_length=100)
 
 
 class SeriesInput(BaseModel):

@@ -526,6 +526,22 @@ def test_a_period_binding_everybody_is_kept_beside_the_holidays(client: TestClie
     assert backwards.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+def test_a_semester_keeps_plenty_of_periods_and_a_holiday_of_many_days(client: TestClient):
+    assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
+    exam_days = [
+        {"label": f"Exam day {at}", "from": f"2027-05-{at:02d}", "to": f"2027-05-{at:02d}", "endsBy": "15:00"} for at in range(1, 31)
+    ]
+    # A three-week closure, sent a day each as the settings page sends a holiday of several days.
+    closure = [{"date": f"2027-03-{at:02d}", "label": "Spring closure"} for at in range(1, 22)]
+    settled = client.put(
+        f"{AT}/{TERM}/settings", json={"name": "Semester 2 2026-27", "periods": exam_days, "holidays": closure}
+    )
+    assert settled.status_code == 200, settled.text
+    assert len(settled.json()["periods"]) == 30
+    assert [entry["date"] for entry in settled.json()["holidays"]][:2] == ["2027-03-01", "2027-03-02"]
+    assert len(settled.json()["holidays"]) == 21
+
+
 def test_a_period_carries_any_of_four_rules_but_at_least_one(client: TestClient):
     assert client.post(AT, json={"termCode": TERM, "name": "Semester 2 2026-27"}).status_code == 201
     ramadan = {"label": "Ramadan", "from": "2027-02-08", "to": "2027-03-09", "days": [1, 2, 3, 4, 5]}

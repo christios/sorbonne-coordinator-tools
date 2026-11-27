@@ -460,7 +460,8 @@ def classes_of(term: dict[str, Any], series: list[dict[str, Any]], sections: dic
     return classes, skipped
 
 
-MOST_PERIODS = 20
+# Many a semester: exam days, Ramadan, open days, each its own (user, 27 Nov 2026: "I will be adding plenty").
+MOST_PERIODS = 100
 
 
 SHORTEST_RULE, LONGEST_RULE = 15, 12 * 60

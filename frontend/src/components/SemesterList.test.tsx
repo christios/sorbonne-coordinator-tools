@@ -212,8 +212,13 @@ describe("the semesters made here", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Settings of Semester 2 2026-27" }));
 
-    expect(await screen.findByRole("dialog", { name: "Semester settings" })).toBeTruthy();
+    // A page in place of the list (27 Nov 2026), with Back to it.
+    expect(await screen.findByRole("region", { name: "Semester settings" })).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "Semester settings" })).toBeNull();
     expect((screen.getByLabelText(/^Teaching weeks/) as HTMLInputElement).value).toBe("15");
+    expect(screen.queryByRole("row", { name: /Semester 2/ })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Semesters" }));
+    expect(await screen.findByRole("row", { name: /Semester 2/ })).toBeTruthy();
   });
 
   it("is deleted once confirmed, and opens on the Semester plan", async () => {
@@ -270,10 +275,10 @@ describe("a semester's settings", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Settings of Semester 2 2026-27" }));
 
-    const dialog = within(await screen.findByRole("dialog", { name: "Semester settings" }));
-    expect(dialog.getByRole("textbox", { name: "Short name" })).toBeTruthy();
-    expect(dialog.getByText("Holidays")).toBeTruthy();
-    expect(dialog.getByText("Pay periods")).toBeTruthy();
+    const settings = within(await screen.findByRole("region", { name: "Semester settings" }));
+    expect(settings.getByRole("textbox", { name: "Short name" })).toBeTruthy();
+    expect(settings.getByRole("heading", { name: "Holidays" })).toBeTruthy();
+    expect(settings.getByRole("heading", { name: "Pay periods" })).toBeTruthy();
     // Neither is a column of the list any more.
     expect(screen.queryByRole("columnheader", { name: /Short name|Pay periods/ })).toBeNull();
   });

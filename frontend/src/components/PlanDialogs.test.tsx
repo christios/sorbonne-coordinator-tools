@@ -1,11 +1,8 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PlanClassDialog, PlanSettingsDialog, ScopeDialog, WeekPicker } from "@/components/PlanDialogs";
-import * as lists from "@/services/portalLists";
+import { PlanClassDialog, ScopeDialog, WeekPicker } from "@/components/PlanDialogs";
 import type { Plan } from "@/services/semesterPlans";
-import * as teachers from "@/services/teachers";
 import type { WishTeacher } from "@/services/teacherWishes";
 
 describe("the question a change to a repeating class asks", () => {
@@ -197,57 +194,5 @@ describe("a class beside its teacher's wishes", () => {
   it("says when the teacher hasn't answered", () => {
     open(bilal(null), 2);
     expect(screen.getByText(/Bilal Maaz hasn.t given their preferences/)).toBeTruthy();
-  });
-});
-
-describe("periods that bind everybody", () => {
-  const settings = (plan: Plan, onSave = vi.fn()) => {
-    vi.spyOn(lists, "fetchSemesterShortNames").mockResolvedValue({});
-    vi.spyOn(teachers, "fetchPayCycles").mockResolvedValue({ cycles: {}, default: 15 });
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(
-      <QueryClientProvider client={client}>
-        <PlanSettingsDialog open plan={plan} busy={false} error="" onSave={onSave} onClose={() => {}} />
-      </QueryClientProvider>,
-    );
-    return onSave;
-  };
-  const ramadan = { label: "Ramadan", from: "2027-02-08", to: "2027-03-09", days: [1, 2, 3, 4, 5], blockFrom: "15:00", blockTo: "19:00" };
-
-  it("keeps a semester's periods when it is saved, and lets one go", () => {
-    const onSave = settings({ ...BARE, periods: [ramadan] });
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ periods: [ramadan] }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove Ramadan" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenLastCalledWith(expect.objectContaining({ periods: [] }));
-  });
-
-  it("starts a new one as the working week ending at three, and saves nothing until it is named and dated", () => {
-    settings(BARE);
-    fireEvent.click(screen.getByRole("button", { name: "Add a period" }));
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getByText("Give it a name.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Friday" }).getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByRole("button", { name: "Saturday" }).getAttribute("aria-pressed")).toBe("false");
-    expect((screen.getByRole("checkbox", { name: "Day ends by" }) as HTMLInputElement).checked).toBe(true);
-    fireEvent.change(screen.getByPlaceholderText("Ramadan"), { target: { value: "Ramadan" } });
-    expect(screen.getByText("Give it a first and a last day.")).toBeTruthy();
-  });
-
-  it("takes any of its four rules, ticked, and asks for one at least", () => {
-    const onSave = settings({ ...BARE, periods: [{ ...ramadan, blockFrom: "", blockTo: "", endsBy: "15:00", longest: null, dailyMax: null }] });
-    fireEvent.click(screen.getByRole("checkbox", { name: "Day ends by" }));
-    expect(screen.getByText("Tick at least one rule.")).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Longest class" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "No classes between" }));
-    fireEvent.click(screen.getByRole("checkbox", { name: "Most hours a day for a teacher" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    expect(onSave).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        periods: [expect.objectContaining({ endsBy: "", longest: 90, blockFrom: "12:15", blockTo: "12:45", dailyMax: 240 })],
-      }),
-    );
   });
 });
