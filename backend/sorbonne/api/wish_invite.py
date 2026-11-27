@@ -225,7 +225,8 @@ def _form(
     teaching = bool(mine and mine["active"])
     return {
         "reductions": _reductions(invitation, reductions) if teaching else None,
-        "coursePlans": plans.led_by(term, teacher) if teaching else [],
+        # None, as for a teacher who leads nothing: the page reads any value as a course step (27 Nov 2026).
+        "coursePlans": plans.led_by(term, teacher) if teaching else None,
         "semesterName": invitation["semester_name"],
         "teacherName": invitation["teacher_name"],
         "email": invitation["email"],
