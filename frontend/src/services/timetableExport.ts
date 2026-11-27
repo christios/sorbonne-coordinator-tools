@@ -76,6 +76,8 @@ export type RequestRow = {
   courseCode?: string;
   courseTitle?: string;
   group?: string;
+  /** Whether the course is taught to both degrees at once, as Active courses says. Not a column. */
+  mutualized?: "yes" | "no" | "";
 };
 
 export type RequestSheet = {
@@ -190,6 +192,7 @@ export function requestSheets(
           courseCode: card.code,
           courseTitle: card.name,
           group: row.group.label,
+          mutualized: card.active?.mutualized ?? "",
         });
       }
     }

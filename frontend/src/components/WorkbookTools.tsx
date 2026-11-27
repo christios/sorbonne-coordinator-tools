@@ -14,6 +14,7 @@ import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type CatalogueScope, type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchEveryExemption, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
+import { fetchPlan, type Plan } from "@/services/semesterPlans";
 import { fetchWishSemester, type WishSemester } from "@/services/teacherWishes";
 import { briefOf, downloadBriefPdf } from "@/services/timetableBrief";
 import { courseWordsOf, teacherWords, weekRows } from "@/services/timetableConstraints";
@@ -327,12 +328,19 @@ export function WorkbookTools({
     setTimetableNote("");
     try {
       const { wishes, plans, missing } = await heardFor();
+      // The Semester plan's settings: its weeks, breaks, holidays and periods, at the front.
+      const links = await client.fetchQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks }).catch(() => ({}) as Record<string, string>);
+      const code = links[termId] ?? (termId.startsWith("plan:") ? termId.slice(5) : "");
+      const plan = code
+        ? await client.fetchQuery({ queryKey: ["plan", code], queryFn: () => fetchPlan(code), staleTime: 0 }).catch(() => null as Plan | null)
+        : null;
       const brief = briefOf({
         sheets: sheetsOf(),
         semester: termName,
         scope: everyCohort || !cohort ? "All cohorts" : cohort.name,
         wishes,
         plans,
+        plan,
       });
       const whose = everyCohort || !cohort ? "All-cohorts" : cohort.name.replace(/[^A-Za-z0-9]+/g, "-");
       await downloadBriefPdf(brief, `Timetabling-brief-${[semesterTag, whose].filter(Boolean).join("-")}.pdf`);
@@ -460,8 +468,8 @@ export function WorkbookTools({
           teacher&apos;s answer from Timetable preferences (hard and soft constraints, limits, needs and note, never
           their reasons) and its course lead&apos;s weeks and exams; the Teacher constraints sheet lists every
           teacher&apos;s answer, and Teaching weeks dates the week numbers. The timetabling brief is the same
-          classes as a PDF to read: each course with its classes and its lead&apos;s weeks, then each
-          teacher&apos;s constraints drawn on a week.
+          classes as a PDF to read: the semester at a glance (weeks, breaks, holidays, periods), each course
+          with its classes and its lead&apos;s weeks, then each teacher&apos;s constraints drawn on a week.
         </InfoTip>
         <span className="text-xs text-[#98a2b3]">
           {termId

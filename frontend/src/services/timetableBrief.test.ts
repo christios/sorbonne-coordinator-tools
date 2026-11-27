@@ -7,7 +7,8 @@ import type { CoursePlan, CoursePlanSemester } from "@/services/coursePlans";
 import type { ActiveCrn } from "@/services/portalLists";
 import { EMPTY_REQUEST, EMPTY_SECTION, type CohortCatalogue } from "@/services/studentDatabase";
 import type { WishSemester, Wishes } from "@/services/teacherWishes";
-import { briefOf, buildBriefPdf, printable } from "@/services/timetableBrief";
+import type { Plan } from "@/services/semesterPlans";
+import { briefOf, buildBriefPdf, cellWords, printable } from "@/services/timetableBrief";
 import { requestSheets } from "@/services/timetableExport";
 
 const answer = (over: Partial<Wishes> = {}): Wishes => ({
@@ -62,7 +63,18 @@ const PLAN = {
   exams: { TD: { "8": [2] } },
   cmFirst: true,
   tdBeforeTp: false,
+  note: "Week 8 holds the midterm.",
+  paceReason: "CM first, to prepare for the TDs",
 } as unknown as CoursePlan;
+
+// The Semester plan's settings: Week 1, 14 weeks, a break on 5 Apr, a holiday, Ramadan.
+const PLAN_SETTINGS = {
+  weekOne: "2027-01-25",
+  weeks: 14,
+  without: ["2027-04-05"],
+  holidays: [{ date: "2027-03-31", label: "Eid al-Fitr" }],
+  periods: [{ label: "Ramadan", from: "2027-02-08", to: "2027-03-09", days: [1, 2, 3, 4, 5], endsBy: "15:00", longest: 90, blockFrom: "", blockTo: "", dailyMax: null }],
+} as unknown as Plan;
 
 const mondays = ["2027-01-25", "2027-02-01", "2027-02-08", "2027-02-15", "2027-02-22", "2027-03-01", "2027-03-08", "2027-03-15", "2027-03-22", "2027-03-29", "2027-04-12", "2027-04-19", "2027-04-26", "2027-05-03"];
 const PLANS: CoursePlanSemester = {
@@ -102,9 +114,14 @@ const L2: CohortCatalogue = {
 
 const termName = () => "Semester 2 2026-27";
 const nameOf = (id: string) => ({ "t-omar": "Omar El Dakkak", "t-new": "Nadia New" })[id] ?? "";
+const ACTIVE = [
+  { id: "a1", courseCode: "MATH-233", title: "Algebra 2", ue: "", mutualized: "yes" as const, addedAt: "", addedBy: "", crnCount: 0, portalCrnCount: 0, termCount: 1, lastTerm: "262720", portalParentCrn: "" },
+  { id: "a2", courseCode: "PHYS-222", title: "Waves and Optics", ue: "", mutualized: "no" as const, addedAt: "", addedBy: "", crnCount: 0, portalCrnCount: 0, termCount: 1, lastTerm: "262720", portalParentCrn: "" },
+];
 const sheets = () =>
-  requestSheets(buildCards([L2], termName, [], parentsOf([] as ActiveCrn[], {})), "term-2", termName(), () => "L2", nameOf, () => ({ name: "L2-S4" }));
-const brief = () => briefOf({ sheets: sheets(), semester: "Semester 2 2026-27", scope: "L2-S4", wishes: WISHES, plans: PLANS, made: new Date("2026-11-27T08:00:00Z") });
+  requestSheets(buildCards([L2], termName, ACTIVE, parentsOf([] as ActiveCrn[], {})), "term-2", termName(), () => "L2", nameOf, () => ({ name: "L2-S4" }));
+const brief = () =>
+  briefOf({ sheets: sheets(), semester: "Semester 2 2026-27", scope: "L2-S4", wishes: WISHES, plans: PLANS, plan: PLAN_SETTINGS, made: new Date("2026-11-27T08:00:00Z") });
 
 describe("the timetabling brief", () => {
   it("groups each cohort's classes by course, without the retired ones, with what was typed beside each", () => {
@@ -132,8 +149,13 @@ describe("the timetabling brief", () => {
       ["CM part 2", "15 h"],
       ["TD", "21 h a group"],
     ]);
-    expect(algebra.strip[2].cells["8"]).toEqual({ count: 2, exams: 1, own: true });
-    expect(algebra.lines).toEqual(["TD exam in week 8", "In a week with both: CM before TD", "Sessions lasting otherwise — TD: 1.5 h + 3 h in week 8"]);
+    // Each week its sessions with their lengths: week 8's second TD is the 3-hour exam.
+    expect(algebra.strip[2].cells["8"]).toEqual({ lengths: [1.5, 3], exams: 1, own: true });
+    expect(algebra.strip[0].cells["1"]).toEqual({ lengths: [1.5, 1.5], exams: 0, own: false });
+    expect(algebra.lines).toEqual(["TD exam in week 8 (2nd session, 3 h)", "In a week with both: CM before TD"]);
+    // The course's facts and its lead's words.
+    expect([algebra.mutualized, algebra.leadNote, algebra.paceReason]).toEqual(["yes", "Week 8 holds the midterm.", "CM first, to prepare for the TDs"]);
+    expect(waves.mutualized).toBe("no");
     // Not laid out: what Groups & CRNs says, as typed.
     expect(waves.strip).toEqual([]);
     expect(waves.lines).toEqual(["Weeks as typed on Groups & CRNs: 1 session - weeks 2 to 10"]);
@@ -155,10 +177,28 @@ describe("the timetabling brief", () => {
     expect(JSON.stringify(omar)).not.toMatch(/school run|Hospital|far away/);
     // The weeks: week 10, then a week off, then week 11.
     expect(weeks.slice(9, 12)).toEqual([
-      { number: 10, monday: "2027-03-29", holidays: ["31 Mar Eid al-Fitr"] },
-      { off: "2027-04-05" },
+      { number: 10, monday: "2027-03-29", holidays: ["Wed 31 Mar Eid al-Fitr"] },
+      { off: "2027-04-05", holidays: [] },
       { number: 11, monday: "2027-04-12", holidays: [] },
     ]);
+  });
+
+  it("opens with the semester at a glance: its dates, every period's rules, every holiday", () => {
+    const { calendar, periods, holidays, weeks } = brief();
+    expect(calendar).toBe("Week 1 starts Mon 25 Jan 2027 · 14 teaching weeks · ends Fri 7 May 2027");
+    expect(periods).toEqual([
+      { label: "Ramadan", from: "2027-02-08", to: "2027-03-09", words: "Ramadan, 8 Feb – 9 Mar: classes end by 15:00 · longest class 1h30, Mon–Fri" },
+    ]);
+    expect(holidays).toEqual(["Wed 31 Mar 2027 — Eid al-Fitr"]);
+    expect(weeks).toHaveLength(15);
+  });
+
+  it("says a week's sessions with their lengths", () => {
+    expect(cellWords([1.5, 1.5])).toBe("2×1.5h");
+    expect(cellWords([1.5])).toBe("1×1.5h");
+    expect(cellWords([1.5, 3])).toBe("1.5+3h");
+    // No length on the course yet: the count alone.
+    expect(cellWords([0, 0])).toBe("2");
   });
 
   it("says what it could not read", () => {
@@ -171,7 +211,7 @@ describe("the timetabling brief", () => {
     const pdf = await buildBriefPdf(brief());
     const printed = new TextDecoder("latin1").decode(new Uint8Array(pdf));
     expect(printed.startsWith("%PDF")).toBe(true);
-    for (const said of ["Timetabling brief", "1 · Courses", "2 · Teachers", "MATH-233 · Algebra 2", "Omar El Dakkak", "No answer yet"]) {
+    for (const said of ["Timetabling brief", "Semester at a glance", "Periods for everybody", "1 · Courses", "2 · Teachers", "MATH-233 · Algebra 2", "Mutualized: Maths and Physics together", "Not mutualized", "Lead's note: Week 8 holds the midterm.", "Omar El Dakkak", "No answer yet"]) {
       expect(printed).toContain(printable(said).replace("·", "·"));
     }
     expect(printed).not.toMatch(/school run|Hospital|far away/);

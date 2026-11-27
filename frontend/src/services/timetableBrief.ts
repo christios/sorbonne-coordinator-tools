@@ -16,29 +16,30 @@ import type { jsPDF as JsPdf } from "jspdf";
 
 import {
   COMPONENTS,
-  examWords,
   figure,
   heldOf,
   hoursWords,
-  lengthWords,
   orderWords,
   rowWords,
   rowsOf,
+  sessionLengths,
   withWeeksOff,
   type Component,
   type CoursePlan,
   type CoursePlanSemester,
   type TeachingWeek,
 } from "@/services/coursePlans";
-import { DAY_SHORT, clockOf, teachingWeeks, type WishSemester } from "@/services/teacherWishes";
+import type { Mutualized } from "@/services/portalLists";
+import type { Period, Plan } from "@/services/semesterPlans";
+import { DAY_SHORT, clockOf, isoPlus, isoWeekday, periodRules, teachingWeeks, type WishSemester } from "@/services/teacherWishes";
 import { answerWords, rowKeyOf, teacherWords, type TeacherWords } from "@/services/timetableConstraints";
 import type { RequestSheet } from "@/services/timetableExport";
 import { formatDayAndMonth } from "@/services/weekSchedule";
 
 // ------------------------------------------------------------------ what it says
 
-/** A column of the week strips: a teaching week, or a week off between two. */
-export type BriefWeek = { number: number; monday: string; holidays: string[] } | { off: string };
+/** A column of the week strips: a teaching week, or a week off between two; each with the holidays in it. */
+export type BriefWeek = { number: number; monday: string; holidays: string[] } | { off: string; holidays: string[] };
 
 export type BriefClass = {
   /** "TD 1", "CM A": the class's type and its group. */
@@ -56,19 +57,30 @@ export type BriefClass = {
 export type BriefStrip = {
   label: string;
   hours: string;
-  /** By week number: how many sessions, how many of them exams, and whether one lasts otherwise. */
-  cells: Record<string, { count: number; exams: number; own: boolean }>;
+  /**
+   * By week number: each session's length (0 where the course has no length yet), how many of
+   * them are exams, and whether one lasts other than usual.
+   */
+  cells: Record<string, { lengths: number[]; exams: number; own: boolean }>;
 };
 
 export type BriefCourse = {
   code: string;
   title: string;
   lead: string;
+  /** Taught to the mathematicians and the physicists at once: "yes", "no", or "" not said. */
+  mutualized: Mutualized;
+  /** What the lead wrote beside their weeks, and why their weeks run unevenly, when they said. */
+  leadNote: string;
+  paceReason: string;
   classes: BriefClass[];
   strip: BriefStrip[];
-  /** Exams, the order asked for, sessions lasting otherwise — or, not laid out, what was typed. */
+  /** Exams, the order asked for — or, not laid out, what was typed. */
   lines: string[];
 };
+
+/** A period binding everybody (Ramadan), in words, with its dates to find the weeks it touches. */
+export type BriefPeriod = { label: string; from: string; to: string; words: string };
 
 export type BriefCohort = { name: string; courses: BriefCourse[] };
 
@@ -89,7 +101,12 @@ export type Brief = {
   /** Whose classes: a cohort's name, or "All cohorts". */
   scope: string;
   made: string;
+  /** "Week 1 starts Mon 25 Jan 2027 · 17 teaching weeks · ends Fri 21 May 2027"; "" without dates. */
+  calendar: string;
   weeks: BriefWeek[];
+  periods: BriefPeriod[];
+  /** Every holiday of the semester, a line each: "Wed 31 Mar 2027 — Eid al-Fitr". */
+  holidays: string[];
   grid: { days: number[]; firstHour: number; lastHour: number };
   cohorts: BriefCohort[];
   teachers: BriefTeacher[];
@@ -97,21 +114,60 @@ export type Brief = {
   missing: string[];
 };
 
-/** The semester's weeks as the strips show them: teaching weeks with their Mondays, and the weeks off between. */
-function briefWeeks(plans: CoursePlanSemester | null, wishes: WishSemester | null): BriefWeek[] {
-  const weeks: TeachingWeek[] = plans?.weeks.length
-    ? plans.weeks
-    : teachingWeeks(wishes?.calendar).map((week) => ({ week: week.number, monday: week.monday, holidays: [] }));
+/** "Wed 31 Mar", "Wed 31 Mar 2027": a date as the brief says it. */
+function dayWords(iso: string, year = false): string {
+  return `${DAY_SHORT[isoWeekday(iso)]} ${formatDayAndMonth(iso)}${year ? ` ${iso.slice(0, 4)}` : ""}`;
+}
+
+/** "Mon–Fri", "Mon, Wed": days of the week, three or more in a row as a range. */
+function daysWords(days: number[]): string {
+  const sorted = [...new Set(days)].sort((a, b) => a - b);
+  const inARow = sorted.every((day, index) => !index || day === sorted[index - 1] + 1);
+  if (sorted.length >= 3 && inARow) return `${DAY_SHORT[sorted[0]]}–${DAY_SHORT[sorted[sorted.length - 1]]}`;
+  return sorted.map((day) => DAY_SHORT[day]).join(", ");
+}
+
+/**
+ * The semester's weeks: teaching weeks with their Mondays and the weeks off between, each with
+ * the holidays in it. The Semester plan's own settings first, which hold the breaks, holidays and
+ * periods (user, 27 Nov 2026: "the semester blocks we have and all of them"); else the course
+ * plans' weeks; else the preferences request's calendar.
+ */
+function briefWeeks(plan: Plan | null, plans: CoursePlanSemester | null, wishes: WishSemester | null): BriefWeek[] {
+  const holidays = plan?.holidays ?? [];
+  const inWeek = (monday: string) =>
+    holidays
+      .filter((holiday) => holiday.date >= monday && holiday.date <= isoPlus(monday, 6))
+      .map((holiday) => `${dayWords(holiday.date)} ${holiday.label}`.trim());
+  const weeks: TeachingWeek[] = plan?.weekOne
+    ? teachingWeeks(plan).map((week) => ({ week: week.number, monday: week.monday, holidays: [] }))
+    : plans?.weeks.length
+      ? plans.weeks
+      : teachingWeeks(wishes?.calendar).map((week) => ({ week: week.number, monday: week.monday, holidays: [] }));
   if (weeks.some((week) => !week.monday)) return weeks.map((week) => ({ number: week.week, monday: "", holidays: [] }));
   return withWeeksOff(weeks).map((column) =>
     column.week
       ? {
           number: column.week.week,
           monday: column.week.monday,
-          holidays: column.week.holidays.map((holiday) => `${formatDayAndMonth(holiday.date)} ${holiday.label}`.trim()),
+          holidays: plan
+            ? inWeek(column.week.monday)
+            : column.week.holidays.map((holiday) => `${dayWords(holiday.date)} ${holiday.label}`.trim()),
         }
-      : { off: column.off },
+      : { off: column.off, holidays: inWeek(column.off) },
   );
+}
+
+/** "Ramadan, 8 Feb – 9 Mar: classes end by 15:00 · longest class 1h30, Mon–Fri". */
+function periodOf(period: Period): BriefPeriod {
+  const days = period.days.length && period.days.length < 7 ? `, ${daysWords(period.days)}` : "";
+  const rules = periodRules(period);
+  return {
+    label: period.label,
+    from: period.from,
+    to: period.to,
+    words: `${period.label}, ${formatDayAndMonth(period.from)} – ${formatDayAndMonth(period.to)}${rules.length ? `: ${rules.join(" · ")}` : ""}${days}`,
+  };
 }
 
 /** "1.5": a figure Groups & CRNs holds as typed, when it is one. */
@@ -129,43 +185,60 @@ function lengthOf(typed: string, plan: CoursePlan | undefined, type: string, crn
   return held?.length ? figure(held.length) : typed.trim();
 }
 
-/** A course's weeks, as its lead laid them out: a strip row per component or part, and the lines under it. */
-function planOf(plan: CoursePlan | undefined, typed: string[]): { strip: BriefStrip[]; lines: string[]; lead: string } {
+/** "1st", "2nd", "3rd", "4th": a session's place in its week. */
+function ordinal(place: number): string {
+  const tens = place % 100;
+  if (tens >= 11 && tens <= 13) return `${place}th`;
+  return `${place}${["th", "st", "nd", "rd"][place % 10] ?? "th"}`;
+}
+
+/**
+ * A course's weeks, as its lead laid them out: a strip row per component or part, each week's
+ * sessions with their lengths, and the lines under it — each exam's week, session and length,
+ * and the order asked for.
+ */
+function planOf(plan: CoursePlan | undefined, typed: string[]): { strip: BriefStrip[]; lines: string[] } {
   const strip: BriefStrip[] = [];
-  const otherwise: string[] = [];
+  const exams: string[] = [];
   for (const row of plan ? rowsOf(plan) : []) {
     const weeks = Object.entries(plan!.weeks[row.key] ?? {}).filter(([, count]) => count > 0);
     if (!weeks.length) continue;
-    const exams = plan!.exams?.[row.key] ?? {};
+    const examsOf = plan!.exams?.[row.key] ?? {};
     const own = plan!.lengths?.[row.key] ?? {};
+    const usual = row.held.length ?? 0;
     strip.push({
       label: rowWords(row.key),
       hours: hoursWords(row.component, row.held),
       cells: Object.fromEntries(
-        weeks.map(([week, count]) => [week, { count, exams: (exams[week] ?? []).filter((place) => place <= count).length, own: Boolean(own[week]) }]),
+        weeks.map(([week, count]) => [
+          week,
+          {
+            lengths: sessionLengths(usual, own[week], count),
+            exams: (examsOf[week] ?? []).filter((place) => place <= count).length,
+            own: Boolean(own[week]),
+          },
+        ]),
       ),
     });
-    const lasting = lengthWords(own);
-    if (lasting) otherwise.push(`${rowWords(row.key)}: ${lasting}`);
+    for (const [week, places] of Object.entries(examsOf).sort((a, b) => Number(a[0]) - Number(b[0]))) {
+      const count = plan!.weeks[row.key]?.[week] ?? 0;
+      const lengths = sessionLengths(usual, own[week], count);
+      for (const place of places.filter((each) => each <= count)) {
+        const length = lengths[place - 1];
+        const which = [count > 1 ? `${ordinal(place)} session` : "", length ? `${figure(length)} h` : ""].filter(Boolean).join(", ");
+        exams.push(`${rowWords(row.key)} exam in week ${week}${which ? ` (${which})` : ""}`);
+      }
+    }
   }
   if (!plan || !strip.length) {
     const said = [...new Set(typed.map((each) => each.trim()).filter(Boolean))];
     return {
       strip,
-      lead: plan?.leadName ?? "",
       lines: said.length ? said.map((each) => `Weeks as typed on Groups & CRNs: ${each}`) : ["Weeks not laid out by the course lead yet."],
     };
   }
   const order = orderWords(plan);
-  return {
-    strip,
-    lead: plan.leadName,
-    lines: [
-      ...examWords(plan.exams),
-      order.length ? `In a week with both: ${order.join("; ")}` : "",
-      otherwise.length ? `Sessions lasting otherwise — ${otherwise.join(" · ")}` : "",
-    ].filter(Boolean),
-  };
+  return { strip, lines: [...exams, order.length ? `In a week with both: ${order.join("; ")}` : ""].filter(Boolean) };
 }
 
 /**
@@ -178,9 +251,12 @@ export function briefOf(input: {
   scope: string;
   wishes: WishSemester | null;
   plans: CoursePlanSemester | null;
+  /** The Semester plan's settings: its weeks, breaks, holidays and periods. */
+  plan?: Plan | null;
   made?: Date;
 }): Brief {
   const { sheets, wishes, plans } = input;
+  const plan = input.plan ?? null;
   const byCourse = new Map((plans?.courses ?? []).map((plan) => [plan.courseCode.toUpperCase(), plan]));
   const byTeacher = new Map((wishes?.teachers ?? []).map((teacher) => [teacher.teacherId, teacher]));
   const collection = wishes?.collection ?? null;
@@ -194,11 +270,11 @@ export function briefOf(input: {
   const cohorts: BriefCohort[] = [];
   const teaching = new Map<string, { name: string; classes: string[] }>();
   for (const sheet of sheets) {
-    const courses = new Map<string, { title: string; classes: BriefClass[]; typed: string[] }>();
+    const courses = new Map<string, { title: string; mutualized: Mutualized; classes: BriefClass[]; typed: string[] }>();
     for (const row of sheet.rows) {
       if (row.retired) continue;
       const code = row.courseCode || `${row.subject}-${row.courseNumber}`;
-      const held = courses.get(code) ?? { title: row.courseTitle || row.courseName, classes: [], typed: [] };
+      const held = courses.get(code) ?? { title: row.courseTitle || row.courseName, mutualized: row.mutualized ?? "", classes: [], typed: [] };
       const label = [row.type, row.group].filter(Boolean).join(" ");
       held.classes.push({
         label,
@@ -229,8 +305,19 @@ export function briefOf(input: {
     cohorts.push({
       name: sheet.heading,
       courses: [...courses.entries()].map(([code, held]) => {
-        const plan = planOf(byCourse.get(code.toUpperCase()), held.typed);
-        return { code, title: held.title, lead: plan.lead, classes: held.classes, strip: plan.strip, lines: plan.lines };
+        const course = byCourse.get(code.toUpperCase());
+        const laid = planOf(course, held.typed);
+        return {
+          code,
+          title: held.title,
+          lead: course?.leadName ?? "",
+          mutualized: held.mutualized,
+          leadNote: course?.note?.trim() ?? "",
+          paceReason: course?.paceReason?.trim() ?? "",
+          classes: held.classes,
+          strip: laid.strip,
+          lines: laid.lines,
+        };
       }),
     });
   }
@@ -260,11 +347,24 @@ export function briefOf(input: {
     .sort((left, right) => left.name.localeCompare(right.name));
 
   const made = input.made ?? new Date();
+  const weeks = briefWeeks(plan, plans, wishes);
+  const teachingOnly = weeks.filter((week): week is Extract<BriefWeek, { number: number }> => "number" in week);
+  const first = teachingOnly[0];
+  const last = teachingOnly[teachingOnly.length - 1];
+  const lastDay = Math.max(...grid.days);
   return {
     semester: input.semester,
     scope: input.scope,
     made: made.toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
-    weeks: briefWeeks(plans, wishes),
+    calendar:
+      first?.monday && last?.monday
+        ? `Week 1 starts ${dayWords(first.monday, true)} · ${teachingOnly.length} teaching weeks · ends ${dayWords(isoPlus(last.monday, lastDay - 1), true)}`
+        : "",
+    weeks,
+    periods: (plan?.periods ?? []).filter((period) => period.from && period.to).map(periodOf),
+    holidays: [...(plan?.holidays ?? [])]
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map((holiday) => `${dayWords(holiday.date, true)} — ${holiday.label}`),
     grid,
     cohorts,
     teachers,
@@ -416,9 +516,9 @@ function drawClassRow(pen: Pen, entry: BriefClass) {
 }
 
 // The week strips: a label column, then a column a week, a narrow grey one for a week off.
-const STRIP_LABEL = 74;
-const OFF_WIDTH = 9;
-const STRIP_ROW = 13;
+const STRIP_LABEL = 64;
+const OFF_WIDTH = 8;
+const STRIP_ROW = 14;
 
 function stripColumns(weeks: BriefWeek[]): { week: BriefWeek; x: number; width: number }[] {
   const teaching = weeks.filter((week) => "number" in week).length;
@@ -477,25 +577,26 @@ function drawStripRow(pen: Pen, weeks: BriefWeek[], row: BriefStrip) {
     const middle = column.x + column.width / 2;
     if (!cell) {
       font(doc, 7, "normal", [200, 208, 218]);
-      doc.text("·", middle, pen.y + 9, { align: "center" });
+      doc.text("·", middle, pen.y + 9.5, { align: "center" });
       continue;
     }
-    font(doc, 8, "bold", cell.exams ? EXAM : cell.own ? OWN : NAVY);
-    const count = String(cell.count);
+    // The week's sessions with their lengths, set as large as the column lets them.
+    const said = cellWords(cell.lengths);
+    const room = column.width - (cell.exams ? 7 : 3);
+    let size = 7;
+    font(doc, size, "bold");
+    while (size > 4.5 && doc.getTextWidth(said) > room) {
+      size -= 0.25;
+      font(doc, size, "bold");
+    }
+    font(doc, size, "bold", cell.exams ? EXAM : cell.own ? OWN : NAVY);
+    doc.text(fitted(doc, said, room), cell.exams ? middle - 2 : middle, pen.y + 9.5, { align: "center" });
     if (cell.exams) {
-      const countWidth = doc.getTextWidth(count);
-      font(doc, 5.5, "bold", EXAM);
-      const markWidth = doc.getTextWidth("E");
-      const start = middle - (countWidth + 1 + markWidth) / 2;
-      font(doc, 8, "bold", EXAM);
-      doc.text(count, start, pen.y + 9.5);
-      font(doc, 5.5, "bold", EXAM);
-      doc.text("E", start + countWidth + 1, pen.y + 6.5);
+      font(doc, 5, "bold", EXAM);
+      doc.text("E", column.x + column.width - 3.2, pen.y + 6, { align: "right" });
       doc.setDrawColor(...EXAM);
       doc.setLineWidth(0.6);
-      doc.roundedRect(column.x + 1.5, pen.y + 1.5, column.width - 3, STRIP_ROW - 3, 2, 2, "S");
-    } else {
-      doc.text(count, middle, pen.y + 9.5, { align: "center" });
+      doc.roundedRect(column.x + 1, pen.y + 1.5, column.width - 2, STRIP_ROW - 3, 2, 2, "S");
     }
   }
   doc.setDrawColor(...RULE);
@@ -504,9 +605,40 @@ function drawStripRow(pen: Pen, weeks: BriefWeek[], row: BriefStrip) {
   pen.y += STRIP_ROW;
 }
 
+/** "2×1.5h", "1.5+3h", or the count alone while the course has no session length. */
+export function cellWords(lengths: number[]): string {
+  if (!lengths.length) return "";
+  if (lengths.some((length) => !length)) return String(lengths.length);
+  return new Set(lengths).size === 1 ? `${lengths.length}×${figure(lengths[0])}h` : `${lengths.map(figure).join("+")}h`;
+}
+
+/** As much of the words as fits, cut with an ellipsis. */
+function fitted(doc: JsPdf, text: string, width: number): string {
+  if (doc.getTextWidth(text) <= width) return text;
+  let cut = text;
+  while (cut.length > 1 && doc.getTextWidth(`${cut}…`) > width) cut = cut.slice(0, -1);
+  return `${cut.trimEnd()}…`;
+}
+
+/** What is said under a course's weeks: its exams and order, why its weeks are uneven, its lead's note. */
+function courseLines(course: BriefCourse): { text: string; ink: Rgb }[] {
+  return [
+    ...course.lines.map((text) => ({ text, ink: text.startsWith("Weeks not") ? FAINT : text.includes(" exam in ") ? EXAM : SOFT })),
+    ...(course.paceReason ? [{ text: `Why the weeks are uneven: ${course.paceReason}`, ink: SOFT }] : []),
+    ...(course.leadNote ? [{ text: `Lead's note: ${course.leadNote}`, ink: SOFT }] : []),
+  ];
+}
+
+/** The course's Mutualized tag, as Active courses says it: none while nobody has said. */
+function mutualizedWords(mutualized: BriefCourse["mutualized"]): string {
+  if (mutualized === "yes") return "Mutualized: Maths and Physics together";
+  if (mutualized === "no") return "Not mutualized";
+  return "";
+}
+
 function courseHeight(doc: JsPdf, course: BriefCourse, weeks: BriefWeek[]): number {
   font(doc, 7.5);
-  const lines = course.lines.reduce((sum, line) => sum + wrap(doc, line, WIDTH).length, 0);
+  const lines = courseLines(course).reduce((sum, line) => sum + wrap(doc, line.text, WIDTH).length, 0);
   return (
     18 +
     13 +
@@ -525,9 +657,28 @@ function drawCourse(pen: Pen, course: BriefCourse, weeks: BriefWeek[]) {
   font(doc, 10, "bold", INK);
   const title = printable(`${course.code} · ${course.title}`);
   doc.text(title, PAGE.left, pen.y + 10);
+  let leadAt = PAGE.right;
   if (course.lead) {
     font(doc, 8, "normal", SOFT);
-    doc.text(printable(`Course lead: ${course.lead}`), PAGE.right, pen.y + 10, { align: "right" });
+    const said = printable(`Course lead: ${course.lead}`);
+    doc.text(said, PAGE.right, pen.y + 10, { align: "right" });
+    leadAt -= doc.getTextWidth(said) + 10;
+  }
+  // The Mutualized tag beside the title, as a pill.
+  const tag = mutualizedWords(course.mutualized);
+  if (tag) {
+    font(doc, 10, "bold");
+    const x = PAGE.left + doc.getTextWidth(title) + 8;
+    font(doc, 7, "bold", course.mutualized === "yes" ? ([6, 89, 102] as Rgb) : SOFT);
+    const width = doc.getTextWidth(tag) + 8;
+    if (x + width <= leadAt) {
+      doc.setFillColor(...(course.mutualized === "yes" ? ([224, 242, 245] as Rgb) : HEAD_FILL));
+      doc.roundedRect(x, pen.y + 2.5, width, 10, 3, 3, "F");
+      doc.text(tag, x + 4, pen.y + 9.6);
+    } else {
+      doc.text(tag, PAGE.left, pen.y + 20);
+      pen.y += 10;
+    }
   }
   pen.y += 18;
   drawClassHeader(pen);
@@ -541,11 +692,12 @@ function drawCourse(pen: Pen, course: BriefCourse, weeks: BriefWeek[]) {
     drawStripHead(pen, weeks, false);
     for (const row of course.strip) drawStripRow(pen, weeks, row);
   }
-  if (course.lines.length) {
+  const said = courseLines(course);
+  if (said.length) {
     pen.y += 4;
-    for (const line of course.lines) {
-      font(doc, 7.5, "normal", line.startsWith("Weeks not") ? FAINT : line.includes("exam") ? EXAM : SOFT);
-      const lines = wrap(doc, line, WIDTH);
+    for (const line of said) {
+      font(doc, 7.5, "normal", line.ink);
+      const lines = wrap(doc, line.text, WIDTH);
       pen.need(lines.length * 9.5);
       lines.forEach((each, at) => doc.text(each, PAGE.left, pen.y + 7 + at * 9.5));
       pen.y += lines.length * 9.5;
@@ -691,6 +843,136 @@ function drawTeacher(pen: Pen, teacher: BriefTeacher, grid: Brief["grid"]) {
   doc.line(PAGE.left, pen.y - 8, PAGE.right, pen.y - 8);
 }
 
+/** A colour for each period of the semester, in turn: its chip in the weeks and in the list. */
+const PERIOD_COLORS: Rgb[] = [
+  [21, 112, 239],
+  [112, 65, 196],
+  [3, 152, 85],
+  [220, 104, 3],
+  [192, 38, 211],
+];
+const GLANCE = { week: 40, dates: 104, row: 13 };
+
+function chip(doc: JsPdf, color: Rgb, x: number, y: number) {
+  doc.setFillColor(...color);
+  doc.roundedRect(x, y, 3, 9, 1, 1, "F");
+}
+
+/**
+ * The semester at a glance (user, 27 Nov 2026: "the semester blocks we have and all of them …
+ * at the beginning"): a line saying when it starts and ends, then a row a week — its dates, a
+ * break as a grey row, the periods and holidays that touch it — then each period's rules in full
+ * and every holiday.
+ */
+function drawGlance(pen: Pen, brief: Brief) {
+  const { doc } = pen;
+  font(doc, 14, "bold", NAVY);
+  doc.text("Semester at a glance", PAGE.left, pen.y + 12);
+  pen.y += 20;
+  if (brief.calendar) {
+    font(doc, 9, "bold", INK);
+    doc.text(printable(brief.calendar), PAGE.left, pen.y + 8);
+    pen.y += 16;
+  }
+  if (!brief.weeks.length) {
+    font(doc, 8.5, "normal", SOFT);
+    doc.text("The semester's weeks are not set yet.", PAGE.left, pen.y + 8);
+    pen.y += 16;
+    return;
+  }
+  const lastDay = Math.max(...brief.grid.days);
+  const dated = brief.weeks.every((week) => ("number" in week ? Boolean(week.monday) : true));
+  const touches = (monday: string) =>
+    brief.periods
+      .map((period, index) => ({ period, color: PERIOD_COLORS[index % PERIOD_COLORS.length] }))
+      .filter(({ period }) => monday && period.from <= isoPlus(monday, 6) && period.to >= monday);
+
+  // The heading row.
+  doc.setFillColor(...HEAD_FILL);
+  doc.rect(PAGE.left, pen.y, WIDTH, 13, "F");
+  font(doc, 7, "bold", SOFT);
+  doc.text("Week", PAGE.left + CELL_PAD, pen.y + 9);
+  if (dated) doc.text("Dates", PAGE.left + GLANCE.week + CELL_PAD, pen.y + 9);
+  doc.text("On that week", PAGE.left + GLANCE.week + GLANCE.dates + CELL_PAD, pen.y + 9);
+  pen.y += 13;
+
+  const notesX = PAGE.left + GLANCE.week + GLANCE.dates + CELL_PAD;
+  for (const week of brief.weeks) {
+    pen.need(GLANCE.row);
+    const off = !("number" in week);
+    const monday = off ? week.off : week.monday;
+    if (off) {
+      doc.setFillColor(...OFF_FILL);
+      doc.rect(PAGE.left, pen.y, WIDTH, GLANCE.row, "F");
+    }
+    font(doc, 8, "bold", off ? SOFT : INK);
+    doc.text(off ? "—" : String(week.number), PAGE.left + CELL_PAD, pen.y + 9);
+    if (monday) {
+      font(doc, 8, "normal", off ? SOFT : INK);
+      doc.text(`${formatDayAndMonth(monday)} – ${formatDayAndMonth(isoPlus(monday, lastDay - 1))}`, PAGE.left + GLANCE.week + CELL_PAD, pen.y + 9);
+    }
+    // What is on that week: a break, the periods it falls in, its holidays.
+    let x = notesX;
+    const room = () => PAGE.right - CELL_PAD - x;
+    if (off) {
+      font(doc, 8, "bold", SOFT);
+      doc.text("Break, no teaching", x, pen.y + 9);
+      x += doc.getTextWidth("Break, no teaching") + 10;
+    }
+    for (const { period, color } of touches(monday)) {
+      if (room() < 20) break;
+      chip(doc, color, x, pen.y + 2);
+      font(doc, 8, "bold", color);
+      const label = fitted(doc, printable(period.label), room() - 6);
+      doc.text(label, x + 6, pen.y + 9);
+      x += 6 + doc.getTextWidth(label) + 10;
+    }
+    for (const holiday of week.holidays) {
+      if (room() < 20) break;
+      font(doc, 8, "normal", OWN);
+      const said = fitted(doc, printable(`${holiday} (holiday)`), room());
+      doc.text(said, x, pen.y + 9);
+      x += doc.getTextWidth(said) + 10;
+    }
+    doc.setDrawColor(...RULE);
+    doc.setLineWidth(0.3);
+    doc.line(PAGE.left, pen.y + GLANCE.row, PAGE.right, pen.y + GLANCE.row);
+    pen.y += GLANCE.row;
+  }
+
+  // Each period's rules in full, then every holiday.
+  pen.y += 10;
+  font(doc, 9, "bold", INK);
+  pen.need(30);
+  doc.text("Periods for everybody", PAGE.left, pen.y + 8);
+  pen.y += 13;
+  if (!brief.periods.length) {
+    font(doc, 8, "normal", SOFT);
+    doc.text("None set for this semester.", PAGE.left, pen.y + 8);
+    pen.y += 12;
+  }
+  brief.periods.forEach((period, index) => {
+    const color = PERIOD_COLORS[index % PERIOD_COLORS.length];
+    font(doc, 8, "normal", INK);
+    const lines = wrap(doc, period.words, WIDTH - 8);
+    pen.need(lines.length * 10.5);
+    chip(doc, color, PAGE.left, pen.y + 1.5);
+    lines.forEach((line, at) => doc.text(line, PAGE.left + 8, pen.y + 8.5 + at * 10.5));
+    pen.y += lines.length * 10.5 + 2;
+  });
+  pen.y += 8;
+  font(doc, 9, "bold", INK);
+  pen.need(30);
+  doc.text("Holidays", PAGE.left, pen.y + 8);
+  pen.y += 13;
+  font(doc, 8, "normal", brief.holidays.length ? OWN : SOFT);
+  for (const holiday of brief.holidays.length ? brief.holidays : ["None set for this semester."]) {
+    pen.need(10.5);
+    doc.text(printable(holiday), PAGE.left, pen.y + 8.5);
+    pen.y += 10.5;
+  }
+}
+
 export async function buildBriefPdf(brief: Brief): Promise<ArrayBuffer> {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "pt", format: "a4", orientation: "portrait" });
@@ -710,27 +992,22 @@ export async function buildBriefPdf(brief: Brief): Promise<ArrayBuffer> {
     font(doc, 8.5, "bold", OWN);
     pen.y += paragraph(doc, `Not in this brief: the ${brief.missing.join(" and the ")}, which could not be read for this semester.`, PAGE.left, pen.y + 8, WIDTH, 11) + 6;
   }
+  drawGlance(pen, brief);
+  pen.y += 16;
+  pen.need(80);
+  font(doc, 9, "bold", INK);
+  doc.text("How to read it", PAGE.left, pen.y + 8);
+  pen.y += 13;
   font(doc, 8.5, "normal", INK);
   for (const line of [
-    "Part 1 lists each course with its classes and the weeks its course lead laid out. A number in a week is how many sessions that week; a framed number with an E holds an exam; grey columns are weeks off.",
+    "Part 1 lists each course with its classes and the weeks its course lead laid out. A week shows its sessions and their length: 2×1.5h is two sessions of 1.5 hours, 1.5+3h two sessions of different lengths. A framed week with an E holds an exam. Grey columns are breaks.",
     "Part 2 lists each teacher of those classes with what they asked. Red is a hard constraint: they can't teach then. Yellow is a soft one: they would rather not, so keep it free if possible. A lighter block starts later in the semester.",
   ]) {
     pen.y += paragraph(doc, line, PAGE.left, pen.y + 8, WIDTH, 11) + 4;
   }
-  if (brief.weeks.length) {
-    pen.y += 8;
-    font(doc, 9, "bold", INK);
-    doc.text("Teaching weeks", PAGE.left, pen.y + 8);
-    pen.y += 14;
-    drawStripHead(pen, brief.weeks, brief.weeks.some((week) => "monday" in week && Boolean(week.monday)));
-    const holidays = brief.weeks.flatMap((week) => ("number" in week ? week.holidays.map((holiday) => `week ${week.number}, ${holiday}`) : []));
-    if (holidays.length) {
-      font(doc, 7.5, "normal", OWN);
-      pen.y += paragraph(doc, `Holidays: ${holidays.join("; ")}.`, PAGE.left, pen.y + 9, WIDTH, 9.5) + 2;
-    }
-  }
-  pen.y += 18;
+  pen.y += 14;
 
+  pen.page();
   partHeading(pen, "1 · Courses", "Each cohort's courses, with what Groups & CRNs says of each class.");
   if (!brief.cohorts.length) {
     font(doc, 9, "normal", SOFT);
