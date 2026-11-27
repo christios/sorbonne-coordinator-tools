@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Download, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -8,12 +8,15 @@ import { Modal } from "@/components/Modal";
 import { SelectMenu } from "@/components/SelectMenu";
 import { downloadAdmissionsList } from "@/services/admissionsExport";
 import { downloadHandout, handoutName } from "@/services/studentHandout";
-import { fetchActiveCourses, fetchActiveTeachers } from "@/services/portalLists";
+import { fetchCoursePlans, type CoursePlanSemester } from "@/services/coursePlans";
+import { fetchActiveCourses, fetchActiveTeachers, fetchTermLinks } from "@/services/portalLists";
 import { fieldHeld, namesHeld } from "@/services/rosterStore";
 import { type CatalogueScope, type Cohort, fetchAssignmentMajors, fetchAssignments, fetchCatalogue, fetchEveryExemption, fetchMemberIds } from "@/services/studentDatabase";
 import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
-import { downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel, shortSemester } from "@/services/timetableExport";
+import { fetchWishSemester, type WishSemester } from "@/services/teacherWishes";
+import { courseWordsOf, teacherWords, weekRows } from "@/services/timetableConstraints";
+import { constraintTeachers, downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel, shortSemester, type Told } from "@/services/timetableExport";
 import { downloadWorkbook, labelIn, prefixOf, readingsFor, shortYear } from "@/services/workbookExport";
 import { useSemesterShown } from "@/services/semesterYears";
 
@@ -244,9 +247,42 @@ export function WorkbookTools({
   const timetableCards = cards.filter(
     (card) => card.termId === termId && (everyCohort || card.cohortId === cohortId),
   );
+  const client = useQueryClient();
+  // What the timetable was built without, said under its button: "" once it had everything.
+  const [timetableNote, setTimetableNote] = useState("");
+  /*
+   * What the teachers answered and what the leads laid out for the semester (27 Nov 2026), read
+   * when the file is made so it is the latest. Kept by the portal term the semester is linked
+   * to, or a plan's own. Either may fail to come — no request opened yet — and the file is then
+   * made without it, which the line under the button says.
+   */
+  const heardFor = async (): Promise<{ told: Told; plans: CoursePlanSemester | null; missing: string[] }> => {
+    const links = await client.fetchQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks }).catch(() => ({}) as Record<string, string>);
+    const code = links[termId] ?? (termId.startsWith("plan:") ? termId.slice(5) : "");
+    if (!code) return { told: {}, plans: null, missing: ["teachers' answers", "course leads' weeks"] };
+    const [wishes, plans] = await Promise.all([
+      client.fetchQuery({ queryKey: ["wishes", code], queryFn: () => fetchWishSemester(code), staleTime: 0 }).catch(() => null as WishSemester | null),
+      client.fetchQuery({ queryKey: ["course-plans", code], queryFn: () => fetchCoursePlans(code), staleTime: 0 }).catch(() => null as CoursePlanSemester | null),
+    ]);
+    const byTeacher = new Map((wishes?.teachers ?? []).map((teacher) => [teacher.teacherId, teacher]));
+    const byCourse = new Map((plans?.courses ?? []).map((plan) => [plan.courseCode.toUpperCase(), plan]));
+    return {
+      told: {
+        teacher: (teacherId) => {
+          const teacher = byTeacher.get(teacherId);
+          return teacher ? teacherWords(teacher, wishes?.collection ?? null, wishes?.calendar) : null;
+        },
+        course: (courseCode, type, crn) => courseWordsOf(byCourse.get(courseCode.toUpperCase()), type, crn),
+      },
+      plans,
+      missing: [wishes?.collection ? "" : "teachers' answers", plans ? "" : "course leads' weeks"].filter(Boolean),
+    };
+  };
   const exportTimetable = async () => {
     setExporting("timetable");
+    setTimetableNote("");
     try {
+      const { told, plans, missing } = await heardFor();
       const sheets = requestSheets(
         timetableCards,
         termId,
@@ -259,12 +295,18 @@ export function WorkbookTools({
         teacherName,
         // The sheet's own name, which each cohort answers for itself.
         (id) => cohorts.find((candidate) => candidate.id === id) ?? { name: "" },
+        told,
       );
       // One workbook a year, as the department's own file is named; a cohort's says whose.
       const year = shortYear((everyCohort ? cohorts.find((candidate) => candidate.term) : cohort)?.term ?? "");
       const whose = everyCohort || !cohort ? "" : `-${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}`;
       const tag = semesterTag ? `-${semesterTag}` : "";
-      await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}${tag}${whose}.xlsx`, year);
+      await downloadTimetableWorkbook(sheets, `Time-Tables-${year || "request"}${tag}${whose}.xlsx`, year, {
+        teachers: missing.includes("teachers' answers") ? [] : constraintTeachers(sheets, told),
+        weeks: weekRows(plans?.weeks ?? []),
+        semester: termName,
+      });
+      setTimetableNote(missing.length ? `Made without the ${missing.join(" or the ")}: none could be read for this semester.` : "");
     } finally {
       setExporting("");
     }
@@ -380,13 +422,17 @@ export function WorkbookTools({
         </div>
         <InfoTip label="About the timetable file">
           The workbook the timetabler gets: a sheet per cohort, the CRN table and the teacher hours. Teachers come from
-          Active teachers; a section with none chosen keeps the portal&apos;s name.
+          Active teachers; a section with none chosen keeps the portal&apos;s name. Each class also carries its
+          teacher&apos;s answer from Timetable preferences (hard and soft constraints, limits, needs and note, never
+          their reasons) and its course lead&apos;s weeks and exams; the Teacher constraints sheet lists every
+          teacher&apos;s answer, and Teaching weeks dates the week numbers.
         </InfoTip>
         <span className="text-xs text-[#98a2b3]">
           {termId
             ? `${timetableCards.length} course${timetableCards.length === 1 ? "" : "s"} across ${new Set(timetableCards.map((card) => card.cohortId)).size} cohort(s).`
             : ""}
         </span>
+        {timetableNote && <span role="status" className="w-full text-xs text-[#b54708]">{timetableNote}</span>}
       </div>
     </Modal>
   );

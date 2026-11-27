@@ -16,6 +16,17 @@ import { hoursColumn, teacherLoads } from "@/services/teacherLoad";
 export { hoursColumn } from "@/services/teacherLoad";
 import { SPREADSHEET_TYPE, columnLetter } from "@/services/workbookExport";
 import { ALL_COHORTS } from "@/services/studentDatabase";
+import type { ConstraintLine, CourseWords, TeacherWords } from "@/services/timetableConstraints";
+
+/**
+ * What the timetabler is told beyond the cards (27 Nov 2026): a teacher's answer to the
+ * Timetable preferences request, by their Active teacher id, and a class's share of its
+ * course lead's plan, by its course code, type and CRN. Either may be missing.
+ */
+export type Told = {
+  teacher?: (teacherId: string) => TeacherWords | null;
+  course?: (courseCode: string, type: string, crn: string) => CourseWords | null;
+};
 
 export const REQUEST_COLUMNS = [
   "Course Name",
@@ -96,6 +107,7 @@ export function requestSheets(
   teacherName: (teacherId: string) => string,
   /** The cohort record, for the name of its sheet and the heading above it. */
   cohortNamed: (cohortId: string) => { name: string; workbookTab?: string; firstSemester?: number } = () => ({ name: "" }),
+  heard: Told = {},
 ): RequestSheet[] {
   // Every group of the semester by id, for the "in parallel with" note on a row.
   const labelOfGroup = groupLabelsOf(cards);
@@ -132,8 +144,19 @@ export function requestSheets(
         // What this group says, and what its course said for every group that says nothing.
         const section = row.section ? filled(row.section, set.course.request) : null;
         if (!section) continue;
-        const comments = [section.comments, section.retired ? "Retired group" : ""].filter(Boolean).join("; ");
         const crn = section.crn.trim();
+        const type = row.course.component || row.scope.code;
+        /*
+         * What the teacher answered and what the lead laid out, after what was typed here
+         * (27 Nov 2026). The lead's weeks take the place of the typed ones; everything else
+         * is added to what the row already said.
+         */
+        const answer = section.teacherId ? (heard.teacher?.(section.teacherId) ?? null) : null;
+        const plan = heard.course?.(card.code, type, crn) ?? null;
+        const joined = (...said: string[]) => said.map((each) => each.trim()).filter(Boolean).join("\n");
+        const comments = [section.comments, section.retired ? "Retired group" : "", answer?.note ? `Teacher's note: ${answer.note}` : ""]
+          .filter(Boolean)
+          .join("; ");
         const anticipated = !crn ? anticipatedOf(row) : told.has(crn) ? 0 : (classOf.get(crn) ?? anticipatedOf(row));
         if (crn) told.add(crn);
         held.rows.push({
@@ -147,14 +170,14 @@ export function requestSheets(
           subject: code.subject,
           courseNumber: code.number,
           hours: section.hours,
-          type: row.course.component || row.scope.code,
-          roomPref: section.roomPref,
+          type,
+          roomPref: joined(section.roomPref, answer?.needs ? `Teacher's needs: ${answer.needs}` : ""),
           teacher: section.teacherId ? teacherName(section.teacherId) || section.teacher : section.teacher,
           teacherId: section.teacherId,
-          timePref: section.timePref,
-          dayPref: section.dayPref,
-          constraints: [section.constraints, parallelNote(row.group, labelOfGroup)].filter(Boolean).join("; "),
-          weeks: section.sessionsPerWeek || section.weeks,
+          timePref: joined(section.timePref, answer?.time ?? ""),
+          dayPref: joined(section.dayPref, answer?.day ?? ""),
+          constraints: [section.constraints, parallelNote(row.group, labelOfGroup), plan?.order ?? ""].filter(Boolean).join("; "),
+          weeks: plan?.weeks || section.sessionsPerWeek || section.weeks,
           duration: section.duration,
           // The class's seats, not a number typed beside them — see anticipatedOf.
           anticipated: anticipated || "",
@@ -267,7 +290,7 @@ const COLUMN_STYLE: { width?: number; align: "left" | "center"; wrap?: boolean }
   { width: 11, align: "center" }, // Course Number
   { width: 20, align: "center" }, // Total Teaching Hours
   { width: 15, align: "center" }, // Teaching Type
-  { width: 20, align: "left" }, // Room Preference
+  { width: 20, align: "left", wrap: true }, // Room Preference
   { width: 22, align: "left" }, // Teacher
   { width: 28, align: "left", wrap: true }, // Time Preference
   { width: 24, align: "left", wrap: true }, // Day Preference
@@ -319,7 +342,40 @@ function band(cell: Cell, text: string, { fill, size }: { fill: string; size: nu
   cell.alignment = { vertical: "middle" };
 }
 
-export async function buildTimetableWorkbook(sheets: RequestSheet[], academicYear = ""): Promise<ArrayBuffer> {
+/** A teacher of the file and their answer, for the Teacher constraints sheet. */
+export type TeacherConstraints = { teacher: string; answer: string; lines: ConstraintLine[] };
+
+/** The sheets beyond the cards' (27 Nov 2026), each left out when it has nothing to say. */
+export type WorkbookExtras = {
+  /** Every teacher named on the file's rows, with their answer or "No answer yet". */
+  teachers?: TeacherConstraints[];
+  /** The semester's teaching weeks with their Mondays, so "week 8" on a row has a date. */
+  weeks?: { week: string; monday: string; note: string }[];
+  /** "Semester 2 2026-27", for the sheets' bands. */
+  semester?: string;
+};
+
+/**
+ * The teachers the file names, by their Active teacher id, each with what they answered: the
+ * Teacher constraints sheet's rows, alphabetical. A teacher with no answer is listed as such,
+ * so the timetabler knows the silence is not a "no constraints".
+ */
+export function constraintTeachers(sheets: RequestSheet[], heard: Told): TeacherConstraints[] {
+  const named = new Map<string, string>();
+  for (const row of sheets.flatMap((sheet) => sheet.rows)) {
+    if (row.teacherId && !row.retired && !named.has(row.teacherId)) named.set(row.teacherId, row.teacher);
+  }
+  return [...named.entries()]
+    .map(([teacherId, teacher]) => {
+      const words = heard.teacher?.(teacherId) ?? null;
+      return words
+        ? { teacher, answer: words.answer, lines: words.lines }
+        : { teacher, answer: "No answer yet", lines: [] };
+    })
+    .sort((left, right) => left.teacher.localeCompare(right.teacher));
+}
+
+export async function buildTimetableWorkbook(sheets: RequestSheet[], academicYear = "", extras: WorkbookExtras = {}): Promise<ArrayBuffer> {
   const ExcelJS = await import("exceljs");
   const book = new ExcelJS.Workbook();
   book.created = new Date();
@@ -442,11 +498,76 @@ export async function buildTimetableWorkbook(sheets: RequestSheet[], academicYea
   });
   professors.getColumn(1).width = 30;
 
+  /*
+   * The two sheets added on 27 Nov 2026, after the file's own so nothing that reads it by
+   * position moves: each teacher's whole answer, and the weeks the rows count in. Set like the
+   * request sheets — the navy band, Arial 10, the grey rule.
+   */
+  const listSheet = (title: string, intro: string, columns: { name: string; width: number; wrap?: boolean }[], rows: string[][]) => {
+    const ws = book.addWorksheet(title, { views: [{ state: "frozen", ySplit: 3, showGridLines: false }] });
+    const end = columnLetter(columns.length);
+    ws.mergeCells(`A1:${end}1`);
+    band(ws.getCell(1, 1), extras.semester ? `${title} — ${extras.semester}` : title, { fill: TITLE_FILL, size: 16 });
+    ws.getRow(1).height = 25.5;
+    ws.mergeCells(`A2:${end}2`);
+    ws.getCell(2, 1).value = intro;
+    ws.getCell(2, 1).font = { ...BODY_FONT, size: 8, italic: true, color: { argb: "FF666666" } };
+    ws.getCell(2, 1).alignment = { wrapText: true, vertical: "middle" };
+    ws.getRow(2).height = 33.95;
+    columns.forEach((column, index) => heading(ws.getCell(3, index + 1), column.name));
+    ws.getRow(3).height = 33.75;
+    rows.forEach((values, at) => {
+      values.forEach((value, index) => {
+        const cell = ws.getCell(4 + at, index + 1);
+        cell.value = value === "" ? null : value;
+        cell.font = { ...BODY_FONT };
+        cell.alignment = { horizontal: "left", vertical: "middle", wrapText: columns[index].wrap ?? false };
+        cell.border = ruled();
+      });
+    });
+    columns.forEach((column, index) => {
+      ws.getColumn(index + 1).width = column.width;
+    });
+    ws.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3 + rows.length, column: columns.length } };
+  };
+
+  if (extras.teachers?.length) {
+    listSheet(
+      "Teacher constraints",
+      "Each teacher's answer to the Timetable preferences request. Hard constraint: can't teach then. Soft constraint: would rather not, keep it free if possible. The same lines are on each of their classes, under Time Preference and Day Preference.",
+      [
+        { name: "Teacher", width: 26 },
+        { name: "Kind", width: 16 },
+        { name: "When", width: 46, wrap: true },
+        { name: "Weeks", width: 24 },
+        { name: "Answer", width: 30 },
+      ],
+      extras.teachers.flatMap((entry) =>
+        entry.lines.length
+          ? entry.lines.map((line) => [entry.teacher, line.kind, line.when, line.weeks, entry.answer])
+          : [[entry.teacher, "", "", "", entry.answer]],
+      ),
+    );
+  }
+
+  if (extras.weeks?.length) {
+    listSheet(
+      "Teaching weeks",
+      "The semester's teaching weeks, as the rows count them: \"weeks 2–14\" are these weeks. A week off has no number.",
+      [
+        { name: "Week", width: 12 },
+        { name: "Monday", width: 14 },
+        { name: "Note", width: 46, wrap: true },
+      ],
+      extras.weeks.map((week) => [week.week, week.monday, week.note]),
+    );
+  }
+
   return book.xlsx.writeBuffer() as Promise<ArrayBuffer>;
 }
 
-export async function downloadTimetableWorkbook(sheets: RequestSheet[], filename: string, academicYear = ""): Promise<void> {
-  const blob = new Blob([await buildTimetableWorkbook(sheets, academicYear)], { type: SPREADSHEET_TYPE });
+export async function downloadTimetableWorkbook(sheets: RequestSheet[], filename: string, academicYear = "", extras: WorkbookExtras = {}): Promise<void> {
+  const blob = new Blob([await buildTimetableWorkbook(sheets, academicYear, extras)], { type: SPREADSHEET_TYPE });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
