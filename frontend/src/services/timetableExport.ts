@@ -72,6 +72,10 @@ export type RequestRow = {
   comments: string;
   /** A group that was retired, kept on the sheet with a comment saying so. Not a column. */
   retired: boolean;
+  /** The course it is a class of, its title and the group's label, for the timetabling brief. Not columns. */
+  courseCode?: string;
+  courseTitle?: string;
+  group?: string;
 };
 
 export type RequestSheet = {
@@ -183,6 +187,9 @@ export function requestSheets(
           anticipated: anticipated || "",
           retired: section.retired,
           comments,
+          courseCode: card.code,
+          courseTitle: card.name,
+          group: row.group.label,
         });
       }
     }

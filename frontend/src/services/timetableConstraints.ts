@@ -39,8 +39,8 @@ import {
 } from "@/services/teacherWishes";
 import { formatDayAndMonth } from "@/services/weekSchedule";
 
-/** A line of the Teacher constraints sheet, without the teacher's name, which the sheet's row carries. */
-export type ConstraintLine = { kind: string; when: string; weeks: string };
+/** A line of the Teacher constraints sheet, without the teacher's name, which the sheet's row carries; `limit` for a limit. */
+export type ConstraintLine = { kind: string; when: string; weeks: string; limit?: boolean };
 
 /** A teacher's answer in the workbook's words: the sheet's lines, and what each of their class rows says. */
 export type TeacherWords = {
@@ -119,7 +119,8 @@ export function teacherWords(
   const note = wishes.note?.trim() ?? "";
 
   const lines: ConstraintLine[] = [
-    ...[...blockLines, ...limitLines].map(({ kind, when, weeks }) => ({ kind, when, weeks })),
+    ...blockLines.map(({ kind, when, weeks }) => ({ kind, when, weeks })),
+    ...limitLines.map(({ kind, when, weeks }) => ({ kind, when, weeks, limit: true })),
     ...(needs ? [{ kind: "Needs", when: needs, weeks: "" }] : []),
     ...(note ? [{ kind: "Note", when: note, weeks: "" }] : []),
   ];

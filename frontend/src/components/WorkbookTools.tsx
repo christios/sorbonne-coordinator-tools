@@ -15,6 +15,7 @@ import { type CatalogueScope, type Cohort, fetchAssignmentMajors, fetchAssignmen
 import type { TimetableTerm } from "@/services/timetables";
 import type { Card } from "@/services/courseCards";
 import { fetchWishSemester, type WishSemester } from "@/services/teacherWishes";
+import { briefOf, downloadBriefPdf } from "@/services/timetableBrief";
 import { courseWordsOf, teacherWords, weekRows } from "@/services/timetableConstraints";
 import { constraintTeachers, downloadTimetableWorkbook, requestSheets, sheetTitle, semesterLabel, shortSemester, type Told } from "@/services/timetableExport";
 import { downloadWorkbook, labelIn, prefixOf, readingsFor, shortYear } from "@/services/workbookExport";
@@ -145,7 +146,7 @@ export function WorkbookTools({
     enabled: open && Boolean(cohortId && termId),
   });
   const handedOut = everything.data?.scopes ?? scopes;
-  const [exporting, setExporting] = useState<"" | "workbook" | "list" | "handout" | "timetable">("");
+  const [exporting, setExporting] = useState<"" | "workbook" | "list" | "handout" | "timetable" | "brief">("");
   // The timetable is the one file here that can be every cohort's at once.
   const [everyCohort, setEveryCohort] = useState(false);
   const [heldNames, setHeldNames] = useState(0);
@@ -256,10 +257,10 @@ export function WorkbookTools({
    * to, or a plan's own. Either may fail to come — no request opened yet — and the file is then
    * made without it, which the line under the button says.
    */
-  const heardFor = async (): Promise<{ told: Told; plans: CoursePlanSemester | null; missing: string[] }> => {
+  const heardFor = async (): Promise<{ told: Told; wishes: WishSemester | null; plans: CoursePlanSemester | null; missing: string[] }> => {
     const links = await client.fetchQuery({ queryKey: ["term-links"], queryFn: fetchTermLinks }).catch(() => ({}) as Record<string, string>);
     const code = links[termId] ?? (termId.startsWith("plan:") ? termId.slice(5) : "");
-    if (!code) return { told: {}, plans: null, missing: ["teachers' answers", "course leads' weeks"] };
+    if (!code) return { told: {}, wishes: null, plans: null, missing: ["teachers' answers", "course leads' weeks"] };
     const [wishes, plans] = await Promise.all([
       client.fetchQuery({ queryKey: ["wishes", code], queryFn: () => fetchWishSemester(code), staleTime: 0 }).catch(() => null as WishSemester | null),
       client.fetchQuery({ queryKey: ["course-plans", code], queryFn: () => fetchCoursePlans(code), staleTime: 0 }).catch(() => null as CoursePlanSemester | null),
@@ -274,29 +275,33 @@ export function WorkbookTools({
         },
         course: (courseCode, type, crn) => courseWordsOf(byCourse.get(courseCode.toUpperCase()), type, crn),
       },
+      wishes,
       plans,
       missing: [wishes?.collection ? "" : "teachers' answers", plans ? "" : "course leads' weeks"].filter(Boolean),
     };
   };
+  /** The Timetable workbook's sheets, with what was heard folded in, or as typed without it. */
+  const sheetsOf = (told: Told = {}) =>
+    requestSheets(
+      timetableCards,
+      termId,
+      termName,
+      // The Degree column: the cohort's majors as the portal codes them, else its name.
+      (id) => {
+        const held = cohorts.find((candidate) => candidate.id === id);
+        return held?.majors.join(" / ") || held?.name || "";
+      },
+      teacherName,
+      // The sheet's own name, which each cohort answers for itself.
+      (id) => cohorts.find((candidate) => candidate.id === id) ?? { name: "" },
+      told,
+    );
   const exportTimetable = async () => {
     setExporting("timetable");
     setTimetableNote("");
     try {
       const { told, plans, missing } = await heardFor();
-      const sheets = requestSheets(
-        timetableCards,
-        termId,
-        termName,
-        // The Degree column: the cohort's majors as the portal codes them, else its name.
-        (id) => {
-          const held = cohorts.find((candidate) => candidate.id === id);
-          return held?.majors.join(" / ") || held?.name || "";
-        },
-        teacherName,
-        // The sheet's own name, which each cohort answers for itself.
-        (id) => cohorts.find((candidate) => candidate.id === id) ?? { name: "" },
-        told,
-      );
+      const sheets = sheetsOf(told);
       // One workbook a year, as the department's own file is named; a cohort's says whose.
       const year = shortYear((everyCohort ? cohorts.find((candidate) => candidate.term) : cohort)?.term ?? "");
       const whose = everyCohort || !cohort ? "" : `-${cohort.name.replace(/[^A-Za-z0-9]+/g, "-")}`;
@@ -306,6 +311,31 @@ export function WorkbookTools({
         weeks: weekRows(plans?.weeks ?? []),
         semester: termName,
       });
+      setTimetableNote(missing.length ? `Made without the ${missing.join(" or the ")}: none could be read for this semester.` : "");
+    } finally {
+      setExporting("");
+    }
+  };
+
+  /*
+   * The timetabling brief (27 Nov 2026): the same classes as the timetable, as a PDF the
+   * timetabling team reads — by course, then each teacher's constraints on a week. The team
+   * agreed to it in place of reading the workbook.
+   */
+  const exportBrief = async () => {
+    setExporting("brief");
+    setTimetableNote("");
+    try {
+      const { wishes, plans, missing } = await heardFor();
+      const brief = briefOf({
+        sheets: sheetsOf(),
+        semester: termName,
+        scope: everyCohort || !cohort ? "All cohorts" : cohort.name,
+        wishes,
+        plans,
+      });
+      const whose = everyCohort || !cohort ? "All-cohorts" : cohort.name.replace(/[^A-Za-z0-9]+/g, "-");
+      await downloadBriefPdf(brief, `Timetabling-brief-${[semesterTag, whose].filter(Boolean).join("-")}.pdf`);
       setTimetableNote(missing.length ? `Made without the ${missing.join(" or the ")}: none could be read for this semester.` : "");
     } finally {
       setExporting("");
@@ -403,6 +433,10 @@ export function WorkbookTools({
           {exporting === "timetable" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
           {exporting === "timetable" ? "Building…" : "Timetable"}
         </button>
+        <button type="button" onClick={exportBrief} disabled={!termId || exporting !== "" || timetableCards.length === 0} className={button}>
+          {exporting === "brief" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />}
+          {exporting === "brief" ? "Building…" : "Timetabling brief"}
+        </button>
         <div role="radiogroup" aria-label="Whose timetable" className="inline-flex rounded-md border border-[#b7bec8] bg-white p-0.5 text-xs font-semibold">
           {[
             { every: false, label: cohort?.name ?? "This cohort" },
@@ -420,12 +454,14 @@ export function WorkbookTools({
             </button>
           ))}
         </div>
-        <InfoTip label="About the timetable file">
+        <InfoTip label="About the timetable files">
           The workbook the timetabler gets: a sheet per cohort, the CRN table and the teacher hours. Teachers come from
           Active teachers; a section with none chosen keeps the portal&apos;s name. Each class also carries its
           teacher&apos;s answer from Timetable preferences (hard and soft constraints, limits, needs and note, never
           their reasons) and its course lead&apos;s weeks and exams; the Teacher constraints sheet lists every
-          teacher&apos;s answer, and Teaching weeks dates the week numbers.
+          teacher&apos;s answer, and Teaching weeks dates the week numbers. The timetabling brief is the same
+          classes as a PDF to read: each course with its classes and its lead&apos;s weeks, then each
+          teacher&apos;s constraints drawn on a week.
         </InfoTip>
         <span className="text-xs text-[#98a2b3]">
           {termId

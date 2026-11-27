@@ -44,8 +44,8 @@ describe("a teacher's answer in the workbook", () => {
       { kind: "Hard constraint", when: "Wed 14:00–16:00", weeks: "From week 5 (22 Feb)" },
       { kind: "Hard constraint", when: "Tue 2 Mar, whole day", weeks: "Week 6 only" },
       { kind: "Soft constraint", when: "Fri whole day", weeks: "Whole semester" },
-      { kind: "Hard constraint", when: "At most 3 days on campus", weeks: "Whole semester" },
-      { kind: "Soft constraint", when: "At most 4 hours in a row", weeks: "Whole semester" },
+      { kind: "Hard constraint", when: "At most 3 days on campus", weeks: "Whole semester", limit: true },
+      { kind: "Soft constraint", when: "At most 4 hours in a row", weeks: "Whole semester", limit: true },
       { kind: "Needs", when: "PC room", weeks: "" },
       { kind: "Note", when: "Happy to teach late.", weeks: "" },
     ]);
