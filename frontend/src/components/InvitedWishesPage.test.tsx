@@ -159,4 +159,17 @@ describe("an invited teacher's link", () => {
     expect(screen.queryByRole("button", { name: "Change my answer" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Submit" })).toBeNull();
   });
+
+  it("opens on the preferences for somebody not on Active teachers, whatever empty course step the server sends", async () => {
+    vi.spyOn(invite, "fetchInvitation").mockResolvedValue({
+      semesterName: "Semester 2 2026-27", teacherName: "Nadia New", email: "n***@gmail.com", deadline: "", message: "", signedIn: true,
+    });
+    // An empty list where "no course step" belongs broke the page for people added by hand (27 Nov 2026).
+    const empty = [] as unknown as invite.InviteeForm["coursePlans"];
+    vi.spyOn(invite, "fetchInviteeForm").mockResolvedValue({ ...FORM, teacherName: "Nadia New", previous: null, reductions: null, coursePlans: empty });
+    page();
+    expect(await screen.findByRole("heading", { name: "Your week" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Course schedule/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Hour reductions/ })).toBeNull();
+  });
 });

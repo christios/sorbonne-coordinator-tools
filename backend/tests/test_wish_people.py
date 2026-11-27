@@ -121,7 +121,8 @@ def test_somebody_on_neither_list_is_added_and_gives_their_preferences_alone(cli
     signed = client.post(f"{DOOR}/{code}/session", json={"credential": NADIA})
     assert signed.status_code == 200, signed.text
     form = signed.json()
-    assert (form["teacherName"], form["reductions"], form["coursePlans"]) == ("Nadia New", None, [])
+    # No course step, said as for a teacher who leads nothing: an empty list broke the page (27 Nov 2026).
+    assert (form["teacherName"], form["reductions"], form["coursePlans"]) == ("Nadia New", None, None)
     refused = client.put(f"{DOOR}/{code}/reductions", json={"items": {}, "note": ""})
     assert refused.status_code == status.HTTP_403_FORBIDDEN
     assert client.put(f"{DOOR}/{code}/course-plans", json={"courses": []}).status_code == status.HTTP_403_FORBIDDEN

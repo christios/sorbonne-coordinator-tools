@@ -291,7 +291,9 @@ export function InvitedWishesPage({
   const { collection, window: open } = data;
   const answerBy = open.reopenedUntil && open.deadline && open.reopenedUntil > open.deadline ? open.reopenedUntil : open.deadline;
   const reductions = data.reductions ?? null;
-  const courses = data.coursePlans ?? null;
+  // A course step only with courses in it: anything else (an empty list once came for somebody not on
+  // Active teachers and broke the page, 27 Nov 2026) is no step at all.
+  const courses = Array.isArray(data.coursePlans?.courses) ? data.coursePlans : null;
   // Done once every course with hours has weeks laid out: a course saved empty is still to do,
   // and one the coordinators gave no hours to has nothing to do.
   const coursesDone = !courses || courses.courses.every((course) => courseDone(course));
